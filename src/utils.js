@@ -1,0 +1,65 @@
+import { parseISO, differenceInDays } from "date-fns";
+import { AlertOctagon, AlertTriangle, CheckCircle, Smile, Frown } from "lucide-react";
+
+// --- TEAM CONFIGURATION ---
+export const TEAM_GROUPS = {
+  "Mashnu": { "DEVU-1111": "Rohan", "DEVU-1114": "Archie", "DEVU-1072": "Neha", "DEVU-1115": "Shreya", "DEVU-1122": "Vaibhav", "DEVU-1076": "Adarsh", "DEVU-1108": "Abhishek" },
+  "Debashish": { "DEVU-1087": "Shubhankar", "DEVU-736": "Musaveer", "DEVU-550": "Anurag", "DEVU-1102": "Debashish" },
+  "Shweta": { "DEVU-5": "Aditya", "DEVU-1113": "Shweta", "DEVU-4": "Nikita" },
+  "Tuaha": { "DEVU-1123": "Tuaha Khan", "DEVU-1098": "Harsh Singh", "DEVU-689": "Tamanna", "DEVU-1110": "Shreyas" }
+};
+export const FLAT_TEAM_MAP = Object.values(TEAM_GROUPS).reduce((acc, group) => ({ ...acc, ...group }), {});
+
+export const STAGE_MAP = {
+  "Waiting on Assignee": { label: "Open", color: "bg-blue-50 text-blue-700 border-blue-100" },
+  "Awaiting Customer Reply": { label: "Pending", color: "bg-amber-50 text-amber-700 border-amber-100" },
+  "Waiting on CleverTap": { label: "On Hold", color: "bg-purple-50 text-purple-700 border-purple-100" },
+};
+
+// --- DUAL SLA LOGIC ---
+export const getTicketStatus = (createdDate, stageName, isCSD) => {
+  if (!stageName) return { status: "Unknown", color: "bg-gray-100", icon: CheckCircle, priority: 4 };
+  const lower = stageName.toLowerCase();
+  
+  // Solved/Closed -> Ignore
+  if (lower.includes('solved') || lower.includes('closed')) {
+    return { status: "Solved", color: "bg-slate-100 text-slate-500 border-slate-200", icon: CheckCircle, priority: 4, days: 0 };
+  }
+
+  const days = differenceInDays(new Date(), parseISO(createdDate));
+
+  if (isCSD) {
+    // Strict SLA for CSD
+    if (days > 7) return { status: "Action Immediately", color: "text-rose-700 bg-rose-50 border-rose-200", icon: AlertOctagon, priority: 1, days };
+    if (days >= 3) return { status: "Needs Attention", color: "text-amber-700 bg-amber-50 border-amber-200", icon: AlertTriangle, priority: 2, days };
+    return { status: "Healthy", color: "text-emerald-700 bg-emerald-50 border-emerald-200", icon: CheckCircle, priority: 3, days };
+  } else {
+    // Standard SLA
+    if (days > 15) return { status: "Action Immediately", color: "text-rose-700 bg-rose-50 border-rose-200", icon: AlertOctagon, priority: 1, days };
+    if (days >= 10) return { status: "Needs Attention", color: "text-amber-700 bg-amber-50 border-amber-200", icon: AlertTriangle, priority: 2, days };
+    return { status: "Healthy", color: "text-emerald-700 bg-emerald-50 border-emerald-200", icon: CheckCircle, priority: 3, days };
+  }
+};
+
+export const getCSATStatus = (t) => {
+  // if (t.sentiment) {
+  //   if (t.sentiment.id === 2 || t.sentiment.label === "Happy") return "Good";
+  //   if (t.sentiment.id === 1 || t.sentiment.label === "Sad" || t.sentiment.label === "Bad") return "Bad";
+  // }
+  const oldRating = Number(t.custom_fields?.tnt__csatrating);
+  if (oldRating === 2) return "Good";
+  if (oldRating === 1) return "Bad";
+  return null;
+};
+
+export const formatRWT = (epoch) => {
+  if (!epoch) return 0;
+  return Math.max(0, Date.now() - (epoch * 1000));
+};
+
+export const displayRWT = (ms) => {
+  if (!ms || ms <= 0) return "-";
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes}m`;
+};
