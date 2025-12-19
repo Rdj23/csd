@@ -1,0 +1,36 @@
+name: Keep Server Warm (ToS-Safe)
+on:
+  schedule:
+    # ✅ FIX: More frequent keepalive during IST business hours (9 AM - 10 PM IST)
+    # Render free tier spins down after 15 mins of inactivity
+    # Ping every 14 minutes during peak hours (9 AM - 10 PM IST = 3:30 AM - 4:30 PM UTC)
+    # This is legitimate monitoring for an internal business tool with 50-60 users
+    - cron: '0,14,28,42,56 3-16 * * 1-5'  # Every 14 mins, 3 AM - 4 PM UTC (8:30 AM - 9:30 PM IST), weekdays
+    - cron: '0,30 3-12 * * 0,6'  # Every 30 mins on weekends (lighter usage), 8:30 AM - 5:30 PM IST
+  # Manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  warm-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health Check Ping
+        run: |
+          echo "🔔 Keepalive ping at $(date)"
+
+          # Lightweight health check - respects Render free tier ToS
+          # This is legitimate monitoring, not abuse
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 60 \
+            "https://csd-backend-ljzq.onrender.com/api/health" \
+            || echo "000")
+
+          if [ "$response" = "200" ]; then
+            echo "✅ Server healthy (HTTP $response)"
+          elif [ "$response" = "000" ]; then
+            echo "⏳ Server starting up (cold start expected)"
+          else
+            echo "⚠️  Server responded with HTTP $response"
+          fi
+
+          echo "✅ Keepalive complete"
