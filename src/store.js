@@ -32,7 +32,7 @@ export const useTicketStore = create(
       tickets: [],
       isLoading: false,
       lastSync: null,
-      
+
       // --- AUTH STATE ---
       currentUser: null, // Start as null to trigger Login Screen
       isAuthenticated: false,
@@ -40,7 +40,7 @@ export const useTicketStore = create(
 
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === "light" ? "dark" : "light" })),
-      
+
       setCurrentUser: (user) => set({ currentUser: user }),
 
       // --- LOGIN ACTIONS ---
@@ -49,7 +49,7 @@ export const useTicketStore = create(
           const res = await fetch(`${API_URL}/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: credentialResponse.credential })
+            body: JSON.stringify({ token: credentialResponse.credential }),
           });
 
           const data = await res.json();
@@ -74,7 +74,8 @@ export const useTicketStore = create(
       fetchTickets: async () => {
         set({ isLoading: true });
         try {
-          const res = await fetch(`${API_URL}/tickets`);
+          const API_BASE = import.meta.env.VITE_API_URL || "";
+          const response = await fetch(`${API_BASE}/api/tickets`);
           const data = await res.json();
           set({
             tickets: data.tickets || [],
@@ -94,7 +95,7 @@ export const useTicketStore = create(
           );
           if (!response.ok) return [];
           const data = await response.json();
-          return data || []; 
+          return data || [];
         } catch (error) {
           console.error("Failed to fetch timeline:", error);
           return [];
@@ -121,10 +122,10 @@ export const useTicketStore = create(
         let signature = "";
 
         if (authorId) {
-           const systemId = authorId.toLowerCase().replace('-', '/');
-           signature = `\n\n— By [@${authorName}](don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId})`;
+          const systemId = authorId.toLowerCase().replace("-", "/");
+          signature = `\n\n— By [@${authorName}](don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId})`;
         } else {
-           signature = `\n\n— By ${authorName}`;
+          signature = `\n\n— By ${authorName}`;
         }
 
         const finalBody = parsedBody + signature;
@@ -135,9 +136,9 @@ export const useTicketStore = create(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ticketId: ticketId,
-              body: finalBody, 
-              user: authorName 
-            })
+              body: finalBody,
+              user: authorName,
+            }),
           });
 
           if (!response.ok) {
@@ -152,7 +153,11 @@ export const useTicketStore = create(
     }),
     {
       name: "support-dashboard-storage",
-      partialize: (s) => ({ currentUser: s.currentUser, theme: s.theme, isAuthenticated: s.isAuthenticated }),
+      partialize: (s) => ({
+        currentUser: s.currentUser,
+        theme: s.theme,
+        isAuthenticated: s.isAuthenticated,
+      }),
     }
   )
 );
