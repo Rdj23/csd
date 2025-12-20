@@ -2,31 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 // --- CONFIG: Universal API URL ---
-// 1. In PROD: Set VITE_API_URL in your hosting dashboard (Vercel/Netlify)
-// 2. In LOCAL: It defaults to "http://localhost:5000" automatically
 const getApiUrl = () => import.meta.env.VITE_API_URL || "http://localhost:5000";
-
-const extractTag = (ticket, tagName) => {
-  const tag = ticket.tags?.find((t) => t.tag.name === tagName);
-  return tag ? tag.value : null;
-};
-
-// --- USER MAPPING ---
-const USER_MAP = {
-  Rohan: "DEVU-1111",
-  Archie: "DEVU-1114",
-  Neha: "DEVU-1072",
-  Shreya: "DEVU-1115",
-  Vaibhav: "DEVU-1122",
-  Adarsh: "DEVU-1076",
-  Abhishek: "DEVU-1108",
-  Debashish: "DEVU-1102",
-  Tuaha: "DEVU-1123",
-  Anmol: "DEVU-1",
-  Ruben: "DEVU-1085",
-};
-
-const findUserIdByName = (name) => USER_MAP[name];
 
 export const useTicketStore = create(
   persist(
@@ -38,9 +14,7 @@ export const useTicketStore = create(
       // --- AUTH STATE ---
       currentUser: null,
       isAuthenticated: false,
-      // If you store the token separately, add it here. 
-      // If it's inside currentUser, we'll access it there.
-      token: null, 
+      token: null,
       theme: "light",
 
       toggleTheme: () =>
@@ -61,11 +35,10 @@ export const useTicketStore = create(
           const data = await res.json();
 
           if (res.ok && data.success) {
-            // Save user AND token if your backend sends one
-            set({ 
-                currentUser: data.user, 
-                isAuthenticated: true, 
-                token: data.token || null 
+            set({
+              currentUser: data.user,
+              isAuthenticated: true,
+              token: data.token || null,
             });
             return true;
           } else {
@@ -79,7 +52,8 @@ export const useTicketStore = create(
         }
       },
 
-      logout: () => set({ currentUser: null, isAuthenticated: false, token: null }),
+      logout: () =>
+        set({ currentUser: null, isAuthenticated: false, token: null }),
 
       // --- DATA ACTIONS ---
       fetchTickets: async () => {
@@ -115,31 +89,19 @@ export const useTicketStore = create(
       },
 
       postTicketComment: async (ticketId, text) => {
-        const { currentUser, token } = get(); 
+        const { currentUser, token } = get();
         const API_URL = getApiUrl();
 
-        // 1. Tagging Logic
-        const parsedBody = text.replace(/@(\w+)/g, (match, name) => {
-          const userId = findUserIdByName(name);
-          if (userId) {
-            const systemId = userId.toLowerCase().replace("-", "/");
-            return `[@${name}](don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId})`;
-          }
-          return match;
-        });
-
         try {
-          // 2. Updated Fetch with Fallback URL
           const response = await fetch(`${API_URL}/api/comments`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              // 🟢 SAFE AUTH: Only add the header if 'token' actually exists
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {}) 
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
             body: JSON.stringify({
-              ticketId: ticketId,
-              body: parsedBody,
+              ticketId,
+              body: text,
               authorId: currentUser?.id,
             }),
           });
@@ -149,11 +111,9 @@ export const useTicketStore = create(
             throw new Error(errorData || "Server Error");
           }
 
-          console.log("Comment posted successfully");
-          // Optional: You might want to call get().fetchTickets() here to refresh data
-          
+          console.log("✅ Comment posted successfully");
         } catch (err) {
-          console.error("Failed to post comment:", err);
+          console.error("❌ Failed to post comment:", err);
           alert(`Failed to post: ${err.message}`);
         }
       },
@@ -164,7 +124,7 @@ export const useTicketStore = create(
         currentUser: s.currentUser,
         theme: s.theme,
         isAuthenticated: s.isAuthenticated,
-        token: s.token, // Persist token so refresh doesn't log you out
+        token: s.token,
       }),
     }
   )

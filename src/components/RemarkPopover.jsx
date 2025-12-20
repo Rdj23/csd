@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
+import axios from "axios";
 import {
   X,
   Send,
-  User,
   Loader2,
   AtSign,
   Sparkles,
@@ -10,25 +10,6 @@ import {
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useTicketStore } from "../store";
-import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
-
-// --- HELPER: CLEAN RAW IDS FROM TEXT ---
-// Turns "don:identity...devu/1111 please check" -> "@Rohan please check"
-const cleanCommentBody = (text) => {
-  if (!text) return "";
-
-  // 1. Find all DevRev User IDs
-  return text.replace(
-    /don:identity:[\w:-]+\/(\w+)\/(\d+)/g,
-    (match, type, id) => {
-      // Construct the short ID (e.g., DEVU-1111) to look up in our map
-      // Note: Our map keys are "DEVU-1111", but the raw string has "devu/1111".
-      const shortId = `${type.toUpperCase()}-${id}`;
-      const name = FLAT_TEAM_MAP[shortId];
-      return name ? `@${name}` : "@User";
-    }
-  );
-};
 
 const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   const { postTicketComment, fetchTicketTimeline, currentUser } =
@@ -38,25 +19,53 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   const [newComment, setNewComment] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
+
   const [mentionQuery, setMentionQuery] = useState(null);
+  const [users, setUsers] = useState([]);
 
   const textareaRef = useRef(null);
   const listRef = useRef(null);
 
+  const buildDevRevIdentity = (user) => {
+    if (!user?.id?.startsWith("DEVU-")) return null;
+
+    // DEVU-1111 → devu/1111
+    const systemId = user.id.toLowerCase().replace("-", "/");
+
+    return `don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId}`;
+  };
+
   // Position Logic
   const modalHeight = 500;
   const viewportHeight = window.innerHeight;
-
   const top = anchorRect
     ? Math.min(
         anchorRect.bottom + window.scrollY + 8,
         viewportHeight - modalHeight - 20
       )
     : 0;
-
   const left = anchorRect ? anchorRect.left + window.scrollX - 420 : 0;
 
-  // 1. Load Trail
+  // 1. FETCH USERS
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const res = await axios.get("http://localhost:5000/api/users");
+        // Map data to ensure consistency
+        const formattedUsers = res.data.map((u) => ({
+          name: u.full_name || u.display_name,
+          id: u.id,
+          email: u.email,
+        }));
+        setUsers(formattedUsers);
+      } catch (err) {
+        console.error("Failed to load users:", err);
+      }
+    };
+    fetchUsers();
+  }, []);
+
+  // 2. LOAD HISTORY
   useEffect(() => {
     let mounted = true;
     fetchTicketTimeline(ticket.id).then((data) => {
@@ -76,17 +85,49 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     return () => (mounted = false);
   }, [ticket.id]);
 
-  // 2. Handle Send
+  // --- CLEANER FUNCTION (THE FIX) ---
+  // Matches "mention:don:..." with OR without < > brackets to fix display
+  const cleanCommentBody = (text) => {
+    if (!text) return "";
+    return text.replace(/<((?:don:identity)[^>]+)>/g, (_, id) => {
+      const user = users.find((u) => u.id === id);
+      return user ? `@${user.name}` : "@Unknown";
+    });
+  };
+
+  // 3. SEND FUNCTION
   const handleSend = async () => {
     if (!newComment.trim()) return;
     setSending(true);
 
-    // Optimistic UI Update text
     const textForDisplay = newComment;
+    let payloadBody = newComment;
+
+    // Sort to handle longest names first
+    const sortedUsers = [...users].sort(
+      (a, b) => b.name.length - a.name.length
+    );
+
+    // Replace @Name with <mention:LongID> (Force Brackets)
+    sortedUsers.forEach((u) => {
+      if (payloadBody.includes(`@${u.name}`)) {
+        payloadBody = payloadBody.replaceAll(`@${u.name}`, `<${u.id}>`);
+      }
+    });
+
+    // Signature (Force Brackets)
+    const authorIdentity = buildDevRevIdentity(currentUser);
+
+    const signature = authorIdentity ? `\n\n— By <${authorIdentity}>` : "";
+
+    console.log("CURRENT USER:", currentUser);
+
+    const finalBody = payloadBody + signature;
 
     try {
-      await postTicketComment(ticket.id, newComment);
+      await postTicketComment(ticket.id, finalBody);
 
+      // Optimistic UI
       const newEntry = {
         id: "temp-" + Date.now(),
         body: textForDisplay,
@@ -105,6 +146,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
         100
       );
     } catch (err) {
+      console.error(err);
       alert("Sync failed.");
     } finally {
       setSending(false);
@@ -112,44 +154,52 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     }
   };
 
-  // 3. Handle Mentions
   const handleInput = (e) => {
     const val = e.target.value;
     setNewComment(val);
 
-    if (val.endsWith("@")) {
-      setMentionQuery("");
-    } else if (mentionQuery !== null) {
-      const parts = val.split("@");
-      const lastPart = parts[parts.length - 1];
-      if (lastPart.includes(" ")) {
-        setMentionQuery(null);
-      } else {
-        setMentionQuery(lastPart);
-      }
+    const cursorPos = e.target.selectionStart;
+    const textUntilCursor = val.slice(0, cursorPos);
+
+    // Find the last @ before cursor
+    const atIndex = textUntilCursor.lastIndexOf("@");
+
+    if (atIndex === -1) {
+      setMentionQuery(null);
+      return;
     }
+
+    const afterAt = textUntilCursor.slice(atIndex + 1);
+
+    // ❗ Stop mention ONLY if newline or another @ is typed
+    if (afterAt.includes("\n") || afterAt.includes("@")) {
+      setMentionQuery(null);
+      return;
+    }
+
+    // ✅ Allow spaces so full names work
+    setMentionQuery(afterAt.trimStart());
   };
 
-  const insertMention = (name) => {
+  const insertMention = (user) => {
     const parts = newComment.split("@");
     parts.pop();
-    const text = parts.join("@") + "@" + name + " ";
+    const text = parts.join("@") + "@" + user.name + " ";
     setNewComment(text);
     setMentionQuery(null);
-    textareaRef.current.focus();
+    textareaRef.current?.focus();
   };
 
   const mentionOptions =
     mentionQuery !== null
-      ? Object.values(FLAT_TEAM_MAP).filter((name) =>
-          name.toLowerCase().includes(mentionQuery.toLowerCase())
+      ? users.filter((u) =>
+          u.name.toLowerCase().includes(mentionQuery.toLowerCase())
         )
       : [];
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-transparent" onClick={onClose} />
-
       <div
         className="fixed z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 w-[400px] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 ring-1 ring-slate-900/5 font-sans"
         style={{
@@ -158,12 +208,11 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
           height: "500px",
         }}
       >
-        {/* Header */}
         <div className="px-5 py-4 bg-white border-b border-slate-50 flex justify-between items-center shrink-0">
           <div>
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-              Justification Trail
+              Internal Remark
             </h3>
             <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
               Ref:{" "}
@@ -180,7 +229,6 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
           </button>
         </div>
 
-        {/* THE TRAIL */}
         <div
           ref={listRef}
           className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50/50"
@@ -191,12 +239,8 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
             </div>
           ) : history.length === 0 ? (
             <div className="text-center mt-20 opacity-50">
-              <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm border border-slate-100">
-                <MessageSquare className="w-5 h-5 text-slate-300" />
-              </div>
-              <p className="text-xs text-slate-400 font-medium">
-                No justifications yet.
-              </p>
+              <MessageSquare className="w-5 h-5 text-slate-300 mx-auto mb-3" />
+              <p className="text-xs text-slate-400">No justifications yet.</p>
             </div>
           ) : (
             history.map((entry, i) => (
@@ -217,7 +261,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
                     </span>
                   </div>
                   <div className="bg-white p-3 rounded-lg rounded-tl-none border border-slate-200 text-xs text-slate-600 shadow-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {/* APPLY CLEANING HERE */}
+                    {/* 👇 Clean Body Fix Applied Here */}
                     {cleanCommentBody(entry.body)}
                   </div>
                 </div>
@@ -226,29 +270,23 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
           )}
         </div>
 
-        {/* Input Area */}
         <div className="p-4 bg-white border-t border-slate-100 shrink-0 relative z-50">
-          {/* TAGGING DROPDOWN (Fixed Positioning) */}
           {mentionQuery !== null && mentionOptions.length > 0 && (
             <div className="absolute bottom-[100%] left-4 mb-2 w-56 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto ring-1 ring-black/5">
-              <div className="px-3 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                Suggested Members
-              </div>
-              {mentionOptions.map((name) => (
+              {mentionOptions.map((user) => (
                 <button
-                  key={name}
-                  onClick={() => insertMention(name)}
+                  key={user.id}
+                  onClick={() => insertMention(user)}
                   className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 text-slate-700 flex items-center gap-2 transition-colors border-b border-slate-50 last:border-0"
                 >
                   <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-bold">
-                    {name[0]}
+                    {user.name.charAt(0)}
                   </div>
-                  {name}
+                  {user.name}
                 </button>
               ))}
             </div>
           )}
-
           <div className="relative bg-slate-50 rounded-xl border border-slate-200 focus-within:border-indigo-300 focus-within:ring-1 focus-within:ring-indigo-100 transition-all p-1">
             <textarea
               ref={textareaRef}
@@ -274,13 +312,13 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
               <button
                 onClick={handleSend}
                 disabled={sending || !newComment.trim()}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-bold rounded-lg shadow-sm transition-all disabled:opacity-50 disabled:shadow-none"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-black text-white text-[10px] font-bold rounded-lg shadow-sm transition-all disabled:opacity-50"
               >
                 {sending ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
                 ) : (
                   <Send className="w-3 h-3" />
-                )}
+                )}{" "}
                 Post
               </button>
             </div>
