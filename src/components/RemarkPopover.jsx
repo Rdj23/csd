@@ -122,11 +122,11 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     // Signature (Force Brackets)
     const authorIdentity = buildDevRevIdentity(currentUser);
 
-    // const signature = authorIdentity ? `\n\n— By <${authorIdentity}>` : "";
+    const signature = authorIdentity ? `\n\n— Bys <${authorIdentity}>` : "";
 
     console.log("CURRENT USER:", currentUser);
 
-    const finalBody = payloadBody;
+    const finalBody = payloadBody + signature;
 
     try {
       await postTicketComment(ticket.id, finalBody);
