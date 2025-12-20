@@ -93,7 +93,7 @@ const App = () => {
         const data = await response.json();
         setGoogleClientId(data.clientId);
       } catch (error) {
-        console.error("Failed to fetch auth config:", error);
+        console.error("Failed to fetch auth confg:", error);
       }
     };
     fetchConfig();
