@@ -125,19 +125,31 @@ app.get("/api/auth/config", (req, res) => {
   res.json({ clientId: process.env.GOOGLE_CLIENT_ID });
 });
 
+// --- ⚡️ PARALLEL FETCHING LOGIC (The Speed Fix) ---
+
+// Helper: Split array into smaller chunks
+function chunkArray(array, size) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+
 // --- FETCHING LOGIC ---
-async function fetchTicketsWithCutoff(states, daysBack = null) {
+async function fetchTicketsWithCutoff(states, daysBack = null,specificOwners = null) {
   let allTickets = [];
   let nextCursor = undefined;
   let page = 0;
   const cutoffDate = daysBack ? subDays(new Date(), daysBack) : null;
+  const ownersToFetch = specificOwners || OWNER_IDS;
 
   do {
     try {
       const payload = {
         type: ["ticket"],
-        limit: 200,
-        owned_by: OWNER_IDS,
+        limit: 100,
+        owned_by: ownersToFetch,
         state: states,
         sort_by: ["created_date:desc"],
       };
@@ -161,8 +173,7 @@ async function fetchTicketsWithCutoff(states, daysBack = null) {
 
       allTickets = [...allTickets, ...works];
       nextCursor = response.data.next_cursor;
-      page++;
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 20));
     } catch (error) {
       console.error("❌ Fetch Error:", error.message);
       break;
@@ -173,33 +184,71 @@ async function fetchTicketsWithCutoff(states, daysBack = null) {
 }
 
 async function refreshCache() {
-  console.log("🌍 Starting Background Sync...");
+  console.log("🌍 Starting Parallel Sync for 500+ Users...");
+  
   try {
-    const [active, closed] = await Promise.all([
-      fetchTicketsWithCutoff(["open", "in_progress"], null),
-      fetchTicketsWithCutoff(["completed", "closed"], 90),
+    // 1. Split users into chunks of 20 (25 parallel requests for 500 users)
+    // This fits easily within your 10,000 rate limit.
+    const chunks = chunkArray(OWNER_IDS, 20);
+    console.log(`🚀 Launching ${chunks.length} parallel workers...`);
+
+    // 2. Fetch 'Active' tickets in parallel
+    const activePromises = chunks.map(chunk => 
+      fetchTicketsWithCutoff(["open", "in_progress"], null, chunk)
+    );
+    
+    // 3. Fetch 'Closed' tickets (Global fetch is fine here if limited to 30 days)
+    // Or you can chunk this too if it's too slow.
+    const closedPromise = fetchTicketsWithCutoff(["completed", "closed"], 30, OWNER_IDS);
+
+    // Wait for EVERYTHING to finish
+    const [activeResults, closedTickets] = await Promise.all([
+      Promise.all(activePromises),
+      closedPromise
     ]);
 
-    const uniqueTickets = Array.from(new Map([...active, ...closed].map((t) => [t.display_id, t])).values());
+    // Flatten the array of arrays
+    const allActiveTickets = activeResults.flat();
+    const combined = [...allActiveTickets, ...closedTickets];
+
+    // Remove duplicates just in case
+    const uniqueTickets = Array.from(new Map(combined.map((t) => [t.display_id, t])).values());
 
     cache.set("all_tickets", uniqueTickets);
-    console.log(`🎉 Cache Updated: ${uniqueTickets.length} tickets ready.`);
+    console.log(`🎉 Sync Complete! Cached ${uniqueTickets.length} tickets.`);
     io.emit("data_refresh", { count: uniqueTickets.length });
     return uniqueTickets;
+
   } catch (e) {
-    console.error("Sync Failed, keeping old cache if available.");
+    console.error("Sync Failed:", e);
     return [];
   }
 }
 
+// 3. GET TICKETS (Updated with Optional Pagination)
 app.get("/api/tickets", async (req, res) => {
-  const cachedData = cache.get("all_tickets");
-  if (cachedData) {
-    if (cache.getTtl("all_tickets") - Date.now() < 300000) refreshCache();
-    return res.json({ source: "cache", tickets: cachedData });
+  // Check if frontend requested a specific page
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10000; // Default to "All" for now to keep your UI working
+
+  let data = cache.get("all_tickets");
+  
+  if (!data) {
+    data = await refreshCache();
+  } else if (cache.getTtl("all_tickets") - Date.now() < 300000) {
+    refreshCache(); // Background refresh
   }
-  const data = await refreshCache();
-  res.json({ source: "api", tickets: data });
+
+  // Slice data for pagination (if limit is set)
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
+  const paginatedData = data.slice(startIndex, endIndex);
+
+  res.json({ 
+    source: "cache", 
+    tickets: paginatedData,
+    total: data.length
+  });
 });
 
 // 4. POST COMMENT (Smart Pass-through)
