@@ -76,7 +76,7 @@ export const useTicketStore = create(
         try {
           const API_BASE = import.meta.env.VITE_API_URL || "";
           const response = await fetch(`${API_BASE}/api/tickets`);
-          const data = await res.json();
+          const data = await response.json();
           set({
             tickets: data.tickets || [],
             lastSync: new Date(),
