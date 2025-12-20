@@ -52,7 +52,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
       try {
         // 👇 FIX: Use the Environment Variable, don't hardcode localhost
         const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-        
+
         // This will now point to your REAL backend when deployed
         const res = await axios.get(`${API_URL}/api/users`);
         // Map data to ensure consistency
@@ -122,11 +122,11 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     // Signature (Force Brackets)
     const authorIdentity = buildDevRevIdentity(currentUser);
 
-    const signature = authorIdentity ? `\n\n— By <${authorIdentity}>` : "";
+    // const signature = authorIdentity ? `\n\n— By <${authorIdentity}>` : "";
 
     console.log("CURRENT USER:", currentUser);
 
-    const finalBody = payloadBody + signature;
+    const finalBody = payloadBody;
 
     try {
       await postTicketComment(ticket.id, finalBody);
@@ -272,6 +272,13 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
               </div>
             ))
           )}
+        </div>
+
+        <div className="mt-1 text-[11px] text-slate-400">
+          — By{" "}
+          <span className="font-medium text-slate-500">
+            @{entry.created_by?.display_name || "Unknown"}
+          </span>
         </div>
 
         <div className="p-4 bg-white border-t border-slate-100 shrink-0 relative z-50">
