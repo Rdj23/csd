@@ -10,7 +10,7 @@ const LoginScreen = () => {
       <div className="bg-white dark:bg-slate-900 p-10 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 text-center max-w-md w-full">
         <img src="https://res.cloudinary.com/diwc3efjb/image/upload/v1766049455/clevertap_vtpmh8.jpg" alt="Logo" className="h-16 mx-auto mb-6 rounded-lg shadow-sm" />
         
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">CleverTap A1</h1>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Customer Success</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-8">
           Internal Support Dashboard<br/>Please sign in with your organizational email.
         </p>

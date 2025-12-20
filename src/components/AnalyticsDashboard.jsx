@@ -1,9 +1,12 @@
 import React, { useMemo } from "react";
 import { format, parseISO, subDays, differenceInDays } from "date-fns";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line } from 'recharts';
-import { Smile, Frown, TrendingUp, Clock, AlertCircle, ExternalLink, Trophy, Medal, Crown } from "lucide-react";
-import { getCSATStatus, formatRWT } from "../utils";
+import { Smile, Frown, TrendingUp, Clock, AlertCircle, ExternalLink, Trophy, Medal, Crown, User } from "lucide-react";
+import { getCSATStatus, formatRWT, FLAT_TEAM_MAP } from "../utils"; 
 import { useTicketStore } from "../store";
+
+// 🛑 CONFIG: Blacklist specific names here
+const HIDDEN_USERS = ["System", "DevRev Bot", "A", "V", "n", "Undefined", "null"];
 
 const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
   const { theme } = useTicketStore();
@@ -41,11 +44,11 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
     return null;
   };
 
-  // --- LOGIC: Calculate Charts & Top Performers ---
-  const { chartData, badTickets, topPerformers } = useMemo(() => {
+  // --- LOGIC: Calculate Charts & ALL Performers ---
+  const { chartData, badTickets, allPerformers } = useMemo(() => {
     const daysMap = {};
     const badList = [];
-    const ownerStats = {}; // To track scores per person
+    const ownerStats = {}; 
 
     const numDays = (dateRange.start && dateRange.end) 
       ? differenceInDays(parseISO(dateRange.end), parseISO(dateRange.start)) + 1 
@@ -61,16 +64,32 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
 
     // 2. Process Tickets
     tickets.forEach(t => {
-      // --- Owner Stats Calculation ---
-      const ownerName = t.owned_by?.[0]?.display_name || "Unassigned";
-      // Skip unassigned for leaderboard
-      if (ownerName !== "Unassigned") {
-          if (!ownerStats[ownerName]) ownerStats[ownerName] = { name: ownerName, good: 0, bad: 0, total: 0, avatar: t.owned_by?.[0]?.display_picture?.id || null };
+      const ownerId = t.owned_by?.[0]?.display_id;
+      
+      // ✅ CHECK 1: Must be in our Official Team Map (To block bots)
+      if (ownerId && FLAT_TEAM_MAP[ownerId]) {
           
-          const sentiment = getCSATStatus(t);
-          if (sentiment === "Good") ownerStats[ownerName].good += 1;
-          if (sentiment === "Bad") ownerStats[ownerName].bad += 1;
-          ownerStats[ownerName].total += 1;
+          // 🔥 FIX: Use the REAL NAME from the ticket, not the manual map
+          let realName = t.owned_by?.[0]?.display_name || FLAT_TEAM_MAP[ownerId];
+          
+          if (typeof realName !== 'string') realName = "";
+          realName = realName.trim();
+
+          // ✅ CHECK 2: STRICT FILTER (No short names, no blacklisted users)
+          if (realName && realName.length > 2 && !HIDDEN_USERS.includes(realName)) {
+              if (!ownerStats[realName]) ownerStats[realName] = { 
+                name: realName, 
+                good: 0, 
+                bad: 0, 
+                total: 0,
+                id: ownerId
+              };
+              
+              const sentiment = getCSATStatus(t);
+              if (sentiment === "Good") ownerStats[realName].good += 1;
+              if (sentiment === "Bad") ownerStats[realName].bad += 1;
+              ownerStats[realName].total += 1;
+          }
       }
 
       // --- Chart Calculation ---
@@ -78,8 +97,6 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
       const dateKey = format(parseISO(t.created_date), "yyyy-MM-dd");
       const sentiment = getCSATStatus(t);
       const isBad = sentiment === "Bad";
-      
-      // Filter logic for Charts only (Top performers ignores filter to show global leaders)
       const matchesOwner = filterOwner === "All" || (t.owned_by?.[0]?.display_id === filterOwner.split(" ")[0]); 
       
       if (isBad && matchesOwner) badList.push(t);
@@ -98,10 +115,18 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
       }
     });
 
-    // 3. Sort Top Performers
+    // 3. Sort ALL Performers
     const sortedPerformers = Object.values(ownerStats)
-      .sort((a, b) => b.good - a.good) // Sort by most "Good" ratings
-      .slice(0, 3); // Take top 3
+      .map(p => ({
+          ...p,
+          winRate: p.total > 0 ? Math.round((p.good / p.total) * 100) : 0
+      }))
+      .sort((a, b) => {
+         // Sort by Good tickets first
+         if (b.good !== a.good) return b.good - a.good;
+         // If tied, sort by Win Rate
+         return b.winRate - a.winRate;
+      }); 
 
     return { 
       chartData: Object.values(daysMap).map(d => ({
@@ -109,45 +134,125 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
         avgRwt: d.rwtCount > 0 ? parseFloat((d.rwtSum / d.rwtCount).toFixed(1)) : 0
       })),
       badTickets: badList,
-      topPerformers: sortedPerformers
+      allPerformers: sortedPerformers
     };
   }, [tickets, dateRange, filterOwner]);
+
+  // Split into Top 3 and Runners Up
+  const podium = [allPerformers[1], allPerformers[0], allPerformers[2]]; 
+  const runnersUp = allPerformers.slice(3);
 
   return (
     <div className="space-y-8 animate-in fade-in pb-20">
       
-      {/* SECTION 1: TOP PERFORMERS (New!) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Rank 2 (Silver) */}
-          <LeaderCard 
-            rank={2} 
-            data={topPerformers[1]} 
-            color="from-slate-300 to-slate-400" 
-            iconColor="text-slate-400"
-            delay="100"
-            isDark={isDark}
-          />
-          
-          {/* Rank 1 (Gold - Bigger) */}
-          <LeaderCard 
-            rank={1} 
-            data={topPerformers[0]} 
-            color="from-amber-300 to-amber-500" 
-            iconColor="text-amber-500"
-            isCenter={true}
-            delay="0"
-            isDark={isDark}
-          />
+      {/* SECTION 1: CHAMPIONS ARENA */}
+      <div className="flex flex-col xl:flex-row gap-6">
+        
+        {/* 70% Width: The Podium */}
+        <div className="xl:w-[70%] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm relative overflow-hidden transition-colors">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-indigo-500 to-transparent opacity-50"></div>
+            
+            <div className="flex items-center justify-between mb-8">
+                <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-500" /> CSAT Champions
+                </h3>
+                <span className="text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+                    Top Performers
+                </span>
+            </div>
 
-          {/* Rank 3 (Bronze) */}
-          <LeaderCard 
-            rank={3} 
-            data={topPerformers[2]} 
-            color="from-orange-300 to-orange-400" 
-            iconColor="text-orange-400"
-            delay="200"
-            isDark={isDark}
-          />
+            <div className="flex items-end justify-center gap-2 sm:gap-6 h-72 sm:h-96 pb-2">
+                {podium.map((person, idx) => {
+                    if (!person) return null;
+                    
+                    const isGold = idx === 1;
+                    const rank = isGold ? 1 : idx === 0 ? 2 : 3;
+                    
+                    // 🚀 FIX: Increased non-gold height to 65% so text fits
+                    const heightClass = isGold ? 'h-full' : 'h-[65%]';
+                    
+                    // 🚀 FIX: Only Gold gets large padding (pt-10). Others get small padding (pt-3)
+                    const paddingClass = isGold ? 'pt-10' : 'pt-3';
+                    
+                    const colorClass = isGold 
+                        ? 'from-amber-100 to-amber-50/10 border-amber-200 text-amber-600 dark:from-amber-500/20 dark:to-slate-900 dark:border-amber-500/50 dark:text-amber-400' 
+                        : rank === 2 
+                            ? 'from-slate-200 to-slate-50/10 border-slate-300 text-slate-600 dark:from-slate-600/20 dark:to-slate-900 dark:border-slate-500/50 dark:text-slate-400'
+                            : 'from-orange-100 to-orange-50/10 border-orange-200 text-orange-700 dark:from-orange-600/20 dark:to-slate-900 dark:border-orange-500/50 dark:text-orange-400';
+
+                    return (
+                        <div key={person.name} className={`relative flex flex-col items-center justify-end w-1/3 max-w-[180px] ${heightClass} transition-all duration-700 ease-out`}>
+                            
+                            {/* Avatar & Badge (Lifted -mt-16) */}
+                            <div className={`relative mb-4 flex flex-col items-center z-20 ${isGold ? '-mt-16' : ''}`}>
+                                {isGold && <Crown className="w-10 h-10 text-amber-500 mb-2 animate-bounce" fill="currentColor" />}
+                                <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl font-bold border-4 shadow-xl bg-white dark:bg-slate-800 ${colorClass.split(' ')[2]}`}>
+                                    {person.name.charAt(0)}
+                                </div>
+                                <div className={`absolute -bottom-3 px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-white dark:bg-slate-800 border shadow-md ${colorClass.split(' ')[2]}`}>
+                                    Rank #{rank}
+                                </div>
+                            </div>
+
+                            {/* The Bar */}
+                            <div className={`w-full rounded-t-3xl border-t border-x bg-gradient-to-b ${colorClass} flex flex-col items-center justify-start ${paddingClass} pb-4 shadow-sm relative overflow-hidden group hover:opacity-90 cursor-pointer`}>
+                                {isGold && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-40 bg-amber-400/20 blur-[60px] rounded-full pointer-events-none"></div>}
+                                
+                                {/* 🚀 FIX: Removed forced color class. Added relative + z-20 */}
+                                <h4 className="font-bold text-sm sm:text-base text-center px-1 mb-2 truncate w-full z-20 relative">
+                                    {person.name}
+                                </h4>
+
+                                <div className="flex items-center gap-1 bg-white/60 dark:bg-black/30 px-4 py-1.5 rounded-full z-10 backdrop-blur-md shadow-sm border border-white/20">
+                                    <Smile className="w-4 h-4" />
+                                    <span className="text-sm font-bold">{person.good}</span>
+                                </div>
+                                <p className="text-[10px] mt-3 opacity-70 z-10 font-medium">{person.winRate}% Positive</p>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+
+        {/* 30% Width: The Leaderboard List */}
+        <div className="xl:w-[30%] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-0 shadow-sm flex flex-col overflow-hidden transition-colors">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+                <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm flex items-center gap-2">
+                    <Medal className="w-4 h-4 text-slate-400" /> Honorable Mentions
+                </h3>
+            </div>
+            
+            <div className="overflow-y-auto max-h-[400px] p-2 space-y-1 custom-scrollbar">
+                {runnersUp.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-10">
+                        <User className="w-8 h-8 mb-2 opacity-20" />
+                        <p>No other active agents.</p>
+                    </div>
+                ) : (
+                    runnersUp.map((person, idx) => (
+                        <div key={person.name} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group border border-transparent hover:border-slate-100 dark:hover:border-slate-700">
+                            <span className="text-xs font-bold text-slate-400 w-4 text-center">#{idx + 4}</span>
+                            
+                            <div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs font-bold">
+                                {person.name.charAt(0)}
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                                <div className="flex justify-between items-center mb-1">
+                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{person.name}</p>
+                                    <span className="text-[10px] font-medium text-slate-500">{person.good} Good</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${person.winRate}%` }}></div>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+
       </div>
 
      
@@ -182,7 +287,8 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
         </ChartCard>
 
       </div>
-       {/* SECTION 2: ALERTS */}
+
+       {/* SECTION 2: ALERTS (Negative Feedback) */}
       {badTickets.length > 0 && (
         <div className="bg-rose-50/50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/50 rounded-xl p-6 transition-colors">
           <h3 className="text-rose-800 dark:text-rose-400 font-bold flex items-center gap-2 mb-4 text-xs uppercase tracking-wide">
@@ -193,7 +299,7 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
               <div key={t.id} className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-rose-100 dark:border-rose-900/30 hover:border-rose-300 transition-all cursor-pointer group">
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-[10px] font-bold text-slate-400 font-mono bg-slate-50 dark:bg-slate-700 px-1.5 py-0.5 rounded">{t.display_id}</span>
-                  <a href={`https://app.devrev.ai/works/${t.display_id}`} target="_blank" className="text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all"><ExternalLink className="w-3 h-3" /></a>
+                  <a href={`https://app.devrev.ai/clevertapsupport/works/${t.display_id}`} target="_blank" className="text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all"><ExternalLink className="w-3 h-3" /></a>
                 </div>
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-200 line-clamp-2 mb-3">{t.title}</p>
                 <div className="flex justify-between items-center">
@@ -207,52 +313,10 @@ const AnalyticsDashboard = ({ tickets, dateRange, filterOwner }) => {
           </div>
         </div>
       )}
+      
     </div>
   );
 };
-
-// --- SUB-COMPONENT: Leader Card ---
-const LeaderCard = ({ rank, data, color, iconColor, isCenter, delay, isDark }) => {
-    if (!data) return (
-        <div className={`h-40 rounded-xl border border-dashed flex flex-col items-center justify-center gap-2 ${isCenter ? 'lg:-mt-4 lg:h-44' : ''} ${isDark ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'}`}>
-            <span className="text-xs text-slate-400 font-medium">No Data for Rank #{rank}</span>
-        </div>
-    );
-
-    return (
-        <div className={`relative flex flex-col items-center p-6 rounded-2xl shadow-sm border transition-all hover:shadow-md
-            ${isCenter ? 'lg:-mt-6 lg:mb-6 lg:py-10 z-10 border-amber-200 dark:border-amber-900/30 bg-gradient-to-b from-amber-50/50 to-white dark:from-amber-900/10 dark:to-slate-900' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}
-            `}
-            style={{ animationDelay: `${delay}ms` }}
-        >
-            {/* Crown for #1 */}
-            {rank === 1 && <Crown className="w-8 h-8 text-amber-500 mb-2 animate-bounce" />}
-            
-            {/* Rank Badge */}
-            <div className={`absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full font-bold text-white shadow-sm bg-gradient-to-br ${color}`}>
-                {rank}
-            </div>
-
-            {/* Avatar / Initial */}
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold mb-3 shadow-inner
-                 ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-600'}`}>
-                {data.name.charAt(0)}
-            </div>
-
-            <h3 className={`font-bold text-lg mb-1 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{data.name}</h3>
-            
-            <div className="flex items-center gap-2 mb-3">
-                 <div className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1">
-                    <Smile className="w-3 h-3" /> {data.good} Good
-                 </div>
-            </div>
-
-            <p className={`text-xs text-center ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Captured {Math.round((data.good / data.total) * 100)}% positive ratings from {data.total} tickets.
-            </p>
-        </div>
-    )
-}
 
 const ChartCard = ({ title, icon: Icon, color, children, isDark }) => (
   <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm h-80 transition-colors">

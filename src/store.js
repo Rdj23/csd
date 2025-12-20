@@ -1,7 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+// --- CONFIG: Universal API URL ---
+// 1. In PROD: Set VITE_API_URL in your hosting dashboard (Vercel/Netlify)
+// 2. In LOCAL: It defaults to "http://localhost:5000" automatically
+const getApiUrl = () => import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const extractTag = (ticket, tagName) => {
   const tag = ticket.tags?.find((t) => t.tag.name === tagName);
@@ -9,7 +12,6 @@ const extractTag = (ticket, tagName) => {
 };
 
 // --- USER MAPPING ---
-// Map Display Name to User ID for mentioning and signature
 const USER_MAP = {
   Rohan: "DEVU-1111",
   Archie: "DEVU-1114",
@@ -21,7 +23,7 @@ const USER_MAP = {
   Debashish: "DEVU-1102",
   Tuaha: "DEVU-1123",
   Anmol: "DEVU-1",
-  Ruben: "DEVU-1085", // Added Ruben
+  Ruben: "DEVU-1085",
 };
 
 const findUserIdByName = (name) => USER_MAP[name];
@@ -34,8 +36,11 @@ export const useTicketStore = create(
       lastSync: null,
 
       // --- AUTH STATE ---
-      currentUser: null, // Start as null to trigger Login Screen
+      currentUser: null,
       isAuthenticated: false,
+      // If you store the token separately, add it here. 
+      // If it's inside currentUser, we'll access it there.
+      token: null, 
       theme: "light",
 
       toggleTheme: () =>
@@ -46,6 +51,7 @@ export const useTicketStore = create(
       // --- LOGIN ACTIONS ---
       loginWithGoogle: async (credentialResponse) => {
         try {
+          const API_URL = getApiUrl();
           const res = await fetch(`${API_URL}/api/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -55,7 +61,12 @@ export const useTicketStore = create(
           const data = await res.json();
 
           if (res.ok && data.success) {
-            set({ currentUser: data.user, isAuthenticated: true });
+            // Save user AND token if your backend sends one
+            set({ 
+                currentUser: data.user, 
+                isAuthenticated: true, 
+                token: data.token || null 
+            });
             return true;
           } else {
             alert(data.error || "Login failed");
@@ -68,14 +79,14 @@ export const useTicketStore = create(
         }
       },
 
-      logout: () => set({ currentUser: null, isAuthenticated: false }),
+      logout: () => set({ currentUser: null, isAuthenticated: false, token: null }),
 
       // --- DATA ACTIONS ---
       fetchTickets: async () => {
         set({ isLoading: true });
         try {
-          const API_BASE = import.meta.env.VITE_API_URL || "";
-          const response = await fetch(`${API_BASE}/api/tickets`);
+          const API_URL = getApiUrl();
+          const response = await fetch(`${API_URL}/api/tickets`);
           const data = await response.json();
           set({
             tickets: data.tickets || [],
@@ -90,6 +101,7 @@ export const useTicketStore = create(
 
       fetchTicketTimeline: async (ticketId) => {
         try {
+          const API_URL = getApiUrl();
           const response = await fetch(
             `${API_URL}/timeline?ticket_id=${encodeURIComponent(ticketId)}`
           );
@@ -103,7 +115,8 @@ export const useTicketStore = create(
       },
 
       postTicketComment: async (ticketId, text) => {
-        const { currentUser } = get();
+        const { currentUser, token } = get(); 
+        const API_URL = getApiUrl();
 
         // 1. Tagging Logic
         const parsedBody = text.replace(/@(\w+)/g, (match, name) => {
@@ -115,39 +128,33 @@ export const useTicketStore = create(
           return match;
         });
 
-        // 2. Author Signature Logic
-        // We assume currentUser is populated from the Google Login
-        const authorName = currentUser?.name || "Support User";
-        const authorId = findUserIdByName(authorName);
-        let signature = "";
-
-        if (authorId) {
-          const systemId = authorId.toLowerCase().replace("-", "/");
-          signature = `\n\n— By [@${authorName}](don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId})`;
-        } else {
-          signature = `\n\n— By ${authorName}`;
-        }
-
-        const finalBody = parsedBody + signature;
-
         try {
-          const response = await fetch(`${API_URL}/comments`, {
+          // 2. Updated Fetch with Fallback URL
+          const response = await fetch(`${API_URL}/api/comments`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              // 🟢 SAFE AUTH: Only add the header if 'token' actually exists
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {}) 
+            },
             body: JSON.stringify({
               ticketId: ticketId,
-              body: finalBody,
-              user: authorName,
+              body: parsedBody,
+              authorId: currentUser?.id,
             }),
           });
 
           if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Server responded: ${response.status} ${errText}`);
+            const errorData = await response.text();
+            throw new Error(errorData || "Server Error");
           }
-        } catch (e) {
-          console.error("Failed to post comment", e);
-          throw e;
+
+          console.log("Comment posted successfully");
+          // Optional: You might want to call get().fetchTickets() here to refresh data
+          
+        } catch (err) {
+          console.error("Failed to post comment:", err);
+          alert(`Failed to post: ${err.message}`);
         }
       },
     }),
@@ -157,6 +164,7 @@ export const useTicketStore = create(
         currentUser: s.currentUser,
         theme: s.theme,
         isAuthenticated: s.isAuthenticated,
+        token: s.token, // Persist token so refresh doesn't log you out
       }),
     }
   )

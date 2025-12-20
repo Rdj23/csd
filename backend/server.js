@@ -49,7 +49,7 @@ const TEAM_GROUPS = {
   "Mashnu": { "DEVU-1111": "Rohan", "DEVU-1114": "Archie", "DEVU-1072": "Neha", "DEVU-1115": "Shreya", "DEVU-1122": "Vaibhav", "DEVU-1076": "Adarsh", "DEVU-1108": "Abhishek" },
   "Debashish": { "DEVU-1087": "Shubhankar", "DEVU-736": "Musaveer", "DEVU-550": "Anurag", "DEVU-1102": "Debashish" },
   "Shweta": { "DEVU-5": "Aditya", "DEVU-1113": "Shweta", "DEVU-4": "Nikita" },
-  "Tuaha": { "DEVU-1123": "Tuaha Khan", "DEVU-1098": "Harsh Singh", "DEVU-689": "Tamanna", "DEVU-1110": "Shreyas" }
+  "Tuaha": { "DEVU-1123": "Tuaha Khan", "DEVU-1098": "Harsh", "DEVU-689": "Tamanna", "DEVU-1110": "Shreyas" }
 };
 const OWNER_IDS = Object.values(TEAM_GROUPS).flatMap(group => Object.keys(group));
 
