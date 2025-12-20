@@ -306,7 +306,7 @@ const App = () => {
   // =========================================================================
   return (
     <div
-      className={`min-h-screen p-6 font-sans transition-colors duration-300 ${
+      className={`min-h-screen p-6 font-sans  transition-colors duration-300 ${
         theme === "dark"
           ? "bg-[#0B1120] text-slate-100"
           : "bg-[#F9FAFB] text-slate-900"
@@ -386,9 +386,11 @@ const App = () => {
           ))}
         </div>
 
+        
         {/* CONTROLS */}
-
         <div className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 mb-6 flex flex-wrap gap-2 items-center transition-colors">
+          
+          {/* 1. SEARCH BAR (Hidden on Analytics) */}
           {activeTab !== "analytics" && (
             <div className="relative w-32">
               <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
@@ -396,9 +398,7 @@ const App = () => {
                 type="text"
                 placeholder="ID..."
                 className="w-full pl-8 pr-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-400 dark:text-slate-200"
-                // ✅ CORRECT: Dynamic value based on the tab
                 value={searchQueries[activeTab] || ""}
-                // ✅ CORRECT: Updates only the specific tab's bucket
                 onChange={(e) => {
                   setSearchQueries((prev) => ({
                     ...prev,
@@ -408,15 +408,22 @@ const App = () => {
               />
             </div>
           )}
-        <SmartDatePicker onChange={setDateRange} />
 
-          <MultiSelectFilter
-            icon={Globe}
-            label="Region"
-            options={options.regions}
-            selected={currentFilters.regions}
-            onChange={(v) => setFilter("regions", v)}
-          />
+          {/* 2. DATE PICKER (Visible Everywhere) */}
+          <SmartDatePicker onChange={setDateRange} />
+
+          {/* 3. REGION (Hidden on Analytics) */}
+          {activeTab !== "analytics" && (
+            <MultiSelectFilter
+              icon={Globe}
+              label="Region"
+              options={options.regions}
+              selected={currentFilters.regions}
+              onChange={(v) => setFilter("regions", v)}
+            />
+          )}
+
+          {/* 4. TEAM & MEMBER (Visible Everywhere) */}
           <MultiSelectFilter
             icon={Layers}
             label="Team"
@@ -431,29 +438,31 @@ const App = () => {
             selected={currentFilters.owners}
             onChange={(v) => setFilter("owners", v)}
           />
-          <MultiSelectFilter
-            icon={Building2}
-            label="Account"
-            options={options.accounts}
-            selected={currentFilters.accounts}
-            onChange={(v) => setFilter("accounts", v)}
-          />
-          <MultiSelectFilter
-            icon={Briefcase}
-            label="CSM"
-            options={options.csms}
-            selected={currentFilters.csms}
-            onChange={(v) => setFilter("csms", v)}
-          />
-          <MultiSelectFilter
-            icon={UserCircle}
-            label="TAM"
-            options={options.tams}
-            selected={currentFilters.tams}
-            onChange={(v) => setFilter("tams", v)}
-          />
+
+          {/* 5. ACCOUNT, CSM, TAM, STAGE, HEALTH (Hidden on Analytics) */}
           {activeTab !== "analytics" && (
             <>
+              <MultiSelectFilter
+                icon={Building2}
+                label="Account"
+                options={options.accounts}
+                selected={currentFilters.accounts}
+                onChange={(v) => setFilter("accounts", v)}
+              />
+              <MultiSelectFilter
+                icon={Briefcase}
+                label="CSM"
+                options={options.csms}
+                selected={currentFilters.csms}
+                onChange={(v) => setFilter("csms", v)}
+              />
+              <MultiSelectFilter
+                icon={UserCircle}
+                label="TAM"
+                options={options.tams}
+                selected={currentFilters.tams}
+                onChange={(v) => setFilter("tams", v)}
+              />
               <MultiSelectFilter
                 icon={Filter}
                 label="Stage"
