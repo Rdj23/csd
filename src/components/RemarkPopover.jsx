@@ -50,7 +50,11 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await axios.get("http://localhost:5000/api/users");
+        // 👇 FIX: Use the Environment Variable, don't hardcode localhost
+        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+        
+        // This will now point to your REAL backend when deployed
+        const res = await axios.get(`${API_URL}/api/users`);
         // Map data to ensure consistency
         const formattedUsers = res.data.map((u) => ({
           name: u.full_name || u.display_name,
