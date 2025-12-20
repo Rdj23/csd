@@ -111,6 +111,7 @@ app.post("/api/auth/google", async (req, res) => {
           id: foundUser.id, // Sends "don:identity..."
           display_id: foundUser.display_id,
           picture: payload.picture,
+          identity: foundUser.id, 
         },
       });
     } else {
