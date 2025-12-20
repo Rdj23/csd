@@ -131,22 +131,16 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     try {
       await postTicketComment(ticket.id, finalBody);
 
-      // 🔥 single source of truth
-      const fresh = await fetchTicketTimeline(ticket.id);
-      setHistory(fresh.reverse());
-
-      setNewComment("");
-
       // Optimistic UI
-      // const newEntry = {
-      //   id: "temp-" + Date.now(),
-      //   body: textForDisplay,
-      //   created_date: new Date().toISOString(),
-      //   created_by: { display_name: currentUser.name },
-      // };
+      const newEntry = {
+        id: "temp-" + Date.now(),
+        body: textForDisplay,
+        created_date: new Date().toISOString(),
+        created_by: { display_name: currentUser.name },
+      };
 
-      // setHistory([...history, newEntry]);
-      // setNewComment("");
+      setHistory([...history, newEntry]);
+      setNewComment("");
       setTimeout(
         () =>
           listRef.current?.scrollTo({
@@ -274,18 +268,17 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
                     {/* 👇 Clean Body Fix Applied Here */}
                     {cleanCommentBody(entry.body)}
                   </div>
-
-                  {/* AUTHOR — SOURCE OF TRUTH */}
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    — By{" "}
-                    <span className="font-medium text-slate-500">
-                      @{entry.created_by?.display_name || "Unknown"}
-                    </span>
-                  </div>
                 </div>
               </div>
             ))
           )}
+        </div>
+
+        <div className="mt-1 text-[11px] text-slate-400">
+          — By{" "}
+          <span className="font-medium text-slate-500">
+            @{entry.created_by?.display_name || "Unknown"}
+          </span>
         </div>
 
         <div className="p-4 bg-white border-t border-slate-100 shrink-0 relative z-50">
