@@ -19,11 +19,16 @@ const cache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 app.use((req, res, next) => {
   // "same-origin-allow-popups" allows the Google Login popup to talk to your app
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
   next();
 });
 
 
-app.use(cors());
+// UPDATE YOUR CORS SETUP
+app.use(cors({
+  origin: ["http://localhost:5173", "https://csd-sigma.vercel.app"], // Trust local AND Vercel
+  credentials: true
+}));
 app.use(express.json());
 
 const GOOGLE_CLIENT_ID =  process.env.GOOGLE_CLIENT_ID 
