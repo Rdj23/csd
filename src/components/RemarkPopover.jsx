@@ -131,16 +131,22 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     try {
       await postTicketComment(ticket.id, finalBody);
 
-      // Optimistic UI
-      const newEntry = {
-        id: "temp-" + Date.now(),
-        body: textForDisplay,
-        created_date: new Date().toISOString(),
-        created_by: { display_name: currentUser.name },
-      };
+      // 🔥 single source of truth
+      const fresh = await fetchTicketTimeline(ticket.id);
+      setHistory(fresh.reverse());
 
-      setHistory([...history, newEntry]);
       setNewComment("");
+
+      // Optimistic UI
+      // const newEntry = {
+      //   id: "temp-" + Date.now(),
+      //   body: textForDisplay,
+      //   created_date: new Date().toISOString(),
+      //   created_by: { display_name: currentUser.name },
+      // };
+
+      // setHistory([...history, newEntry]);
+      // setNewComment("");
       setTimeout(
         () =>
           listRef.current?.scrollTo({
