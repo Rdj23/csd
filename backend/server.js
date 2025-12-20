@@ -107,7 +107,7 @@ app.post("/api/auth/google", async (req, res) => {
         success: true,
         user: {
           email: foundUser.email,
-          name: foundUser.full_name || foundUser.display_name,
+          name: foundUser.display_name,
           id: foundUser.id, // Sends "don:identity..."
           display_id: foundUser.display_id,
           picture: payload.picture,

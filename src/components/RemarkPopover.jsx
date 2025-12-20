@@ -26,12 +26,17 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   const textareaRef = useRef(null);
   const listRef = useRef(null);
 
-  const buildDevRevIdentity = (user) => {
-    if (!user?.id?.startsWith("DEVU-")) return null;
+ const buildDevRevIdentity = (user) => {
+    // 1. If we already have the full DON identity, return it directly
+    if (user?.id?.startsWith("don:identity")) return user.id;
+
+    // 2. Otherwise, try to build it from the display_id (DEVU-xxxx)
+    const shortId = user?.display_id || user?.id; // Fallback to id if display_id missing
+    
+    if (!shortId?.startsWith("DEVU-")) return null;
 
     // DEVU-1111 → devu/1111
-    const systemId = user.id.toLowerCase().replace("-", "/");
-
+    const systemId = shortId.toLowerCase().replace("-", "/");
     return `don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId}`;
   };
 
