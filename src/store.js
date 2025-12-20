@@ -17,6 +17,8 @@ export const useTicketStore = create(
       token: null,
       theme: "light",
 
+      
+
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === "light" ? "dark" : "light" })),
 

@@ -76,7 +76,13 @@ const App = () => {
   // -- UI State --
   const [activeTab, setActiveTab] = useState("tickets");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
-  const [searchQuery, setSearchQuery] = useState("");
+  // ✅ THE FIX (Separate buckets)
+  const [searchQueries, setSearchQueries] = useState({
+    tickets: "",
+    csd: "",
+    analytics: "",
+  });
+
   const [copied, setCopied] = useState(false);
   const [tabFilters, setTabFilters] = useState({
     tickets: { ...EMPTY_FILTERS },
@@ -88,7 +94,8 @@ const App = () => {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+        const API_BASE =
+          import.meta.env.VITE_API_URL || "http://localhost:5000";
         const response = await fetch(`${API_BASE}/api/auth/config`);
         const data = await response.json();
         setGoogleClientId(data.clientId);
@@ -198,9 +205,12 @@ const App = () => {
       .filter((t) => {
         if (activeTab === "csd" && !t.isCSD) return false;
         if (activeTab !== "analytics" && !t.isActive) return false;
+        const currentSearch = (searchQueries[activeTab] || "").toLowerCase();
+
         const matchesSearch =
-          t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          t.display_id.toLowerCase().includes(searchQuery.toLowerCase());
+          t.title.toLowerCase().includes(currentSearch) ||
+          t.display_id.toLowerCase().includes(currentSearch);
+
         if (!matchesSearch) return false;
         if (dateRange.start && dateRange.end) {
           if (
@@ -266,7 +276,7 @@ const App = () => {
         }
         return true;
       });
-  }, [tickets, activeTab, searchQuery, dateRange, currentFilters]);
+  }, [tickets, activeTab, searchQueries, dateRange, currentFilters]);
 
   // =========================================================================
   // 2. CONDITIONAL RENDERING (The "Gates")
@@ -377,6 +387,7 @@ const App = () => {
         </div>
 
         {/* CONTROLS */}
+
         <div className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 mb-6 flex flex-wrap gap-2 items-center transition-colors">
           {activeTab !== "analytics" && (
             <div className="relative w-32">
@@ -385,12 +396,19 @@ const App = () => {
                 type="text"
                 placeholder="ID..."
                 className="w-full pl-8 pr-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-400 dark:text-slate-200"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                // ✅ CORRECT: Dynamic value based on the tab
+                value={searchQueries[activeTab] || ""}
+                // ✅ CORRECT: Updates only the specific tab's bucket
+                onChange={(e) => {
+                  setSearchQueries((prev) => ({
+                    ...prev,
+                    [activeTab]: e.target.value,
+                  }));
+                }}
               />
             </div>
           )}
-          <SmartDatePicker onChange={setDateRange} />
+        <SmartDatePicker onChange={setDateRange} />
 
           <MultiSelectFilter
             icon={Globe}
