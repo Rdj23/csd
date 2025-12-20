@@ -251,6 +251,21 @@ app.get("/api/tickets", async (req, res) => {
   });
 });
 
+// Add this inside server.js
+app.get("/api/timeline", async (req, res) => {
+  const { ticket_id } = req.query;
+  try {
+    const response = await axios.get(
+      `${DEVREV_API}/timeline-entries.list?object=${ticket_id}&limit=50`, 
+      { headers: HEADERS }
+    );
+    res.json(response.data.timeline_entries || []);
+  } catch (error) {
+    console.error("Fetch Timeline Error:", error.message);
+    res.status(500).json([]);
+  }
+});
+
 // 4. POST COMMENT (Smart Pass-through)
 app.post("/api/comments", async (req, res) => {
   const { ticketId, body } = req.body;
