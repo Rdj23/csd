@@ -268,17 +268,18 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
                     {/* 👇 Clean Body Fix Applied Here */}
                     {cleanCommentBody(entry.body)}
                   </div>
+
+                  {/* AUTHOR — SOURCE OF TRUTH */}
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    — By{" "}
+                    <span className="font-medium text-slate-500">
+                      @{entry.created_by?.display_name || "Unknown"}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))
           )}
-        </div>
-
-        <div className="mt-1 text-[11px] text-slate-400">
-          — By{" "}
-          <span className="font-medium text-slate-500">
-            @{entry.created_by?.display_name || "Unknown"}
-          </span>
         </div>
 
         <div className="p-4 bg-white border-t border-slate-100 shrink-0 relative z-50">
