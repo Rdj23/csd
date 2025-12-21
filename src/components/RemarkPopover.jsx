@@ -239,6 +239,9 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
         setSelectedIndex(
           (prev) => (prev - 1 + mentionOptions.length) % mentionOptions.length // Loop up
         );
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(mentionOptions[selectedIndex]); // Select highlighted
       } else if (e.key === "Escape") {
         setMentionQuery(null); // Close menu
       }
@@ -263,11 +266,16 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
               <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
               Internal Remark
             </h3>
-            <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+           <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
               Ref:{" "}
-              <span className="font-mono text-indigo-600">
+              <a
+                href={`https://app.devrev.ai/clevertapsupport/works/${ticket.display_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-indigo-600 hover:underline hover:text-indigo-500 transition-colors"
+              >
                 {ticket.display_id}
-              </span>
+              </a>
             </p>
           </div>
           <button
