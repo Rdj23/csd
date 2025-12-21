@@ -23,16 +23,24 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   const [mentionQuery, setMentionQuery] = useState(null);
   const [users, setUsers] = useState([]);
 
+  // ✅ NEW: Track the highlighted index
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [mentionQuery]);
+
   const textareaRef = useRef(null);
   const listRef = useRef(null);
+  const mentionListRef = useRef(null); // ✅ NEW: Ref for the dropdown container
 
- const buildDevRevIdentity = (user) => {
+  const buildDevRevIdentity = (user) => {
     // 1. If we already have the full DON identity, return it directly
     if (user?.id?.startsWith("don:identity")) return user.id;
 
     // 2. Otherwise, try to build it from the display_id (DEVU-xxxx)
     const shortId = user?.display_id || user?.id; // Fallback to id if display_id missing
-    
+
     if (!shortId?.startsWith("DEVU-")) return null;
 
     // DEVU-1111 → devu/1111
@@ -57,7 +65,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
       try {
         // 👇 FIX: Use the Environment Variable, don't hardcode localhost
         const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-        
+
         // This will now point to your REAL backend when deployed
         const res = await axios.get(`${API_URL}/api/users`);
         // Map data to ensure consistency
@@ -93,6 +101,19 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     });
     return () => (mounted = false);
   }, [ticket.id]);
+
+  // ✅ NEW: Auto-scroll the dropdown when navigating with keys
+  useEffect(() => {
+    if (mentionListRef.current && mentionOptions.length > 0) {
+      const selectedElement = mentionListRef.current.children[selectedIndex];
+      if (selectedElement) {
+        selectedElement.scrollIntoView({
+          block: "nearest", // Scrolls just enough to make it visible
+          behavior: "smooth",
+        });
+      }
+    }
+  }, [selectedIndex]);
 
   // --- CLEANER FUNCTION (THE FIX) ---
   // Matches "mention:don:..." with OR without < > brackets to fix display
@@ -206,6 +227,25 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
         )
       : [];
 
+  // ✅ NEW: Handle Keyboard Navigation
+  const handleKeyDown = (e) => {
+    // 1. If Mention Menu is OPEN
+    if (mentionQuery !== null && mentionOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev + 1) % mentionOptions.length); // Loop down
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex(
+          (prev) => (prev - 1 + mentionOptions.length) % mentionOptions.length // Loop up
+        );
+      } else if (e.key === "Escape") {
+        setMentionQuery(null); // Close menu
+      }
+      return;
+    }
+  };
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-transparent" onClick={onClose} />
@@ -281,12 +321,16 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
 
         <div className="p-4 bg-white border-t border-slate-100 shrink-0 relative z-50">
           {mentionQuery !== null && mentionOptions.length > 0 && (
-            <div className="absolute bottom-[100%] left-4 mb-2 w-56 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto ring-1 ring-black/5">
-              {mentionOptions.map((user) => (
+            <div ref={mentionListRef} className="absolute bottom-[100%] left-4 mb-2 w-56 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto ring-1 ring-black/5">
+              {mentionOptions.map((user,index) => (
                 <button
                   key={user.id}
                   onClick={() => insertMention(user)}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 text-slate-700 flex items-center gap-2 transition-colors border-b border-slate-50 last:border-0"
+                  className={`w-full text-left px-3 py-2 text-xs text-slate-700 flex items-center gap-2 transition-colors border-b border-slate-50 last:border-0 ${
+                    index === selectedIndex
+                      ? "bg-indigo-100"
+                      : "hover:bg-indigo-50"
+                  }`}
                 >
                   <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-bold">
                     {user.name.charAt(0)}
@@ -303,12 +347,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
               placeholder="Write an update... use @ to tag"
               value={newComment}
               onChange={handleInput}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
+              onKeyDown={handleKeyDown}
             />
             <div className="flex justify-between items-center px-2 pb-1">
               <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
