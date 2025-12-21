@@ -309,7 +309,7 @@ const App = () => {
       className={`min-h-screen p-6 font-sans  transition-colors duration-300 ${
         theme === "dark"
           ? "bg-[#0B1120] text-slate-100"
-          : "bg-[#F9FAFB] text-slate-900"
+          : "bg-slate-100 text-slate-900"
       }`}
     >
       <div className="max-w-[1600px] mx-auto">

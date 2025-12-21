@@ -38,22 +38,38 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 
-// --- 1. GLOBAL USER CACHE (Dynamic List) ---
+/// --- 1. GLOBAL USER CACHE (Pagination Fix) ---
 let ALL_DEVREV_USERS = [];
 
 async function refreshDevRevUsers() {
-  console.log("🔄 Fetching DevRev Users...");
+  console.log("🔄 Fetching All DevRev Users...");
+  let collectedUsers = [];
+  let nextCursor = null;
+
   try {
-    const response = await axios.get(`${DEVREV_API}/dev-users.list`, {
-      headers: HEADERS,
-    });
-    ALL_DEVREV_USERS = response.data.dev_users || [];
+    do {
+      // ✅ FIX: No limit specified, only cursor when needed
+      const url = `${DEVREV_API}/dev-users.list${
+        nextCursor ? `?cursor=${nextCursor}` : ""
+      }`;
+
+      const response = await axios.get(url, { headers: HEADERS });
+      
+      const users = response.data.dev_users || [];
+      collectedUsers = [...collectedUsers, ...users];
+
+      // Update cursor for the next loop
+      nextCursor = response.data.next_cursor;
+      
+    } while (nextCursor);
+
+    ALL_DEVREV_USERS = collectedUsers;
     console.log(`✅ Loaded ${ALL_DEVREV_USERS.length} users from DevRev.`);
   } catch (error) {
     console.error("❌ Failed to load users:", error.message);
   }
 }
-refreshDevRevUsers(); // Run on startup
+refreshDevRevUsers();
 
 const TEAM_GROUPS = {
   Mashnu: {
