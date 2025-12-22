@@ -1,6 +1,5 @@
-import { parseISO, differenceInDays } from "date-fns";
 import { AlertOctagon, AlertTriangle, CheckCircle, Smile, Frown } from "lucide-react";
-
+import { differenceInHours, differenceInMinutes, parseISO,differenceInDays } from "date-fns";
 // --- TEAM CONFIGURATION ---
 export const TEAM_GROUPS = {
   "Mashnu": { "DEVU-1111": "Rohan", "DEVU-1114": "Archie", "DEVU-1072": "Neha", "DEVU-1115": "Shreya", "DEVU-1122": "Vaibhav", "DEVU-1076": "Adarsh", "DEVU-1108": "Abhishek" },
@@ -9,6 +8,19 @@ export const TEAM_GROUPS = {
   "Tuaha": { "DEVU-1123": "Tuaha Khan", "DEVU-1098": "Harsh", "DEVU-689": "Tamanna", "DEVU-1110": "Shreyas" }
 };
 export const FLAT_TEAM_MAP = Object.values(TEAM_GROUPS).reduce((acc, group) => ({ ...acc, ...group }), {});
+
+export const calculateResolutionTime = (createdISO, closedISO) => {
+  if (!createdISO || !closedISO) return "N/A";
+  
+  const start = parseISO(createdISO);
+  const end = parseISO(closedISO); // 2025-12-16T10:39:13.007Z
+  
+  const totalMinutes = differenceInMinutes(end, start);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
+};
 
 export const STAGE_MAP = {
   "Waiting on Assignee": { label: "Open", color: "bg-blue-50 text-blue-700 border-blue-100" },

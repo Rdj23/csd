@@ -32,16 +32,18 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   // Calculates where to float the window based on the clicked button
   const POPUP_WIDTH = 384; // w-96
   const POPUP_HEIGHT = 500;
-  
-  const style = anchorRect ? {
-    position: "fixed",
-    // Align bottom of popup to top of button (with 10px gap)
-    top: Math.max(10, anchorRect.top - POPUP_HEIGHT - 10), 
-    // Align right of popup to right of button (so it stays on screen)
-    left: anchorRect.right - POPUP_WIDTH,
-    width: POPUP_WIDTH,
-    height: POPUP_HEIGHT,
-  } : {};
+
+  const style = anchorRect
+    ? {
+        position: "fixed",
+        // Align bottom of popup to top of button (with 10px gap)
+        top: Math.max(10, anchorRect.top - POPUP_HEIGHT - 10),
+        // Align right of popup to right of button (so it stays on screen)
+        left: anchorRect.right - POPUP_WIDTH,
+        width: POPUP_WIDTH,
+        height: POPUP_HEIGHT,
+      }
+    : {};
 
   // 1. FETCH USERS
   useEffect(() => {
@@ -62,25 +64,48 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     fetchUsers();
   }, []);
 
-  // 2. LOAD HISTORY
+  // 2. LOAD HISTORY (FROM LOCAL SERVER)
+  // This ensures comments persist even after refresh!
   useEffect(() => {
-    let mounted = true;
-    fetchTicketTimeline(ticket.id).then((data) => {
-      if (mounted) {
-        setHistory(data.reverse());
-        setLoadingHistory(false);
-        setTimeout(
-          () =>
-            listRef.current?.scrollTo({
-              top: listRef.current.scrollHeight,
-              behavior: "smooth",
-            }),
-          100
+    const fetchHistory = async () => {
+      if (!ticket) return;
+      setLoadingHistory(true);
+      try {
+        // ✅ Call Local Server (server.js)
+        const API_URL = "http://localhost:5000";
+        const res = await axios.get(
+          `${API_URL}/api/remarks/${ticket.display_id}`
         );
+
+        // ✅ Map Server Data -> UI Format
+        const adaptedHistory = res.data.map((item) => ({
+          id: item.id,
+          body: item.text,
+          created_date: item.timestamp,
+          created_by: {
+            display_name: item.user,
+            id: "local",
+          },
+        }));
+
+        setHistory(adaptedHistory); // No reverse needed if push appends
+
+        // Scroll to bottom
+        setTimeout(() => {
+          listRef.current?.scrollTo({
+            top: listRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }, 100);
+      } catch (err) {
+        console.error("Failed to load local remarks:", err);
+      } finally {
+        setLoadingHistory(false);
       }
-    });
-    return () => (mounted = false);
-  }, [ticket.id]);
+    };
+
+    fetchHistory();
+  }, [ticket.display_id]);
 
   const cleanCommentBody = (text) => {
     if (!text) return "";
@@ -223,9 +248,9 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   return (
     <>
       {/* Click outside to close (Invisible) */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/* <div className="fixed inset-0 z-40" onClick={onClose} /> */}
 
-      <div 
+      <div
         style={style}
         className="fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
       >
@@ -238,9 +263,14 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
             </h3>
             <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
               Ref:{" "}
-              <span className="font-mono text-indigo-500">
+              <a
+                href={`https://app.devrev.ai/clevertapsupport/works/${ticket.display_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-indigo-500 hover:underline"
+              >
                 {ticket.display_id}
-              </span>
+              </a>
             </p>
           </div>
           <button

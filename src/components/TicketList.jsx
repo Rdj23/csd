@@ -15,14 +15,14 @@ import RemarkPopover from "./RemarkPopover";
 
 const ITEMS_PER_PAGE = 20;
 
-const TicketList = ({ tickets, isCSDView, onCardClick }) => {
+// ✅ NEW: Added 'onProfileClick' prop
+const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState({
     key: "priority",
     direction: "desc",
   });
   
-  // ✅ CHANGED: Store both ticket AND the button position
   const [openRemarkData, setOpenRemarkData] = useState(null); 
 
   const sortedTickets = [...tickets].sort((a, b) => {
@@ -192,16 +192,22 @@ const TicketList = ({ tickets, isCSDView, onCardClick }) => {
                         {t.region}
                       </span>
                     </td>
+                    
+                    {/* ✅ CLICKABLE OWNER */}
                     <td className="p-4 align-middle">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
                           {ownerName[0]}
                         </div>
-                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                        <button 
+                          onClick={() => onProfileClick && onProfileClick({ name: ownerName })}
+                          className="text-sm text-slate-700 dark:text-slate-300 hover:text-indigo-600 hover:underline text-left font-medium"
+                        >
                           {ownerName}
-                        </span>
+                        </button>
                       </div>
                     </td>
+
                     <td className="p-4 align-middle text-slate-600 dark:text-slate-400 text-xs">
                       {csmName}
                     </td>
@@ -233,7 +239,6 @@ const TicketList = ({ tickets, isCSDView, onCardClick }) => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              // ✅ FIX: Capture the button's position
                               const rect = e.currentTarget.getBoundingClientRect();
                               setOpenRemarkData({ ticket: t, rect }); 
                             }}
@@ -279,7 +284,7 @@ const TicketList = ({ tickets, isCSDView, onCardClick }) => {
         )}
       </div>
 
-      {/* ✅ POPUP: Pass rect so it can position itself */}
+      {/* POPUP */}
       {openRemarkData && (
         <RemarkPopover
           ticket={openRemarkData.ticket}
