@@ -4,16 +4,21 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import http from "http";
-require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const { Server } = require("socket.io");
-const NodeCache = require("node-cache");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { toZonedTime, format } = require("date-fns-tz");
-const { subDays, parseISO, isAfter, subMonths } = require("date-fns");
+import { Server } from "socket.io";
+import NodeCache from "node-cache";
+import { google } from "googleapis";
+
 import process from "process";
 
-const { google } = require("googleapis");
+import { toZonedTime, format } from "date-fns-tz";
+import { subDays, parseISO, isAfter, subMonths } from "date-fns";
+
 
 const app = express();
 const server = http.createServer(app);
