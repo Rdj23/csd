@@ -4,20 +4,23 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import http from "http";
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
-import { fileURLToPath } from "url";
+
 import dotenv from "dotenv";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { fileURLToPath } from "url";
 
 import { Server } from "socket.io";
 import NodeCache from "node-cache";
 import { google } from "googleapis";
-
 import process from "process";
 
 import { toZonedTime, format } from "date-fns-tz";
 import { subDays, parseISO, isAfter, subMonths } from "date-fns";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
 
 
 const app = express();

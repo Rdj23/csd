@@ -23,6 +23,7 @@
     "googleapis": "^169.0.0",
     "node-cache": "^5.1.2",
     "nodemon": "^3.1.11",
+      "type": "module",
     "socket.io": "^4.8.1"
   }
 }
