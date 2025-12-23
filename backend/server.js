@@ -10,6 +10,7 @@ const NodeCache = require("node-cache");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { toZonedTime, format } = require("date-fns-tz");
 const { subDays, parseISO, isAfter, subMonths } = require("date-fns");
+import process from "process";
 
 const { google } = require("googleapis");
 

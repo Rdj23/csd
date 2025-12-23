@@ -46,10 +46,8 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
       try {
        
         // To this (Force localhost if you are on a dev machine):
-        const API_URL =
-          window.location.hostname === "localhost"
-            ? "http://localhost:5000"
-            : import.meta.env.VITE_API_URL;
+        const API_URL = import.meta.env.VITE_API_URL;
+          
         const res = await axios.get(`${API_URL}/api/users`);
 
         // Ensure we handle the data property from axios correctly
@@ -73,7 +71,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
       if (!ticket?.display_id) return;
       setLoadingHistory(true);
       try {
-        const API_URL = process.env.VITE_API_URL;
+        const API_URL = import.meta.env.VITE_API_URL;
         const res = await axios.get(
           `${API_URL}/api/remarks/${ticket.display_id}`
         );
