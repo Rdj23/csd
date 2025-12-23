@@ -12,7 +12,7 @@ const { toZonedTime, format } = require("date-fns-tz");
 const { subDays, parseISO, isAfter, subMonths } = require("date-fns");
 const multer = require("multer");
 const csv = require("csv-parser");
-
+const { google } = require("googleapis");
 
 const app = express();
 const server = http.createServer(app);
@@ -73,16 +73,17 @@ app.get("/api/remarks/:ticketId", (req, res) => {
 // 2. POST (Save) a New Remark
 app.post("/api/remarks", (req, res) => {
   const { ticketId, user, text } = req.body;
-  
-  if (!ticketId || !text) return res.status(400).json({ error: "Missing data" });
+
+  if (!ticketId || !text)
+    return res.status(400).json({ error: "Missing data" });
 
   const db = readRemarksDB();
-  
+
   const newRemark = {
     id: Date.now().toString(), // Unique ID based on timestamp
     user: user || "Support Engineer",
     text: text,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   };
 
   // Add to existing history or start new
@@ -98,10 +99,10 @@ app.post("/api/remarks", (req, res) => {
   res.json({ success: true, remark: newRemark, history: db[ticketId] });
 });
 
+// ============================================================================
+// 1. ROSTER ENGINE (GOOGLE SHEETS EDITION)
+// ============================================================================
 
-// ============================================================================
-// 1. ROSTER ENGINE
-// ============================================================================
 let ROSTER_ROWS = [];
 let DATE_COL_MAP = {};
 let NAME_COL_INDEX = 0;
@@ -113,85 +114,85 @@ const SHIFT_TIMINGS = {
   "Shift 4": { start: "22:30", end: "07:30" },
 };
 
-const upload = multer({ dest: "uploads/" });
-
-app.post("/api/roster/upload", upload.single("file"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-
-  const rawRows = [];
-
-  fs.createReadStream(req.file.path)
-    .pipe(csv({ headers: false }))
-    .on("data", (data) => {
-      const row = Object.keys(data)
-        .sort((a, b) => parseInt(a) - parseInt(b))
-        .map((k) => data[k]);
-      rawRows.push(row);
-    })
-    .on("end", () => {
-      fs.unlinkSync(req.file.path);
-
-      let headerRowIndex = -1;
-      for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
-        const rowStr = JSON.stringify(rawRows[i]);
-        if (rowStr.includes("-Dec") || rowStr.includes("Engineer")) {
-          headerRowIndex = i;
-          break;
-        }
-      }
-
-      if (headerRowIndex === -1) {
-        return res.status(400).json({ error: "Could not find header row" });
-      }
-
-      const headerRow = rawRows[headerRowIndex];
-      DATE_COL_MAP = {};
-      NAME_COL_INDEX = -1;
-
-      headerRow.forEach((col, index) => {
-        if (!col) return;
-        const cleanCol = String(col).trim();
-        if (cleanCol.includes("-")) DATE_COL_MAP[cleanCol] = index;
-        if (
-          cleanCol.toLowerCase().includes("engineer") ||
-          cleanCol.toLowerCase().includes("name")
-        ) {
-          NAME_COL_INDEX = index;
-        }
-      });
-
-      if (NAME_COL_INDEX === -1) NAME_COL_INDEX = 0;
-
-      ROSTER_ROWS = rawRows.slice(headerRowIndex + 1).filter((row) => {
-        const name = row[NAME_COL_INDEX];
-        return (
-          name &&
-          name !== "Designation" &&
-          name !== "Engineer" &&
-          name.length > 2
-        );
-      });
-
-      console.log(`✅ Loaded ${ROSTER_ROWS.length} engineers.`);
-      res.json({ success: true, count: ROSTER_ROWS.length });
-    });
-});
-
+// Helper: Clean String (Standardizes inputs)
 const cleanString = (str) => {
   if (!str) return "";
-  return String(str)
-    .replace(/^\uFEFF/, "")
-    .trim()
-    .toLowerCase();
+  return String(str).trim(); // Keep case sensitive for dates (e.g. "1-Dec")
 };
 
+app.get("/api/roster/debug", (req, res) => {
+  res.json({
+    totalRows: ROSTER_ROWS.length,
+    nameColumnIndex: NAME_COL_INDEX,
+    dateColumns: Object.keys(DATE_COL_MAP).slice(0, 10),
+    sampleRow: ROSTER_ROWS[0] || null,
+  });
+});
+
+const syncRoster = async () => {
+  try {
+    console.log("🔁 Auto-syncing roster...");
+
+    const auth = new google.auth.GoogleAuth({
+      keyFile: "google-sheets-key.json",
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    });
+
+    const client = await auth.getClient();
+    const googleSheets = google.sheets({ version: "v4", auth: client });
+    const spreadsheetId = process.env.ROSTER_SHEET_ID;
+
+    const meta = await googleSheets.spreadsheets.get({ spreadsheetId });
+    const sheetName = meta.data.sheets[0].properties.title;
+
+    const getRows = await googleSheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: sheetName,
+      valueRenderOption: "FORMATTED_VALUE",
+    });
+
+    const rawRows = getRows.data.values || [];
+    if (!rawRows.length) return;
+
+    let headerRowIndex = 0;
+    for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
+      if (JSON.stringify(rawRows[i]).includes("Designation")) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    const headerRow = rawRows[headerRowIndex];
+    DATE_COL_MAP = {};
+    NAME_COL_INDEX = 0;
+
+    headerRow.forEach((col, index) => {
+      if (/^\d{1,2}-[A-Za-z]{3}$/.test(cleanString(col))) {
+        DATE_COL_MAP[col.trim()] = index;
+      }
+    });
+
+    ROSTER_ROWS = rawRows.slice(headerRowIndex + 1).filter(row => {
+      const name = row[NAME_COL_INDEX];
+      return name && String(name).trim().length > 2;
+    });
+
+    console.log(`✅ Roster auto-synced: ${ROSTER_ROWS.length} users`);
+  } catch (e) {
+    console.error("❌ Auto-sync failed:", e.message);
+  }
+};
+
+
+// Helper: Name Match (Case insensitive)
 const isNameMatch = (rosterName, queryName) => {
-  const r = cleanString(rosterName);
-  const q = cleanString(queryName);
-  if (!r || !q) return false;
+  if (!rosterName || !queryName) return false;
+  const r = String(rosterName).trim().toLowerCase();
+  const q = String(queryName).trim().toLowerCase();
   return q.includes(r) || r.includes(q);
 };
 
+// Helper: Get Status (Updated for Date Matching)
 const getUserShiftStatus = (userName) => {
   if (ROSTER_ROWS.length === 0)
     return { isActive: false, status: "Roster Empty" };
@@ -201,39 +202,37 @@ const getUserShiftStatus = (userName) => {
   );
 
   if (!userRow) {
+    // Suggest names if not found
     const similar = ROSTER_ROWS.map((r) => r[NAME_COL_INDEX])
       .filter(
-        (n) => n && n.toLowerCase().startsWith(userName.charAt(0).toLowerCase())
+        (n) =>
+          n &&
+          String(n).toLowerCase().startsWith(userName.charAt(0).toLowerCase())
       )
       .slice(0, 3);
     return { isActive: false, status: "Not in Roster", candidates: similar };
   }
 
-  const istNow = toZonedTime(new Date(), "Asia/Kolkata");
-  const todayKey = format(istNow, "d-MMM");
+  // Get Current Time (IST)
+  const istNow = new Date().toLocaleString("en-US", {
+    timeZone: "Asia/Kolkata",
+  });
+  const dateObj = new Date(istNow);
 
-  const currentH = istNow.getHours();
-  if (currentH < 8) {
-    const yesterday = subDays(istNow, 1);
-    const yesterdayKey = format(yesterday, "d-MMM");
-    const yesterdayColIdx = DATE_COL_MAP[yesterdayKey];
-
-    if (yesterdayColIdx !== undefined) {
-      const yShift = userRow[yesterdayColIdx]?.trim();
-      if (yShift && yShift.includes("Shift 4")) {
-        return {
-          isActive: true,
-          status: "Active (Shift 4)",
-          shiftName: "Shift 4",
-          timings: "22:30 - 07:30",
-        };
-      }
-    }
-  }
+  // Format Date to match Sheet Header (e.g., "23-Dec")
+  const day = dateObj.getDate();
+  const month = dateObj.toLocaleString("default", { month: "short" }); // "Dec"
+  const todayKey = `${day}-${month}`; // "23-Dec"
 
   const todayColIdx = DATE_COL_MAP[todayKey];
-  if (todayColIdx === undefined)
+
+  if (todayColIdx === undefined) {
+    console.log(
+      `Date key '${todayKey}' not found in map. Available keys:`,
+      Object.keys(DATE_COL_MAP).slice(0, 5)
+    );
     return { isActive: false, status: "Date Not Found", shiftName: "Unknown" };
+  }
 
   const shiftName = userRow[todayColIdx]?.trim();
   const cleanShift = Object.keys(SHIFT_TIMINGS).find(
@@ -246,14 +245,17 @@ const getUserShiftStatus = (userName) => {
   const { start, end } = SHIFT_TIMINGS[cleanShift];
   const [sH, sM] = start.split(":").map(Number);
   const [eH, eM] = end.split(":").map(Number);
-  const currentM = istNow.getMinutes();
+  const currentH = dateObj.getHours();
+  const currentM = dateObj.getMinutes();
+
   const nowVal = currentH * 60 + currentM;
   const startVal = sH * 60 + sM;
   const endVal = eH * 60 + eM;
 
   let isActive = false;
   if (endVal < startVal) {
-    isActive = nowVal >= startVal;
+    // Shift 4 (Overnight)
+    isActive = nowVal >= startVal || nowVal <= endVal;
   } else {
     isActive = nowVal >= startVal && nowVal <= endVal;
   }
@@ -266,70 +268,80 @@ const getUserShiftStatus = (userName) => {
   };
 };
 
-
-
 // 2. PROFILE API (LOGIC BASED - NO AI)
 // ============================================================================
 app.post("/api/profile/status", async (req, res) => {
   const { userName, activeTickets, teamMembers } = req.body;
-  
+
   const ticketCount = activeTickets ? activeTickets.length : 0;
-  
+
   // 1. ROSTER LOGIC
   const shiftStatus = getUserShiftStatus(userName);
-  let backup = null;
+  let backups = [];
+
 
   if (!shiftStatus.isActive && ROSTER_ROWS.length > 0) {
-    const potentialBackups = ROSTER_ROWS.filter(row => {
+    const potentialBackups = ROSTER_ROWS.filter((row) => {
       const rName = row[NAME_COL_INDEX];
-      if (isNameMatch(rName, userName)) return false; 
-      
+      if (isNameMatch(rName, userName)) return false;
+
       if (teamMembers && teamMembers.length > 0) {
-        const isTeamMember = teamMembers.some(member => isNameMatch(rName, member));
+        const isTeamMember = teamMembers.some((member) =>
+          isNameMatch(rName, member)
+        );
         if (!isTeamMember) return false;
       }
       return getUserShiftStatus(rName).isActive;
     });
 
-    if (potentialBackups.length > 0) backup = potentialBackups[0][NAME_COL_INDEX];
+    if (potentialBackups.length > 0)
+      backups = potentialBackups
+  .slice(0, 2) // 👈 take max 2
+  .map(row => row[NAME_COL_INDEX]);
+
   }
 
   // 2. SMART SUMMARY LOGIC (Replaces AI)
   let aiSummary = "";
 
   if (ticketCount === 0) {
-      aiSummary = "Queue is currently clear.";
+    aiSummary = "Queue is currently clear.";
   } else {
-      // Filter for "Critical" (Waiting on Assignee + High/Blocker)
-      const criticalTickets = activeTickets.filter(t => {
-          const stageName = (t.stage || "").toString();
-          const severity = (t.severity || "").toString().toLowerCase();
-          
-          return stageName === "Waiting on Assignee" && 
-                 (severity.includes("high") || severity.includes("blocker"));
-      });
+    // Filter for "Critical" (Waiting on Assignee + High/Blocker)
+    const criticalTickets = activeTickets.filter((t) => {
+      const stageName = (t.stage || "").toString();
+      const severity = (t.severity || "").toString().toLowerCase();
 
-      // Get Unique Account Names (Max 2)
-      const uniqueAccounts = [...new Set(
-          criticalTickets.map(t => t.account).filter(a => a && a !== "Unknown")
-      )].slice(0, 2);
+      return (
+        stageName === "Waiting on Assignee" &&
+        (severity.includes("high") || severity.includes("blocker"))
+      );
+    });
 
-      // ✅ CONSTRUCT THE SENTENCE
-      if (criticalTickets.length > 0) {
-          const accountStr = uniqueAccounts.length > 0 
-              ? ` for ${uniqueAccounts.join(" & ")}` 
-              : "";
-              
-          // Example: "Rohan is working on 3 high priority tickets for Jio."
-          aiSummary = `${userName} is working on ${criticalTickets.length} high priority tickets${accountStr}.`;
-      } else {
-          // Fallback if no critical tickets
-          // Example: "Rohan has 12 active tickets in queue."
-          aiSummary = `${userName} has ${ticketCount} active tickets in queue.`;
-      }
+    // Get Unique Account Names (Max 2)
+    const uniqueAccounts = [
+      ...new Set(
+        criticalTickets
+          .map((t) => t.account)
+          .filter((a) => a && a !== "Unknown")
+      ),
+    ].slice(0, 2);
+
+    // ✅ CONSTRUCT THE SENTENCE
+    if (criticalTickets.length > 0) {
+      const accountStr =
+        uniqueAccounts.length > 0 ? ` for ${uniqueAccounts.join(" & ")}` : "";
+
+      // Example: "Rohan is working on 3 high priority tickets for Jio."
+      aiSummary = `${userName} is working on ${criticalTickets.length} high priority tickets${accountStr}.`;
+    } else {
+      // Fallback if no critical tickets
+      // Example: "Rohan has 12 active tickets in queue."
+      aiSummary = `${userName} has ${ticketCount} active tickets in queue.`;
+    }
   }
 
-  res.json({ ...shiftStatus, backup, aiSummary });
+  res.json({ ...shiftStatus, backups, aiSummary });
 });
 
 app.post("/api/notify/eta", (req, res) => {
@@ -337,19 +349,52 @@ app.post("/api/notify/eta", (req, res) => {
   res.json({ success: true, message: "Slack notification sent" });
 });
 
-app.get("/api/debug/roster", (req, res) => {
-  const istNow = toZonedTime(new Date(), "Asia/Kolkata");
-  const todayKey = format(istNow, "d-MMM");
-  res.json({
-    total_engineers: ROSTER_ROWS.length,
-    looking_for_today: todayKey,
-    today_column_index: DATE_COL_MAP[todayKey],
-    name_column_index: NAME_COL_INDEX,
-    loaded_names: ROSTER_ROWS.map((r) => r[NAME_COL_INDEX]).slice(0, 10),
-  });
+// ============================================================================
+// 🛠️ DEBUG ENDPOINT (Paste this before app.listen)
+// ============================================================================
+app.get("/api/debug/roster", async (req, res) => {
+  try {
+    const auth = new google.auth.GoogleAuth({
+      keyFile: "google-sheets-key.json",
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    });
+    const client = await auth.getClient();
+    const googleSheets = google.sheets({ version: "v4", auth: client });
+    const spreadsheetId = process.env.ROSTER_SHEET_ID;
+
+    // 1. Try to fetch raw data
+    const meta = await googleSheets.spreadsheets.get({ spreadsheetId });
+    const sheetName = meta.data.sheets[0].properties.title;
+
+    const getRows = await googleSheets.spreadsheets.values.get({
+      auth,
+      spreadsheetId,
+      range: sheetName,
+    });
+
+    const rawRows = getRows.data.values || [];
+
+    // 2. Return Diagnostic Info
+    res.json({
+      status: "Connected to Google",
+      sheetName: sheetName,
+      totalRawRows: rawRows.length,
+      firstRow: rawRows[0], // What does the top row look like?
+      headerRowDetection: {
+        currentNameIndex: NAME_COL_INDEX,
+        sampleDateColumns: Object.keys(DATE_COL_MAP).slice(0, 5),
+      },
+      parsedRosterCount: ROSTER_ROWS.length,
+      sampleParsedRow: ROSTER_ROWS[0] || "None",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Google Connection Failed",
+      message: error.message,
+      tip: "Check if 'roster-bot' email has Viewer access in the Google Sheet sharing settings.",
+    });
+  }
 });
-
-
 
 // ============================================================================
 // 3. ANALYTICS ENGINE (Strategic AI - COMPARISON MODE)
@@ -369,7 +414,7 @@ app.post("/api/analytics/insight", async (req, res) => {
 
     // 1. INDIVIDUAL PERFORMANCE (The Game Changer)
     if (comparison) {
-        prompt = `
+      prompt = `
             You are a Performance Coach. Compare ${context}'s performance vs the Team Average.
             
             Metric: ${metric.toUpperCase()}
@@ -383,10 +428,10 @@ app.post("/api/analytics/insight", async (req, res) => {
             2. Give 1 actionable tip.
             3. Tone: Constructive & Encouraging. Max 25 words.
         `;
-    } 
+    }
     // 2. STANDARD TREND ANALYSIS
     else {
-        prompt = `
+      prompt = `
             Analyze this ${metric} trend for ${context}.
             Data (Last 10 Days): ${JSON.stringify(chartData.slice(-10))}
             Task: Identify the trend (Spike/Drop) and the "Why". Max 20 words.
@@ -395,7 +440,6 @@ app.post("/api/analytics/insight", async (req, res) => {
 
     const result = await model.generateContent(prompt);
     res.json({ insight: result.response.text() });
-
   } catch (e) {
     console.error("AI Analytics Error:", e.message);
     res.json({ insight: "AI limit reached. Please wait a moment." });
@@ -483,7 +527,6 @@ app.get("/api/tickets", async (req, res) => {
   }
 });
 
-
 // API: Get Remarks
 app.get("/api/remarks/:ticketId", (req, res) => {
   try {
@@ -498,17 +541,18 @@ app.get("/api/remarks/:ticketId", (req, res) => {
 // API: Save Remark
 app.post("/api/remarks", (req, res) => {
   const { ticketId, user, text } = req.body;
-  
-  if (!ticketId || !text) return res.status(400).json({ error: "Missing data" });
+
+  if (!ticketId || !text)
+    return res.status(400).json({ error: "Missing data" });
 
   try {
     const db = readRemarksDB();
-    
+
     const newRemark = {
       id: Date.now().toString(),
       user: user || "Support Engineer",
       text: text,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
     if (!db[ticketId]) {
@@ -527,4 +571,9 @@ app.post("/api/remarks", (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+server.listen(PORT, async () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  await syncRoster(); // 👈 THIS FIXES NEHA
+});
+setInterval(syncRoster, 15 * 60 * 1000);
+

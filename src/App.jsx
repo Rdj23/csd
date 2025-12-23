@@ -83,26 +83,18 @@ const App = () => {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
 
-  // --- ROSTER UPLOAD HANDLER ---
-  const fileInputRef = useRef(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  const handleRosterUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
+  const handleRosterSync = async () => {
+    setIsSyncing(true);
     try {
-      const API_BASE =  "http://localhost:5000";
-      await fetch(`${API_BASE}/api/roster/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      alert("✅ Roster updated successfully! Changes are live.");
+      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+      await fetch(`${API_BASE}/api/roster/sync`, { method: "POST" });
+      alert("✅ Roster synced with Google Sheets!");
     } catch (error) {
-      console.error("Upload failed", error);
-      alert("❌ Upload failed.");
+      alert("❌ Sync failed.");
+    } finally {
+      setIsSyncing(false);
     }
   };
   
@@ -294,22 +286,17 @@ const App = () => {
             <button onClick={fetchTickets} disabled={isLoading} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm">
               <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} /> Sync
             </button>
-            {/* HIDDEN INPUT FOR CSV UPLOAD */}
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleRosterUpload} 
-              className="hidden" 
-              accept=".csv"
-            />
+
             
-            {/* BUTTON TO TRIGGER UPLOAD */}
+           {/* GOOGLE SHEETS SYNC BUTTON */}
             <button 
-              onClick={() => fileInputRef.current.click()} 
-              className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 text-slate-500"
-              title="Upload Shift Roster"
+              onClick={handleRosterSync} 
+              disabled={isSyncing}
+              className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-900/50 px-3 py-2 rounded-lg text-sm text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors shadow-sm font-medium"
+              title="Sync Roster from Google Sheets"
             >
-              <Users className="w-4 h-4" /> {/* Or any icon representing roster */}
+              <Users className={`w-4 h-4 ${isSyncing ? "animate-pulse" : ""}`} /> 
+              {isSyncing ? "Syncing..." : "Sync Roster"}
             </button>
             <button onClick={logout} className="flex items-center gap-2 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-900/50 px-4 py-2 rounded-lg text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-sm font-medium">
               <LogOut className="w-4 h-4" /> Logout
