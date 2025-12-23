@@ -1,6 +1,9 @@
-const fs = require("fs");
-const path = require("path");
-const express = require("express");
+import fs from "fs";
+import path from "path";
+import express from "express";
+import cors from "cors";
+import axios from "axios";
+import http from "http";
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 const cors = require("cors");
 const axios = require("axios");
