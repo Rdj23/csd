@@ -167,8 +167,7 @@ app.post("/api/comments", async (req, res) => {
       {
         object: ticketId,
         type: "timeline_comment",
-        body: body,
-        body_type: "text"
+        body: body
       },
       {
         headers: {

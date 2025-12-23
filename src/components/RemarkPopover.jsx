@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import { format, parseISO } from "date-fns";
+import { format, parseISO, subDays } from "date-fns"; // Added subDays
+import { toZonedTime } from "date-fns-tz"; // Added toZonedTime
 import { useTicketStore } from "../store";
 import {
   X,
