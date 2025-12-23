@@ -5,9 +5,7 @@ import cors from "cors";
 import axios from "axios";
 import http from "http";
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
-const cors = require("cors");
-const axios = require("axios");
-const http = require("http");
+
 const { Server } = require("socket.io");
 const NodeCache = require("node-cache");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
