@@ -165,10 +165,10 @@ app.post("/api/comments", async (req, res) => {
     const response = await axios.post(
       "https://api.devrev.ai/timeline.create",
       {
-        object: ticketId, // The UUID we passed from the store
+        object: ticketId,
         type: "timeline_comment",
         body: body,
-        body_type: "text",
+        body_type: "text"
       },
       {
         headers: {
@@ -177,15 +177,24 @@ app.post("/api/comments", async (req, res) => {
         },
       }
     );
-    res.json(response.data);
+
+    if (!response.ok) throw new Error("DevRev Sync Failed");
+
+    return res.status(200).json(response.data);
   } catch (error) {
-    console.error("DevRev API Error:", error.response?.data || error.message);
     console.error("DevRev API Error:", {
       status: error.response?.status,
       data: error.response?.data,
     });
+
+   return res.status(500).json({
+     success: false,
+     error: "DevRev timeline sync failed",
+     details: error.response?.data || error.message,
+   });
   }
 });
+
 
 const syncRoster = async () => {
   try {
