@@ -98,6 +98,36 @@ app.post("/api/remarks", (req, res) => {
   res.json({ success: true, remark: newRemark, history: db[ticketId] });
 });
 
+// ✅ NEW: This allows your frontend to "see" users for tagging
+app.get("/api/users", async (req, res) => {
+  try {
+    let allUsers = [];
+    let cursor = null;
+    let hasMore = true;
+
+    while (hasMore) {
+      const response = await axios.get(
+        `${DEVREV_API}/dev-users.list${cursor ? `?cursor=${cursor}` : ""}`,
+        {
+          headers: HEADERS,
+        }
+      );
+      allUsers = [...allUsers, ...(response.data.dev_users || [])];
+      cursor = response.data.next_cursor;
+      hasMore = !!cursor;
+    }
+
+    const formatted = allUsers.map((u) => ({
+      id: u.id,
+      display_name: u.display_name,
+      full_name: u.full_name,
+      email: u.email,
+    }));
+    res.json(formatted);
+  } catch (e) {
+    res.status(500).json([]);
+  }
+});
 // ============================================================================
 // 1. ROSTER ENGINE (GOOGLE SHEETS EDITION)
 // ============================================================================
@@ -126,6 +156,34 @@ app.get("/api/roster/debug", (req, res) => {
     dateColumns: Object.keys(DATE_COL_MAP).slice(0, 10),
     sampleRow: ROSTER_ROWS[0] || null,
   });
+});
+
+app.post("/api/comments", async (req, res) => {
+  const { ticketId, body } = req.body;
+  try {
+    const response = await axios.post(
+      "https://api.devrev.ai/timeline.create",
+      {
+        object: ticketId, // The UUID we passed from the store
+        type: "timeline_comment",
+        body: body,
+        body_type: "text",
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.VITE_DEVREV_PAT}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error("DevRev API Error:", error.response?.data || error.message);
+    console.error("DevRev API Error:", {
+      status: error.response?.status,
+      data: error.response?.data,
+    });
+  }
 });
 
 const syncRoster = async () => {
@@ -171,7 +229,7 @@ const syncRoster = async () => {
       }
     });
 
-    ROSTER_ROWS = rawRows.slice(headerRowIndex + 1).filter(row => {
+    ROSTER_ROWS = rawRows.slice(headerRowIndex + 1).filter((row) => {
       const name = row[NAME_COL_INDEX];
       return name && String(name).trim().length > 2;
     });
@@ -181,7 +239,6 @@ const syncRoster = async () => {
     console.error("❌ Auto-sync failed:", e.message);
   }
 };
-
 
 // Helper: Name Match (Case insensitive)
 const isNameMatch = (rosterName, queryName) => {
@@ -278,7 +335,6 @@ app.post("/api/profile/status", async (req, res) => {
   const shiftStatus = getUserShiftStatus(userName);
   let backups = [];
 
-
   if (!shiftStatus.isActive && ROSTER_ROWS.length > 0) {
     const potentialBackups = ROSTER_ROWS.filter((row) => {
       const rName = row[NAME_COL_INDEX];
@@ -295,9 +351,8 @@ app.post("/api/profile/status", async (req, res) => {
 
     if (potentialBackups.length > 0)
       backups = potentialBackups
-  .slice(0, 2) // 👈 take max 2
-  .map(row => row[NAME_COL_INDEX]);
-
+        .slice(0, 2) // 👈 take max 2
+        .map((row) => row[NAME_COL_INDEX]);
   }
 
   // 2. SMART SUMMARY LOGIC (Replaces AI)
@@ -448,28 +503,6 @@ app.post("/api/analytics/insight", async (req, res) => {
 app.get("/api/auth/config", (req, res) =>
   res.json({ clientId: GOOGLE_CLIENT_ID })
 );
-app.get("/api/users", async (req, res) => {
-  const cachedUsers = cache.get("dev_users");
-  if (cachedUsers) return res.json(cachedUsers);
-  try {
-    let allUsers = [];
-    let cursor = null;
-    let count = 0;
-    do {
-      const url = `${DEVREV_API}/dev-users.list?limit=50${
-        cursor ? `&cursor=${cursor}` : ""
-      }`;
-      const response = await axios.get(url, { headers: HEADERS });
-      allUsers = [...allUsers, ...response.data.dev_users];
-      cursor = response.data.next_cursor;
-      count++;
-    } while (cursor && count < 10);
-    cache.set("dev_users", allUsers, 3600);
-    res.json(allUsers);
-  } catch (error) {
-    res.status(500).json([]);
-  }
-});
 
 // ✅ FAST TICKET FETCH (Parallel + Updated Mapping)
 app.get("/api/tickets", async (req, res) => {
@@ -575,4 +608,3 @@ server.listen(PORT, async () => {
   await syncRoster(); // 👈 THIS FIXES NEHA
 });
 setInterval(syncRoster, 15 * 60 * 1000);
-

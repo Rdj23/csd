@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
+import { format, parseISO } from "date-fns";
+import { useTicketStore } from "../store";
 import {
   X,
   Send,
@@ -8,12 +10,9 @@ import {
   Sparkles,
   MessageSquare,
 } from "lucide-react";
-import { format, parseISO } from "date-fns";
-import { useTicketStore } from "../store";
 
 const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
-  const { postTicketComment, fetchTicketTimeline, currentUser } =
-    useTicketStore();
+  const { postTicketComment, currentUser } = useTicketStore();
 
   const [history, setHistory] = useState([]);
   const [newComment, setNewComment] = useState("");
@@ -28,56 +27,57 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   const listRef = useRef(null);
   const mentionListRef = useRef(null);
 
-  // --- POSITIONING LOGIC ---
-  // Calculates where to float the window based on the clicked button
-  const POPUP_WIDTH = 384; // w-96
+  const POPUP_WIDTH = 384;
   const POPUP_HEIGHT = 500;
 
   const style = anchorRect
     ? {
         position: "fixed",
-        // Align bottom of popup to top of button (with 10px gap)
         top: Math.max(10, anchorRect.top - POPUP_HEIGHT - 10),
-        // Align right of popup to right of button (so it stays on screen)
         left: anchorRect.right - POPUP_WIDTH,
         width: POPUP_WIDTH,
         height: POPUP_HEIGHT,
       }
     : {};
 
-  // 1. FETCH USERS
+  // 1. FETCH USERS (For Mentions)
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+       
+        // To this (Force localhost if you are on a dev machine):
+        const API_URL =
+          window.location.hostname === "localhost"
+            ? "http://localhost:5000"
+            : import.meta.env.VITE_API_URL;
         const res = await axios.get(`${API_URL}/api/users`);
+
+        // Ensure we handle the data property from axios correctly
         const formattedUsers = res.data.map((u) => ({
-          name: u.full_name || u.display_name,
+          name: u.full_name || u.display_name || "Unknown User",
           id: u.id,
           email: u.email,
         }));
+
         setUsers(formattedUsers);
       } catch (err) {
-        console.error("Failed to load users:", err);
+        console.error("Failed to load users for tagging:", err);
       }
     };
     fetchUsers();
   }, []);
 
-  // 2. LOAD HISTORY (FROM LOCAL SERVER)
-  // This ensures comments persist even after refresh!
+  // 2. LOAD HISTORY (Local Server Persistence)
   useEffect(() => {
     const fetchHistory = async () => {
-      if (!ticket) return;
+      if (!ticket?.display_id) return;
       setLoadingHistory(true);
       try {
-        // ✅ Call Local Server (server.js)
-        const API_URL = "http://localhost:5000";
+        const API_URL = process.env.VITE_API_URL;
         const res = await axios.get(
           `${API_URL}/api/remarks/${ticket.display_id}`
         );
 
-        // ✅ Map Server Data -> UI Format
         const adaptedHistory = res.data.map((item) => ({
           id: item.id,
           body: item.text,
@@ -88,9 +88,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
           },
         }));
 
-        setHistory(adaptedHistory); // No reverse needed if push appends
-
-        // Scroll to bottom
+        setHistory(adaptedHistory);
         setTimeout(() => {
           listRef.current?.scrollTo({
             top: listRef.current.scrollHeight,
@@ -103,21 +101,23 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
         setLoadingHistory(false);
       }
     };
-
     fetchHistory();
-  }, [ticket.display_id]);
+  }, [ticket?.display_id]);
 
+  // Mentions Helper: Replaces IDs with @Names for UI display
   const cleanCommentBody = (text) => {
     if (!text) return "";
     return text.replace(/<((?:don:identity)[^>]+)>/g, (_, id) => {
       const user = users.find((u) => u.id === id);
-      return user ? `@${user.name}` : "@Unknown";
+      return user ? `@${user.name}` : "@User";
     });
   };
 
+  // Helper: Format Identity for DevRev
   const buildDevRevIdentity = (user) => {
-    if (user?.id?.startsWith("don:identity")) return user.id;
-    const shortId = user?.display_id || user?.id;
+    if (!user) return null;
+    if (user.id?.startsWith("don:identity")) return user.id;
+    const shortId = user.display_id || user.id;
     if (!shortId?.startsWith("DEVU-")) return null;
     const systemId = shortId.toLowerCase().replace("-", "/");
     return `don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId}`;
@@ -127,51 +127,49 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     if (!newComment.trim()) return;
     setSending(true);
 
-    const textForDisplay = newComment;
     let payloadBody = newComment;
+    const authorName = currentUser?.display_name || currentUser?.name || "Support Engineer";
 
-    const sortedUsers = [...users].sort(
-      (a, b) => b.name.length - a.name.length
-    );
-
+    // 1. Convert @Mentions to <don:identity> tags for DevRev
+    const sortedUsers = [...users].sort((a, b) => b.name.length - a.name.length);
     sortedUsers.forEach((u) => {
-      if (payloadBody.includes(`@${u.name}`)) {
-        payloadBody = payloadBody.replaceAll(`@${u.name}`, `<${u.id}>`);
-      }
+      payloadBody = payloadBody.replaceAll(`@${u.name}`, `<${u.id}>`);
     });
 
     const authorIdentity = buildDevRevIdentity(currentUser);
     const signature = authorIdentity ? `\n\n— By <${authorIdentity}>` : "";
-    const finalBody = payloadBody + signature;
+    const finalDevRevBody = payloadBody + signature;
 
     try {
-      await postTicketComment(ticket.id, finalBody);
+      // ✅ CALL THE UPDATED STORE FUNCTION
+      // Pass: ticket.id (UUID), ticket.display_id (TKT-xxx), and the body
+      await postTicketComment(ticket.id, ticket.display_id, finalDevRevBody);
+
+      // 2. Update local UI state immediately
       const newEntry = {
-        id: "temp-" + Date.now(),
-        body: textForDisplay,
+        id: Date.now().toString(),
+        body: newComment, // Show the readable version in UI
         created_date: new Date().toISOString(),
-        created_by: { display_name: currentUser.name },
+        created_by: { display_name: authorName },
       };
 
-      setHistory([...history, newEntry]);
+      setHistory((prev) => [...prev, newEntry]);
       setNewComment("");
-      setTimeout(
-        () =>
-          listRef.current?.scrollTo({
-            top: listRef.current.scrollHeight,
-            behavior: "smooth",
-          }),
-        100
-      );
+
+      setTimeout(() => {
+        listRef.current?.scrollTo({
+          top: listRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      }, 100);
     } catch (err) {
-      console.error(err);
-      alert("Sync failed.");
+      console.error("Failed to post remark:", err);
+      alert("Sync failed. Ensure your backend server is running.");
     } finally {
       setSending(false);
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
-
   const handleInput = (e) => {
     const val = e.target.value;
     setNewComment(val);
@@ -233,12 +231,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   useEffect(() => {
     if (mentionListRef.current && mentionOptions.length > 0) {
       const selectedElement = mentionListRef.current.children[selectedIndex];
-      if (selectedElement) {
-        selectedElement.scrollIntoView({
-          block: "nearest",
-          behavior: "smooth",
-        });
-      }
+      selectedElement?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }, [selectedIndex]);
 

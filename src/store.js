@@ -2,7 +2,9 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 // --- CONFIG: Universal API URL ---
-const getApiUrl = () => import.meta.env.VITE_API_URL || "http://localhost:5000";
+const getApiUrl = () => import.meta.env.VITE_API_URL 
+
+
 
 export const useTicketStore = create(
   persist(
@@ -89,36 +91,45 @@ export const useTicketStore = create(
           return [];
         }
       },
+// Change the arguments to accept: id (UUID), displayId (TKT-xxx), and text
+postTicketComment: async (id, displayId, text) => {
+  const { currentUser, token } = get();
+  const API_URL = getApiUrl();
 
-      postTicketComment: async (ticketId, text) => {
-        const { currentUser, token } = get();
-        const API_URL = getApiUrl();
+  try {
+    // 1. Post to your Local Remark Server using the readable displayId
+    await fetch(`${API_URL}/api/remarks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ticketId: displayId, // ✅ Use TKT-xxx for local persistence
+        user: currentUser?.display_name || currentUser?.name || "Support Engineer",
+        text: text
+      })
+    });
 
-        try {
-          const response = await fetch(`${API_URL}/api/comments`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              ticketId,
-              body: text,
-              authorId: currentUser?.id,
-            }),
-          });
-
-          if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(errorData || "Server Error");
-          }
-
-          console.log("✅ Comment posted successfully");
-        } catch (err) {
-          console.error("❌ Failed to post comment:", err);
-          alert(`Failed to post: ${err.message}`);
-        }
+    // 2. Post to DevRev Proxy using the internal UUID
+    const response = await fetch(`${API_URL}/api/comments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
+      body: JSON.stringify({
+        ticketId: id, // ✅ Use internal UUID for DevRev sync
+        body: text,
+        authorId: currentUser?.id,
+      }),
+    });
+
+    if (!response.ok) throw new Error("DevRev Sync Failed");
+
+    console.log("✅ Comment saved locally and synced to DevRev");
+  } catch (err) {
+    console.error("❌ Failed to post comment:", err);
+    throw err; // Throw error so the UI can catch it
+  }
+},
     }),
     {
       name: "support-dashboard-storage",
