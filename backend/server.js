@@ -19,7 +19,8 @@ import { subDays, parseISO, isAfter, subMonths } from "date-fns";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const { OAuth2Client } = require('google-auth-library');
+import { OAuth2Client } from "google-auth-library";
+
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
