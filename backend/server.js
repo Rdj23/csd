@@ -189,55 +189,28 @@ app.get("/api/roster/debug", (req, res) => {
 });
 
 app.post("/api/comments", async (req, res) => {
-  const { ticketId, body } = req.body;
-
-  // 🔍 DEBUG: Log incoming request from frontend
-  console.log("➡️ /api/comments called with payload:", {
-    ticketId,
-    body,
-    bodyLength: body?.length,
-  });
-
+  const { ticketId, body } = req.body; 
   try {
-    // 🔍 DEBUG: Log payload exactly as sent to DevRev
-    const devrevPayload = {
-      object: ticketId,
-      type: "timeline_comment",
-      body: body,
-      body_type: "text", // ✅ REQUIRED
-    };
-
-    console.log("📤 Sending payload to DevRev:", devrevPayload);
-
     const response = await axios.post(
       "https://api.devrev.ai/timeline.create",
-      devrevPayload,
+      {
+        object: ticketId, // Must be the UUID
+        type: "timeline_comment",
+        body: body
+      },
       {
         headers: {
-          Authorization: `Bearer ${process.env.VITE_DEVREV_PAT}`,
+          // Use the EXACT variable name from your production .env
+          Authorization: `Bearer ${process.env.VITE_DEVREV_TOKEN}`,
           "Content-Type": "application/json",
         },
       }
     );
-
-    // 🔍 DEBUG: Log DevRev success response
-    console.log("✅ DevRev response status:", response.status);
-    console.log("✅ DevRev response data:", response.data);
-
+    // Return data directly
     return res.status(200).json(response.data);
-
   } catch (error) {
-    // 🔥 DEBUG: Log DevRev failure in full detail
-    console.error("❌ DevRev API ERROR");
-    console.error("Status:", error.response?.status);
-    console.error("Data:", error.response?.data);
-    console.error("Message:", error.message);
-
-    return res.status(500).json({
-      success: false,
-      error: "DevRev timeline sync failed",
-      details: error.response?.data || error.message,
-    });
+    console.error("❌ DevRev API Error:", error.response?.data || error.message);
+    return res.status(500).json({ error: "Failed to sync to DevRev" });
   }
 });
 

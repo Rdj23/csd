@@ -92,37 +92,39 @@ export const useTicketStore = create(
         }
       },
 
-      postTicketComment: async (ticketId, text) => {
-        const { currentUser, token } = get();
-        const API_URL = getApiUrl();
-        console.log("API_URL =", API_URL);
+     // Accepts internalId (UUID) and displayId (TKT-xxx)
+postTicketComment: async (internalId, displayId, text) => {
+  const { currentUser } = get();
+  const API_URL = getApiUrl();
 
+  try {
+    // 1. Local Sync (Uses readable ID for dashboard history)
+    await fetch(`${API_URL}/api/remarks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ticketId: displayId, 
+        user: currentUser?.display_name || "Support Engineer",
+        text: text
+      })
+    });
 
-        try {
-          const response = await fetch(`${API_URL}/api/comments`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              ticketId,
-              body: text,
-              authorId: currentUser?.id,
-            }),
-          });
+    // 2. DevRev Sync (Uses internal UUID for platform reflection)
+    const response = await fetch(`${API_URL}/api/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ticketId: internalId, 
+        body: text,
+      }),
+    });
 
-          if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(errorData || "Server Error");
-          }
-
-          console.log("✅ Comment posted successfully");
-        } catch (err) {
-          console.error("❌ Failed to post comment:", err);
-          alert(`Failed to post: ${err.message}`);
-        }
-      },
+    if (!response.ok) throw new Error("DevRev Sync Failed");
+  } catch (err) {
+    console.error("❌ Post failed:", err);
+    throw err;
+  }
+},
     }),
     {
       name: "support-dashboard-storage",
