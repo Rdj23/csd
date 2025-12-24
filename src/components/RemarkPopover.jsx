@@ -123,32 +123,42 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
     return `don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId}`;
   };
 
-  const handleSend = async () => {
+const handleSend = async () => {
     if (!newComment.trim()) return;
     setSending(true);
 
     let payloadBody = newComment;
     const authorName = currentUser?.display_name || currentUser?.name || "Support Engineer";
 
-    // 1. Convert @Mentions to <don:identity> tags for DevRev
+    // 1. Convert @Mentions (UI names) to <don:identity> tags (DevRev IDs)
     const sortedUsers = [...users].sort((a, b) => b.name.length - a.name.length);
     sortedUsers.forEach((u) => {
       payloadBody = payloadBody.replaceAll(`@${u.name}`, `<${u.id}>`);
     });
 
-    const authorIdentity = buildDevRevIdentity(currentUser);
-    const signature = authorIdentity ? `\n\n— By <${authorIdentity}>` : "";
+    // 🔴 FIX: Find the DevRev User ID by matching the logged-in email
+    const devRevUser = users.find(u => u.email === currentUser?.email);
+    
+    // Use the ID from the matched DevRev user, otherwise fallback to the helper
+    let authorTag = null;
+    if (devRevUser?.id) {
+        authorTag = devRevUser.id; // Usually "don:identity:..."
+    } else {
+        authorTag = buildDevRevIdentity(currentUser);
+    }
+
+    // Construct the signature using the correct ID
+    const signature = authorTag ? `\n\n— By <${authorTag}>` : `\n\n— By ${authorName}`;
     const finalDevRevBody = payloadBody + signature;
 
     try {
-      // ✅ CALL THE UPDATED STORE FUNCTION
-      // Pass: ticket.id (UUID), ticket.display_id (TKT-xxx), and the body
+      // ✅ Call store (UUID for DevRev, DisplayID for Local)
       await postTicketComment(ticket.id, ticket.display_id, finalDevRevBody);
 
-      // 2. Update local UI state immediately
+      // 2. Update local UI
       const newEntry = {
         id: Date.now().toString(),
-        body: newComment, // Show the readable version in UI
+        body: newComment, 
         created_date: new Date().toISOString(),
         created_by: { display_name: authorName },
       };
@@ -164,7 +174,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
       }, 100);
     } catch (err) {
       console.error("Failed to post remark:", err);
-      alert("Sync failed. Ensure your backend server is running.");
+      alert("Sync failed. Check console.");
     } finally {
       setSending(false);
       setTimeout(() => textareaRef.current?.focus(), 100);
