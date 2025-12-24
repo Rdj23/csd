@@ -196,12 +196,13 @@ app.post("/api/comments", async (req, res) => {
       {
         object: ticketId, // Must be the UUID
         type: "timeline_comment",
-        body: body
+        body: body,
+        "visibility": "internal"
       },
       {
         headers: {
           // Use the EXACT variable name from your production .env
-          Authorization: `Bearer ${process.env.VITE_DEVREV_TOKEN}`,
+          Authorization: `Bearer ${process.env.VITE_DEVREV_PAT}`,
           "Content-Type": "application/json",
         },
       }
