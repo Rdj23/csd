@@ -26,35 +26,35 @@ export const useTicketStore = create(
 
       setCurrentUser: (user) => set({ currentUser: user }),
 
-      // --- LOGIN ACTIONS ---
-      loginWithGoogle: async (credentialResponse) => {
-        try {
-          const G_URL = import.meta.env.GOOGLE_CLIENT_ID
-          const res = await fetch(`${G_URL}/api/auth/google`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: credentialResponse.credential }),
-          });
+ loginWithGoogle: async (credentialResponse) => {
+  try {
+    const API_URL = getApiUrl();
+    const res = await fetch(`${API_URL}/api/auth/google`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // ✅ FIX: Change 'token' to 'credential' to match server.js
+      body: JSON.stringify({ credential: credentialResponse.credential }),
+    });
 
-          const data = await res.json();
+    const data = await res.json();
 
-          if (res.ok && data.success) {
-            set({
-              currentUser: data.user,
-              isAuthenticated: true,
-              token: data.token || null,
-            });
-            return true;
-          } else {
-            alert(data.error || "Login failed");
-            return false;
-          }
-        } catch (e) {
-          console.error("Login error", e);
-          alert("Server error during login");
-          return false;
-        }
-      },
+    // ✅ FIX: Remove 'data.success' check since server doesn't send it
+    if (res.ok && data.user) {
+      set({
+        currentUser: data.user,
+        isAuthenticated: true,
+        token: data.token || null,
+      });
+      return true;
+    } else {
+      alert(data.error || "Login failed");
+      return false;
+    }
+  } catch (e) {
+    console.error("Login error", e);
+    return false;
+  }
+},
 
       logout: () =>
         set({ currentUser: null, isAuthenticated: false, token: null }),

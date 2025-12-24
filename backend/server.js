@@ -19,6 +19,9 @@ import { subDays, parseISO, isAfter, subMonths } from "date-fns";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const { OAuth2Client } = require('google-auth-library');
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 
@@ -64,6 +67,22 @@ const readRemarksDB = () => {
     return {};
   }
 };
+
+app.post("/api/auth/google", async (req, res) => {
+  const { credential } = req.body; // Matches the new store.js payload
+  try {
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    // Return the user and a success flag to be safe
+    res.json({ success: true, user: payload, token: "mock-jwt-token" });
+  } catch (error) {
+    console.error("Auth Error:", error);
+    res.status(400).json({ success: false, error: "Invalid Token" });
+  }
+});
 
 // Helper: Write Database
 const writeRemarksDB = (data) => {
