@@ -192,7 +192,7 @@ app.post("/api/comments", async (req, res) => {
   const { ticketId, body } = req.body; 
   try {
     const response = await axios.post(
-      "https://api.devrev.ai/timeline.create",
+      "https://api.devrev.ai/timeline-entries.create",
       {
         object: ticketId, // Must be the UUID
         type: "timeline_comment",
