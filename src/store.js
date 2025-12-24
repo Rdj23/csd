@@ -29,8 +29,8 @@ export const useTicketStore = create(
       // --- LOGIN ACTIONS ---
       loginWithGoogle: async (credentialResponse) => {
         try {
-          const API_URL = getApiUrl();
-          const res = await fetch(`${API_URL}/api/auth/google`, {
+          const G_URL = import.meta.env.GOOGLE_CLIENT_ID
+          const res = await fetch(`${G_URL}/api/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token: credentialResponse.credential }),
