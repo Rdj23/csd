@@ -22,7 +22,7 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const API_BASE = "http://localhost:5000";
+        const API_BASE = import.meta.env.VITE_API_URL;
 
         // A. Determine Team
         let myTeam = [];
@@ -129,24 +129,34 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
             </p>
           </div>
 
-          {/* BACKUP */}
+          {/* ✅ FIXED BACKUP SECTION - Handles Multiple Backups */}
           {!loading && !data?.isActive && (
             <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/30 rounded-xl">
-                <h4 className="text-xs font-bold text-amber-700 dark:text-amber-500 uppercase tracking-wider mb-3">Recommended Backup</h4>
-                <div className="flex justify-between items-center">
-                    {data?.backup ? (
-                        <div className="flex items-center gap-3">
-                             <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 shadow-sm">{data.backup[0]}</div>
-                             <div>
-                                 <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{data.backup}</p>
-                                 <p className="text-[10px] text-emerald-600 font-medium">Active Now</p>
-                             </div>
-                        </div>
-                    ) : <span className="text-sm text-slate-500 italic">No backup online in this team.</span>}
-                    
-                    <button onClick={handleRequestETA} className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg shadow-sm">
-                        <BellRing className="w-3.5 h-3.5 text-indigo-500" /> Request ETA
+                <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-xs font-bold text-amber-700 dark:text-amber-500 uppercase tracking-wider">Recommended Backups</h4>
+                    <button onClick={handleRequestETA} className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 text-slate-600 dark:text-slate-300 text-[10px] font-bold rounded-lg shadow-sm transition-colors">
+                        <BellRing className="w-3 h-3 text-indigo-500" /> Ping {user.name}
                     </button>
+                </div>
+                
+                <div className="space-y-3">
+                    {data?.backups && data.backups.length > 0 ? (
+                        data.backups.map((backupName, idx) => (
+                            <div key={idx} className="flex items-center gap-3 bg-white/50 dark:bg-black/20 p-2 rounded-lg">
+                                 <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 shadow-sm shrink-0">
+                                     {backupName[0]}
+                                 </div>
+                                 <div>
+                                     <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{backupName}</p>
+                                     <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active Now
+                                     </p>
+                                 </div>
+                            </div>
+                        ))
+                    ) : (
+                        <span className="text-sm text-slate-500 italic block text-center py-2">No backup online in this team.</span>
+                    )}
                 </div>
             </div>
           )}
