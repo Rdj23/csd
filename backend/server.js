@@ -170,14 +170,28 @@ app.get("/api/roster/debug", (req, res) => {
 
 app.post("/api/comments", async (req, res) => {
   const { ticketId, body } = req.body;
+
+  // 🔍 DEBUG: Log incoming request from frontend
+  console.log("➡️ /api/comments called with payload:", {
+    ticketId,
+    body,
+    bodyLength: body?.length,
+  });
+
   try {
+    // 🔍 DEBUG: Log payload exactly as sent to DevRev
+    const devrevPayload = {
+      object: ticketId,
+      type: "timeline_comment",
+      body: body,
+      body_type: "text", // ✅ REQUIRED
+    };
+
+    console.log("📤 Sending payload to DevRev:", devrevPayload);
+
     const response = await axios.post(
       "https://api.devrev.ai/timeline.create",
-      {
-        object: ticketId,
-        type: "timeline_comment",
-        body: body
-      },
+      devrevPayload,
       {
         headers: {
           Authorization: `Bearer ${process.env.VITE_DEVREV_PAT}`,
@@ -186,22 +200,27 @@ app.post("/api/comments", async (req, res) => {
       }
     );
 
-    if (!response.ok) throw new Error("DevRev Sync Failed");
+    // 🔍 DEBUG: Log DevRev success response
+    console.log("✅ DevRev response status:", response.status);
+    console.log("✅ DevRev response data:", response.data);
 
     return res.status(200).json(response.data);
-  } catch (error) {
-    console.error("DevRev API Error:", {
-      status: error.response?.status,
-      data: error.response?.data,
-    });
 
-   return res.status(500).json({
-     success: false,
-     error: "DevRev timeline sync failed",
-     details: error.response?.data || error.message,
-   });
+  } catch (error) {
+    // 🔥 DEBUG: Log DevRev failure in full detail
+    console.error("❌ DevRev API ERROR");
+    console.error("Status:", error.response?.status);
+    console.error("Data:", error.response?.data);
+    console.error("Message:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      error: "DevRev timeline sync failed",
+      details: error.response?.data || error.message,
+    });
   }
 });
+
 
 
 const syncRoster = async () => {

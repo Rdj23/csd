@@ -95,6 +95,8 @@ export const useTicketStore = create(
       postTicketComment: async (ticketId, text) => {
         const { currentUser, token } = get();
         const API_URL = getApiUrl();
+        console.log("API_URL =", API_URL);
+
 
         try {
           const response = await fetch(`${API_URL}/api/comments`, {
