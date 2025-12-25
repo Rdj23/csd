@@ -33,7 +33,7 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 let syncTimeout = null;
-let isSyncing = false;
+
 
 // --- MIDDLEWARE ---
 app.use((req, res, next) => {
@@ -50,6 +50,7 @@ app.use(
 );
 app.use(express.json());
 
+
 // --- REMARKS DATABASE SETUP ---
 const REMARKS_FILE = path.join(__dirname, "remarks.json");
 const readRemarksDB = () => {
@@ -62,15 +63,17 @@ const writeRemarksDB = (data) => {
   fs.writeFileSync(REMARKS_FILE, JSON.stringify(data, null, 2));
 };
 
-// ============================================================================
-// 1. CORE ENGINE: FETCH & CACHE TICKETS (Refactored)
-// ============================================================================
-// We moved this OUT of the route so the Webhook can use it too.
-const fetchAndCacheTickets = async () => {
+
+let isSyncing = false;      // Is a sync currently running?
+let syncQueued = false;     // Do we need to run again after this?
+
+
+const fetchAndCacheTickets = async (source = "auto") => {
   console.log("🔄 Syncing Tickets from DevRev...");
 
   if (isSyncing) {
-    console.log("⚠️ Sync already in progress, skipping...");
+    console.log(`⚠️ Sync in progress. Queueing next run (Source: ${source})...`);
+    syncQueued = true; 
     return;
   }
   
@@ -82,16 +85,16 @@ const fetchAndCacheTickets = async () => {
     let cursor = null;
     let loop = 0;
     
-    /// 1. Fetch Loop (Optimized limit)
-    do {
+   do {
       const response = await axios.get(
         `${DEVREV_API}/works.list?limit=50&type=ticket${cursor ? `&cursor=${cursor}` : ""}`,
-        { headers: HEADERS, timeout: 10000 } // Add timeout safety
+        { headers: HEADERS, timeout: 15000 } // 15s timeout per request
       );
       collected = [...collected, ...(response.data.works || [])];
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 50);
+    } while (cursor && loop < 50); // Cap at 2500 tickets to prevent memory overflow
+
 // 2. Filter & Process
     const fourMonthsAgo = subMonths(new Date(), 4);
     const processed = collected.reduce((acc, t) => {
@@ -123,52 +126,61 @@ const fetchAndCacheTickets = async () => {
     console.error("❌ Sync Failed:", e.message);
   } finally {
     isSyncing = false;
+    if (syncQueued) {
+      console.log("🔁 Executing queued sync...");
+      syncQueued = false;
+      fetchAndCacheTickets("queued");
+    }
   }
 };
 
-// ✅ SMART WEBHOOK: Debounced
+// 2. API ROUTES
+// ============================================================================
+
+// ✅ WEBHOOK: The "Traffic Controller"
 app.post("/api/webhooks/devrev", (req, res) => {
   const event = req.body;
   
-  // 1. Verification Handshake (Crucial for DevRev to keep connection alive)
+  // 1. Handshake (Keep connection alive)
   if (event.type === "webhook_verify" && event.challenge) {
     console.log("🤝 Verifying Webhook...");
     return res.status(200).json({ challenge: event.challenge });
   }
 
-  console.log(`⚡ Webhook Received: ${event.type}`);
-
-  if (event.type === "work_updated" || event.type === "work_created") {
-     // Clear previous timer if exists
+  // 2. Event Handling (Debounced)
+  if (event.type === "work_created" || event.type === "work_updated" || event.type === "work_deleted") {
+     console.log(`⚡ Event Received: ${event.type}. Debouncing...`);
+     
+     // Reset the timer. We wait 5 seconds of "silence" before syncing.
      if (syncTimeout) clearTimeout(syncTimeout);
      
-     // Wait 5 seconds before syncing. If another request comes, this timer resets.
-     console.log("⏳ Queueing sync in 5s...");
      syncTimeout = setTimeout(() => {
-        fetchAndCacheTickets();
-     }, 5000);
+        fetchAndCacheTickets("webhook");
+     }, 5000); 
   }
   
   res.status(200).send("OK");
 });
 
-// ✅ MANUAL FORCE SYNC (Safety Net)
+// ✅ MANUAL FORCE SYNC (The "Fix It Now" Button)
 app.post("/api/tickets/sync", async (req, res) => {
-    console.log("🫵 Manual Sync Triggered");
-    await fetchAndCacheTickets();
-    res.json({ success: true });
+    console.log("🫵 Manual Sync Triggered from UI");
+    // Bypass debounce, but respect concurrency lock
+    fetchAndCacheTickets("manual");
+    res.json({ success: true, message: "Sync started" });
 });
 
-// ✅ UPDATED: Get Tickets (Now serves from Cache Instantly)
+// ✅ GET TICKETS (Instant RAM access)
 app.get("/api/tickets", async (req, res) => {
   const cached = cache.get("tickets_all");
   if (cached) {
-    return res.json({ tickets: cached }); // <--- 0ms Latency Response
+    return res.json({ tickets: cached });
   }
-  // Fallback for first run
-  const fresh = await fetchAndCacheTickets();
-  res.json({ tickets: fresh });
+  const fresh = await fetchAndCacheTickets("first_load");
+  res.json({ tickets: fresh || [] });
 });
+
+
 
 // --- AUTH ---
 app.post("/api/auth/google", async (req, res) => {
@@ -387,7 +399,7 @@ server.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
   // 🚀 INSTANT START: Fetch data immediately on boot
-  fetchAndCacheTickets(); 
+  fetchAndCacheTickets("boot");
   
   // Roster Sync
   await syncRoster(); 

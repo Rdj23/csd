@@ -199,10 +199,12 @@ const App = () => {
       const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
       await fetch(`${API_BASE}/api/tickets/sync`, { method: "POST" });
       // No need to alert, the socket will auto-update the UI when done
+      console.log("Manual sync requested");
     } catch (e) {
-      alert("Sync failed");
+      console.error("Manual sync failed:", error);
+      alert("Failed to trigger sync.");
     } finally {
-      setIsSyncing(false);
+      setTimeout(() => setIsSyncing(false), 2000);
     }
   };
 
