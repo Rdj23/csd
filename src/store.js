@@ -11,6 +11,7 @@ export const useTicketStore = create(
       tickets: [],
       isLoading: false,
       socket: null,
+      myViews: [],
 
       // ✅ ACTION: Connect to Real-Time Stream
       connectSocket: () => {
@@ -31,6 +32,60 @@ export const useTicketStore = create(
         });
 
         set({ socket: newSocket });
+      },
+
+      // --- VISTAS ACTIONS ---
+      fetchViews: async () => {
+        const { currentUser } = get();
+        if (!currentUser?.email) return;
+        
+        try {
+            const API_URL = getApiUrl();
+            const res = await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`);
+            const data = await res.json();
+            set({ myViews: data });
+        } catch (e) {
+            console.error("Failed to fetch views", e);
+        }
+      },
+
+      saveView: async (name, currentFilters) => {
+         const { currentUser, myViews } = get();
+         if (!currentUser?.email) return;
+
+         try {
+             const API_URL = getApiUrl();
+             const res = await fetch(`${API_URL}/api/views`, {
+                 method: "POST",
+                 headers: { "Content-Type": "application/json" },
+                 body: JSON.stringify({
+                     userId: currentUser.email,
+                     name,
+                     filters: currentFilters
+                 })
+             });
+             const data = await res.json();
+             if (data.success) {
+                 set({ myViews: [...myViews, data.view] });
+                 return true;
+             }
+         } catch (e) {
+             console.error("Failed to save view", e);
+             return false;
+         }
+      },
+
+      deleteView: async (viewId) => {
+          const { currentUser, myViews } = get();
+          try {
+              const API_URL = getApiUrl();
+              await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}/${viewId}`, {
+                  method: "DELETE"
+              });
+              set({ myViews: myViews.filter(v => v.id !== viewId) });
+          } catch (e) {
+              console.error("Failed to delete view", e);
+          }
       },
 
       // lastSync: null,

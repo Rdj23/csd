@@ -249,6 +249,68 @@ app.get("/api/users", async (req, res) => {
   } catch (e) { res.status(500).json([]); }
 });
 
+
+
+// ============================================================================
+// 4. VISTAS ENGINE (Scalable User Views)
+// ============================================================================
+const VIEWS_FILE = path.join(__dirname, "views.json");
+
+const readViewsDB = () => {
+  if (!fs.existsSync(VIEWS_FILE)) {
+    fs.writeFileSync(VIEWS_FILE, JSON.stringify({}));
+  }
+  try { return JSON.parse(fs.readFileSync(VIEWS_FILE, "utf8")); } catch (e) { return {}; }
+};
+
+const writeViewsDB = (data) => {
+  fs.writeFileSync(VIEWS_FILE, JSON.stringify(data, null, 2));
+};
+
+// GET Views (By User Email)
+app.get("/api/views/:userId", (req, res) => {
+  const db = readViewsDB();
+  // Decode URL encoded email (e.g. rohan%40gmail.com -> rohan@gmail.com)
+  const userId = decodeURIComponent(req.params.userId);
+  res.json(db[userId] || []);
+});
+
+// SAVE View
+app.post("/api/views", (req, res) => {
+  const { userId, name, filters } = req.body;
+  if (!userId || !name) return res.status(400).json({ error: "Missing data" });
+
+  const db = readViewsDB();
+  if (!db[userId]) db[userId] = [];
+
+  const newView = {
+    id: Date.now().toString(),
+    name,
+    filters, 
+    created_at: new Date().toISOString()
+  };
+
+  db[userId].push(newView);
+  writeViewsDB(db);
+  console.log(`💾 Saved view '${name}' for ${userId}`);
+  res.json({ success: true, view: newView });
+});
+
+// DELETE View
+app.delete("/api/views/:userId/:viewId", (req, res) => {
+  const userId = decodeURIComponent(req.params.userId);
+  const { viewId } = req.params;
+  const db = readViewsDB();
+  
+  if (db[userId]) {
+    db[userId] = db[userId].filter(v => v.id !== viewId);
+    writeViewsDB(db);
+  }
+  res.json({ success: true });
+});
+
+
+
 // ============================================================================
 // 3. ROSTER ENGINE (KEPT EXACTLY AS IS)
 // ============================================================================
