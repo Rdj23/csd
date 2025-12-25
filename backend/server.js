@@ -88,7 +88,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
    do {
       const response = await axios.get(
         `${DEVREV_API}/works.list?limit=50&type=ticket${cursor ? `&cursor=${cursor}` : ""}`,
-        { headers: HEADERS, timeout: 15000 } // 15s timeout per request
+        { headers: HEADERS, timeout: 30000 } // 15s timeout per request
       );
       collected = [...collected, ...(response.data.works || [])];
       cursor = response.data.next_cursor;
