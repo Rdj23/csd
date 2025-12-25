@@ -142,7 +142,8 @@ const App = () => {
 
   // -- Effect: Fetch Tickets if Authed --
   useEffect(() => {
-    if (isAuthenticated) fetchTickets();
+    if (isAuthenticated) fetchTickets() // 2. Open the "Phone Line" for updates
+      connectSocket();;
   }, [isAuthenticated]);
 
   // -- Helper: Set Filters --

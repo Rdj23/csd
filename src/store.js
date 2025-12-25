@@ -1,65 +1,85 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { io } from "socket.io-client";
 
 // --- CONFIG: Universal API URL ---
-const getApiUrl = () => import.meta.env.VITE_API_URL 
-
-
+const getApiUrl = () => import.meta.env.VITE_API_URL;
 
 export const useTicketStore = create(
   persist(
     (set, get) => ({
       tickets: [],
       isLoading: false,
-      lastSync: null,
+      socket: null,
+
+      // ✅ ACTION: Connect to Real-Time Stream
+      connectSocket: () => {
+        const { socket } = get();
+        if (socket) return;
+
+        const API_URL = getApiUrl();
+        const newSocket = io(API_URL);
+
+        newSocket.on("connect", () => {
+          console.log("🟢 Connected to Real-Time Server");
+        });
+
+        // ⚡ LISTEN: When server says "Here is new data", update instantly
+        newSocket.on("REFRESH_TICKETS", (updatedTickets) => {
+          console.log("🔥 Live Update Received!");
+          set({ tickets: updatedTickets, lastSync: new Date() });
+        });
+
+        set({ socket: newSocket });
+      },
+
+      // lastSync: null,
 
       // --- AUTH STATE ---
       currentUser: null,
       isAuthenticated: false,
       token: null,
-      theme: "light",
-
-      
+      theme: "dark",
 
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === "light" ? "dark" : "light" })),
 
       setCurrentUser: (user) => set({ currentUser: user }),
 
- loginWithGoogle: async (credentialResponse) => {
-  try {
-    const API_URL = getApiUrl();
-    const res = await fetch(`${API_URL}/api/auth/google`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // ✅ FIX: Change 'token' to 'credential' to match server.js
-      body: JSON.stringify({ credential: credentialResponse.credential }),
-    });
+      loginWithGoogle: async (credentialResponse) => {
+        try {
+          const API_URL = getApiUrl();
+          const res = await fetch(`${API_URL}/api/auth/google`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            // ✅ FIX: Change 'token' to 'credential' to match server.js
+            body: JSON.stringify({ credential: credentialResponse.credential }),
+          });
 
-    const data = await res.json();
+          const data = await res.json();
 
-    // ✅ FIX: Remove 'data.success' check since server doesn't send it
-    if (res.ok && data.user) {
-      set({
-        currentUser: data.user,
-        isAuthenticated: true,
-        token: data.token || null,
-      });
-      return true;
-    } else {
-      alert(data.error || "Login failed");
-      return false;
-    }
-  } catch (e) {
-    console.error("Login error", e);
-    return false;
-  }
-},
+          // ✅ FIX: Remove 'data.success' check since server doesn't send it
+          if (res.ok && data.user) {
+            set({
+              currentUser: data.user,
+              isAuthenticated: true,
+              token: data.token || null,
+            });
+            return true;
+          } else {
+            alert(data.error || "Login failed");
+            return false;
+          }
+        } catch (e) {
+          console.error("Login error", e);
+          return false;
+        }
+      },
 
       logout: () =>
         set({ currentUser: null, isAuthenticated: false, token: null }),
 
-  // --- DATA ACTIONS ---
+      // --- DATA ACTIONS ---
       fetchTickets: async () => {
         set({ isLoading: true });
         try {
@@ -77,7 +97,7 @@ export const useTicketStore = create(
         }
       },
 
-            fetchTicketTimeline: async (ticketId) => {
+      fetchTicketTimeline: async (ticketId) => {
         try {
           const API_URL = getApiUrl();
           const response = await fetch(
@@ -92,39 +112,39 @@ export const useTicketStore = create(
         }
       },
 
-     // Accepts internalId (UUID) and displayId (TKT-xxx)
-postTicketComment: async (internalId, displayId, text) => {
-  const { currentUser } = get();
-  const API_URL = getApiUrl();
+      // Accepts internalId (UUID) and displayId (TKT-xxx)
+      postTicketComment: async (internalId, displayId, text) => {
+        const { currentUser } = get();
+        const API_URL = getApiUrl();
 
-  try {
-    // 1. Local Sync (Uses readable ID for dashboard history)
-    await fetch(`${API_URL}/api/remarks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ticketId: displayId, 
-        user: currentUser?.display_name || "Support Engineer",
-        text: text
-      })
-    });
+        try {
+          // 1. Local Sync (Uses readable ID for dashboard history)
+          await fetch(`${API_URL}/api/remarks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ticketId: displayId,
+              user: currentUser?.display_name || "Support Engineer",
+              text: text,
+            }),
+          });
 
-    // 2. DevRev Sync (Uses internal UUID for platform reflection)
-    const response = await fetch(`${API_URL}/api/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ticketId: internalId, 
-        body: text,
-      }),
-    });
+          // 2. DevRev Sync (Uses internal UUID for platform reflection)
+          const response = await fetch(`${API_URL}/api/comments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ticketId: internalId,
+              body: text,
+            }),
+          });
 
-    if (!response.ok) throw new Error("DevRev Sync Failed");
-  } catch (err) {
-    console.error("❌ Post failed:", err);
-    throw err;
-  }
-},
+          if (!response.ok) throw new Error("DevRev Sync Failed");
+        } catch (err) {
+          console.error("❌ Post failed:", err);
+          throw err;
+        }
+      },
     }),
     {
       name: "support-dashboard-storage",
