@@ -32,6 +32,8 @@ const HEADERS = {
   Authorization: `Bearer ${process.env.VITE_DEVREV_PAT}`,
   "Content-Type": "application/json",
 };
+let syncTimeout = null;
+let isSyncing = false;
 
 // --- MIDDLEWARE ---
 app.use((req, res, next) => {
@@ -66,23 +68,31 @@ const writeRemarksDB = (data) => {
 // We moved this OUT of the route so the Webhook can use it too.
 const fetchAndCacheTickets = async () => {
   console.log("🔄 Syncing Tickets from DevRev...");
+
+  if (isSyncing) {
+    console.log("⚠️ Sync already in progress, skipping...");
+    return;
+  }
+  
+  isSyncing = true;
+  console.log("🔄 Syncing Tickets from DevRev...");
+
   try {
     let collected = [];
     let cursor = null;
     let loop = 0;
     
-    // 1. Loop through API pages
+    /// 1. Fetch Loop (Optimized limit)
     do {
       const response = await axios.get(
         `${DEVREV_API}/works.list?limit=50&type=ticket${cursor ? `&cursor=${cursor}` : ""}`,
-        { headers: HEADERS }
+        { headers: HEADERS, timeout: 10000 } // Add timeout safety
       );
       collected = [...collected, ...(response.data.works || [])];
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 30); 
-
-    // 2. Filter & Process (Same logic you had before)
+    } while (cursor && loop < 50);
+// 2. Filter & Process
     const fourMonthsAgo = subMonths(new Date(), 4);
     const processed = collected.reduce((acc, t) => {
       const isSolved = t.stage?.name === "Solved" || t.stage?.name === "Closed";
@@ -104,21 +114,17 @@ const fetchAndCacheTickets = async () => {
       }
       return acc;
     }, []);
-
-    // 3. Save to Cache
+// 3. Update Cache & Broadcast
     cache.set("tickets_all", processed);
     console.log(`✅ Sync Complete: ${processed.length} tickets cached.`);
-    
-    // ⚡ REAL-TIME MAGIC: Tell Frontend to update immediately
     io.emit("REFRESH_TICKETS", processed); 
     
-    return processed;
   } catch (e) {
     console.error("❌ Sync Failed:", e.message);
-    return [];
+  } finally {
+    isSyncing = false;
   }
 };
-
 // ============================================================================
 // 2. API ROUTES
 // ============================================================================
