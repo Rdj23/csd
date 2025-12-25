@@ -412,7 +412,7 @@ const App = () => {
                   isLoading || isSyncing ? "animate-spin" : ""
                 }`}
               />
-              {isLoading || isSyncing ? "Syncing..." : "Sync"} Sync
+              {isLoading || isSyncing ? "Syncing..." : "Sync"}
             </button>
 
             {/* GOOGLE SHEETS SYNC BUTTON */}
