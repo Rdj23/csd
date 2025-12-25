@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { io } from "socket.io-client";
+import { trackEvent } from "./utils/clevertap";
 
 // --- CONFIG: Universal API URL ---
 const getApiUrl = () => import.meta.env.VITE_API_URL;
@@ -38,54 +39,68 @@ export const useTicketStore = create(
       fetchViews: async () => {
         const { currentUser } = get();
         if (!currentUser?.email) return;
-        
+
         try {
-            const API_URL = getApiUrl();
-            const res = await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`);
-            const data = await res.json();
-            set({ myViews: data });
+          const API_URL = getApiUrl();
+          const res = await fetch(
+            `${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`
+          );
+          const data = await res.json();
+          set({ myViews: data });
         } catch (e) {
-            console.error("Failed to fetch views", e);
+          console.error("Failed to fetch views", e);
         }
       },
 
       saveView: async (name, currentFilters) => {
-         const { currentUser, myViews } = get();
-         if (!currentUser?.email) return;
+        const { currentUser, myViews } = get();
+        if (!currentUser?.email) return;
 
-         try {
-             const API_URL = getApiUrl();
-             const res = await fetch(`${API_URL}/api/views`, {
-                 method: "POST",
-                 headers: { "Content-Type": "application/json" },
-                 body: JSON.stringify({
-                     userId: currentUser.email,
-                     name,
-                     filters: currentFilters
-                 })
-             });
-             const data = await res.json();
-             if (data.success) {
-                 set({ myViews: [...myViews, data.view] });
-                 return true;
-             }
-         } catch (e) {
-             console.error("Failed to save view", e);
-             return false;
-         }
+        try {
+          const API_URL = getApiUrl();
+          const res = await fetch(`${API_URL}/api/views`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: currentUser.email,
+              name,
+              filters: currentFilters,
+            }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            set({ myViews: [...myViews, data.view] });
+            trackEvent("View Saved", {
+              "View Name": name,
+              "Filter Count": Object.values(currentFilters).flat().length, // Interesting metric!
+            });
+            return true;
+          }
+        } catch (e) {
+          console.error("Failed to save view", e);
+          return false;
+        }
       },
 
       deleteView: async (viewId) => {
-          const { currentUser, myViews } = get();
-          try {
-              const API_URL = getApiUrl();
-              await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}/${viewId}`, {
-                  method: "DELETE"
-              });
-              set({ myViews: myViews.filter(v => v.id !== viewId) });
-          } catch (e) {
-              console.error("Failed to delete view", e);
-          }
+        const { currentUser, myViews } = get();
+        try {
+          const API_URL = getApiUrl();
+          await fetch(
+            `${API_URL}/api/views/${encodeURIComponent(
+              currentUser.email
+            )}/${viewId}`,
+            {
+              method: "DELETE",
+            }
+          );
+          set({ myViews: myViews.filter((v) => v.id !== viewId) });
+        } catch (e) {
+          console.error("Failed to delete view", e);
+        }
+        trackEvent("View Deleted", {
+          "View ID": viewId,
+        });
       },
 
       // lastSync: null,
@@ -199,6 +214,11 @@ export const useTicketStore = create(
           console.error("❌ Post failed:", err);
           throw err;
         }
+        // ✅ On Success:
+        trackEvent("Comment Added", {
+          "Ticket ID": displayId,
+          "Comment Length": text.length,
+        });
       },
     }),
     {
