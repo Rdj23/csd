@@ -22,8 +22,13 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
     key: "priority",
     direction: "desc",
   });
-  
-  const [openRemarkData, setOpenRemarkData] = useState(null); 
+
+  const [openRemarkData, setOpenRemarkData] = useState(null);
+
+  // ✅ FIX: Auto-reset to Page 1 when filters/search change the data
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [tickets]);
 
   const sortedTickets = [...tickets].sort((a, b) => {
     if (sortConfig.key === "days")
@@ -57,7 +62,15 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
     ? { red: "> 7 Days", yellow: "3-7 Days", green: "< 3 Days" }
     : { red: "> 15 Days", yellow: "10-15 Days", green: "< 10 Days" };
 
-  const KPICard = ({ count, label, borderClass, icon: Icon, filterVal, textClassLight, textClassDark }) => (
+  const KPICard = ({
+    count,
+    label,
+    borderClass,
+    icon: Icon,
+    filterVal,
+    textClassLight,
+    textClassDark,
+  }) => (
     <button
       onClick={() => onCardClick(filterVal)}
       className={`relative overflow-hidden group transition-all duration-200 p-5 rounded-xl border flex justify-between shadow-sm hover:shadow-md text-left w-full 
@@ -67,7 +80,9 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
         <p className="text-[10px] font-bold uppercase tracking-wider opacity-70 text-slate-500 dark:text-slate-400 mb-1">
           {label}
         </p>
-        <p className={`text-3xl font-extrabold tracking-tight ${textClassLight} ${textClassDark}`}>
+        <p
+          className={`text-3xl font-extrabold tracking-tight ${textClassLight} ${textClassDark}`}
+        >
           {count}
         </p>
       </div>
@@ -79,37 +94,6 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
 
   return (
     <div className="space-y-6 animate-in fade-in pb-20 relative">
-      {/* 1. STATS CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <KPICard
-          count={stats.green}
-          label={`Healthy (${labels.green})`}
-          borderClass="border-l-4 border-l-emerald-500"
-          textClassLight="text-emerald-700"
-          textClassDark="dark:text-emerald-400"
-          icon={CheckCircle}
-          filterVal="Healthy"
-        />
-        <KPICard
-          count={stats.yellow}
-          label={`Attention (${labels.yellow})`}
-          borderClass="border-l-4 border-l-amber-500"
-          textClassLight="text-amber-700"
-          textClassDark="dark:text-amber-400"
-          icon={Clock}
-          filterVal="Needs Attention"
-        />
-        <KPICard
-          count={stats.red}
-          label={`Action (${labels.red})`}
-          borderClass="border-l-4 border-l-rose-500"
-          textClassLight="text-rose-700"
-          textClassDark="dark:text-rose-400"
-          icon={AlertTriangle}
-          filterVal="Action Immediately"
-        />
-      </div>
-
       {/* 2. TABLE */}
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col transition-colors relative">
         <div className="overflow-x-auto min-h-[400px]">
@@ -140,7 +124,8 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
                     Age <ArrowUpDown className="w-3 h-3 text-slate-300" />
                   </div>
                 </th>
-                <th className="p-4 w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800">
+                {/* ✅ FIX: Added min-w-[180px] to lock width and prevent gap */}
+                <th className="p-4 w-[180px] min-w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-5px_0_5px_-5px_rgba(0,0,0,0.1)]">
                   Status
                 </th>
               </tr>
@@ -192,15 +177,18 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
                         {t.region}
                       </span>
                     </td>
-                    
+
                     {/* ✅ CLICKABLE OWNER */}
                     <td className="p-4 align-middle">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
                           {ownerName[0]}
                         </div>
-                        <button 
-                          onClick={() => onProfileClick && onProfileClick({ name: ownerName })}
+                        <button
+                          onClick={() =>
+                            onProfileClick &&
+                            onProfileClick({ name: ownerName })
+                          }
                           className="text-sm text-slate-700 dark:text-slate-300 hover:text-indigo-600 hover:underline text-left font-medium"
                         >
                           {ownerName}
@@ -224,23 +212,24 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
                     </td>
 
                     {/* RIGHT STICKY */}
-                    <td className="p-4 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
+                    <td className="px-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-sm font-medium">{t.days} Days</span>
                     </td>
-                    <td className="p-4 align-middle sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800">
+                    <td className="p-4 align-middle min-w-[180px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800">
                       <div className="flex items-center gap-2 relative">
                         <span
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border whitespace-nowrap ${t.uiColor}`}
                         >
                           <t.uiIcon className="w-3 h-3" /> {t.uiStatus}
                         </span>
-                        
+
                         {t.priority === 1 && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              setOpenRemarkData({ ticket: t, rect }); 
+                              const rect =
+                                e.currentTarget.getBoundingClientRect();
+                              setOpenRemarkData({ ticket: t, rect });
                             }}
                             className={`p-1.5 rounded-md transition-colors text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20`}
                           >
@@ -255,9 +244,9 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
             </tbody>
           </table>
         </div>
-        
-         {/* PAGINATION */}
-         {sortedTickets.length > 0 && (
+
+        {/* PAGINATION */}
+        {sortedTickets.length > 0 && (
           <div className="flex items-center justify-between p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900">
             <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
               Page {currentPage} of {totalPages}
