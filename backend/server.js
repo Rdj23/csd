@@ -125,28 +125,38 @@ const fetchAndCacheTickets = async () => {
     isSyncing = false;
   }
 };
-// ============================================================================
-// 2. API ROUTES
-// ============================================================================
 
-// ✅ NEW: The Webhook Route (DevRev calls this when data changes)
-
+// ✅ SMART WEBHOOK: Debounced
 app.post("/api/webhooks/devrev", (req, res) => {
   const event = req.body;
   
-  // 1. VERIFICATION CHALLENGE (DevRev Requirement)
+  // 1. Verification Handshake (Crucial for DevRev to keep connection alive)
   if (event.type === "webhook_verify" && event.challenge) {
     console.log("🤝 Verifying Webhook...");
     return res.status(200).json({ challenge: event.challenge });
   }
 
-  // 2. NORMAL EVENT HANDLING
-  console.log(`⚡ Webhook Triggered: ${event.type}`);
-  if (event.type === "work_created" || event.type === "work_updated" || event.type === "work_deleted") {
-     fetchAndCacheTickets();
+  console.log(`⚡ Webhook Received: ${event.type}`);
+
+  if (event.type === "work_updated" || event.type === "work_created") {
+     // Clear previous timer if exists
+     if (syncTimeout) clearTimeout(syncTimeout);
+     
+     // Wait 5 seconds before syncing. If another request comes, this timer resets.
+     console.log("⏳ Queueing sync in 5s...");
+     syncTimeout = setTimeout(() => {
+        fetchAndCacheTickets();
+     }, 5000);
   }
   
   res.status(200).send("OK");
+});
+
+// ✅ MANUAL FORCE SYNC (Safety Net)
+app.post("/api/tickets/sync", async (req, res) => {
+    console.log("🫵 Manual Sync Triggered");
+    await fetchAndCacheTickets();
+    res.json({ success: true });
 });
 
 // ✅ UPDATED: Get Tickets (Now serves from Cache Instantly)
