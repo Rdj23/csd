@@ -2,14 +2,13 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   Users, Filter, Activity, Globe, BarChart3, Star, RefreshCw,
   Search, Building2, UserCircle, Briefcase, Layers, Moon, Sun,
-  LogOut, Plus, X, Layout, Save, Trash2, FolderOpen // ✅ New Icons
+  LogOut, Plus, X, Layout, Save, Trash2, FolderOpen
 } from "lucide-react";
 import {
   parseISO,
   isWithinInterval,
   startOfDay,
   endOfDay,
-  format,
 } from "date-fns";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
@@ -29,17 +28,10 @@ import {
 } from "./utils";
 
 const EMPTY_FILTERS = {
-  teams: [],
-  owners: [],
-  regions: [],
-  stages: [],
-  health: [],
-  accounts: [],
-  csms: [],
-  tams: [],
+  teams: [], owners: [], regions: [], stages: [], health: [],
+  accounts: [], csms: [], tams: [],
 };
 
-// --- CONFIG: Define available filters ---
 const FILTER_CONFIG = [
   { key: "regions", label: "Region", icon: Globe },
   { key: "teams", label: "Team", icon: Layers },
@@ -53,28 +45,15 @@ const FILTER_CONFIG = [
 
 const App = () => {
   const {
-    tickets,
-    isLoading,
-    connectSocket,
-    lastSync,
-    fetchTickets,
-    currentUser,
-    isAuthenticated,
-    logout,
-    theme,
-    toggleTheme,
-    myViews, 
-    fetchViews, 
-    saveView, 
-    deleteView 
+    tickets, isLoading, fetchTickets, connectSocket,
+    currentUser, isAuthenticated, logout, theme, toggleTheme,
+    myViews, fetchViews, saveView, deleteView
   } = useTicketStore();
 
   const [googleClientId, setGoogleClientId] = useState(null);
   const [activeTab, setActiveTab] = useState("tickets");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
-  
-
   const [isSyncing, setIsSyncing] = useState(false);
 
   // ✅ Vistas State
@@ -82,31 +61,77 @@ const App = () => {
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [newViewName, setNewViewName] = useState("");
 
-  const handleRosterSync = async () => {
+  const [searchQueries, setSearchQueries] = useState({
+    tickets: "", csd: "", analytics: "", vistas: ""
+  });
+
+  const [tabFilters, setTabFilters] = useState({
+    tickets: { ...EMPTY_FILTERS },
+    csd: { ...EMPTY_FILTERS },
+    analytics: { ...EMPTY_FILTERS },
+    vistas: { ...EMPTY_FILTERS }
+  });
+
+  const [visibleFilterKeys, setVisibleFilterKeys] = useState([]);
+  const hasAutoAppliedRole = useRef(false);
+
+  // -- Config & Theme --
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+        const response = await fetch(`${API_BASE}/api/auth/config`);
+        const data = await response.json();
+        setGoogleClientId(data.clientId);
+      } catch (error) { console.error(error); }
+    };
+    fetchConfig();
+  }, []);
+
+  useEffect(() => {
+    if (theme === "dark") document.documentElement.classList.add("dark");
+    else document.documentElement.classList.remove("dark");
+  }, [theme]);
+
+  // -- Initial Load --
+  useEffect(() => {
+    if (isAuthenticated) {
+        fetchTickets();
+        connectSocket();
+        fetchViews();
+    }
+  }, [isAuthenticated]);
+
+  // -- Handlers --
+  const handleManualSync = async () => {
     setIsSyncing(true);
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-      await fetch(`${API_BASE}/api/roster/sync`, { method: "POST" });
-      alert("✅ Roster synced with Google Sheets!");
-    } catch (error) {
-      alert("❌ Sync failed.");
-    } finally {
-      setIsSyncing(false);
-      
-    }
+        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+        await fetch(`${API_BASE}/api/tickets/sync`, { method: "POST" });
+    } catch (e) { alert("Sync failed"); } 
+    finally { setTimeout(() => setIsSyncing(false), 2000); }
+  };
 
-    // ✅ HANDLE SAVING A VIEW
+  const handleRosterSync = async () => {
+      setIsSyncing(true);
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+        await fetch(`${API_BASE}/api/roster/sync`, { method: "POST" });
+        alert("✅ Roster synced!");
+      } catch (e) { alert("❌ Sync failed."); }
+      finally { setIsSyncing(false); }
+  };
+
   const onSaveView = async () => {
       if(!newViewName.trim()) return;
       const success = await saveView(newViewName, tabFilters.tickets);
       if(success) {
           setNewViewName("");
           setShowSaveInput(false);
-          alert("View Saved! Check 'My Vistas' tab.");
+          alert("View Saved!");
       }
   };
 
-  // -- Filters --
   const setFilter = (key, value) => {
     setTabFilters((prev) => ({
       ...prev,
@@ -114,229 +139,113 @@ const App = () => {
     }));
   };
 
- 
-  // ✅ DYNAMIC FILTER SWITCHING
+  // ✅ 1. DYNAMIC FILTERS (Must be declared before using 'currentFilters')
   const currentFilters = useMemo(() => {
-    if (activeTab === "vistas" && selectedViewId) {
-      const view = myViews.find((v) => v.id === selectedViewId);
-      return view ? view.filters : EMPTY_FILTERS;
-    }
-    return tabFilters[activeTab];
+      if (activeTab === "vistas" && selectedViewId) {
+          const view = myViews.find(v => v.id === selectedViewId);
+          return view ? view.filters : EMPTY_FILTERS;
+      }
+      return tabFilters[activeTab];
   }, [activeTab, selectedViewId, myViews, tabFilters]);
 
-  // ✅ MANUAL SYNC FUNCTION
-  const handleManualSync = async () => {
-    setIsSyncing(true);
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-      await fetch(`${API_BASE}/api/tickets/sync`, { method: "POST" });
-      console.log("Manual sync requested");
-    } catch (e) {
-      console.error("Manual sync failed:", e);
-      alert("Failed to trigger sync.");
-    } finally {
-      setTimeout(() => setIsSyncing(false), 2000);
-    }
-  };
+  // ✅ 2. OPTIONS (Depends on tickets)
+  const options = useMemo(() => {
+    const opts = {
+      regions: new Set(), teams: Object.keys(TEAM_GROUPS), owners: Object.values(FLAT_TEAM_MAP).sort(),
+      accounts: new Set(), csms: new Set(), tams: new Set(),
+      stages: ["Open", "Pending", "On Hold"], health: ["Healthy", "Needs Attention", "Action Immediately"],
+    };
+    tickets.forEach((t) => {
+      if (t.custom_fields?.tnt__region_salesforce) opts.regions.add(t.custom_fields.tnt__region_salesforce);
+      if (t.custom_fields?.tnt__instance_account_name) opts.accounts.add(t.custom_fields.tnt__instance_account_name);
+      if (t.custom_fields?.tnt__csm_email_id) opts.csms.add(t.custom_fields.tnt__csm_email_id);
+      if (t.custom_fields?.tnt__tam) opts.tams.add(t.custom_fields.tnt__tam);
+    });
+    return {
+      regions: Array.from(opts.regions).sort(), accounts: Array.from(opts.accounts).sort(),
+      csms: Array.from(opts.csms).sort(), tams: Array.from(opts.tams).sort(),
+      teams: opts.teams, owners: opts.owners, stages: opts.stages, health: opts.health,
+    };
+  }, [tickets]);
 
-  // ✅ AUTO-ROLE DETECTION LOGIC
+  // ✅ 3. AUTO-ROLE & KPI LOGIC
   useEffect(() => {
-    if (
-      isAuthenticated &&
-      currentUser &&
-      options.csms.length > 0 &&
-      !hasAutoAppliedRole.current
-    ) {
-      const userEmail = currentUser.email || "";
-
+    if (isAuthenticated && currentUser && options.csms.length > 0 && !hasAutoAppliedRole.current) {
+      const userEmail = currentUser.email || ""; 
       if (options.csms.includes(userEmail)) {
-        console.log("🤖 Auto-detected CSM Role:", userEmail);
         setFilter("csms", [userEmail]);
         setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "csms"])));
         hasAutoAppliedRole.current = true;
       } else if (options.tams.includes(userEmail)) {
-        console.log("🤖 Auto-detected TAM Role:", userEmail);
         setFilter("tams", [userEmail]);
         setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "tams"])));
         hasAutoAppliedRole.current = true;
       }
     }
-  }, [isAuthenticated, currentUser]); // Removed 'options' from dependency to prevent loops
+  }, [isAuthenticated, currentUser, options]);
 
-  // ✅ HANDLE KPI FILTER
   const handleKPIFilter = (statusValue) => {
     setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "health"])));
     setFilter("health", [statusValue]);
   };
 
-  // ✅ FILTER OPTIONS
-  const options = useMemo(() => {
-    const opts = {
-      regions: new Set(),
-      teams: Object.keys(TEAM_GROUPS),
-      owners: Object.values(FLAT_TEAM_MAP).sort(),
-      accounts: new Set(),
-      csms: new Set(),
-      tams: new Set(),
-      stages: ["Open", "Pending", "On Hold"],
-      health: ["Healthy", "Needs Attention", "Action Immediately"],
-    };
-
-    tickets.forEach((t) => {
-      if (t.custom_fields?.tnt__region_salesforce)
-        opts.regions.add(t.custom_fields.tnt__region_salesforce);
-      if (t.custom_fields?.tnt__instance_account_name)
-        opts.accounts.add(t.custom_fields.tnt__instance_account_name);
-      if (t.custom_fields?.tnt__csm_email_id)
-        opts.csms.add(t.custom_fields.tnt__csm_email_id);
-      if (t.custom_fields?.tnt__tam) opts.tams.add(t.custom_fields.tnt__tam);
-    });
-
-    return {
-      regions: Array.from(opts.regions).sort(),
-      accounts: Array.from(opts.accounts).sort(),
-      csms: Array.from(opts.csms).sort(),
-      tams: Array.from(opts.tams).sort(),
-      teams: opts.teams,
-      owners: opts.owners,
-      stages: opts.stages,
-      health: opts.health,
-    };
-  }, [tickets]);
-
-  // ✅ MAIN FILTER LOGIC
+  // ✅ 4. FILTERED TICKETS (Depends on currentFilters)
   const filteredTickets = useMemo(() => {
-    // If Vistas tab but no view selected, return empty
     if (activeTab === "vistas" && !selectedViewId) return [];
 
     return tickets
       .map((t) => {
-        const isCSD = t.tags?.some(
-          (tagObj) => tagObj.tag?.name === "csd-highlighted"
-        );
-        const { status, color, icon, days, priority } = getTicketStatus(
-          t.created_date,
-          t.stage?.name,
-          isCSD
-        );
+        const isCSD = t.tags?.some((tagObj) => tagObj.tag?.name === "csd-highlighted");
+        const { status, color, icon, days, priority } = getTicketStatus(t.created_date, t.stage?.name, isCSD);
         const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
-        const accountName =
-          t.custom_fields?.tnt__instance_account_name || "Unknown";
+        const accountName = t.custom_fields?.tnt__instance_account_name || "Unknown";
         const csm = t.custom_fields?.tnt__csm_email_id || "Unknown";
         const tam = t.custom_fields?.tnt__tam || "Unknown";
         const rwtMs = formatRWT(t.custom_fields?.tnt__customer_wait_time);
         const isActive = Object.keys(STAGE_MAP).includes(t.stage?.name);
 
-        return {
-          ...t,
-          uiStatus: status,
-          uiColor: color,
-          uiIcon: icon,
-          days,
-          priority,
-          region,
-          rwtMs,
-          isCSD,
-          isActive,
-          accountName,
-          csm,
-          tam,
-        };
+        return { ...t, uiStatus: status, uiColor: color, uiIcon: icon, days, priority, region, rwtMs, isCSD, isActive, accountName, csm, tam };
       })
       .filter((t) => {
         if (activeTab === "csd" && !t.isCSD) return false;
         if (activeTab !== "analytics" && !t.isActive) return false;
 
         const currentSearch = (searchQueries[activeTab] || "").toLowerCase();
-        const matchesSearch =
-          t.title.toLowerCase().includes(currentSearch) ||
-          t.display_id.toLowerCase().includes(currentSearch);
+        const matchesSearch = t.title.toLowerCase().includes(currentSearch) || t.display_id.toLowerCase().includes(currentSearch);
         if (!matchesSearch) return false;
 
         if (dateRange.start && dateRange.end) {
-          if (
-            !isWithinInterval(parseISO(t.created_date), {
-              start: startOfDay(parseISO(dateRange.start)),
-              end: endOfDay(parseISO(dateRange.end)),
-            })
-          )
-            return false;
+          if (!isWithinInterval(parseISO(t.created_date), { start: startOfDay(parseISO(dateRange.start)), end: endOfDay(parseISO(dateRange.end)) })) return false;
         }
 
-        const ownerName =
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "Unassigned";
+        const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "Unassigned";
 
-        // Dynamic Filtering using 'currentFilters'
-        if (currentFilters.teams.length > 0) {
-          const ticketOwnerTeams = Object.entries(TEAM_GROUPS)
-            .filter(([team, members]) =>
-              Object.values(members).includes(ownerName)
-            )
-            .map(([team]) => team);
-          if (
-            !ticketOwnerTeams.some((team) =>
-              currentFilters.teams.includes(team)
-            )
-          )
-            return false;
+        if (currentFilters.teams?.length > 0) {
+            const ticketOwnerTeams = Object.entries(TEAM_GROUPS)
+              .filter(([team, members]) => Object.values(members).includes(ownerName))
+              .map(([team]) => team);
+            if (!ticketOwnerTeams.some((team) => currentFilters.teams.includes(team))) return false;
         }
-        if (
-          currentFilters.owners.length > 0 &&
-          !currentFilters.owners.includes(ownerName)
-        )
-          return false;
-        if (
-          currentFilters.regions.length > 0 &&
-          !currentFilters.regions.includes(t.region)
-        )
-          return false;
-        if (
-          currentFilters.accounts.length > 0 &&
-          !currentFilters.accounts.includes(t.accountName)
-        )
-          return false;
-        if (
-          currentFilters.csms.length > 0 &&
-          !currentFilters.csms.includes(t.csm)
-        )
-          return false;
-        if (
-          currentFilters.tams.length > 0 &&
-          !currentFilters.tams.includes(t.tam)
-        )
-          return false;
-
+        if (currentFilters.owners?.length > 0 && !currentFilters.owners.includes(ownerName)) return false;
+        if (currentFilters.regions?.length > 0 && !currentFilters.regions.includes(t.region)) return false;
+        if (currentFilters.accounts?.length > 0 && !currentFilters.accounts.includes(t.accountName)) return false;
+        if (currentFilters.csms?.length > 0 && !currentFilters.csms.includes(t.csm)) return false;
+        if (currentFilters.tams?.length > 0 && !currentFilters.tams.includes(t.tam)) return false;
+        
         if (activeTab !== "analytics") {
-          const stageLabel = STAGE_MAP[t.stage?.name]?.label || "Unknown";
-          if (
-            currentFilters.stages.length > 0 &&
-            !currentFilters.stages.includes(stageLabel)
-          )
-            return false;
-          if (
-            currentFilters.health.length > 0 &&
-            !currentFilters.health.includes(t.uiStatus)
-          )
-            return false;
+            const stageLabel = STAGE_MAP[t.stage?.name]?.label || "Unknown";
+            if (currentFilters.stages?.length > 0 && !currentFilters.stages.includes(stageLabel)) return false;
+            if (currentFilters.health?.length > 0 && !currentFilters.health.includes(t.uiStatus)) return false;
         }
 
         return true;
       });
   }, [tickets, activeTab, searchQueries, dateRange, currentFilters, selectedViewId]);
 
-  if (!googleClientId)
-    return (
-      <div className="flex h-screen items-center justify-center">
-        Loading Configuration...
-      </div>
-    );
-  if (!isAuthenticated)
-    return (
-      <GoogleOAuthProvider clientId={googleClientId}>
-        <LoginScreen />
-      </GoogleOAuthProvider>
-    );
-return (
+  if (!googleClientId) return <div className="flex h-screen items-center justify-center">Loading Configuration...</div>;
+  if (!isAuthenticated) return <GoogleOAuthProvider clientId={googleClientId}><LoginScreen /></GoogleOAuthProvider>;
+
+  return (
     <div className={`min-h-screen p-6 font-sans transition-colors duration-300 ${theme === "dark" ? "bg-[#0B1120] text-slate-100" : "bg-slate-100 text-slate-900"}`}>
       <div className="max-w-[1800px] mx-auto">
         {/* HEADER */}
@@ -374,7 +283,7 @@ return (
           {[
             { id: "tickets", icon: Users, label: "Ticket View" },
             { id: "csd", icon: Star, label: "CSD Highlighted" },
-            { id: "vistas", icon: Layout, label: "My Vistas" }, // ✅ NEW TAB
+            { id: "vistas", icon: Layout, label: "My Vistas" },
             { id: "analytics", icon: BarChart3, label: "Analytics" },
           ].map((t) => (
             <button
@@ -390,7 +299,7 @@ return (
         {/* --- MAIN CONTENT AREA --- */}
         <div className="flex gap-6 animate-in fade-in">
             
-            {/* ✅ VISTAS SIDEBAR (Only visible in 'vistas' tab) */}
+            {/* SIDEBAR (Vistas Only) */}
             {activeTab === "vistas" && (
                 <div className="w-64 shrink-0 animate-in slide-in-from-left-4">
                     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
@@ -429,13 +338,12 @@ return (
                 </div>
             )}
 
-            {/* ✅ RIGHT CONTENT (Takes remaining space) */}
+            {/* RIGHT CONTENT */}
             <div className="flex-1 min-w-0">
                 
-                {/* FILTERS & SEARCH BAR */}
+                {/* FILTERS BAR */}
                 <div className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 mb-6 flex flex-wrap gap-2 items-center transition-colors min-h-[60px]">
                     
-                    {/* Search */}
                     {activeTab !== "analytics" && (
                         <div className="relative w-32">
                             <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
@@ -449,12 +357,10 @@ return (
                         </div>
                     )}
 
-                    {/* Filters (Hidden if in Vistas tab since they are pre-set) */}
                     {activeTab !== "vistas" && (
                         <>
                             <SmartDatePicker onChange={setDateRange} />
                             
-                            {/* Standard Dynamic Filters */}
                             {activeTab !== "analytics" && visibleFilterKeys.map((key) => {
                                 const config = FILTER_CONFIG.find((f) => f.key === key);
                                 return config ? (
@@ -471,7 +377,6 @@ return (
                                 ) : null;
                             })}
 
-                            {/* Add Filter Button */}
                             {activeTab !== "analytics" && (
                                 <div className="relative group ml-1">
                                     <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
@@ -489,7 +394,6 @@ return (
                         </>
                     )}
 
-                    {/* ✅ SAVE VIEW BUTTON (Only visible in Tickets tab) */}
                     {activeTab === "tickets" && (
                         <div className="ml-auto relative">
                              {showSaveInput ? (
@@ -497,7 +401,7 @@ return (
                                      <input 
                                         autoFocus
                                         type="text" 
-                                        placeholder="Name this view..." 
+                                        placeholder="Name view..." 
                                         className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none w-32"
                                         value={newViewName}
                                         onChange={(e) => setNewViewName(e.target.value)}
@@ -527,7 +431,6 @@ return (
                     />
                 ) : (
                     <>
-                        {/* If in Vistas and no view selected */}
                         {activeTab === "vistas" && !selectedViewId ? (
                             <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                                 <Layout className="w-10 h-10 mb-2 opacity-50" />
@@ -546,18 +449,26 @@ return (
             </div>
         </div>
 
-        {/* ✅ PROFILE MODAL */}
+        {/* PROFILE MODAL */}
         {selectedUserProfile && (
-            <ProfileStatsModal 
-                user={selectedUserProfile}
-                tickets={tickets.filter(t => (FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "") === selectedUserProfile.name)} 
-                onClose={() => setSelectedUserProfile(null)}
-            />
+            (() => {
+                const userTickets = tickets.filter(t => (FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "") === selectedUserProfile.name);
+                const activeForUser = userTickets.filter(t => t.stage?.name !== 'Solved' && t.stage?.name !== 'Closed' && t.stage?.name !== 'Cancelled');
+                const solvedForUser = userTickets.filter(t => t.stage?.name === 'Solved' || t.stage?.name === 'Closed' || t.stage?.name == "Resolved");
+
+                return (
+                    <ProfileStatsModal 
+                        user={selectedUserProfile}
+                        tickets={activeForUser} 
+                        solvedTickets={solvedForUser}
+                        onClose={() => setSelectedUserProfile(null)}
+                    />
+                );
+            })()
         )}
       </div>
     </div>
   );
-}
 };
 
 export default App;
