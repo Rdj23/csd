@@ -69,6 +69,7 @@ const App = () => {
   const {
     tickets,
     isLoading,
+    connectSocket,
     lastSync,
     fetchTickets,
     currentUser,
