@@ -35,6 +35,8 @@ export const useTicketStore = create(
         set({ socket: newSocket });
       },
 
+      myViews: [],
+
       // --- VISTAS ACTIONS ---
       fetchViews: async () => {
         const { currentUser } = get();
