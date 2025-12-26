@@ -12,6 +12,7 @@ import { google } from "googleapis";
 import process from "process";
 import { OAuth2Client } from "google-auth-library";
 import { subMonths, parseISO, isAfter } from "date-fns";
+import mongoose from "mongoose"; 
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +34,29 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 let syncTimeout = null;
+
+// --- MONGODB CONNECTION ---
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("🍃 MongoDB Connected"))
+  .catch(err => console.error("❌ MongoDB Error:", err));
+
+
+  // --- SCHEMAS ---
+const RemarkSchema = new mongoose.Schema({
+  ticketId: String,
+  user: String,
+  text: String,
+  timestamp: { type: Date, default: Date.now }
+});
+const Remark = mongoose.model("Remark", RemarkSchema);
+
+const ViewSchema = new mongoose.Schema({
+  userId: String, // Email serves as ID
+  name: String,
+  filters: Object, // Stores the entire filter state
+  createdAt: { type: Date, default: Date.now }
+});
+const View = mongoose.model("View", ViewSchema);
 
 // --- MIDDLEWARE ---
 app.use((req, res, next) => {
@@ -210,50 +234,36 @@ app.get("/api/auth/config", (req, res) =>
   res.json({ clientId: GOOGLE_CLIENT_ID })
 );
 
-// --- REMARKS & COMMENTS ---
-app.get("/api/remarks/:ticketId", (req, res) => {
-  const db = readRemarksDB();
-  res.json(db[req.params.ticketId] || []);
+// Get Remarks for a specific ticket
+app.get("/api/remarks/:ticketId", async (req, res) => {
+  try {
+    const remarks = await Remark.find({ ticketId: req.params.ticketId }).sort({ timestamp: 1 });
+    res.json(remarks);
+  } catch (e) { res.status(500).json([]); }
 });
 
-app.post("/api/remarks", (req, res) => {
+// Add a Remark
+app.post("/api/remarks", async (req, res) => {
   const { ticketId, user, text } = req.body;
-  if (!ticketId || !text)
-    return res.status(400).json({ error: "Missing data" });
+  if (!ticketId || !text) return res.status(400).json({ error: "Missing data" });
 
-  const db = readRemarksDB();
-  const newRemark = {
-    id: Date.now().toString(),
-    user: user || "Support Engineer",
-    text: text,
-    timestamp: new Date().toISOString(),
-  };
-
-  if (!db[ticketId]) db[ticketId] = [];
-  db[ticketId].push(newRemark);
-  writeRemarksDB(db);
-  res.json({ success: true, remark: newRemark });
+  try {
+    const newRemark = await Remark.create({ ticketId, user, text });
+    res.json({ success: true, remark: newRemark });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Sync Comment to DevRev (Platform Reflection)
 app.post("/api/comments", async (req, res) => {
-  const { ticketId, body } = req.body;
+  const { ticketId, body } = req.body; 
   try {
     const response = await axios.post(
       "https://api.devrev.ai/timeline-entries.create",
-      {
-        object: ticketId,
-        type: "timeline_comment",
-        body: body,
-        visibility: "internal",
-      },
+      { object: ticketId, type: "timeline_comment", body: body, visibility: "internal" },
       { headers: HEADERS }
     );
     return res.status(200).json(response.data);
   } catch (error) {
-    console.error(
-      "❌ DevRev API Error:",
-      error.response?.data || error.message
-    );
     return res.status(500).json({ error: "Failed to sync to DevRev" });
   }
 });
@@ -304,47 +314,41 @@ const readViewsDB = () => {
 const writeViewsDB = (data) => {
   fs.writeFileSync(VIEWS_FILE, JSON.stringify(data, null, 2));
 };
-
-// GET Views (By User Email)
-app.get("/api/views/:userId", (req, res) => {
-  const db = readViewsDB();
-  // Decode URL encoded email (e.g. rohan%40gmail.com -> rohan@gmail.com)
-  const userId = decodeURIComponent(req.params.userId);
-  res.json(db[userId] || []);
+// Get Views for a specific user
+app.get("/api/views/:userId", async (req, res) => {
+  try {
+    const userId = decodeURIComponent(req.params.userId);
+    const views = await View.find({ userId }).sort({ createdAt: -1 });
+    // Transform _id to id for frontend compatibility
+    const formatted = views.map(v => ({
+      id: v._id.toString(),
+      name: v.name,
+      filters: v.filters
+    }));
+    res.json(formatted);
+  } catch (e) { res.status(500).json([]); }
 });
 
-// SAVE View
-app.post("/api/views", (req, res) => {
+// Save a View
+app.post("/api/views", async (req, res) => {
   const { userId, name, filters } = req.body;
   if (!userId || !name) return res.status(400).json({ error: "Missing data" });
 
-  const db = readViewsDB();
-  if (!db[userId]) db[userId] = [];
-
-  const newView = {
-    id: Date.now().toString(),
-    name,
-    filters,
-    created_at: new Date().toISOString(),
-  };
-
-  db[userId].push(newView);
-  writeViewsDB(db);
-  console.log(`💾 Saved view '${name}' for ${userId}`);
-  res.json({ success: true, view: newView });
+  try {
+    const newView = await View.create({ userId, name, filters });
+    res.json({ 
+      success: true, 
+      view: { id: newView._id.toString(), name: newView.name, filters: newView.filters } 
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE View
-app.delete("/api/views/:userId/:viewId", (req, res) => {
-  const userId = decodeURIComponent(req.params.userId);
-  const { viewId } = req.params;
-  const db = readViewsDB();
-
-  if (db[userId]) {
-    db[userId] = db[userId].filter((v) => v.id !== viewId);
-    writeViewsDB(db);
-  }
-  res.json({ success: true });
+// Delete a View
+app.delete("/api/views/:userId/:viewId", async (req, res) => {
+  try {
+    await View.findByIdAndDelete(req.params.viewId);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: "Failed to delete" }); }
 });
 
 // ============================================================================

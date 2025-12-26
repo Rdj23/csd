@@ -25,6 +25,7 @@
     "googleapis": "^169.0.0",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.561.0",
+    "mongoose": "^9.0.2",
     "multer": "^2.0.2",
     "react": "^19.2.0",
     "react-calendar": "^4.8.0",

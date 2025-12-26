@@ -2,7 +2,7 @@
   "name": "backend",
   "version": "1.0.0",
   "main": "index.js",
-     "type": "module",
+  "type": "module",
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
@@ -22,9 +22,9 @@
     "express": "^5.2.1",
     "google-auth-library": "^10.5.0",
     "googleapis": "^169.0.0",
+    "mongoose": "^9.0.2",
     "node-cache": "^5.1.2",
     "nodemon": "^3.1.11",
-   
     "socket.io": "^4.8.1"
   }
 }
