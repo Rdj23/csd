@@ -54,6 +54,7 @@ const EMPTY_FILTERS = {
   accounts: [],
   csms: [],
   tams: [],
+  dateRange: { start: "", end: "" },
 };
 
 const FILTER_CONFIG = [
@@ -147,7 +148,7 @@ const App = () => {
       connectSocket();
       fetchViews();
       // ✅ CLEVERTAP LOGIN
-    loginUser(currentUser);
+      loginUser(currentUser);
     }
   }, [isAuthenticated]);
 
@@ -186,11 +187,11 @@ const App = () => {
     if (!filteredTickets.length) return showToast("❌ No tickets to export");
 
     // ✅ TRACK EVENT
-  trackEvent("Report Downloaded", {
-    "Ticket Count": filteredTickets.length,
-    "Workspace": filteredTickets[0]?.account?.display_name || "Mixed",
-    "Date": new Date().toISOString()
-  });
+    trackEvent("Report Downloaded", {
+      "Ticket Count": filteredTickets.length,
+      Workspace: filteredTickets[0]?.account?.display_name || "Mixed",
+      Date: new Date().toISOString(),
+    });
 
     const headers = [
       "Ticket ID,Requester,Assignee,Subject,Created Date,Workspace,RWT,Iterations",
@@ -360,11 +361,12 @@ const App = () => {
           t.display_id.toLowerCase().includes(currentSearch);
         if (!matchesSearch) return false;
 
-        if (dateRange.start && dateRange.end) {
+        // ✅ FIX: Use 'currentFilters.dateRange' so each tab is independent
+        if (currentFilters.dateRange?.start && currentFilters.dateRange?.end) {
           if (
             !isWithinInterval(parseISO(t.created_date), {
-              start: startOfDay(parseISO(dateRange.start)),
-              end: endOfDay(parseISO(dateRange.end)),
+              start: startOfDay(parseISO(currentFilters.dateRange.start)),
+              end: endOfDay(parseISO(currentFilters.dateRange.end)),
             })
           )
             return false;
@@ -649,58 +651,85 @@ const App = () => {
               )}
               {activeTab !== "vistas" && (
                 <>
-                  <SmartDatePicker onChange={setDateRange} />
-                  {activeTab !== "analytics" &&
-                    visibleFilterKeys.map((key) => {
-                      const config = FILTER_CONFIG.find((f) => f.key === key);
-                      return config ? (
-                        <div
-                          key={key}
-                          className="relative group animate-in zoom-in-95 duration-200"
-                        >
-                          <MultiSelectFilter
-                            icon={config.icon}
-                            label={config.label}
-                            options={options[key]}
-                            selected={currentFilters[key]}
-                            onChange={(v) => setFilter(key, v)}
-                          />
-                          <button
-                            onClick={() => {
-                              setFilter(key, []);
-                              setVisibleFilterKeys((prev) =>
-                                prev.filter((k) => k !== key)
-                              );
-                            }}
-                            className="absolute -top-1 -right-1 bg-slate-200 dark:bg-slate-700 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  {/* ✅ 1. DATE PICKER (Now independent per tab) */}
+                  <SmartDatePicker
+                    value={currentFilters.dateRange} // Pass current value if component supports it
+                    onChange={(val) => setFilter("dateRange", val)}
+                  />
+
+                  {/* ✅ 2. ANALYTICS SPECIFIC FILTERS (Hardcoded Team & Member) */}
+                  {activeTab === "analytics" ? (
+                    <>
+                      <MultiSelectFilter
+                        icon={Layers}
+                        label="Team"
+                        options={options.teams}
+                        selected={currentFilters.teams}
+                        onChange={(v) => setFilter("teams", v)}
+                      />
+                      <MultiSelectFilter
+                        icon={Users}
+                        label="Member"
+                        options={options.owners}
+                        selected={currentFilters.owners}
+                        onChange={(v) => setFilter("owners", v)}
+                      />
+                    </>
+                  ) : (
+                    /* ✅ 3. STANDARD FILTERS (For Tickets & CSD) */
+                    <>
+                      {visibleFilterKeys.map((key) => {
+                        const config = FILTER_CONFIG.find((f) => f.key === key);
+                        return config ? (
+                          <div
+                            key={key}
+                            className="relative group animate-in zoom-in-95 duration-200"
                           >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
+                            <MultiSelectFilter
+                              icon={config.icon}
+                              label={config.label}
+                              options={options[key]}
+                              selected={currentFilters[key]}
+                              onChange={(v) => setFilter(key, v)}
+                            />
+                            <button
+                              onClick={() => {
+                                setFilter(key, []);
+                                setVisibleFilterKeys((prev) =>
+                                  prev.filter((k) => k !== key)
+                                );
+                              }}
+                              className="absolute -top-1 -right-1 bg-slate-200 dark:bg-slate-700 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        ) : null;
+                      })}
+
+                      {/* ✅ ADD BUTTON (Hidden on Analytics) */}
+                      <div className="relative group ml-1">
+                        <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                          <Plus className="w-3.5 h-3.5" /> Filter
+                        </button>
+                        <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-1 hidden group-focus-within:block">
+                          {FILTER_CONFIG.filter(
+                            (f) => !visibleFilterKeys.includes(f.key)
+                          ).map((f) => (
+                            <button
+                              key={f.key}
+                              onClick={() =>
+                                setVisibleFilterKeys((prev) => [...prev, f.key])
+                              }
+                              className="w-full text-left flex items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg"
+                            >
+                              <f.icon className="w-3.5 h-3.5 opacity-70" />{" "}
+                              {f.label}
+                            </button>
+                          ))}
                         </div>
-                      ) : null;
-                    })}
-                  {activeTab !== "analytics" && (
-                    <div className="relative group ml-1">
-                      <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                        <Plus className="w-3.5 h-3.5" /> Filter
-                      </button>
-                      <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-1 hidden group-focus-within:block">
-                        {FILTER_CONFIG.filter(
-                          (f) => !visibleFilterKeys.includes(f.key)
-                        ).map((f) => (
-                          <button
-                            key={f.key}
-                            onClick={() =>
-                              setVisibleFilterKeys((prev) => [...prev, f.key])
-                            }
-                            className="w-full text-left flex items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg"
-                          >
-                            <f.icon className="w-3.5 h-3.5 opacity-70" />{" "}
-                            {f.label}
-                          </button>
-                        ))}
                       </div>
-                    </div>
+                    </>
                   )}
                 </>
               )}
@@ -792,7 +821,7 @@ const App = () => {
               {activeTab === "analytics" ? (
                 <AnalyticsDashboard
                   tickets={filteredTickets}
-                  dateRange={dateRange}
+                  dateRange={currentFilters.dateRange} // ✅ Use the local date
                   filterOwner={
                     currentFilters.owners.length > 0
                       ? currentFilters.owners[0]
