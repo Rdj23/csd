@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist,createJSONStorage } from "zustand/middleware";
 import { io } from "socket.io-client";
 import { trackEvent } from "./utils/clevertap";
 
@@ -12,7 +12,14 @@ export const useTicketStore = create(
       tickets: [],
       isLoading: false,
       socket: null,
+      lastSyncTime: null,
       myViews: [],
+
+      loginUser: (user) => set({ currentUser: user, isAuthenticated: true }),
+      logout: () => {
+        set({ currentUser: null, isAuthenticated: false, tickets: [], myViews: [] });
+        localStorage.removeItem("ticket-store"); // Optional: Clear data on logout
+      },
 
       // ✅ ACTION: Connect to Real-Time Stream
       connectSocket: () => {
@@ -155,6 +162,7 @@ export const useTicketStore = create(
 
       // --- DATA ACTIONS ---
       fetchTickets: async () => {
+        const { lastSyncTime } = get();
         set({ isLoading: true });
         try {
           const API_URL = getApiUrl();
@@ -227,6 +235,7 @@ export const useTicketStore = create(
     }),
     {
       name: "support-dashboard-storage",
+      storage: createJSONStorage(() => localStorage), // Persist to local storage
       partialize: (s) => ({
         currentUser: s.currentUser,
         theme: s.theme,
