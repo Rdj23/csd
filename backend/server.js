@@ -12,7 +12,7 @@ import { google } from "googleapis";
 import process from "process";
 import { OAuth2Client } from "google-auth-library";
 import { subMonths, parseISO, isAfter } from "date-fns";
-import mongoose from "mongoose"; 
+import mongoose from "mongoose";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,17 +36,17 @@ const HEADERS = {
 let syncTimeout = null;
 
 // --- MONGODB CONNECTION ---
-mongoose.connect(process.env.MONGO_URI)
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("🍃 MongoDB Connected"))
-  .catch(err => console.error("❌ MongoDB Error:", err));
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
-
-  // --- SCHEMAS ---
+// --- SCHEMAS ---
 const RemarkSchema = new mongoose.Schema({
   ticketId: String,
   user: String,
   text: String,
-  timestamp: { type: Date, default: Date.now }
+  timestamp: { type: Date, default: Date.now },
 });
 const Remark = mongoose.model("Remark", RemarkSchema);
 
@@ -54,7 +54,7 @@ const ViewSchema = new mongoose.Schema({
   userId: String, // Email serves as ID
   name: String,
   filters: Object, // Stores the entire filter state
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 const View = mongoose.model("View", ViewSchema);
 
@@ -121,11 +121,12 @@ const fetchAndCacheTickets = async (source = "auto") => {
       collected = [...collected, ...(response.data.works || [])];
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 50); // Cap at 2500 tickets to prevent memory overflow
+    } while (cursor && loop < 100); // Cap increased to ~5000 tickets
 
     // 2. Filter & Process
+    const HISTORY_START_DATE = new Date("2024-01-01");
     const fourMonthsAgo = subMonths(new Date(), 4);
-    const processed = collected.reduce((acc, t) => {
+    const allProcessed = collected.reduce((acc, t) => {
       const isSolved = t.stage?.name === "Solved" || t.stage?.name === "Closed";
       if (!isSolved || isAfter(parseISO(t.modified_date), fourMonthsAgo)) {
         acc.push({
@@ -139,6 +140,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
           owned_by: t.owned_by,
           created_date: t.created_date,
           actual_close_date: t.actual_close_date,
+          modified_date: t.modified_date,
           custom_fields: t.custom_fields,
           tags: t.tags,
           account: t.account,
@@ -147,10 +149,41 @@ const fetchAndCacheTickets = async (source = "auto") => {
       }
       return acc;
     }, []);
-    // 3. Update Cache & Broadcast
-    cache.set("tickets_all", processed);
-    console.log(`✅ Sync Complete: ${processed.length} tickets cached.`);
-    io.emit("REFRESH_TICKETS", processed);
+    // 3. OPTIMIZATION: Split into "Active" and "Analytics" buckets
+
+    // Bucket A: Fast Load (Active Tickets + Solved Recently)
+    // This is what the user sees IMMEDIATELY.
+    const activeView = allProcessed.filter((t) => {
+      const isSolved = t.stage?.name === "Solved" || t.stage?.name === "Closed";
+      if (!isSolved) return true; // Always keep active
+
+      // Keep solved only if modified in last 7 days (Recent context)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      return new Date(t.modified_date) > sevenDaysAgo;
+    });
+
+    // Bucket B: Analytics Load (Everything since Start Date)
+    // This loads in the background for the Charts.
+    const analyticsView = allProcessed.filter((t) => {
+      // Keep everything after our fixed start date
+      return new Date(t.modified_date) > HISTORY_START_DATE;
+    });
+
+    
+
+    // 4. Update Cache with TWO keys
+    cache.set("tickets_active", activeView); // ~100-200 tickets (Fast)
+    cache.set("tickets_analytics", analyticsView); // ~2000+ tickets (Slow)
+
+    console.log(
+      `✅ Sync Complete: ${activeView.length} Active / ${analyticsView.length} Analytics tickets cached.`
+    );
+
+    // Emit 'REFRESH_TICKETS' with Active view first for instant UI update
+    io.emit("REFRESH_TICKETS", activeView);
+    // You can add a separate event for analytics if you want real-time charts,
+    // or just let the dashboard fetch it on load.
   } catch (e) {
     console.error("❌ Sync Failed:", e.message);
   } finally {
@@ -195,6 +228,21 @@ app.post("/api/webhooks/devrev", (req, res) => {
   res.status(200).send("OK");
 });
 
+// ✅ 2. ANALYTICS ENDPOINT (Background)
+    // Used by AnalyticsDashboard.jsx
+    app.get("/api/tickets/analytics", async (req, res) => {
+      // 1. Try to get specific analytics cache first
+      let cached = cache.get("tickets_analytics");
+
+      // 2. Fallback: If we haven't split the cache yet, return ALL tickets
+      // (This ensures charts work even before the optimization runs)
+      if (!cached) {
+        cached = cache.get("tickets_all") || [];
+      }
+
+      res.json({ tickets: cached });
+    });
+    
 // ✅ MANUAL FORCE SYNC (The "Fix It Now" Button)
 app.post("/api/tickets/sync", async (req, res) => {
   console.log("🫵 Manual Sync Triggered from UI");
@@ -205,12 +253,12 @@ app.post("/api/tickets/sync", async (req, res) => {
 
 // ✅ GET TICKETS (Instant RAM access)
 app.get("/api/tickets", async (req, res) => {
-  const cached = cache.get("tickets_all");
+  const cached = cache.get("tickets_active");
   if (cached) {
     return res.json({ tickets: cached });
   }
   const fresh = await fetchAndCacheTickets("first_load");
-  res.json({ tickets: fresh || [] });
+  res.json({ tickets: cache.get("tickets_active") || [] });
 });
 
 // --- AUTH ---
@@ -237,29 +285,41 @@ app.get("/api/auth/config", (req, res) =>
 // Get Remarks for a specific ticket
 app.get("/api/remarks/:ticketId", async (req, res) => {
   try {
-    const remarks = await Remark.find({ ticketId: req.params.ticketId }).sort({ timestamp: 1 });
+    const remarks = await Remark.find({ ticketId: req.params.ticketId }).sort({
+      timestamp: 1,
+    });
     res.json(remarks);
-  } catch (e) { res.status(500).json([]); }
+  } catch (e) {
+    res.status(500).json([]);
+  }
 });
 
 // Add a Remark
 app.post("/api/remarks", async (req, res) => {
   const { ticketId, user, text } = req.body;
-  if (!ticketId || !text) return res.status(400).json({ error: "Missing data" });
+  if (!ticketId || !text)
+    return res.status(400).json({ error: "Missing data" });
 
   try {
     const newRemark = await Remark.create({ ticketId, user, text });
     res.json({ success: true, remark: newRemark });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Sync Comment to DevRev (Platform Reflection)
 app.post("/api/comments", async (req, res) => {
-  const { ticketId, body } = req.body; 
+  const { ticketId, body } = req.body;
   try {
     const response = await axios.post(
       "https://api.devrev.ai/timeline-entries.create",
-      { object: ticketId, type: "timeline_comment", body: body, visibility: "internal" },
+      {
+        object: ticketId,
+        type: "timeline_comment",
+        body: body,
+        visibility: "internal",
+      },
       { headers: HEADERS }
     );
     return res.status(200).json(response.data);
@@ -320,13 +380,15 @@ app.get("/api/views/:userId", async (req, res) => {
     const userId = decodeURIComponent(req.params.userId);
     const views = await View.find({ userId }).sort({ createdAt: -1 });
     // Transform _id to id for frontend compatibility
-    const formatted = views.map(v => ({
+    const formatted = views.map((v) => ({
       id: v._id.toString(),
       name: v.name,
-      filters: v.filters
+      filters: v.filters,
     }));
     res.json(formatted);
-  } catch (e) { res.status(500).json([]); }
+  } catch (e) {
+    res.status(500).json([]);
+  }
 });
 
 // Save a View
@@ -336,11 +398,17 @@ app.post("/api/views", async (req, res) => {
 
   try {
     const newView = await View.create({ userId, name, filters });
-    res.json({ 
-      success: true, 
-      view: { id: newView._id.toString(), name: newView.name, filters: newView.filters } 
+    res.json({
+      success: true,
+      view: {
+        id: newView._id.toString(),
+        name: newView.name,
+        filters: newView.filters,
+      },
     });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Delete a View
@@ -348,7 +416,9 @@ app.delete("/api/views/:userId/:viewId", async (req, res) => {
   try {
     await View.findByIdAndDelete(req.params.viewId);
     res.json({ success: true });
-  } catch (e) { res.status(500).json({ error: "Failed to delete" }); }
+  } catch (e) {
+    res.status(500).json({ error: "Failed to delete" });
+  }
 });
 
 // ============================================================================

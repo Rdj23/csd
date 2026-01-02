@@ -11,6 +11,7 @@ export const useTicketStore = create(
     (set, get) => ({
       tickets: [],
       isLoading: false,
+      analyticsTickets: [],
       socket: null,
       lastSyncTime: null,
       myViews: [],
@@ -173,6 +174,12 @@ export const useTicketStore = create(
             lastSync: new Date(),
             isLoading: false,
           });
+          // You might need to add 'analyticsTickets: []' to your initial state
+          const analyticsRes = await fetch(`${API_URL}/api/tickets/analytics`);
+          const analyticsData = await analyticsRes.json();
+          // You can choose to merge them or store separately. 
+          // Storing separately is cleaner for the Dashboard component.
+          set({ analyticsTickets: analyticsData.tickets || [] });
         } catch (error) {
           console.error("Sync failed:", error);
           set({ isLoading: false });
