@@ -26,8 +26,18 @@ import {
   AlertTriangle,
   FileDown,
   Clock,
+  Smile, // Add this
+  Inbox, // Add this
+  AlertCircle,
 } from "lucide-react";
-import { parseISO, isWithinInterval, startOfDay, endOfDay } from "date-fns";
+import {
+  parseISO,
+  isWithinInterval,
+  startOfDay,
+  endOfDay,
+  startOfWeek,
+  endOfWeek,
+} from "date-fns";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
 import TicketList from "./components/TicketList";
@@ -90,6 +100,80 @@ const App = () => {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
+  const myStats = useMemo(() => {
+    if (!currentUser?.name || !tickets.length) return null;
+
+    // 1. Identify GST Roster Members
+    const allowedGroups = ["Mashnu", "Tuaha", "Debashish", "Shweta"];
+    const allRosterNames = allowedGroups.flatMap((g) =>
+      Object.values(TEAM_GROUPS[g] || {})
+    );
+
+    // 2. Smart Match Current User to Roster
+    const matchedName = allRosterNames.find(
+      (rName) =>
+        currentUser.name.toLowerCase().includes(rName.toLowerCase()) ||
+        rName.toLowerCase().includes(currentUser.name.toLowerCase())
+    );
+
+    // --- DEBUGGING LOGS (Check Console) ---
+    console.log("----------- STATS DEBUG -----------");
+    console.log("1. Logged In As:", currentUser.name);
+    console.log(
+      "2. Is GST Member?",
+      !!matchedName,
+      matchedName ? `(Matched: ${matchedName})` : "(No Match)"
+    );
+
+    if (!matchedName) return null; // Hide if not in roster
+
+    // 3. Filter My Tickets (From ALL tickets, ignoring current dashboard filters)
+    const myTickets = tickets.filter((t) => {
+      // Check both display_id map AND direct display_name
+      const ownerIdName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id];
+      const ownerDisplayName = t.owned_by?.[0]?.display_name;
+
+      const isMatch =
+        (ownerIdName && ownerIdName.includes(matchedName)) ||
+        (ownerDisplayName && ownerDisplayName.includes(matchedName));
+
+      return isMatch;
+    });
+
+    console.log("3. Total Tickets Found for Me:", myTickets.length);
+    // ----------------------------------------
+
+    // 4. Calculate Metrics
+    const open = myTickets.filter(
+      (t) => t.stage?.name === "Waiting on Assignee"
+    ).length;
+
+    const now = new Date();
+    const solved = myTickets.filter(
+      (t) =>
+        t.actual_close_date &&
+        isWithinInterval(parseISO(t.actual_close_date), {
+          start: startOfWeek(now, { weekStartsOn: 1 }),
+          end: endOfWeek(now, { weekStartsOn: 1 }),
+        })
+    ).length;
+
+    const goodCsat = myTickets.filter((t) => {
+      const rating = Number(t.custom_fields?.tnt__csatrating);
+      if (rating !== 2) return false;
+
+      if (!t.actual_close_date) return false;
+
+      return isWithinInterval(parseISO(t.actual_close_date), {
+        start: startOfWeek(now, { weekStartsOn: 1 }),
+        end: endOfWeek(now, { weekStartsOn: 1 }),
+      });
+    }).length;
+
+    return { open, solved, csat: goodCsat };
+  }, [tickets, currentUser]);
 
   // ✅ Vistas State
   const [selectedViewId, setSelectedViewId] = useState(null);
@@ -649,6 +733,7 @@ const App = () => {
                   />
                 </div>
               )}
+
               {activeTab !== "vistas" && (
                 <>
                   {/* ✅ 1. DATE PICKER (Now independent per tab) */}
@@ -658,6 +743,7 @@ const App = () => {
                   />
 
                   {/* ✅ 2. ANALYTICS SPECIFIC FILTERS (Hardcoded Team & Member) */}
+
                   {activeTab === "analytics" ? (
                     <>
                       <MultiSelectFilter
@@ -733,53 +819,57 @@ const App = () => {
                   )}
                 </>
               )}
-              {/* ✅ RIGHT SIDE CONTROLS (Visible on Tickets, CSD, and Vistas) */}
-              {activeTab !== "analytics" && (
-                <div className="ml-auto relative flex items-center gap-2">
-                  {/* 1. CSV EXPORT (Available Everywhere) */}
-                  <button
-                    onClick={handleExportCSV}
-                    className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                    title="Export to CSV"
-                  >
-                    <FileDown className="w-4 h-4" />
-                  </button>
 
-                  {/* 2. SAVE VIEW (Only on Ticket View) */}
-                  {activeTab === "tickets" &&
-                    (showSaveInput ? (
-                      <div className="flex items-center gap-2 animate-in slide-in-from-right-5">
-                        <input
-                          autoFocus
-                          type="text"
-                          placeholder="Name view..."
-                          className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none w-32 dark:text-white"
-                          value={newViewName}
-                          onChange={(e) => setNewViewName(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && onSaveView()}
-                        />
-                        <button
-                          onClick={onSaveView}
-                          className="p-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                        >
-                          <Save className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setShowSaveInput(false)}
-                          className="p-1.5 text-slate-400 hover:text-slate-600"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setShowSaveInput(true)}
-                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
-                      >
-                        <Save className="w-3.5 h-3.5" /> Save View
-                      </button>
-                    ))}
+              {/* STATS → Analytics only */}
+              {activeTab === "analytics" && myStats && (
+                <div
+  className="
+    hidden lg:flex ml-auto items-center gap-8 px-5 py-3 rounded-2xl
+    bg-slate-50/70 backdrop-blur
+    dark:bg-slate-800/50
+  "
+>
+
+                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+  This Week
+</span>
+
+<div className="h-8 w-px bg-slate-200 dark:bg-slate-700/60" />
+
+{[
+  { label: "CSAT", value: myStats.csat },
+  { label: "Open", value: myStats.open },
+  { label: "Solved", value: myStats.solved },
+].map((item) => (
+  <div key={item.label} className="flex flex-col items-center min-w-[60px]">
+    <span className="text-2xl font-semibold text-slate-900 dark:text-white">
+      {item.value}
+    </span>
+    <span className="text-[10px] uppercase tracking-widest text-slate-400">
+      {item.label}
+    </span>
+  </div>
+))}
+
                 </div>
+              )}
+
+              {/* CSV → Tickets, CSD, Vistas */}
+              {activeTab !== "analytics" && (
+                <button
+                  onClick={handleExportCSV}
+                  title="Export to CSV"
+                  className="
+    ml-auto p-2 rounded-lg
+    bg-white border border-slate-200
+    text-slate-600 hover:bg-slate-50
+    dark:bg-slate-800 dark:border-slate-700
+    dark:text-slate-300 dark:hover:bg-slate-700
+    transition-colors
+  "
+                >
+                  <FileDown className="w-4 h-4" />
+                </button>
               )}
             </div>
 
