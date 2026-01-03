@@ -34,6 +34,7 @@ import {
   Check,
   ChevronDown,
   Clock,
+  TrendingUp,
   TrendingDown,
   ArchiveRestore,
   Layers,
@@ -43,11 +44,13 @@ import {
   Smile,
   Crown,
   Medal,
+  Globe
 } from "lucide-react";
 import axios from "axios";
 import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
 import { useTicketStore } from "../store";
 import { differenceInDays } from "date-fns";
+import { trackEvent } from "../utils/clevertap";
 
 const HIDDEN_USERS = [
   "System",
@@ -651,8 +654,128 @@ const InsightCard = ({ metric, data, context, comparison }) => {
   );
 };
 
+
+// --- COMPONENT: SMART INSIGHTS ENGINE (Fixed Data Logic) ---
+const SmartInsights = ({ data, metric, showTeam, showGST, selectedUsers, myTeamName }) => {
+  if (!data || data.length === 0) return null;
+
+  // 1. CALCULATE "SELECTED TOTAL" (Dynamic Sum)
+  // We sum up the values for ALL selected users for every day.
+  const calculateSelectedTotal = (dataset) => {
+    return dataset.reduce((acc, day) => {
+      let dailySum = 0;
+      selectedUsers.forEach(user => {
+        dailySum += (day[user] || 0);
+      });
+      return acc + dailySum;
+    }, 0);
+  };
+
+  const myTotal = calculateSelectedTotal(data);
+  const teamTotal = data.reduce((acc, d) => acc + (d.compare_team || 0), 0);
+  const gstTotal = data.reduce((acc, d) => acc + (d.compare_gst || 0), 0);
+  
+  // 2. Averages (Prevent divide by zero)
+  // Estimate roster sizes if not available
+  const teamSize = myTeamName && TEAM_GROUPS[myTeamName] ? Object.values(TEAM_GROUPS[myTeamName]).length : 5; 
+  const teamAvg = teamTotal > 0 ? Math.round(teamTotal / teamSize) : 0;
+  
+  const gstSize = Object.values(FLAT_TEAM_MAP).length || 20;
+  const gstAvg = gstTotal > 0 ? Math.round(gstTotal / gstSize) : 0;
+
+  // 3. Trend Calculation (First Half vs Second Half)
+  const mid = Math.floor(data.length / 2);
+  const firstHalfTotal = calculateSelectedTotal(data.slice(0, mid));
+  const secondHalfTotal = calculateSelectedTotal(data.slice(mid));
+  
+  const trendDiff = secondHalfTotal - firstHalfTotal;
+  const trendPcent = firstHalfTotal > 0 ? Math.round((trendDiff / firstHalfTotal) * 100) : 100;
+
+  // 4. Label Logic (Singular vs Plural)
+  const isGroup = selectedUsers.length > 1;
+  const subjectLabel = isGroup ? "Group Velocity" : "My Velocity";
+  const subjectText = isGroup ? "Selected users" : "You";
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 animate-in slide-in-from-bottom-4 duration-500">
+      
+      {/* CARD 1: VELOCITY */}
+      <div className="bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-900/20 dark:to-slate-900 border border-indigo-100 dark:border-indigo-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
+        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+           <Activity className="w-12 h-12 text-indigo-600" />
+        </div>
+        <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">{subjectLabel}</h4>
+        <div className="flex items-baseline gap-2">
+           <span className="text-2xl font-bold text-slate-800 dark:text-white">{myTotal}</span>
+           <span className="text-xs text-slate-500 font-medium">{METRICS[metric]?.desc || "Units"}</span>
+        </div>
+        <div className={`text-xs font-bold mt-2 flex items-center gap-1 ${trendDiff >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+           {trendDiff >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+           {Math.abs(trendPcent)}% {trendDiff >= 0 ? 'Increase' : 'Decrease'} (vs start)
+        </div>
+      </div>
+
+      {/* CARD 2: TEAM CONTEXT */}
+      {showTeam ? (
+         <div className="bg-gradient-to-br from-violet-50 to-white dark:from-violet-900/20 dark:to-slate-900 border border-violet-100 dark:border-violet-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+               <Users className="w-12 h-12 text-violet-600" />
+            </div>
+            <h4 className="text-xs font-bold text-violet-500 uppercase tracking-wider mb-1">Vs {myTeamName || "Team"}</h4>
+            
+            <div className="flex flex-col gap-1">
+               <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-800 dark:text-white">
+                     {myTotal - teamAvg > 0 ? `+${myTotal - teamAvg}` : myTotal - teamAvg}
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">vs Team Avg</span>
+               </div>
+               <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
+                  {subjectText} contributed <strong className="text-violet-600 dark:text-violet-400">{Math.round((myTotal / (teamTotal || 1)) * 100)}%</strong> of the entire team's volume.
+               </p>
+            </div>
+         </div>
+      ) : (
+         <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
+            Select "Vs Team" to see analysis
+         </div>
+      )}
+
+      {/* CARD 3: GST CONTEXT */}
+      {showGST ? (
+         <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 border border-emerald-100 dark:border-emerald-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+               <Globe className="w-12 h-12 text-emerald-600" />
+            </div>
+            <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-1">Vs Global (GST)</h4>
+            
+             <div className="flex flex-col gap-1">
+               <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-800 dark:text-white">
+                     {Math.round((myTotal / (gstAvg || 1)) * 100)}%
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">of Avg Load</span>
+               </div>
+               <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
+                  Global Avg: <strong className="text-slate-800 dark:text-slate-200">{gstAvg}</strong>. 
+                  {subjectText} are {myTotal > gstAvg ? "leading" : "trailing"} by <strong className="text-emerald-600 dark:text-emerald-400">{Math.abs(myTotal - gstAvg)}</strong>.
+               </p>
+            </div>
+         </div>
+      ) : (
+         <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
+            Select "Vs GST" to see analysis
+         </div>
+      )}
+      
+    </div>
+  );
+};
+
 // --- MAIN DASHBOARD ---
 const AnalyticsDashboard = ({
+
+
  tickets = [],                // ✅ Fix: Default to empty array
   sidebarFilteredTickets = [], // ✅ Fix: Default to empty array
   filterOwner,
@@ -709,6 +832,32 @@ const AnalyticsDashboard = ({
   const [compareMode, setCompareMode] = useState("none"); // none, time, team, gst, users
   const [selectedPeers, setSelectedPeers] = useState([]);
   const [timeRange, setTimeRange] = useState(30);
+  // --- CLEVERTAP TRACKING ---
+  
+  // 1. Track when Chart is Opened
+  useEffect(() => {
+    if (expandedMetric) {
+      trackEvent("Analytics Chart Expanded", { 
+        metric: METRICS[expandedMetric]?.label,
+        user: currentUser?.name 
+      });
+    }
+  }, [expandedMetric]);
+
+  // 2. Track Interaction / Queries inside Expanded View
+  useEffect(() => {
+    if (!expandedMetric) return;
+
+    // Debounce slightly or just log the combination
+    trackEvent("Analytics Insight Query", {
+      metric: METRICS[expandedMetric]?.label,
+      compare_team: showTeam,
+      compare_gst: showGST,
+      days: timeRange,
+      peers_selected: selectedUsers.length,
+      users: selectedUsers.join(", ")
+    });
+  }, [showTeam, showGST, timeRange, selectedUsers]);
 
   const days = useMemo(() => {
     // ✅ Fix: Check if tickets exists AND is an array before accessing .length or .map
@@ -1123,7 +1272,7 @@ const AnalyticsDashboard = ({
                   {config.label}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  {config.desc} (Last 14 Days)
+                  {config.desc} 
                 </p>
               </div>
               <button
@@ -1335,6 +1484,20 @@ const AnalyticsDashboard = ({
                 Vs GST
               </button>
             </div>
+
+            {/* SMART INSIGHTS PANEL (The "Crazy" Part) */}
+            <div className="px-8 pt-6 pb-2 bg-slate-50/50 dark:bg-slate-900/50">
+            <SmartInsights 
+                  data={expandedData} 
+                  metric={expandedMetric}
+                  showTeam={showTeam}
+                  showGST={showGST}
+                  selectedUsers={selectedUsers} // ✅ ADD THIS PROP
+                  currentUser={resolvedCurrentUser}
+                  myTeamName={myTeamName}
+               />
+            </div>
+
 
            {/* CHART AREA (Modern Design) */}
             <div className="flex-1 w-full bg-slate-50/50 dark:bg-slate-900/50 p-6 relative">
