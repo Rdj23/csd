@@ -71,7 +71,7 @@ const METRICS = {
     desc: "Tickets Created",
   },
   solved: {
-    label: "Throughput",
+    label: "Solved",
     icon: CheckCircle,
     color: "#10b981",
     desc: "Tickets Solved",
