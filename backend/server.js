@@ -427,6 +427,8 @@ app.delete("/api/views/:userId/:viewId", async (req, res) => {
 let ROSTER_ROWS = [];
 let DATE_COL_MAP = {};
 let NAME_COL_INDEX = 0;
+const DESIGNATION_COL_INDEX = 1;
+
 const SHIFT_TIMINGS = {
   "Shift 1": { start: "07:30", end: "16:30" },
   "Shift 2": { start: "10:30", end: "19:30" },
@@ -498,77 +500,147 @@ const getUserShiftStatus = (userName) => {
     timings: `${start} - ${end}`,
   };
 };
-
+// ✅ UPDATED: Roster Sync with Deep Debugging
 const syncRoster = async () => {
   try {
-    console.log("🔁 Auto-syncing roster...");
+    console.log("\n🔄 --- STARTING ROSTER SYNC ---");
+    const spreadsheetId = process.env.ROSTER_SHEET_ID;
+    console.log(`   👉 Spreadsheet ID: ${spreadsheetId}`);
+
+    if (!spreadsheetId) {
+      console.error("   ❌ Error: ROSTER_SHEET_ID is missing in .env");
+      return;
+    }
+
     const auth = new google.auth.GoogleAuth({
       keyFile: "google-sheets-key.json",
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
     const client = await auth.getClient();
     const googleSheets = google.sheets({ version: "v4", auth: client });
-    const spreadsheetId = process.env.ROSTER_SHEET_ID;
 
+    // 1. Get Sheet Name & Data
     const meta = await googleSheets.spreadsheets.get({ spreadsheetId });
     const sheetName = meta.data.sheets[0].properties.title;
+    console.log(`   👉 Found Sheet Name: "${sheetName}"`);
+
     const getRows = await googleSheets.spreadsheets.values.get({
       spreadsheetId,
       range: sheetName,
       valueRenderOption: "FORMATTED_VALUE",
     });
-    const rawRows = getRows.data.values || [];
-    if (!rawRows.length) return;
 
-    let headerRowIndex = 0;
+    const rawRows = getRows.data.values || [];
+    console.log(`   👉 Raw Rows Fetched: ${rawRows.length}`);
+
+    if (rawRows.length === 0) {
+      console.error("   ❌ Error: Sheet is empty.");
+      return;
+    }
+
+    // 2. Find Header Row (Look for "Designation")
+    let headerRowIndex = -1;
     for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
-      if (JSON.stringify(rawRows[i]).includes("Designation")) {
+      const rowStr = JSON.stringify(rawRows[i] || []);
+      if (rowStr.includes("Designation")) {
         headerRowIndex = i;
+        console.log(`   ✅ Header found at Row ${i + 1}: ${rowStr.substring(0, 100)}...`);
         break;
       }
     }
 
+    if (headerRowIndex === -1) {
+      console.error("   ❌ Error: Could not find 'Designation' column in first 20 rows.");
+      return;
+    }
+
+    // 3. Map Date Columns
     const headerRow = rawRows[headerRowIndex];
     DATE_COL_MAP = {};
-    NAME_COL_INDEX = 0;
+    
+    // Debug: Log first 5 columns to check format
+    console.log(`   👉 Headers Check: ${JSON.stringify(headerRow.slice(0, 5))}`);
+
     headerRow.forEach((col, index) => {
-      if (/^\d{1,2}-[A-Za-z]{3}$/.test(cleanString(col)))
+      // Allow formats: "1-Jan", "Jan-1", "01-Jan"
+      if (col && (col.includes("-") || col.includes("Jan") || col.includes("Feb"))) {
         DATE_COL_MAP[col.trim()] = index;
+      }
     });
 
-    ROSTER_ROWS = rawRows
-      .slice(headerRowIndex + 1)
-      .filter(
-        (row) =>
-          row[NAME_COL_INDEX] && String(row[NAME_COL_INDEX]).trim().length > 2
-      );
-    console.log(`✅ Roster auto-synced: ${ROSTER_ROWS.length} users`);
+    const dateKeys = Object.keys(DATE_COL_MAP);
+    console.log(`   ✅ Mapped ${dateKeys.length} Date Columns (e.g., ${dateKeys[0]} -> Index ${DATE_COL_MAP[dateKeys[0]]})`);
+
+    if (dateKeys.length === 0) {
+      console.error("   ❌ Error: No date columns identified. Check date format in row " + (headerRowIndex + 1));
+    }
+
+    // 4. Filter User Rows
+    // Start reading from row AFTER header
+    ROSTER_ROWS = rawRows.slice(headerRowIndex + 1).filter((row) => {
+      const name = String(row[NAME_COL_INDEX] || "").trim();
+      // Filter out empty rows, "Engineer" header, and "Designation" repeats
+      const isValid = name.length > 2 && 
+                      !name.toLowerCase().includes("engineer") && 
+                      !name.toLowerCase().includes("designation");
+      return isValid;
+    });
+
+    console.log(`   ✅ Processed ${ROSTER_ROWS.length} Valid Engineer Rows.`);
+    
+    // Log the first valid user to verify parsing
+    if (ROSTER_ROWS.length > 0) {
+      const firstUser = ROSTER_ROWS[0];
+      console.log(`      - Example User: ${firstUser[NAME_COL_INDEX]} | Desig: ${firstUser[DESIGNATION_COL_INDEX]}`);
+    }
+
+    console.log("🔄 --- ROSTER SYNC COMPLETE ---\n");
+
   } catch (e) {
-    console.error("❌ Auto-sync failed:", e.message);
+    console.error("   ❌ SYNC FAILED:", e.message);
+    if (e.message.includes("invalid_grant")) {
+      console.error("      -> Check google-sheets-key.json (Permissions/Expiry)");
+    }
+    if (e.message.includes("404")) {
+      console.error("      -> Check ROSTER_SHEET_ID in .env");
+    }
   }
 };
 
+// ✅ UPDATED: Profile Status with L1/L2 Backup Logic & Debugging
 app.post("/api/profile/status", async (req, res) => {
   const { userName, activeTickets, teamMembers } = req.body;
+  const DESIGNATION_COL_INDEX = 1;
+
+  // 1. Get Shift Status
   const shiftStatus = getUserShiftStatus(userName);
   let backups = [];
 
-  if (!shiftStatus.isActive && ROSTER_ROWS.length > 0) {
-    backups = ROSTER_ROWS.filter((row) => {
-      const rName = row[NAME_COL_INDEX];
-      if (isNameMatch(rName, userName)) return false;
-      if (
-        teamMembers &&
-        teamMembers.length > 0 &&
-        !teamMembers.some((member) => isNameMatch(rName, member))
-      )
-        return false;
-      return getUserShiftStatus(rName).isActive;
-    })
-      .slice(0, 2)
-      .map((row) => row[NAME_COL_INDEX]);
-  }
+  // 2. Find User's Designation
+  const userRow = ROSTER_ROWS.find((row) => isNameMatch(row[NAME_COL_INDEX], userName));
+  const userDesignation = userRow ? String(userRow[DESIGNATION_COL_INDEX] || "").trim().toUpperCase() : null;
 
+  // 3. Logic: ONLY find backups if User is NOT Active
+  if (!shiftStatus.isActive && ROSTER_ROWS.length > 0 && userDesignation) {
+    backups = ROSTER_ROWS
+      .filter((row) => {
+        const rName = row[NAME_COL_INDEX];
+        const rDesig = String(row[DESIGNATION_COL_INDEX] || "").trim().toUpperCase();
+
+        if (isNameMatch(rName, userName)) return false; // Skip self
+        if (rDesig !== userDesignation) return false;   // Strict L1-L1 / L2-L2 rule
+        
+        // Optional: Check Team
+        if (teamMembers && teamMembers.length > 0) {
+             if (!teamMembers.some(m => isNameMatch(rName, m))) return false;
+        }
+
+        // Must be Active
+        return getUserShiftStatus(rName).isActive;
+      })
+      .map(row => row[NAME_COL_INDEX])
+      .slice(0, 2); // Take top 2
+  }
   // Smart Summary
   let aiSummary = "";
   const ticketCount = activeTickets ? activeTickets.length : 0;
@@ -583,20 +655,19 @@ app.post("/api/profile/status", async (req, res) => {
     );
     const uniqueAccounts = [
       ...new Set(
-        criticalTickets
-          .map((t) => t.account)
-          .filter((a) => a && a !== "Unknown")
+        criticalTickets.map((t) => t.account).filter((a) => a && a !== "Unknown")
       ),
     ].slice(0, 2);
 
     if (criticalTickets.length > 0) {
-      const accountStr =
-        uniqueAccounts.length > 0 ? ` for ${uniqueAccounts.join(" & ")}` : "";
+      const accountStr = uniqueAccounts.length > 0 ? ` for ${uniqueAccounts.join(" & ")}` : "";
       aiSummary = `${userName} is working on ${criticalTickets.length} high priority tickets${accountStr}.`;
     } else {
       aiSummary = `${userName} has ${ticketCount} active tickets in queue.`;
     }
   }
+
+  console.log(`   🏁 Final Result: Backups -> ${JSON.stringify(backups)}`);
   res.json({ ...shiftStatus, backups, aiSummary });
 });
 
