@@ -143,6 +143,7 @@ const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
     ticketsByDate[dateKey].push(t);
   }
 
+
   // Helper for Values
   const getTicketValue = (t) => {
     if (metric === "volume" || metric === "solved") return 1;
@@ -655,8 +656,27 @@ const InsightCard = ({ metric, data, context, comparison }) => {
 };
 
 
+
+
 // --- COMPONENT: SMART INSIGHTS ENGINE (Fixed Data Logic) ---
 const SmartInsights = ({ data, metric, showTeam, showGST, selectedUsers, myTeamName }) => {
+
+  // ✅ NEW: Empty State for Non-GST / No Selection
+  if (!selectedUsers || selectedUsers.length === 0) {
+    return (
+      <div className="w-full bg-slate-50/50 dark:bg-slate-900/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8 mb-6 flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-300">
+         <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-full mb-3">
+            <Users className="w-6 h-6 text-indigo-400" />
+         </div>
+         <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Assignee Selected</h3>
+         <p className="text-xs text-slate-500 max-w-xs mt-1">
+           Select an assignee from the dropdown above to see their performance stats.
+         </p>
+      </div>
+    );
+  }
+
+
   if (!data || data.length === 0) return null;
 
   // 1. CALCULATE "SELECTED TOTAL" (Dynamic Sum)
@@ -813,19 +833,38 @@ const AnalyticsDashboard = ({
     );
   }, [currentUser]);
 
-  const isGSTUser = !!resolvedCurrentUser;
 
-  // 2. STATE INITIALIZATION
-  // Auto-select the resolved user (e.g., "Rohan")
-  const [selectedUsers, setSelectedUsers] = useState(
-    isGSTUser ? [resolvedCurrentUser] : []
-  );
+  // ✅ NEW: Role Simulation State (For Testing)
+  const [simulateNonGST, setSimulateNonGST] = useState(false);
+
+ 
+
+  // ✅ UPDATED: isGSTUser Logic (Respects Simulation)
+  const isGSTUser = useMemo(() => {
+      if (simulateNonGST) return false; // Force Non-GST if simulating
+      return resolvedCurrentUser && Object.values(FLAT_TEAM_MAP).includes(resolvedCurrentUser);
+  }, [resolvedCurrentUser, simulateNonGST]);
+
+  // ✅ UPDATED: Selection State (Default to [] if Non-GST)
+  const [selectedUsers, setSelectedUsers] = useState(() => {
+      // If GST, default to Self. If Non-GST, default to Empty [].
+      return isGSTUser && resolvedCurrentUser ? [resolvedCurrentUser] : [];
+  });
+
+  // ✅ NEW: Effect to reset selection when toggling simulation
+  useEffect(() => {
+     if (!isGSTUser) {
+         setSelectedUsers([]); // Clear selection when becoming Non-GST
+     } else if (resolvedCurrentUser && selectedUsers.length === 0) {
+         setSelectedUsers([resolvedCurrentUser]); // Restore Self when becoming GST
+     }
+  }, [isGSTUser, resolvedCurrentUser]);
 
   // --- STATE ---
   const [subject, setSubject] = useState("Me");
 
-  const [showTeam, setShowTeam] = useState(true);
-  const [showGST, setShowGST] = useState(true);
+  const [showTeam, setShowTeam] = useState(false);
+  const [showGST, setShowGST] = useState(false);
   const isTeamSelected = Object.keys(TEAM_GROUPS).includes(subject);
 
   // Comparison State
@@ -1017,15 +1056,30 @@ const AnalyticsDashboard = ({
     };
   }, [tickets, sourceTickets, currentUser, filterOwner]);
 
-  // Helper: Find my team name
+  // ✅ DYNAMIC TEAM DETECTION (Compatible with your utils.js structure)
   const myTeamName = useMemo(() => {
-    if (!resolvedCurrentUser) return null;
-    return Object.keys(TEAM_GROUPS).find((key) =>
-      Object.values(TEAM_GROUPS[key]).some((m) =>
-        resolvedCurrentUser.includes(m)
-      )
-    );
-  }, [resolvedCurrentUser]);
+    // 1. Identify who we are looking at
+    const usersToCheck = selectedUsers.length > 0 ? selectedUsers : [resolvedCurrentUser];
+    
+    // 2. Find the team for the FIRST valid user
+    for (const user of usersToCheck) {
+       if (!user) continue;
+       
+       // 🔍 FIX: Use Object.values() because your utils.js groups are Objects {ID: Name}
+       const foundTeamKey = Object.keys(TEAM_GROUPS).find(groupKey => {
+          const groupMembers = Object.values(TEAM_GROUPS[groupKey]); // Get list of names ["Aditya", "Shweta"...]
+          return groupMembers.includes(user);
+       });
+
+       if (foundTeamKey) {
+           // Optional: Add "Team " prefix if the key is just "Shweta"
+           return foundTeamKey.startsWith("Team") ? foundTeamKey : `Team ${foundTeamKey}`;
+       }
+    }
+
+    // 3. Fallback
+    return "Team Mashnu"; 
+  }, [selectedUsers, resolvedCurrentUser]);
 
   // --- EXPANDED CHART DATA ---
   const expandedData = useMemo(() => {
@@ -1279,8 +1333,8 @@ const AnalyticsDashboard = ({
                 onClick={() => {
                   setExpandedMetric(key);
                   setSubject("Me");
-                  setShowTeam(true);
-                  setShowGST(true);
+                  setShowTeam(false);
+                  setShowGST(false);
                 }}
                 className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-indigo-500 transition-colors"
               >
@@ -1377,15 +1431,30 @@ const AnalyticsDashboard = ({
                     })}
                   </div>
                   {METRICS[expandedMetric].label} Analysis
-                </h2>
-              </div>
-              <button
-                onClick={() => setExpandedMetric(null)}
-                className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all hover:rotate-90"
+
+                  {/* ✅ NEW: SUPER ADMIN TOGGLE (Visible only to Rohan) */}
+                    {currentUser?.name?.toLowerCase().includes("rohan") && (
+                       <button 
+                         onClick={() => setSimulateNonGST(!simulateNonGST)}
+                         className={`ml-4 text-[10px] px-2 py-1 rounded-full border transition-all ${simulateNonGST ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}
+                         title="Toggle User Role for Testing"
+                       >
+                         {simulateNonGST ? "Simulating: NON-GST" : "Role: SUPER ADMIN"}
+                       </button>
+                    )}
+                  </h2>
+                </div>
+             
+               {/* RIGHT SIDE: CLOSE BUTTON (The X) */}
+              <button 
+                onClick={() => setExpandedMetric(null)} 
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer group"
               >
-                <X className="w-6 h-6 text-slate-400" />
+                <X className="w-6 h-6 text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300 transition-colors" />
               </button>
+         
             </div>
+           
 
             {/* CONTROLS (Simplification: Checkbox List) */}
             <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 backdrop-blur border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4 shrink-0 relative z-50">
