@@ -11,7 +11,13 @@ import NodeCache from "node-cache";
 import { google } from "googleapis";
 import process from "process";
 import { OAuth2Client } from "google-auth-library";
-import { subMonths, parseISO, isAfter,differenceInHours,differenceInMinutes } from "date-fns";
+import {
+  subMonths,
+  parseISO,
+  isAfter,
+  differenceInHours,
+  differenceInMinutes,
+} from "date-fns";
 import mongoose from "mongoose";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -444,9 +450,12 @@ const isNameMatch = (rosterName, queryName) => {
 
 // Shift Helper (Updated to return clean Shift Name)
 const getUserShiftStatus = (userName) => {
-  if (ROSTER_ROWS.length === 0) return { isActive: false, status: "Roster Empty" };
-  
-  const userRow = ROSTER_ROWS.find((row) => isNameMatch(row[NAME_COL_INDEX], userName));
+  if (ROSTER_ROWS.length === 0)
+    return { isActive: false, status: "Roster Empty" };
+
+  const userRow = ROSTER_ROWS.find((row) =>
+    isNameMatch(row[NAME_COL_INDEX], userName)
+  );
 
   if (!userRow) {
     return { isActive: false, status: "Not in Roster" };
@@ -471,7 +480,11 @@ const getUserShiftStatus = (userName) => {
   );
 
   if (!cleanShiftKey)
-    return { isActive: false, status: rawShift || "Off Duty", shiftName: rawShift };
+    return {
+      isActive: false,
+      status: rawShift || "Off Duty",
+      shiftName: rawShift,
+    };
 
   const { start, end } = SHIFT_TIMINGS[cleanShiftKey];
   const [sH, sM] = start.split(":").map(Number);
@@ -484,7 +497,7 @@ const getUserShiftStatus = (userName) => {
     endVal < startVal
       ? nowVal >= startVal || nowVal <= endVal
       : nowVal >= startVal && nowVal <= endVal;
-      
+
   return {
     isActive,
     status: isActive ? "Active" : "Away",
@@ -629,110 +642,131 @@ app.post("/api/profile/status", async (req, res) => {
   let backups = [];
 
   // 2. Find Backups (Only if Inactive)
-  const userRow = ROSTER_ROWS.find((row) => isNameMatch(row[NAME_COL_INDEX], userName));
-  const userDesignation = userRow ? String(userRow[DESIGNATION_COL_INDEX] || "").trim().toUpperCase() : null;
+  const userRow = ROSTER_ROWS.find((row) =>
+    isNameMatch(row[NAME_COL_INDEX], userName)
+  );
+  const userDesignation = userRow
+    ? String(userRow[DESIGNATION_COL_INDEX] || "")
+        .trim()
+        .toUpperCase()
+    : null;
 
   if (!shiftStatus.isActive && ROSTER_ROWS.length > 0 && userDesignation) {
-    backups = ROSTER_ROWS
-      .filter((row) => {
-        const rName = row[NAME_COL_INDEX];
-        const rDesig = String(row[DESIGNATION_COL_INDEX] || "").trim().toUpperCase();
-        if (isNameMatch(rName, userName)) return false; 
-        if (rDesig !== userDesignation) return false;   
-        if (teamMembers && teamMembers.length > 0) {
-             if (!teamMembers.some(m => isNameMatch(rName, m))) return false;
-        }
-        return getUserShiftStatus(rName).isActive;
-      })
-      .map(row => row[NAME_COL_INDEX])
-      .slice(0, 2); 
+    backups = ROSTER_ROWS.filter((row) => {
+      const rName = row[NAME_COL_INDEX];
+      const rDesig = String(row[DESIGNATION_COL_INDEX] || "")
+        .trim()
+        .toUpperCase();
+      if (isNameMatch(rName, userName)) return false;
+      if (rDesig !== userDesignation) return false;
+      if (teamMembers && teamMembers.length > 0) {
+        if (!teamMembers.some((m) => isNameMatch(rName, m))) return false;
+      }
+      return getUserShiftStatus(rName).isActive;
+    })
+      .map((row) => row[NAME_COL_INDEX])
+      .slice(0, 2);
   }
 
   // 3. CALCULATE Q1 STATS (Jan 1 2026 - Mar 31 2026)
-  let allTickets = cache.get("tickets_analytics") || []; 
+  let allTickets = cache.get("tickets_analytics") || [];
 
   // 🔍 LOG 1: Check if we actually have tickets to analyze
-  console.log(`🔍 [Stats Debug] User: ${userName} | Total Cached Tickets: ${allTickets.length}`);
+  console.log(
+    `🔍 [Stats Debug] User: ${userName} | Total Cached Tickets: ${allTickets.length}`
+  );
 
   const startQ1 = new Date("2026-01-01");
   const endQ1 = new Date("2026-03-31");
 
-  const myQ1Tickets = allTickets.filter(t => {
-      // Owner Match
-      const ownerName = t.owned_by?.[0]?.display_name || "";
-      if (!isNameMatch(ownerName, userName)) return false;
+  const myQ1Tickets = allTickets.filter((t) => {
+    // Owner Match
+    const ownerName = t.owned_by?.[0]?.display_name || "";
+    if (!isNameMatch(ownerName, userName)) return false;
 
-      // Date Range Match (Solved in Q1)
-      if (!t.actual_close_date) return false;
-      const closeDate = parseISO(t.actual_close_date);
-      return closeDate >= startQ1 && closeDate <= endQ1;
+    // Date Range Match (Solved in Q1)
+    if (!t.actual_close_date) return false;
+    const closeDate = parseISO(t.actual_close_date);
+    return closeDate >= startQ1 && closeDate <= endQ1;
 
-      return isOwner && isQ1;
+    return isOwner && isQ1;
   });
 
-
   // 🔍 LOG 2: Check how many tickets were found for this user in Q1
-  console.log(`🔍 [Stats Debug] Found ${myQ1Tickets.length} tickets solved in Q1.`);
+  console.log(
+    `🔍 [Stats Debug] Found ${myQ1Tickets.length} tickets solved in Q1.`
+  );
 
   const q1SolvedCount = myQ1Tickets.length;
 
   // Avg Resolution in Decimal Hours (e.g. 2.3 Hrs)
   let totalMinutes = 0;
   let countRwt = 0;
-  myQ1Tickets.forEach(t => {
-      if (t.created_date && t.actual_close_date) {
-         // Use minutes for precision
-         const mins = differenceInMinutes(parseISO(t.actual_close_date), parseISO(t.created_date));
+  myQ1Tickets.forEach((t) => {
+    if (t.created_date && t.actual_close_date) {
+      // Use minutes for precision
+      const mins = differenceInMinutes(
+        parseISO(t.actual_close_date),
+        parseISO(t.created_date)
+      );
 
-         // 🔍 LOG 3: Log the first ticket's calculation to verify math
-         if (countRwt === 0) console.log(`   👉 Sample Ticket (${t.display_id}): ${mins} mins`);
-         if (mins >= 0) {
-             totalMinutes += mins;
-             countRwt++;
-         }
+      // 🔍 LOG 3: Log the first ticket's calculation to verify math
+      if (countRwt === 0)
+        console.log(`   👉 Sample Ticket (${t.display_id}): ${mins} mins`);
+      if (mins >= 0) {
+        totalMinutes += mins;
+        countRwt++;
       }
+    }
   });
-  
+
   // Convert minutes to decimal hours (e.g. 150 mins / 60 = 2.5 hrs)
-  const avgRwtVal = countRwt > 0 ? (totalMinutes / countRwt / 60).toFixed(1) : "0.0";
-  console.log(`🔍 [Stats Debug] Total Mins: ${totalMinutes} / Count: ${countRwt} = ${avgRwtVal} Hrs`);
-  const formattedAvgRwt = `${avgRwtVal} Hrs`; 
-// 4. LIVE WORKLOAD SUMMARY LOGIC
+  const avgRwtVal =
+    countRwt > 0 ? (totalMinutes / countRwt / 60).toFixed(1) : "0.0";
+  console.log(
+    `🔍 [Stats Debug] Total Mins: ${totalMinutes} / Count: ${countRwt} = ${avgRwtVal} Hrs`
+  );
+  const formattedAvgRwt = `${avgRwtVal} Hrs`;
+  // 4. LIVE WORKLOAD SUMMARY LOGIC
   let aiSummary = "";
   const ticketCount = activeTickets ? activeTickets.length : 0;
 
-  if (ticketCount === 0) {
-    aiSummary = "Queue is sorted! 🚀"; 
+  // 1. Open tickets = Waiting on Assignee
+  const openTickets = (activeTickets || []).filter(
+    (t) => t.stage === "Waiting on Assignee"
+  );
+
+  // 2. No open tickets
+  if (openTickets.length === 0) {
+    aiSummary = "Queue is sorted";
   } else {
-    // Check for High Priority
-    const criticalTickets = activeTickets.filter(
-      (t) =>
-        t.stage === "Waiting on Assignee" &&
-        (String(t.severity).toLowerCase().includes("high") ||
-          String(t.severity).toLowerCase().includes("blocker"))
+    // 3. High / Blocker among open tickets
+    const criticalTickets = openTickets.filter((t) =>
+      ["high", "blocker"].includes(String(t.severity).toLowerCase())
     );
-    
+
     if (criticalTickets.length > 0) {
-      // Get unique account names (max 2)
-      const uniqueAccounts = [...new Set(criticalTickets.map(t => t.account?.display_name || t.account || "Client"))].slice(0, 2);
-      const accountStr = uniqueAccounts.length > 0 ? ` for ${uniqueAccounts.join(" & ")}` : "";
-      
-      aiSummary = `Working on ${criticalTickets.length} high priority tickets${accountStr}.`;
+      const account =
+        criticalTickets.find((t) => t.account)?.account || "client";
+
+      aiSummary = `Working on ${criticalTickets.length} high priority ticket${
+        criticalTickets.length > 1 ? "s" : ""
+      } for ${account}.`;
     } else {
-      // Normal Open Tickets
-      aiSummary = `${ticketCount} tickets open.`;
+      // 4. Open but not critical
+      aiSummary = `${openTickets.length} tickets open.`;
     }
   }
 
   // Return everything
-  res.json({ 
-      ...shiftStatus, 
-      backups, 
-      aiSummary,
-      stats: {
-          q1Solved: q1SolvedCount,
-          avgResolution: formattedAvgRwt
-      }
+  res.json({
+    ...shiftStatus,
+    backups,
+    aiSummary,
+    stats: {
+      q1Solved: q1SolvedCount,
+      avgResolution: formattedAvgRwt,
+    },
   });
 });
 
