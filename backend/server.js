@@ -11,7 +11,7 @@ import NodeCache from "node-cache";
 import { google } from "googleapis";
 import process from "process";
 import { OAuth2Client } from "google-auth-library";
-import { subMonths, parseISO, isAfter } from "date-fns";
+import { subMonths, parseISO, isAfter,differenceInHours,differenceInMinutes } from "date-fns";
 import mongoose from "mongoose";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -170,8 +170,6 @@ const fetchAndCacheTickets = async (source = "auto") => {
       return new Date(t.modified_date) > HISTORY_START_DATE;
     });
 
-    
-
     // 4. Update Cache with TWO keys
     cache.set("tickets_active", activeView); // ~100-200 tickets (Fast)
     cache.set("tickets_analytics", analyticsView); // ~2000+ tickets (Slow)
@@ -229,20 +227,20 @@ app.post("/api/webhooks/devrev", (req, res) => {
 });
 
 // ✅ 2. ANALYTICS ENDPOINT (Background)
-    // Used by AnalyticsDashboard.jsx
-    app.get("/api/tickets/analytics", async (req, res) => {
-      // 1. Try to get specific analytics cache first
-      let cached = cache.get("tickets_analytics");
+// Used by AnalyticsDashboard.jsx
+app.get("/api/tickets/analytics", async (req, res) => {
+  // 1. Try to get specific analytics cache first
+  let cached = cache.get("tickets_analytics");
 
-      // 2. Fallback: If we haven't split the cache yet, return ALL tickets
-      // (This ensures charts work even before the optimization runs)
-      if (!cached) {
-        cached = cache.get("tickets_all") || [];
-      }
+  // 2. Fallback: If we haven't split the cache yet, return ALL tickets
+  // (This ensures charts work even before the optimization runs)
+  if (!cached) {
+    cached = cache.get("tickets_all") || [];
+  }
 
-      res.json({ tickets: cached });
-    });
-    
+  res.json({ tickets: cached });
+});
+
 // ✅ MANUAL FORCE SYNC (The "Fix It Now" Button)
 app.post("/api/tickets/sync", async (req, res) => {
   console.log("🫵 Manual Sync Triggered from UI");
@@ -444,22 +442,14 @@ const isNameMatch = (rosterName, queryName) => {
   return q.includes(r) || r.includes(q);
 };
 
+// Shift Helper (Updated to return clean Shift Name)
 const getUserShiftStatus = (userName) => {
-  if (ROSTER_ROWS.length === 0)
-    return { isActive: false, status: "Roster Empty" };
-  const userRow = ROSTER_ROWS.find((row) =>
-    isNameMatch(row[NAME_COL_INDEX], userName)
-  );
+  if (ROSTER_ROWS.length === 0) return { isActive: false, status: "Roster Empty" };
+  
+  const userRow = ROSTER_ROWS.find((row) => isNameMatch(row[NAME_COL_INDEX], userName));
 
   if (!userRow) {
-    const similar = ROSTER_ROWS.map((r) => r[NAME_COL_INDEX])
-      .filter(
-        (n) =>
-          n &&
-          String(n).toLowerCase().startsWith(userName.charAt(0).toLowerCase())
-      )
-      .slice(0, 3);
-    return { isActive: false, status: "Not in Roster", candidates: similar };
+    return { isActive: false, status: "Not in Roster" };
   }
 
   const istNow = new Date().toLocaleString("en-US", {
@@ -474,15 +464,16 @@ const getUserShiftStatus = (userName) => {
   if (todayColIdx === undefined)
     return { isActive: false, status: "Date Not Found", shiftName: "Unknown" };
 
-  const shiftName = userRow[todayColIdx]?.trim();
-  const cleanShift = Object.keys(SHIFT_TIMINGS).find(
-    (k) => shiftName && shiftName.includes(k)
+  const rawShift = userRow[todayColIdx]?.trim();
+  // Clean logic to extract "Shift 1", "Shift 2", etc.
+  const cleanShiftKey = Object.keys(SHIFT_TIMINGS).find(
+    (k) => rawShift && rawShift.includes(k)
   );
 
-  if (!cleanShift)
-    return { isActive: false, status: shiftName || "Off Duty", shiftName };
+  if (!cleanShiftKey)
+    return { isActive: false, status: rawShift || "Off Duty", shiftName: rawShift };
 
-  const { start, end } = SHIFT_TIMINGS[cleanShift];
+  const { start, end } = SHIFT_TIMINGS[cleanShiftKey];
   const [sH, sM] = start.split(":").map(Number);
   const [eH, eM] = end.split(":").map(Number);
   const nowVal = dateObj.getHours() * 60 + dateObj.getMinutes();
@@ -493,10 +484,11 @@ const getUserShiftStatus = (userName) => {
     endVal < startVal
       ? nowVal >= startVal || nowVal <= endVal
       : nowVal >= startVal && nowVal <= endVal;
+      
   return {
     isActive,
     status: isActive ? "Active" : "Away",
-    shiftName: cleanShift,
+    shiftName: cleanShiftKey, // ✅ Sends "Shift 1", "Shift 2" cleanly
     timings: `${start} - ${end}`,
   };
 };
@@ -544,35 +536,51 @@ const syncRoster = async () => {
       const rowStr = JSON.stringify(rawRows[i] || []);
       if (rowStr.includes("Designation")) {
         headerRowIndex = i;
-        console.log(`   ✅ Header found at Row ${i + 1}: ${rowStr.substring(0, 100)}...`);
+        console.log(
+          `   ✅ Header found at Row ${i + 1}: ${rowStr.substring(0, 100)}...`
+        );
         break;
       }
     }
 
     if (headerRowIndex === -1) {
-      console.error("   ❌ Error: Could not find 'Designation' column in first 20 rows.");
+      console.error(
+        "   ❌ Error: Could not find 'Designation' column in first 20 rows."
+      );
       return;
     }
 
     // 3. Map Date Columns
     const headerRow = rawRows[headerRowIndex];
     DATE_COL_MAP = {};
-    
+
     // Debug: Log first 5 columns to check format
-    console.log(`   👉 Headers Check: ${JSON.stringify(headerRow.slice(0, 5))}`);
+    console.log(
+      `   👉 Headers Check: ${JSON.stringify(headerRow.slice(0, 5))}`
+    );
 
     headerRow.forEach((col, index) => {
       // Allow formats: "1-Jan", "Jan-1", "01-Jan"
-      if (col && (col.includes("-") || col.includes("Jan") || col.includes("Feb"))) {
+      if (
+        col &&
+        (col.includes("-") || col.includes("Jan") || col.includes("Feb"))
+      ) {
         DATE_COL_MAP[col.trim()] = index;
       }
     });
 
     const dateKeys = Object.keys(DATE_COL_MAP);
-    console.log(`   ✅ Mapped ${dateKeys.length} Date Columns (e.g., ${dateKeys[0]} -> Index ${DATE_COL_MAP[dateKeys[0]]})`);
+    console.log(
+      `   ✅ Mapped ${dateKeys.length} Date Columns (e.g., ${
+        dateKeys[0]
+      } -> Index ${DATE_COL_MAP[dateKeys[0]]})`
+    );
 
     if (dateKeys.length === 0) {
-      console.error("   ❌ Error: No date columns identified. Check date format in row " + (headerRowIndex + 1));
+      console.error(
+        "   ❌ Error: No date columns identified. Check date format in row " +
+          (headerRowIndex + 1)
+      );
     }
 
     // 4. Filter User Rows
@@ -580,26 +588,30 @@ const syncRoster = async () => {
     ROSTER_ROWS = rawRows.slice(headerRowIndex + 1).filter((row) => {
       const name = String(row[NAME_COL_INDEX] || "").trim();
       // Filter out empty rows, "Engineer" header, and "Designation" repeats
-      const isValid = name.length > 2 && 
-                      !name.toLowerCase().includes("engineer") && 
-                      !name.toLowerCase().includes("designation");
+      const isValid =
+        name.length > 2 &&
+        !name.toLowerCase().includes("engineer") &&
+        !name.toLowerCase().includes("designation");
       return isValid;
     });
 
     console.log(`   ✅ Processed ${ROSTER_ROWS.length} Valid Engineer Rows.`);
-    
+
     // Log the first valid user to verify parsing
     if (ROSTER_ROWS.length > 0) {
       const firstUser = ROSTER_ROWS[0];
-      console.log(`      - Example User: ${firstUser[NAME_COL_INDEX]} | Desig: ${firstUser[DESIGNATION_COL_INDEX]}`);
+      console.log(
+        `      - Example User: ${firstUser[NAME_COL_INDEX]} | Desig: ${firstUser[DESIGNATION_COL_INDEX]}`
+      );
     }
 
     console.log("🔄 --- ROSTER SYNC COMPLETE ---\n");
-
   } catch (e) {
     console.error("   ❌ SYNC FAILED:", e.message);
     if (e.message.includes("invalid_grant")) {
-      console.error("      -> Check google-sheets-key.json (Permissions/Expiry)");
+      console.error(
+        "      -> Check google-sheets-key.json (Permissions/Expiry)"
+      );
     }
     if (e.message.includes("404")) {
       console.error("      -> Check ROSTER_SHEET_ID in .env");
@@ -607,7 +619,7 @@ const syncRoster = async () => {
   }
 };
 
-// ✅ UPDATED: Profile Status with L1/L2 Backup Logic & Debugging
+// ✅ UPDATED: Profile Status with Q1 Stats, Decimals & Smart Workload
 app.post("/api/profile/status", async (req, res) => {
   const { userName, activeTickets, teamMembers } = req.body;
   const DESIGNATION_COL_INDEX = 1;
@@ -616,59 +628,112 @@ app.post("/api/profile/status", async (req, res) => {
   const shiftStatus = getUserShiftStatus(userName);
   let backups = [];
 
-  // 2. Find User's Designation
+  // 2. Find Backups (Only if Inactive)
   const userRow = ROSTER_ROWS.find((row) => isNameMatch(row[NAME_COL_INDEX], userName));
   const userDesignation = userRow ? String(userRow[DESIGNATION_COL_INDEX] || "").trim().toUpperCase() : null;
 
-  // 3. Logic: ONLY find backups if User is NOT Active
   if (!shiftStatus.isActive && ROSTER_ROWS.length > 0 && userDesignation) {
     backups = ROSTER_ROWS
       .filter((row) => {
         const rName = row[NAME_COL_INDEX];
         const rDesig = String(row[DESIGNATION_COL_INDEX] || "").trim().toUpperCase();
-
-        if (isNameMatch(rName, userName)) return false; // Skip self
-        if (rDesig !== userDesignation) return false;   // Strict L1-L1 / L2-L2 rule
-        
-        // Optional: Check Team
+        if (isNameMatch(rName, userName)) return false; 
+        if (rDesig !== userDesignation) return false;   
         if (teamMembers && teamMembers.length > 0) {
              if (!teamMembers.some(m => isNameMatch(rName, m))) return false;
         }
-
-        // Must be Active
         return getUserShiftStatus(rName).isActive;
       })
       .map(row => row[NAME_COL_INDEX])
-      .slice(0, 2); // Take top 2
+      .slice(0, 2); 
   }
-  // Smart Summary
+
+  // 3. CALCULATE Q1 STATS (Jan 1 2026 - Mar 31 2026)
+  let allTickets = cache.get("tickets_analytics") || []; 
+
+  // 🔍 LOG 1: Check if we actually have tickets to analyze
+  console.log(`🔍 [Stats Debug] User: ${userName} | Total Cached Tickets: ${allTickets.length}`);
+
+  const startQ1 = new Date("2026-01-01");
+  const endQ1 = new Date("2026-03-31");
+
+  const myQ1Tickets = allTickets.filter(t => {
+      // Owner Match
+      const ownerName = t.owned_by?.[0]?.display_name || "";
+      if (!isNameMatch(ownerName, userName)) return false;
+
+      // Date Range Match (Solved in Q1)
+      if (!t.actual_close_date) return false;
+      const closeDate = parseISO(t.actual_close_date);
+      return closeDate >= startQ1 && closeDate <= endQ1;
+
+      return isOwner && isQ1;
+  });
+
+
+  // 🔍 LOG 2: Check how many tickets were found for this user in Q1
+  console.log(`🔍 [Stats Debug] Found ${myQ1Tickets.length} tickets solved in Q1.`);
+
+  const q1SolvedCount = myQ1Tickets.length;
+
+  // Avg Resolution in Decimal Hours (e.g. 2.3 Hrs)
+  let totalMinutes = 0;
+  let countRwt = 0;
+  myQ1Tickets.forEach(t => {
+      if (t.created_date && t.actual_close_date) {
+         // Use minutes for precision
+         const mins = differenceInMinutes(parseISO(t.actual_close_date), parseISO(t.created_date));
+
+         // 🔍 LOG 3: Log the first ticket's calculation to verify math
+         if (countRwt === 0) console.log(`   👉 Sample Ticket (${t.display_id}): ${mins} mins`);
+         if (mins >= 0) {
+             totalMinutes += mins;
+             countRwt++;
+         }
+      }
+  });
+  
+  // Convert minutes to decimal hours (e.g. 150 mins / 60 = 2.5 hrs)
+  const avgRwtVal = countRwt > 0 ? (totalMinutes / countRwt / 60).toFixed(1) : "0.0";
+  console.log(`🔍 [Stats Debug] Total Mins: ${totalMinutes} / Count: ${countRwt} = ${avgRwtVal} Hrs`);
+  const formattedAvgRwt = `${avgRwtVal} Hrs`; 
+// 4. LIVE WORKLOAD SUMMARY LOGIC
   let aiSummary = "";
   const ticketCount = activeTickets ? activeTickets.length : 0;
+
   if (ticketCount === 0) {
-    aiSummary = "Queue is currently clear.";
+    aiSummary = "Queue is sorted! 🚀"; 
   } else {
+    // Check for High Priority
     const criticalTickets = activeTickets.filter(
       (t) =>
         t.stage === "Waiting on Assignee" &&
         (String(t.severity).toLowerCase().includes("high") ||
           String(t.severity).toLowerCase().includes("blocker"))
     );
-    const uniqueAccounts = [
-      ...new Set(
-        criticalTickets.map((t) => t.account).filter((a) => a && a !== "Unknown")
-      ),
-    ].slice(0, 2);
-
+    
     if (criticalTickets.length > 0) {
+      // Get unique account names (max 2)
+      const uniqueAccounts = [...new Set(criticalTickets.map(t => t.account?.display_name || t.account || "Client"))].slice(0, 2);
       const accountStr = uniqueAccounts.length > 0 ? ` for ${uniqueAccounts.join(" & ")}` : "";
-      aiSummary = `${userName} is working on ${criticalTickets.length} high priority tickets${accountStr}.`;
+      
+      aiSummary = `Working on ${criticalTickets.length} high priority tickets${accountStr}.`;
     } else {
-      aiSummary = `${userName} has ${ticketCount} active tickets in queue.`;
+      // Normal Open Tickets
+      aiSummary = `${ticketCount} tickets open.`;
     }
   }
 
-  console.log(`   🏁 Final Result: Backups -> ${JSON.stringify(backups)}`);
-  res.json({ ...shiftStatus, backups, aiSummary });
+  // Return everything
+  res.json({ 
+      ...shiftStatus, 
+      backups, 
+      aiSummary,
+      stats: {
+          q1Solved: q1SolvedCount,
+          avgResolution: formattedAvgRwt
+      }
+  });
 });
 
 // Analytics AI Endpoint (Preserved)
