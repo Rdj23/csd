@@ -715,166 +715,132 @@ const App = () => {
           {/* RIGHT COLUMN: Filters (Fixed) + Content (Scrollable) */}
           <div className="flex-1 flex flex-col min-w-0 h-full">
             {/* FIXED FILTERS BAR */}
-            <div className="shrink-0 z-40 mb-4 bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-wrap gap-2 items-center transition-colors relative">
-              {/* COPY THE CONTENT INSIDE YOUR PREVIOUS FILTER BAR DIV HERE */}
-              {activeTab !== "analytics" && (
-                <div className="relative w-32">
-                  <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="ID / Title..."
-                    className="w-full pl-8 pr-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-400 dark:text-slate-200"
-                    value={searchQueries[activeTab] || ""}
-                    onChange={(e) =>
-                      setSearchQueries((prev) => ({
-                        ...prev,
-                        [activeTab]: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              )}
 
-              {activeTab !== "vistas" && (
-                <>
-                  {/* ✅ 1. DATE PICKER (Now independent per tab) */}
-                  <SmartDatePicker
-                    value={currentFilters.dateRange} // Pass current value if component supports it
-                    onChange={(val) => setFilter("dateRange", val)}
-                  />
+            <div className="shrink-0 z-40 mb-4 bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center transition-colors relative">
+              {/* LEFT: Filters */}
+              <div className="flex items-center gap-2">
+                {activeTab !== "analytics" && (
+                  <div className="relative w-32">
+                    <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="ID / Title..."
+                      className="w-full pl-8 pr-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-400 dark:text-slate-200"
+                      value={searchQueries[activeTab] || ""}
+                      onChange={(e) =>
+                        setSearchQueries((prev) => ({
+                          ...prev,
+                          [activeTab]: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                )}
 
-                  {/* ✅ 2. ANALYTICS SPECIFIC FILTERS (Hardcoded Team & Member) */}
+                {activeTab !== "vistas" && (
+                  <>
+                    <SmartDatePicker
+                      value={currentFilters.dateRange}
+                      onChange={(val) => setFilter("dateRange", val)}
+                    />
 
-                  {activeTab === "analytics" ? (
-                    <>
-                      <MultiSelectFilter
-                        icon={Layers}
-                        label="Team"
-                        options={options.teams}
-                        selected={currentFilters.teams}
-                        onChange={(v) => setFilter("teams", v)}
-                      />
-                      <MultiSelectFilter
-                        icon={Users}
-                        label="Member"
-                        options={options.owners}
-                        selected={currentFilters.owners}
-                        onChange={(v) => setFilter("owners", v)}
-                      />
-                    </>
-                  ) : (
-                    /* ✅ 3. STANDARD FILTERS (For Tickets & CSD) */
-                    <>
-                      {visibleFilterKeys.map((key) => {
-                        const config = FILTER_CONFIG.find((f) => f.key === key);
-                        return config ? (
-                          <div
-                            key={key}
-                            className="relative group animate-in zoom-in-95 duration-200"
-                          >
+                    {activeTab === "analytics" ? (
+                      <>
+                        <MultiSelectFilter
+                          icon={Layers}
+                          label="Team"
+                          options={options.teams}
+                          selected={currentFilters.teams}
+                          onChange={(v) => setFilter("teams", v)}
+                        />
+                        <MultiSelectFilter
+                          icon={Users}
+                          label="Member"
+                          options={options.owners}
+                          selected={currentFilters.owners}
+                          onChange={(v) => setFilter("owners", v)}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {visibleFilterKeys.map((key) => {
+                          const config = FILTER_CONFIG.find(
+                            (f) => f.key === key
+                          );
+                          return config ? (
                             <MultiSelectFilter
+                              key={key}
                               icon={config.icon}
                               label={config.label}
                               options={options[key]}
                               selected={currentFilters[key]}
                               onChange={(v) => setFilter(key, v)}
                             />
-                            <button
-                              onClick={() => {
-                                setFilter(key, []);
-                                setVisibleFilterKeys((prev) =>
-                                  prev.filter((k) => k !== key)
-                                );
-                              }}
-                              className="absolute -top-1 -right-1 bg-slate-200 dark:bg-slate-700 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </div>
-                        ) : null;
-                      })}
+                          ) : null;
+                        })}
 
-                      {/* ✅ ADD BUTTON (Hidden on Analytics) */}
-                      <div className="relative group ml-1">
-                        <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                          <Plus className="w-3.5 h-3.5" /> Filter
-                        </button>
-                        <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-1 hidden group-focus-within:block">
-                          {FILTER_CONFIG.filter(
-                            (f) => !visibleFilterKeys.includes(f.key)
-                          ).map((f) => (
-                            <button
-                              key={f.key}
-                              onClick={() =>
-                                setVisibleFilterKeys((prev) => [...prev, f.key])
-                              }
-                              className="w-full text-left flex items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg"
-                            >
-                              <f.icon className="w-3.5 h-3.5 opacity-70" />{" "}
-                              {f.label}
-                            </button>
-                          ))}
+                        <div className="relative">
+                          <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium">
+                            <Plus className="w-3.5 h-3.5" /> Filter
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* SPACER */}
+              <div className="flex-1" />
+
+              {/* RIGHT: This Week + Actions */}
+              <div className="flex items-center gap-3">
+                {activeTab === "analytics" && myStats && (
+                  <div className="hidden lg:flex items-center gap-6 px-4 py-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/50">
+                    <span className="text-[11px] text-slate-400">
+                      This Week
+                    </span>
+                    <div className="h-6 w-px bg-slate-300 dark:bg-slate-700" />
+                    {[
+                      { label: "CSAT", value: myStats.csat },
+                      { label: "Open", value: myStats.open },
+                      { label: "Solved", value: myStats.solved },
+                    ].map((item) => (
+                      <div key={item.label} className="text-center">
+                        <div className="text-xl font-semibold">
+                          {item.value}
+                        </div>
+                        <div className="text-[10px] uppercase text-slate-400">
+                          {item.label}
                         </div>
                       </div>
-                    </>
-                  )}
-                </>
-              )}
+                    ))}
+                  </div>
+                )}
 
-              {/* STATS → Analytics only */}
-              {activeTab === "analytics" && myStats && (
-                <div
-  className="
-    hidden lg:flex ml-auto items-center gap-8 px-5 py-3 rounded-2xl
-    bg-slate-50/70 backdrop-blur
-    dark:bg-slate-800/50
-  "
->
+                {activeTab === "tickets" && (
+                  <button
+                    onClick={() => setShowSaveInput(true)}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-600"
+                  >
+                    <Save className="w-4 h-4" /> Save View
+                  </button>
+                )}
 
-                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-  This Week
-</span>
-
-<div className="h-8 w-px bg-slate-200 dark:bg-slate-700/60" />
-
-{[
-  { label: "CSAT", value: myStats.csat },
-  { label: "Open", value: myStats.open },
-  { label: "Solved", value: myStats.solved },
-].map((item) => (
-  <div key={item.label} className="flex flex-col items-center min-w-[60px]">
-    <span className="text-2xl font-semibold text-slate-900 dark:text-white">
-      {item.value}
-    </span>
-    <span className="text-[10px] uppercase tracking-widest text-slate-400">
-      {item.label}
-    </span>
-  </div>
-))}
-
-                </div>
-              )}
-
-              {/* CSV → Tickets, CSD, Vistas */}
-              {activeTab !== "analytics" && (
-                <button
-                  onClick={handleExportCSV}
-                  title="Export to CSV"
-                  className="
-    ml-auto p-2 rounded-lg
-    bg-white border border-slate-200
-    text-slate-600 hover:bg-slate-50
-    dark:bg-slate-800 dark:border-slate-700
+                {activeTab !== "analytics" && (
+                  <button
+                    onClick={handleExportCSV}
+                    className="p-2.5 rounded-lg bg-white border border-slate-200 dark:bg-slate-800 dark:border-slate-700
     dark:text-slate-300 dark:hover:bg-slate-700
-    transition-colors
-  "
-                >
-                  <FileDown className="w-4 h-4" />
-                </button>
-              )}
+    transition-colorss"
+                  >
+                    <FileDown className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* ✅ 2. FIXED KPI CARDS (Only show on Ticket/CSD/Vistas tabs) */}
+            {/* KPI CARDS */}
             {activeTab !== "analytics" && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-2 shrink-0">
                 <KPICard
@@ -907,12 +873,12 @@ const App = () => {
               </div>
             )}
 
-            {/* SCROLLABLE CONTENT AREA */}
+            {/* SCROLLABLE CONTENT */}
             <div className="flex-1 overflow-y-auto pr-1 pt-2 pb-10 no-scrollbar">
               {activeTab === "analytics" ? (
                 <AnalyticsDashboard
                   tickets={filteredTickets}
-                  dateRange={currentFilters.dateRange} // ✅ Use the local date
+                  dateRange={currentFilters.dateRange}
                   filterOwner={
                     currentFilters.owners.length > 0
                       ? currentFilters.owners[0]
@@ -941,9 +907,9 @@ const App = () => {
         </div>
       </div>
 
-      {/* MODALS & TOASTS */}
+      {/* TOAST */}
       {toastMessage && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2 rounded-full shadow-xl flex items-center gap-2 text-xs font-bold animate-in slide-in-from-bottom-5 fade-in">
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2 rounded-full shadow-xl flex items-center gap-2 text-xs font-bold">
           {toastMessage}
         </div>
       )}
@@ -955,18 +921,15 @@ const App = () => {
               (FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "") ===
               selectedUserProfile.name
           );
+
           const activeForUser = userTickets.filter(
-            (t) =>
-              t.stage?.name !== "Solved" &&
-              t.stage?.name !== "Closed" &&
-              t.stage?.name !== "Cancelled"
+            (t) => !["Solved", "Closed", "Cancelled"].includes(t.stage?.name)
           );
-          const solvedForUser = userTickets.filter(
-            (t) =>
-              t.stage?.name === "Solved" ||
-              t.stage?.name === "Closed" ||
-              t.stage?.name == "Resolved"
+
+          const solvedForUser = userTickets.filter((t) =>
+            ["Solved", "Closed", "Resolved"].includes(t.stage?.name)
           );
+
           return (
             <ProfileStatsModal
               user={selectedUserProfile}
