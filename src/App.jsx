@@ -774,19 +774,28 @@ const App = () => {
                       </>
                     ) : (
                       <>
-                        {visibleFilterKeys.map((key) => {
-                          const config = FILTER_CONFIG.find(
-                            (f) => f.key === key
-                          );
+                       {visibleFilterKeys.map((key) => {
+                          const config = FILTER_CONFIG.find((f) => f.key === key);
                           return config ? (
-                            <MultiSelectFilter
-                              key={key}
-                              icon={config.icon}
-                              label={config.label}
-                              options={options[key]}
-                              selected={currentFilters[key]}
-                              onChange={(v) => setFilter(key, v)}
-                            />
+                            <div key={key} className="flex items-center gap-1">
+                              <MultiSelectFilter
+                                icon={config.icon}
+                                label={config.label}
+                                options={options[key]}
+                                selected={currentFilters[key]}
+                                onChange={(v) => setFilter(key, v)}
+                              />
+                              <button
+                                onClick={() => {
+                                  setVisibleFilterKeys((prev) => prev.filter((k) => k !== key));
+                                  setFilter(key, []);
+                                }}
+                                className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
+                                title={`Remove ${config.label} filter`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
                           ) : null;
                         })}
 
@@ -949,6 +958,40 @@ const App = () => {
       {toastMessage && (
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2 rounded-full shadow-xl flex items-center gap-2 text-xs font-bold">
           {toastMessage}
+        </div>
+      )}
+
+      {/* SAVE VIEW MODAL */}
+      {showSaveInput && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 w-96 border border-slate-200 dark:border-slate-800">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+              <Save className="w-5 h-5 text-indigo-500" /> Save Current View
+            </h3>
+            <input
+              type="text"
+              placeholder="Enter view name..."
+              value={newViewName}
+              onChange={(e) => setNewViewName(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowSaveInput(false); setNewViewName(""); }}
+                className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onSaveView}
+                disabled={!newViewName.trim()}
+                className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Save View
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

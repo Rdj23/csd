@@ -530,7 +530,7 @@ const DSATAlerts = ({ badTickets = [], isLoading, isGSTUser }) => {
 // MAIN DASHBOARD
 // ============================================================================
 const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
-  const { theme, currentUser, analyticsData, analyticsLoading, fetchAnalyticsData } = useTicketStore();
+  const { theme, currentUser, analyticsData, analyticsLoading, fetchAnalyticsData ,analyticsTickets} = useTicketStore();
   const [currentQuarter, setCurrentQuarter] = useState("Q4_25");
   const [excludeZendesk, setExcludeZendesk] = useState(false);
   const [viewMode, setViewMode] = useState("gst");
@@ -541,6 +541,18 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   const [timeRange, setTimeRange] = useState(30);
 
   const isDark = theme === "dark";
+
+   // Use analyticsTickets (historical closed) for solved/rwt/backlog, active tickets for volume
+  const allTickets = useMemo(() => {
+    const historical = analyticsTickets || [];
+    const active = tickets || [];
+    // Merge and dedupe by display_id
+    const map = new Map();
+    [...historical, ...active].forEach(t => {
+      if (t.display_id) map.set(t.display_id, t);
+    });
+    return Array.from(map.values());
+  }, [analyticsTickets, tickets]);
 
   // Resolve current user to GST roster name
   const resolvedCurrentUser = useMemo(() => {
@@ -582,9 +594,8 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   const handleQuarterChange = useCallback((quarter) => setCurrentQuarter(quarter), []);
   const handleRefresh = () => fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, forceRefresh: true });
 
-  // Client-side chart data for 4 metric charts
-  const smallChartData = useMemo(() => {
-    const dataToUse = tickets && tickets.length > 0 ? tickets : [];
+ const smallChartData = useMemo(() => {
+    const dataToUse = allTickets && allTickets.length > 0 ? allTickets : [];
     let subject = viewMode === "gst" ? "All" : (filterOwner !== "All" ? filterOwner : "All");
     
     return {
