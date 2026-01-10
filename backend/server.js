@@ -112,22 +112,19 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 let isSyncing = false;
 let syncQueued = false;
 
-// ============================================================================
-// HELPER: Get Quarter Date Range
-// ============================================================================
 const getQuarterDateRange = (quarter) => {
   const now = new Date();
   switch (quarter) {
-    case "Q3_25": return { start: new Date("2025-07-01"), end: new Date("2025-09-30T23:59:59Z") };
     case "Q4_25": return { start: new Date("2025-10-01"), end: new Date("2025-12-31T23:59:59Z") };
     case "Q1_26": return { start: new Date("2026-01-01"), end: new Date("2026-03-31T23:59:59Z") };
     case "Q1_26_W1": return { start: new Date("2026-01-01"), end: new Date("2026-01-07T23:59:59Z") };
     case "Q1_26_W2": return { start: new Date("2026-01-08"), end: new Date("2026-01-14T23:59:59Z") };
     case "Q1_26_W3": return { start: new Date("2026-01-15"), end: new Date("2026-01-21T23:59:59Z") };
     case "Q1_26_W4": return { start: new Date("2026-01-22"), end: new Date("2026-01-28T23:59:59Z") };
-    case "last_60_days":
     default:
-      const start = new Date(now); start.setDate(start.getDate() - 60);
+      // Default to last 60 days
+      const start = new Date(now); 
+      start.setDate(start.getDate() - 60);
       return { start, end: now };
   }
 };
@@ -137,8 +134,8 @@ const getQuarterDateRange = (quarter) => {
 // ============================================================================
 app.get("/api/tickets/analytics", async (req, res) => {
   try {
-    const { quarter = "Q4_25", excludeZendesk, owner, forceRefresh } = req.query;
-    const cacheKey = `${quarter}_${excludeZendesk || 'all'}_${owner || 'all'}`;
+   const { quarter = "Q4_25", excludeZendesk, owner, forceRefresh, groupBy = "daily" } = req.query;
+    const cacheKey = `${quarter}_${excludeZendesk || 'all'}_${owner || 'all'}_${groupBy}`;
     
     console.log(`📊 Analytics Request: ${cacheKey}`);
 
@@ -177,11 +174,15 @@ app.get("/api/tickets/analytics", async (req, res) => {
       }}
     ]);
 
-    // Daily Trends
-    const trends = await AnalyticsTicket.aggregate([
+
+    let dateFormat = "%Y-%m-%d"; // daily
+    if (groupBy === "weekly") dateFormat = "%Y-W%V";
+    if (groupBy === "monthly") dateFormat = "%Y-%m";
+
+     const trends = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
       { $group: {
-        _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+        _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
         solved: { $sum: 1 },
         avgRWT: { $avg: "$rwt" },
         avgFRT: { $avg: "$frt" },
@@ -190,6 +191,16 @@ app.get("/api/tickets/analytics", async (req, res) => {
       { $sort: { _id: 1 } },
       { $limit: 100 }
     ]);
+
+    // Backlog Clearance with same grouping
+    const backlogCleared = await AnalyticsTicket.aggregate([
+      { $match: { ...matchConditions, $expr: { $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 24 * 60 * 60 * 1000] } } },
+      { $group: { _id: { $dateToString: { format: dateFormat, date: "$closed_date" } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+      { $limit: 100 }
+    ]);
+    
+   
 
     // Leaderboard
     const leaderboard = await AnalyticsTicket.aggregate([
@@ -221,13 +232,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
       ticket_id: 1, display_id: 1, title: 1, owner: 1, created_date: 1, closed_date: 1
     }).sort({ closed_date: -1 }).limit(50).lean();
 
-    // Backlog Clearance (tickets >15 days old when closed)
-    const backlogCleared = await AnalyticsTicket.aggregate([
-      { $match: { ...matchConditions, $expr: { $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 24 * 60 * 60 * 1000] } } },
-      { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } }, count: { $sum: 1 } } },
-      { $sort: { _id: 1 } },
-      { $limit: 60 }
-    ]);
+   
 
     // Individual trends (last 60 days)
     const sixtyDaysAgo = new Date(); sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
@@ -254,13 +259,17 @@ app.get("/api/tickets/analytics", async (req, res) => {
         negativeCSAT: statsResult?.negativeCSAT || 0,
         frrPercent: statsResult?.frrTotal > 0 ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100) : 0
       },
-      trends: trends.map(t => ({
-        date: t._id, solved: t.solved,
-        avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
-        avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
-        backlogCleared: backlogCleared.map(b => ({ date: b._id, count: b.count })),
-        positiveCSAT: t.positiveCSAT
-      })),
+     trends: trends.map(t => {
+        const backlog = backlogCleared.find(b => b._id === t._id);
+        return {
+          date: t._id, 
+          solved: t.solved,
+          avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
+          avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
+          backlogCleared: backlog?.count || 0,
+          positiveCSAT: t.positiveCSAT
+        };
+      }),
       leaderboard: leaderboard.map(l => ({
         name: l._id, totalTickets: l.totalTickets, goodCSAT: l.goodCSAT, badCSAT: l.badCSAT,
         winRate: Math.round(l.winRate || 0),

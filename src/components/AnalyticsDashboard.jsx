@@ -53,6 +53,7 @@ import { useTicketStore } from "../store";
 
 const HIDDEN_USERS = ["System", "DevRev Bot", "A", "V", "n", "Undefined", "null", "Anmol", "anmol-sawhney"];
 
+
 // ============================================================================
 // METRICS CONFIG
 // ============================================================================
@@ -64,7 +65,6 @@ const METRICS = {
 };
 
 const QUARTERS = [
-  { id: "Q3_25", label: "Q3 '25" },
   { id: "Q4_25", label: "Q4 '25" },
   { id: "Q1_26", label: "Q1 '26" },
 ];
@@ -80,6 +80,7 @@ const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
   const end = new Date();
   const start = subDays(end, timeRange);
   const daysInterval = eachDayOfInterval({ start, end });
+  
 
   let subjectName = subject === "Me" ? currentUser : subject;
   const isGlobal = subject === "All";
@@ -158,6 +159,7 @@ const processMultiUserData = (tickets, metric, timeRange, selectedUsers, showTea
     return 0;
   };
 
+  
   const teamMembers = currentUserTeamName && TEAM_GROUPS[currentUserTeamName]
     ? Object.values(TEAM_GROUPS[currentUserTeamName])
     : [];
@@ -173,6 +175,7 @@ const processMultiUserData = (tickets, metric, timeRange, selectedUsers, showTea
 
     let dataPoint = { name: format(day, "MMM dd"), date: day };
 
+    
     // Plot selected users
     selectedUsers.forEach((user) => {
       const userTickets = dailyTickets.filter((t) => {
@@ -180,6 +183,7 @@ const processMultiUserData = (tickets, metric, timeRange, selectedUsers, showTea
         return owner === user;
       });
       const values = userTickets.map(getTicketValue).filter((v) => v !== null);
+      
 
       if (metric === "rwt") {
         dataPoint[user] = values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
@@ -188,6 +192,7 @@ const processMultiUserData = (tickets, metric, timeRange, selectedUsers, showTea
       }
     });
 
+    
     // Team & GST comparison
     if (showTeam || showGST) {
       const teamTickets = dailyTickets.filter((t) => {
@@ -530,7 +535,7 @@ const DSATAlerts = ({ badTickets = [], isLoading, isGSTUser }) => {
 // MAIN DASHBOARD
 // ============================================================================
 const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
-  const { theme, currentUser, analyticsData, analyticsLoading, fetchAnalyticsData ,analyticsTickets} = useTicketStore();
+  const { theme, currentUser, analyticsData, analyticsLoading, fetchAnalyticsData } = useTicketStore();
   const [currentQuarter, setCurrentQuarter] = useState("Q4_25");
   const [excludeZendesk, setExcludeZendesk] = useState(false);
   const [viewMode, setViewMode] = useState("gst");
@@ -539,20 +544,11 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   const [showTeam, setShowTeam] = useState(false);
   const [showGST, setShowGST] = useState(false);
   const [timeRange, setTimeRange] = useState(30);
+  const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
 
   const isDark = theme === "dark";
 
-   // Use analyticsTickets (historical closed) for solved/rwt/backlog, active tickets for volume
-  const allTickets = useMemo(() => {
-    const historical = analyticsTickets || [];
-    const active = tickets || [];
-    // Merge and dedupe by display_id
-    const map = new Map();
-    [...historical, ...active].forEach(t => {
-      if (t.display_id) map.set(t.display_id, t);
-    });
-    return Array.from(map.values());
-  }, [analyticsTickets, tickets]);
+     const serverTrends = analyticsData?.trends || [];
 
   // Resolve current user to GST roster name
   const resolvedCurrentUser = useMemo(() => {
@@ -588,30 +584,78 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
 
   // Fetch server-side analytics
   useEffect(() => {
-    fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, owner: filterOwner !== "All" ? filterOwner : null });
-  }, [currentQuarter, excludeZendesk, filterOwner, fetchAnalyticsData]);
+    fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, owner: filterOwner !== "All" ? filterOwner : null, groupBy });
+  }, [currentQuarter, excludeZendesk, filterOwner, fetchAnalyticsData,groupBy]);
 
   const handleQuarterChange = useCallback((quarter) => setCurrentQuarter(quarter), []);
   const handleRefresh = () => fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, forceRefresh: true });
 
- const smallChartData = useMemo(() => {
-    const dataToUse = allTickets && allTickets.length > 0 ? allTickets : [];
-    let subject = viewMode === "gst" ? "All" : (filterOwner !== "All" ? filterOwner : "All");
+ 
+  // Chart data from server trends
+  const smallChartData = useMemo(() => {
+    const serverTrends = analyticsData?.trends || [];
     
     return {
-      volume: processChartData(dataToUse, "volume", 30, subject, resolvedCurrentUser),
-      solved: processChartData(dataToUse, "solved", 30, subject, resolvedCurrentUser),
-      rwt: processChartData(dataToUse, "rwt", 30, subject, resolvedCurrentUser),
-      backlog: processChartData(dataToUse, "backlog", 30, subject, resolvedCurrentUser),
+      volume: serverTrends.map(t => ({ name: t.date, main: t.solved || 0 })),
+      solved: serverTrends.map(t => ({ name: t.date, main: t.solved || 0 })),
+      rwt: serverTrends.map(t => ({ name: t.date, main: t.avgRWT || 0 })),
+      backlog: serverTrends.map(t => ({ name: t.date, main: t.backlogCleared || 0 })),
     };
-  }, [tickets, viewMode, filterOwner, resolvedCurrentUser]);
-
-  // Expanded chart data
+  }, [analyticsData]);
+  // Expanded chart data - use server individualTrends
   const expandedData = useMemo(() => {
     if (!expandedMetric) return [];
-    return processMultiUserData(tickets, expandedMetric, timeRange, selectedUsers, showTeam, showGST, myTeamName?.replace("Team ", ""));
-  }, [tickets, expandedMetric, timeRange, selectedUsers, showTeam, showGST, myTeamName]);
-
+    
+    const individualTrends = analyticsData?.individualTrends || {};
+    const allDates = new Set();
+    
+    // Collect all dates from selected users
+    selectedUsers.forEach(user => {
+      (individualTrends[user] || []).forEach(d => allDates.add(d.date));
+    });
+    
+    const sortedDates = Array.from(allDates).sort();
+    
+    return sortedDates.slice(-timeRange).map(date => {
+      const dataPoint = { name: format(parseISO(date), "MMM dd"), date };
+      
+      selectedUsers.forEach(user => {
+        const userDay = (individualTrends[user] || []).find(d => d.date === date);
+        if (expandedMetric === "volume") {
+          dataPoint[user] = userDay?.created || 0;
+        } else if (expandedMetric === "solved") {
+          dataPoint[user] = userDay?.solved || 0;
+        } else if (expandedMetric === "rwt") {
+          dataPoint[user] = userDay?.avgRWT || 0;
+        } else if (expandedMetric === "backlog") {
+          dataPoint[user] = userDay?.backlogCleared || 0;
+        }
+      });
+      
+      // Team & GST totals
+      if (showTeam || showGST) {
+        let teamTotal = 0, gstTotal = 0;
+        Object.entries(individualTrends).forEach(([user, days]) => {
+          const dayData = days.find(d => d.date === date);
+          if (dayData) {
+            const val = expandedMetric === "solved" ? dayData.solved : 
+                       expandedMetric === "rwt" ? dayData.avgRWT : 
+                       expandedMetric === "backlog" ? dayData.backlogCleared : 0;
+            gstTotal += val || 0;
+            // Check if user is in current user's team
+            const myTeamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")] || {};
+            if (Object.values(myTeamMembers).includes(user)) {
+              teamTotal += val || 0;
+            }
+          }
+        });
+        if (showTeam) dataPoint.compare_team = teamTotal;
+        if (showGST) dataPoint.compare_gst = gstTotal;
+      }
+      
+      return dataPoint;
+    });
+  }, [analyticsData, expandedMetric, timeRange, selectedUsers, showTeam, showGST, myTeamName]);
   const colors = {
     grid: isDark ? "#1e293b" : "#f1f5f9",
     text: isDark ? "#94a3b8" : "#64748b",
@@ -650,6 +694,19 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
           </button>
         </div>
       </div>
+
+      <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            {[
+              { id: "daily", label: "Daily" },
+              { id: "weekly", label: "Weekly" },
+              { id: "monthly", label: "Monthly" },
+            ].map(g => (
+              <button key={g.id} onClick={() => setGroupBy(g.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${groupBy === g.id ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                {g.label}
+              </button>
+            ))}
+          </div>
 
       {/* PERFORMANCE METRICS */}
       <PerformanceMetricsCards 

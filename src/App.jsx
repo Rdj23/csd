@@ -326,14 +326,14 @@ const App = () => {
   // ✅ AUTO-SELECT FIRST VIEW (Prevents blank screen)
   useEffect(() => {
     if (activeTab === "vistas" && !selectedViewId && myViews.length > 0) {
-      setSelectedViewId(myViews[0].id);
+      setSelectedViewId(myViews[0]._id);
     }
   }, [activeTab, myViews, selectedViewId]);
 
   // ✅ 1. DYNAMIC FILTERS (Must be declared before using 'currentFilters')
   const currentFilters = useMemo(() => {
     if (activeTab === "vistas" && selectedViewId) {
-      const view = myViews.find((v) => v.id === selectedViewId);
+      const view = myViews.find((v) => v._id === selectedViewId);
       return view ? view.filters : EMPTY_FILTERS;
     }
     return tabFilters[activeTab];
@@ -695,11 +695,11 @@ const App = () => {
                     </p>
                   ) : (
                     myViews.map((view) => (
-                      <div key={view.id} className="flex group">
+                      <div key={view._id} className="flex group">
                         <button
-                          onClick={() => setSelectedViewId(view.id)}
+                          onClick={() => setSelectedViewId(view._id)}
                           className={`flex-1 text-left px-3 py-2 text-xs rounded-lg transition-colors truncate ${
-                            selectedViewId === view.id
+                            selectedViewId === view._id
                               ? "bg-indigo-50 text-indigo-700 font-bold dark:bg-indigo-900/30 dark:text-indigo-300"
                               : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                           }`}
@@ -709,7 +709,7 @@ const App = () => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteView(view.id);
+                            deleteView(view._id);
                           }}
                           className="p-2 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100"
                         >

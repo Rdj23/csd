@@ -151,6 +151,7 @@ export const useTicketStore = create(
           if (filters.quarter) params.append('quarter', filters.quarter);
           if (filters.excludeZendesk) params.append('excludeZendesk', 'true');
           if (filters.owner) params.append('owner', filters.owner);
+          if (filters.groupBy) params.append('groupBy', filters.groupBy);
           if (filters.forceRefresh) params.append('forceRefresh', 'true');
 
           const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
