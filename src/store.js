@@ -1,28 +1,30 @@
 import { create } from "zustand";
-import { persist,createJSONStorage } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { io } from "socket.io-client";
 import { trackEvent } from "./utils/clevertap";
 
-// --- CONFIG: Universal API URL ---
 const getApiUrl = () => import.meta.env.VITE_API_URL;
 
 export const useTicketStore = create(
   persist(
     (set, get) => ({
+      // Active tickets (open/pending)
       tickets: [],
       isLoading: false,
-      analyticsTickets: [],
+      
+      // ✅ NEW: Pre-aggregated analytics data from server
+      analyticsData: null, // { stats, trends, leaderboard, badTickets, individualTrends }
+      analyticsLoading: false,
+      
       socket: null,
       lastSyncTime: null,
       myViews: [],
+      currentUser: null,
+      isAuthenticated: false,
+      token: null,
+      theme: "dark",
 
-      loginUser: (user) => set({ currentUser: user, isAuthenticated: true }),
-      logout: () => {
-        set({ currentUser: null, isAuthenticated: false, tickets: [], myViews: [] });
-        localStorage.removeItem("ticket-store"); // Optional: Clear data on logout
-      },
-
-      // âœ… ACTION: Connect to Real-Time Stream
+      // Socket connection
       connectSocket: () => {
         const { socket } = get();
         if (socket) return;
@@ -30,102 +32,23 @@ export const useTicketStore = create(
         const API_URL = getApiUrl();
         const newSocket = io(API_URL);
 
-        newSocket.on("connect", () => {
-          console.log("ðŸŸ¢ Connected to Real-Time Server");
-        });
-
-        // âš¡ LISTEN: When server says "Here is new data", update instantly
+        newSocket.on("connect", () => console.log("🟢 Connected to Real-Time Server"));
         newSocket.on("REFRESH_TICKETS", (updatedTickets) => {
-          console.log("ðŸ”¥ Live Update Received!");
+          console.log("📥 Live Update Received!");
           set({ tickets: updatedTickets, lastSync: new Date() });
         });
 
         set({ socket: newSocket });
       },
 
-      myViews: [],
-
-      // --- VISTAS ACTIONS ---
-    fetchViews: async () => {
-        const { currentUser } = get();
-        if (!currentUser?.email) return;
-
-        try {
-            const API_URL = getApiUrl();
-            // Encode email to handle special characters in URL
-            const res = await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`);
-            const data = await res.json();
-            set({ myViews: data });
-        } catch (e) {
-            console.error("Failed to fetch views", e);
-        }
+      // Auth
+      loginUser: (user) => set({ currentUser: user, isAuthenticated: true }),
+      logout: () => {
+        set({ currentUser: null, isAuthenticated: false, tickets: [], myViews: [], analyticsData: null });
+        localStorage.removeItem("ticket-store");
       },
 
-      saveView: async (name, currentFilters) => {
-         const { currentUser, myViews } = get();
-         if (!currentUser?.email) return false;
-
-         try {
-             const API_URL = getApiUrl();
-             const res = await fetch(`${API_URL}/api/views`, {
-                 method: "POST",
-                 headers: { "Content-Type": "application/json" },
-                 body: JSON.stringify({
-                     userId: currentUser.email,
-                     name,
-                     filters: currentFilters
-                 })
-             });
-             const data = await res.json();
-             
-             if (data.success) {
-                 set({ myViews: [data.view, ...myViews] }); // Add new view to top of list
-                 
-                 // Optional: Track in CleverTap
-                 import("./utils/clevertap").then(({ default: ct }) => {
-                    ct.event.push("View Saved", { "View Name": name, "Date": new Date() });
-                 });
-
-                 return true;
-             }
-         } catch (e) {
-             console.error("Failed to save view", e);
-             return false;
-         }
-      },
-
-      deleteView: async (viewId) => {
-          const { currentUser, myViews } = get();
-          if (!currentUser?.email) return;
-
-          try {
-              const API_URL = getApiUrl();
-              await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}/${viewId}`, {
-                  method: "DELETE"
-              });
-              set({ myViews: myViews.filter(v => v.id !== viewId) });
-              
-              // Optional: Track in CleverTap
-              import("./utils/clevertap").then(({ default: ct }) => {
-                  ct.event.push("View Deleted", { "View ID": viewId, "Date": new Date() });
-               });
-
-          } catch (e) {
-              console.error("Failed to delete view", e);
-          }
-      },
-
-      // lastSync: null,
-
-      // --- AUTH STATE ---
-      currentUser: null,
-      isAuthenticated: false,
-      token: null,
-      theme: "dark",
-
-      toggleTheme: () =>
-        set((state) => ({ theme: state.theme === "light" ? "dark" : "light" })),
-
+      toggleTheme: () => set((state) => ({ theme: state.theme === "light" ? "dark" : "light" })),
       setCurrentUser: (user) => set({ currentUser: user }),
 
       loginWithGoogle: async (credentialResponse) => {
@@ -134,19 +57,13 @@ export const useTicketStore = create(
           const res = await fetch(`${API_URL}/api/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            // âœ… FIX: Change 'token' to 'credential' to match server.js
             body: JSON.stringify({ credential: credentialResponse.credential }),
           });
 
           const data = await res.json();
 
-          // âœ… FIX: Remove 'data.success' check since server doesn't send it
           if (res.ok && data.user) {
-            set({
-              currentUser: data.user,
-              isAuthenticated: true,
-              token: data.token || null,
-            });
+            set({ currentUser: data.user, isAuthenticated: true, token: data.token || null });
             return true;
           } else {
             alert(data.error || "Login failed");
@@ -158,100 +75,160 @@ export const useTicketStore = create(
         }
       },
 
-      logout: () =>
-        set({ currentUser: null, isAuthenticated: false, token: null }),
+      // ============================================================================
+      // VIEWS
+      // ============================================================================
+      fetchViews: async () => {
+        const { currentUser } = get();
+        if (!currentUser?.email) return;
+        try {
+          const API_URL = getApiUrl();
+          const res = await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`);
+          set({ myViews: await res.json() });
+        } catch (e) {
+          console.error("Failed to fetch views", e);
+        }
+      },
 
-      // --- DATA ACTIONS ---
+      saveView: async (name, currentFilters) => {
+        const { currentUser, myViews } = get();
+        if (!currentUser?.email) return false;
+        try {
+          const API_URL = getApiUrl();
+          const res = await fetch(`${API_URL}/api/views`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: currentUser.email, name, filters: currentFilters })
+          });
+          const data = await res.json();
+          if (data.success) {
+            set({ myViews: [data.view, ...myViews] });
+            return true;
+          }
+        } catch (e) {
+          console.error("Failed to save view", e);
+        }
+        return false;
+      },
+
+      deleteView: async (viewId) => {
+        const { currentUser, myViews } = get();
+        if (!currentUser?.email) return;
+        try {
+          const API_URL = getApiUrl();
+          await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}/${viewId}`, { method: "DELETE" });
+          set({ myViews: myViews.filter(v => v._id !== viewId) });
+        } catch (e) {
+          console.error("Failed to delete view", e);
+        }
+      },
+
+      // ============================================================================
+      // ACTIVE TICKETS (Open/Pending/On-Hold for Dashboard)
+      // ============================================================================
       fetchTickets: async () => {
-        const { lastSyncTime } = get();
         set({ isLoading: true });
         try {
           const API_URL = getApiUrl();
           const response = await fetch(`${API_URL}/api/tickets`);
           const data = await response.json();
-          set({
-            tickets: data.tickets || [],
-            lastSync: new Date(),
-            isLoading: false,
-          });
-          // Analytics is now fetched separately by fetchAnalyticsTickets
+          set({ tickets: data.tickets || [], lastSync: new Date(), isLoading: false });
         } catch (error) {
           console.error("Sync failed:", error);
           set({ isLoading: false });
         }
       },
 
-      // ✅ NEW: Dedicated Analytics Fetch (All Historical Data)
-      fetchAnalyticsTickets: async () => {
+      // ============================================================================
+      // ✅ ANALYTICS (Pre-aggregated from server - NO memory issues!)
+      // ============================================================================
+      fetchAnalyticsData: async (filters = {}) => {
+        set({ analyticsLoading: true });
         try {
           const API_URL = getApiUrl();
-          console.log("📊 [Store] Fetching analytics from MongoDB...");
-          const res = await fetch(`${API_URL}/api/tickets/analytics`);
+          const params = new URLSearchParams();
+          
+          if (filters.quarter) params.append('quarter', filters.quarter);
+          if (filters.excludeZendesk) params.append('excludeZendesk', 'true');
+          if (filters.owner) params.append('owner', filters.owner);
+          if (filters.forceRefresh) params.append('forceRefresh', 'true');
+
+          const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
+          console.log("📊 [Store] Fetching analytics:", url);
+
+          const res = await fetch(url);
           const data = await res.json();
-          console.log(`📊 [Store] Received ${data.tickets?.length || 0} analytics tickets`);
-          set({ analyticsTickets: data.tickets || [] });
+
+          console.log("📊 [Store] Analytics received:", {
+            tickets: data.stats?.totalTickets,
+            trends: data.trends?.length,
+            leaderboard: data.leaderboard?.length
+          });
+
+          set({ analyticsData: data, analyticsLoading: false });
+          return data;
         } catch (error) {
           console.error("Analytics fetch failed:", error);
+          set({ analyticsLoading: false });
+          return null;
         }
       },
 
+      // Clear analytics cache (force refresh)
+      refreshAnalytics: async (filters = {}) => {
+        return get().fetchAnalyticsData({ ...filters, forceRefresh: true });
+      },
+
+      // ============================================================================
+      // TICKET TIMELINE & COMMENTS
+      // ============================================================================
       fetchTicketTimeline: async (ticketId) => {
         try {
           const API_URL = getApiUrl();
-          const response = await fetch(
-            `${API_URL}/timeline?ticket_id=${encodeURIComponent(ticketId)}`
-          );
+          const response = await fetch(`${API_URL}/timeline?ticket_id=${encodeURIComponent(ticketId)}`);
           if (!response.ok) return [];
-          const data = await response.json();
-          return data || [];
+          return await response.json() || [];
         } catch (error) {
           console.error("Failed to fetch timeline:", error);
           return [];
         }
       },
 
-      // Accepts internalId (UUID) and displayId (TKT-xxx)
       postTicketComment: async (internalId, displayId, text) => {
         const { currentUser } = get();
         const API_URL = getApiUrl();
 
         try {
-          // 1. Local Sync (Uses readable ID for dashboard history)
+          // Local sync
           await fetch(`${API_URL}/api/remarks`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ticketId: displayId,
-              user: currentUser?.display_name || "Support Engineer",
-              text: text,
+              user: currentUser?.name || "Support Engineer",
+              text,
             }),
           });
 
-          // 2. DevRev Sync (Uses internal UUID for platform reflection)
+          // DevRev sync
           const response = await fetch(`${API_URL}/api/comments`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ticketId: internalId,
-              body: text,
-            }),
+            body: JSON.stringify({ ticketId: internalId, body: text }),
           });
 
           if (!response.ok) throw new Error("DevRev Sync Failed");
+
+          trackEvent("Comment Added", { "Ticket ID": displayId, "Comment Length": text.length });
         } catch (err) {
-          console.error("âŒ Post failed:", err);
+          console.error("❌ Post failed:", err);
           throw err;
         }
-        // âœ… On Success:
-        trackEvent("Comment Added", {
-          "Ticket ID": displayId,
-          "Comment Length": text.length,
-        });
       },
     }),
     {
       name: "support-dashboard-storage",
-      storage: createJSONStorage(() => localStorage), // Persist to local storage
+      storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         currentUser: s.currentUser,
         theme: s.theme,

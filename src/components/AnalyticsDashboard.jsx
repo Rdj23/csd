@@ -1,2135 +1,422 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { format, parseISO } from "date-fns";
 import {
-  subDays,
-  eachDayOfInterval,
-  isSameDay,
-  parseISO,
-  differenceInHours,
-  startOfWeek,
-  startOfMonth,
-  format,
-  isSameWeek,
-  isSameMonth,
-} from "date-fns";
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  LineChart,
-  Line,
-  BarChart,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip as RechartsTooltip, Legend, Line,
 } from "recharts";
 import {
-  CheckCircle,
-  Maximize2,
-  X,
-  Sparkles,
-  ArrowUpRight,
-  Activity,
-  Trophy,
-  Users,
-  User,
-  Calendar,
-  Check,
-  ChevronDown,
-  Clock,
-  TrendingUp,
-  TrendingDown,
-  ArchiveRestore,
-  Layers,
-  AlertCircle,
-  ExternalLink,
-  Frown,
-  Smile,
-  Crown,
-  Medal,
-  Globe,
-  CalendarDays,
-  ListFilter,
+  Activity, Trophy, Users, Check, Clock, TrendingUp,
+  Layers, AlertCircle, ExternalLink, Frown, Smile, Crown,
+  Medal, Globe, ListFilter, RefreshCw, Eye, EyeOff, Zap,
 } from "lucide-react";
-import axios from "axios";
-import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
+import { FLAT_TEAM_MAP } from "../utils";
 import { useTicketStore } from "../store";
-import { differenceInDays } from "date-fns";
-import { trackEvent } from "../utils/clevertap";
 
-const HIDDEN_USERS = [
-  "System",
-  "DevRev Bot",
-  "A",
-  "V",
-  "n",
-  "Undefined",
-  "null",
+const HIDDEN_USERS = ["System", "DevRev Bot", "Undefined", "null"];
+const QUARTERS = [
+  { id: "Q3_25", label: "Q3 '25" },
+  { id: "Q4_25", label: "Q4 '25" },
+  { id: "Q1_26", label: "Q1 '26" },
 ];
+const Q1_WEEKS = [
+  { id: "Q1_26_W1", label: "W1" },
+  { id: "Q1_26_W2", label: "W2" },
+  { id: "Q1_26_W3", label: "W3" },
+  { id: "Q1_26_W4", label: "W4" },
+];
+const CHART_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#f43f5e", "#06b6d4", "#8b5cf6"];
 
-// âœ… 4th Chart is now Backlog Clearance
-const METRICS = {
-  volume: {
-    label: "Incoming Volume",
-    icon: ArrowUpRight,
-    color: "#6366f1",
-    desc: "Tickets Created",
-  },
-  solved: {
-    label: "Solved",
-    icon: CheckCircle,
-    color: "#10b981",
-    desc: "Tickets Solved",
-  },
-  rwt: {
-    label: "Avg Resolution",
-    icon: Clock,
-    color: "#f59e0b",
-    desc: "Hours to Solve",
-  },
-  backlog: {
-    label: "Backlog Clearance",
-    icon: ArchiveRestore,
-    color: "#f97316",
-    desc: "Solved (Age > 15 Days)",
-  },
-};
-//
+// ============================================================================
+// PERFORMANCE METRICS CARDS
+// ============================================================================
+const PerformanceMetricsCards = ({ stats, trends, onQuarterChange, currentQuarter, isLoading }) => {
+  const [selectedQuarter, setSelectedQuarter] = useState(currentQuarter || "Q4_25");
+  const [selectedWeek, setSelectedWeek] = useState(null);
 
-// --- OVERALL METRICS CARDS ---
-const OverallMetricsCards = ({ data }) => {
-  // Default to Q4 '25 to match your data
-  const [vpView, setVpView] = useState("Q4 '25"); 
+  const handleQuarterChange = (qId) => {
+    setSelectedQuarter(qId);
+    setSelectedWeek(null);
+    onQuarterChange(qId);
+  };
 
-  // 1. FILTER LOGIC (Debugged)
-  const filteredData = useMemo(() => {
-    if (!data || !data.length) return [];
+  const handleWeekChange = (wId) => {
+    setSelectedWeek(wId);
+    onQuarterChange(wId);
+  };
 
-    const now = new Date();
-    let start, end;
-
-    switch (vpView) {
-      case "Q4 '25":
-        start = new Date("2025-10-01");
-        end = new Date("2025-12-31");
-        break;
-      case "Q1 '26":
-        start = new Date("2026-01-01");
-        end = new Date("2026-03-31");
-        break;
-      case "Month": 
-        start = subDays(now, 30);
-        end = now;
-        break;
-      default:
-        start = new Date("2025-10-01");
-        end = now;
-    }
-
-    return data.filter((t) => {
-      // Must have a close date to be in analytics
-      if (!t.actual_close_date) return false;
-      
-      const d = parseISO(t.actual_close_date);
-      return d >= start && d <= end;
-    });
-  }, [data, vpView]);
-
-  // 3. Calculate Aggregates (STRICT DB ONLY - NO FALLBACKS)
-  const stats = useMemo(() => {
-    if (!filteredData || filteredData.length === 0) {
-        return { rwt: "0.0", frr: 0, iter: "0.0", frt: "0.0", csat: 0 };
-    }
-
-    let totalRWT = 0, countRWT = 0;
-    let totalFRT = 0, countFRT = 0;
-    let totalIter = 0, countIter = 0;
-    let frrMet = 0, countFRR = 0;
-    let goodCsatCount = 0;
-
-    filteredData.forEach((t) => {
-      // Helper to safely parse numbers
-      const getNum = (v) => (v !== null && v !== undefined && v !== "") ? Number(v) : null;
-
-      // âœ… STRICT: Only use the value if it exists in the DB
-      const rwt = getNum(t.rwt);
-      const frt = getNum(t.frt);
-      const iter = getNum(t.iterations);
-      
-      // RWT: Count ONLY if valid number exists in DB
-      if (rwt !== null) {
-        totalRWT += rwt;
-        countRWT++;
-      }
-
-      // FRT
-      if (frt !== null) {
-        totalFRT += frt;
-        countFRT++;
-      }
-
-      // Iterations
-      if (iter !== null) {
-        totalIter += iter;
-        countIter++;
-      }
-
-      // FRR (Boolean check)
-      if (t.frr !== undefined && t.frr !== null) {
-        if (t.frr === true || t.frr === "true") frrMet++;
-        countFRR++;
-      }
-
-      // CSAT (Raw Count of "Good" = 2)
-      if (Number(t.csat) === 2) {
-        goodCsatCount++;
-      }
-    });
-
-    return {
-      rwt: countRWT > 0 ? (totalRWT / countRWT).toFixed(1) : "0.0",
-      frr: countFRR > 0 ? Math.round((frrMet / countFRR) * 100) : 0,
-      iter: countIter > 0 ? (totalIter / countIter).toFixed(1) : "0.0",
-      frt: countFRT > 0 ? (totalFRT / countFRT).toFixed(1) : "0.0",
-      csat: goodCsatCount, // Raw Count
-    };
-  }, [filteredData]);
-
-  // 4. Sparkline Trend Logic (Robust & Safe)
-  const getTrendData = (key) => {
-    const grouped = {};
-    const isQuarter = vpView.includes("Q"); // Group by Week for Quarters
-
-    filteredData.forEach((t) => {
-      // âœ… Safety Check: Ensure date exists (Using normalized field)
-      if (!t.actual_close_date) return;
-      
-      const date = parseISO(t.actual_close_date);
-      
-      // Dynamic Grouping (Week vs Day)
-      let k = isQuarter 
-        ? format(startOfWeek(date), "yyyy-MM-dd") 
-        : format(date, "yyyy-MM-dd");
-
-      if (!grouped[k]) grouped[k] = { sum: 0, count: 0 };
-
-      // --- CSAT LOGIC (Trend of POSITIVE counts) ---
-      if (key === 'csat') {
-         // If CSAT is "Good" (2), add to sum
-         if (Number(t.csat) === 2) {
-             grouped[k].sum += 1;
-             grouped[k].count++; // Increment count to show activity exists
-         }
-         return; 
-      } 
-      
-      // --- OTHER METRICS (RWT, FRT, Iterations) ---
-      let val = t[key];
-      
-      // Check if value is valid number (allow 0, reject null/undefined)
-      if (val !== null && val !== undefined && val !== "") {
-         grouped[k].sum += Number(val);
-         grouped[k].count++;
-      }
-    });
-
-    return Object.keys(grouped).sort().map(k => ({
-       name: k,
-       val: key === 'csat' 
-         ? grouped[k].sum // Sum for CSAT (Raw Count)
-         : (grouped[k].count > 0 ? grouped[k].sum / grouped[k].count : 0) // Average for others
+  const getSparklineData = (key) => {
+    if (!trends?.length) return [];
+    return trends.slice(-14).map(t => ({
+      date: t.date,
+      value: key === 'csat' ? t.positiveCSAT : key === 'solved' ? t.solved : t[key] || 0
     }));
   };
 
-  const Card = ({ title, value, unit, color, dataKey }) => (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-md transition-all relative overflow-hidden group h-40">
-      {/* Glow Effect */}
-      <div className={`absolute -right-6 -top-6 w-24 h-24 bg-${color}-500/10 rounded-full blur-2xl group-hover:bg-${color}-500/20 transition-all`}></div>
-      
-      {/* Header */}
-      <div className="flex justify-between items-start z-10">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{title}</span>
-        <div className={`p-1.5 rounded-lg bg-${color}-50 dark:bg-${color}-900/20 text-${color}-600`}>
-           <Activity className="w-3.5 h-3.5" />
+  const MetricCard = ({ title, value, unit, color, sparkKey, icon: Icon }) => (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg transition-all h-44">
+      <div className="flex justify-between items-start">
+        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{title}</span>
+        <div className={`p-2 rounded-xl bg-${color}-50 dark:bg-${color}-900/30`}>
+          <Icon className={`w-4 h-4 text-${color}-500`} />
         </div>
       </div>
-      
-      {/* Main Value */}
-      <div className="flex items-baseline gap-1 z-10 mt-2">
-        <span className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">{value}</span>
-        <span className="text-xs font-semibold text-slate-400">{unit}</span>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-4xl font-black text-slate-800 dark:text-white">{isLoading ? "..." : value}</span>
+        <span className="text-sm font-semibold text-slate-400">{unit}</span>
       </div>
-
-      {/* Sparkline */}
-      <div className="h-10 w-full mt-auto opacity-70">
+      <div className="h-12 w-full mt-auto">
         <ResponsiveContainer width="100%" height="100%">
-           <AreaChart data={getTrendData(dataKey)}>
-              <defs>
-                 <linearGradient id={`grad-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={`var(--color-${color}-500)`} stopOpacity={0.4}/>
-                    <stop offset="100%" stopColor={`var(--color-${color}-500)`} stopOpacity={0}/>
-                 </linearGradient>
-              </defs>
-              <Area 
-                type="monotone" 
-                dataKey="val" 
-                stroke={`var(--color-${color}-500)`} 
-                fill={`url(#grad-${dataKey})`} 
-                strokeWidth={2} 
-                dot={false}
-              />
-           </AreaChart>
+          <AreaChart data={getSparklineData(sparkKey)}>
+            <Area type="monotone" dataKey="value" stroke={`var(--color-${color}-500, #6366f1)`} fill={`var(--color-${color}-100, #e0e7ff)`} strokeWidth={2} dot={false} />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
     </div>
   );
 
   return (
-    <div className="mb-8 animate-in slide-in-from-top-4 duration-500">
-       <div className="flex justify-between items-center mb-5 px-1">
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-             <Trophy className="w-5 h-5 text-indigo-500" />
-             Performance Overview
-          </h2>
-          
-          {/* VP CONTROLS (Pills) */}
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-             {['Q4 \'25', 'Q1 \'26', 'Month'].map(mode => (
-                <button
-                   key={mode}
-                   onClick={() => setVpView(mode)}
-                   className={`px-4 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                      vpView === mode 
-                      ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm ring-1 ring-black/5" 
-                      : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"
-                   }`}
-                >
-                   {mode}
-                </button>
-             ))}
+    <div className="space-y-6">
+      <div className="flex flex-wrap justify-between items-center gap-4">
+        <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
+          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl">
+            <Trophy className="w-5 h-5 text-indigo-500" />
           </div>
-       </div>
-
-       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <Card title="Avg RWT" value={stats.rwt} unit="Hrs" color="violet" dataKey="rwt" />
-          <Card title="Positive CSAT" value={stats.csat} unit="Count" color="emerald" dataKey="csat" />
-          <Card title="First Resp Met" value={stats.frr} unit="%" color="amber" dataKey="frr" />
-          <Card title="Avg Iterations" value={stats.iter} unit="" color="blue" dataKey="iterations" />
-          <Card title="Avg FRT" value={stats.frt} unit="Hrs" color="rose" dataKey="frt" />
-       </div>
-    </div>
-  );
-  };
-const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
-  if (!tickets || tickets.length === 0) return [];
-
-  const end = new Date();
-  const start = subDays(end, timeRange);
-  const daysInterval = eachDayOfInterval({ start, end });
-
-  // A. IDENTIFY SUBJECT
-  let subjectName = subject === "Me" ? currentUser?.name : subject;
-  const isGlobal = subject === "All";
-
-  const isTeam = TEAM_GROUPS[subjectName];
-
-  // B. INDEXING: Group tickets by Date first (The Speed Fix)
-  const ticketsByDate = {};
-  const getTicketDate = (t) =>
-    metric === "volume" ? t.created_date : t.actual_close_date;
-
-  // Single pass through data (O(N))
-  for (const t of tickets) {
-    // 1. Subject Filter
-    if (!isGlobal) {
-      const owner =
-        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-        t.owned_by?.[0]?.display_name ||
-        "";
-      // TEAM selected â†’ match any team member
-      if (isTeam) {
-        const teamMembers = Object.values(TEAM_GROUPS[subjectName]);
-        if (!teamMembers.some((m) => owner.includes(m))) continue;
-      }
-      // INDIVIDUAL selected
-      else {
-        if (!owner.toLowerCase().includes(subjectName?.toLowerCase())) continue;
-      }
-    }
-
-    // 2. Date Indexing
-    const dateRaw = getTicketDate(t);
-    if (!dateRaw) continue;
-    const dateKey = format(parseISO(dateRaw), "yyyy-MM-dd");
-
-    if (!ticketsByDate[dateKey]) ticketsByDate[dateKey] = [];
-    ticketsByDate[dateKey].push(t);
-  }
-
-  // Helper for Values
-  const getTicketValue = (t) => {
-    if (metric === "volume" || metric === "solved") return 1;
-    if (metric === "rwt") {
-      if (!t.created_date || !t.actual_close_date) return null;
-      const diff = differenceInHours(
-        parseISO(t.actual_close_date),
-        parseISO(t.created_date)
-      );
-      return diff > 0 ? diff : 0;
-    }
-    if (metric === "backlog") {
-      if (!t.actual_close_date || !t.created_date) return 0;
-      const ageInDays = differenceInDays(
-        parseISO(t.actual_close_date),
-        parseISO(t.created_date)
-      );
-      return ageInDays > 15 ? 1 : 0;
-    }
-    if (metric === "csat")
-      return getCSATStatus(t) === "Good"
-        ? 100
-        : getCSATStatus(t) === "Bad"
-        ? 0
-        : null;
-    return 0;
-  };
-
-  // C. BUILD DATASET (Instant Lookup)
-  return daysInterval.map((day) => {
-    const dateKey = format(day, "yyyy-MM-dd");
-    const dailyTickets = ticketsByDate[dateKey] || [];
-
-    const subjectValues = dailyTickets
-      .map(getTicketValue)
-      .filter((v) => v !== null);
-
-    let mainVal = 0;
-    if (metric === "rwt" || metric === "csat") {
-      mainVal = subjectValues.length
-        ? Math.round(
-            subjectValues.reduce((a, b) => a + b, 0) / subjectValues.length
-          )
-        : 0;
-    } else {
-      mainVal = subjectValues.reduce((a, b) => a + b, 0);
-    }
-
-    return { name: format(day, "MMM dd"), main: mainVal, date: day };
-  });
-};
-
-// 2. NEW HELPER: For Expanded Multi-User Plotting
-// 2. UPDATED HELPER: Multi-User with Correct Averages
-const processMultiUserData = (
-  tickets,
-  metric,
-  timeRange,
-  selectedUsers,
-  showTeam,
-  showGST,
-  currentUserTeamName
-) => {
-  const end = new Date();
-  const start = subDays(end, timeRange);
-  const daysInterval = eachDayOfInterval({ start, end });
-
-  // Metric Helpers
-  const getTicketDate = (t) =>
-    metric === "volume" ? t.created_date : t.actual_close_date;
-  const getTicketValue = (t) => {
-    if (metric === "volume" || metric === "solved") return 1;
-    if (metric === "rwt") {
-      if (!t.created_date || !t.actual_close_date) return null;
-      const diff = differenceInHours(
-        parseISO(t.actual_close_date),
-        parseISO(t.created_date)
-      );
-      return diff > 0 ? diff : 0;
-    }
-    if (metric === "backlog") {
-      if (!t.actual_close_date || !t.created_date) return 0;
-      const ageInDays = differenceInDays(
-        parseISO(t.actual_close_date),
-        parseISO(t.created_date)
-      );
-      return ageInDays > 15 ? 1 : 0;
-    }
-    return 0;
-  };
-
-  // Identify Team Members (for Team Avg)
-  const teamMembers =
-    currentUserTeamName && TEAM_GROUPS[currentUserTeamName]
-      ? Object.values(TEAM_GROUPS[currentUserTeamName])
-      : [];
-
-  return daysInterval.map((day) => {
-    const dailyTickets = tickets.filter((t) => {
-      const d = getTicketDate(t);
-      return d && isSameDay(parseISO(d), day);
-    });
-
-    let dataPoint = { name: format(day, "MMM dd"), date: day };
-
-    // A. Plot Selected Users
-    selectedUsers.forEach((user) => {
-      const userTickets = dailyTickets.filter((t) => {
-        const owner =
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-          t.owned_by?.[0]?.display_name ||
-          "";
-        return owner === user;
-      });
-      const values = userTickets.map(getTicketValue).filter((v) => v !== null);
-
-      if (metric === "rwt" || metric === "csat") {
-        dataPoint[user] = values.length
-          ? Math.round(values.reduce((a, b) => a + b, 0) / values.length)
-          : 0;
-      } else {
-        dataPoint[user] = values.reduce((a, b) => a + b, 0);
-      }
-    });
-
-    // C. Calculate "Team" & "GST" (Raw Sums)
-    if (showTeam || showGST) {
-      const teamTickets = dailyTickets.filter((t) => {
-        const owner =
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-          t.owned_by?.[0]?.display_name ||
-          "";
-        return teamMembers.some((m) => owner.includes(m));
-      });
-      const gstTickets = dailyTickets; // GST = Everyone
-
-      if (showTeam) {
-        const teamVals = teamTickets
-          .map(getTicketValue)
-          .filter((v) => v !== null);
-        // RAW SUM for Volume/Solved/Backlog
-        if (
-          metric === "volume" ||
-          metric === "solved" ||
-          metric === "backlog"
-        ) {
-          dataPoint["compare_team"] = teamVals.reduce((a, b) => a + b, 0);
-        } else {
-          // Avg for RWT/CSAT
-          dataPoint["compare_team"] = teamVals.length
-            ? Math.round(teamVals.reduce((a, b) => a + b, 0) / teamVals.length)
-            : 0;
-        }
-      }
-
-      if (showGST) {
-        const gstVals = gstTickets
-          .map(getTicketValue)
-          .filter((v) => v !== null);
-        // RAW SUM for Volume/Solved/Backlog
-        if (
-          metric === "volume" ||
-          metric === "solved" ||
-          metric === "backlog"
-        ) {
-          dataPoint["compare_gst"] = gstVals.reduce((a, b) => a + b, 0);
-        } else {
-          // Avg for RWT/CSAT
-          dataPoint["compare_gst"] = gstVals.length
-            ? Math.round(gstVals.reduce((a, b) => a + b, 0) / gstVals.length)
-            : 0;
-        }
-      }
-    }
-
-    return dataPoint;
-  });
-};
-
-const processComparisonData = (
-  tickets,
-  timeRange,
-  mode,
-  selectedUsers,
-  currentUser,
-  filterOwner
-) => {
-  // 1. Define Time Range
-  const end = new Date();
-  const start = subDays(end, timeRange);
-  const daysInterval = eachDayOfInterval({ start, end });
-
-  // 2. Helper to check name matches
-  const isMatch = (ticketOwner, targetName) => {
-    if (!targetName || targetName === "All") return true;
-    if (!ticketOwner) return false;
-    const tName = ticketOwner.toLowerCase();
-    const uName = targetName.toLowerCase();
-    return tName.includes(uName) || uName.includes(tName);
-  };
-
-  const mainUserName =
-    filterOwner && filterOwner !== "All" ? filterOwner : currentUser?.name;
-
-  // 3. Count Helper
-  const getCount = (date, userToMatch) => {
-    return tickets.filter((t) => {
-      if (!t.created_date || !isSameDay(parseISO(t.created_date), date))
-        return false;
-      const ownerName =
-        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-        t.owned_by?.[0]?.display_name ||
-        "";
-      return isMatch(ownerName, userToMatch);
-    }).length;
-  };
-
-  // 4. Group Average Helper
-  const getGroupAvg = (date, groupType) => {
-    let groupMembers = [];
-    if (groupType === "gst") {
-      groupMembers = Object.values(FLAT_TEAM_MAP);
-    } else if (groupType === "team") {
-      const teamName = Object.keys(TEAM_GROUPS).find((key) =>
-        Object.values(TEAM_GROUPS[key]).some((member) =>
-          isMatch(member, mainUserName)
-        )
-      );
-      groupMembers = teamName ? Object.values(TEAM_GROUPS[teamName]) : [];
-    }
-
-    const totalTickets = tickets.filter((t) => {
-      if (!t.created_date || !isSameDay(parseISO(t.created_date), date))
-        return false;
-      const owner =
-        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-        t.owned_by?.[0]?.display_name ||
-        "";
-      return groupMembers.some((m) => isMatch(owner, m));
-    }).length;
-
-    return groupMembers.length
-      ? Math.round((totalTickets / groupMembers.length) * 10) / 10
-      : 0;
-  };
-
-  // 5. Build Dataset
-  return daysInterval.map((day) => {
-    const dayLabel = format(day, "MMM dd");
-    const mainValue =
-      mode === "users" && selectedUsers.length === 1
-        ? getCount(day, selectedUsers[0])
-        : getCount(day, mainUserName);
-
-    let dataPoint = {
-      name: dayLabel,
-      main: mainValue,
-      date: day,
-      // Dynamic keys for multi-user comparison will be added below
-    };
-
-    if (mode === "time") {
-      const prevDate = subDays(day, timeRange);
-      dataPoint["compare_prev"] = getCount(prevDate, mainUserName);
-      dataPoint["label_prev"] = `Prev ${timeRange} Days`;
-    } else if (mode === "team") {
-      dataPoint["compare_team"] = getGroupAvg(day, "team");
-      dataPoint["label_team"] = "Team Avg";
-    } else if (mode === "gst") {
-      dataPoint["compare_gst"] = getGroupAvg(day, "gst");
-      dataPoint["label_gst"] = "GST Avg";
-    } else if (mode === "users" && selectedUsers.length > 0) {
-      // Loop through selected users and add their data
-      selectedUsers.forEach((user) => {
-        dataPoint[`compare_${user}`] = getCount(day, user);
-      });
-    }
-
-    return dataPoint;
-  });
-};
-
-// --- INSIGHT GENERATOR ---
-const generateInsight = (data, mode, selectedUsers) => {
-  if (!data || data.length === 0) return "No data available.";
-
-  const totalMain = data.reduce((acc, d) => acc + d.main, 0);
-
-  if (mode === "none")
-    return `You handled ${totalMain} tickets in this period. Select options to compare.`;
-
-  if (mode === "time") {
-    const totalPrev = data.reduce((acc, d) => acc + (d.compare_prev || 0), 0);
-    const diff = totalMain - totalPrev;
-    const pcent = totalPrev ? Math.round((diff / totalPrev) * 100) : 0;
-    return diff > 0
-      ? `ðŸš€ Workload UP ${pcent}% vs previous period (${totalMain} vs ${totalPrev}).`
-      : `ðŸ“‰ Workload DOWN ${Math.abs(pcent)}% vs previous period.`;
-  }
-
-  if (mode === "team" || mode === "gst") {
-    const avgKey = mode === "team" ? "compare_team" : "compare_gst";
-    const totalAvg = Math.round(
-      data.reduce((acc, d) => acc + (d[avgKey] || 0), 0)
-    );
-    const pcent = totalAvg
-      ? Math.round(((totalMain - totalAvg) / totalAvg) * 100)
-      : 0;
-    return pcent > 0
-      ? `ðŸ† You handled ${pcent}% more tickets than the ${
-          mode === "gst" ? "GST" : "Team"
-        } average.`
-      : `ðŸ“Š You are at ${100 + pcent}% of the ${
-          mode === "gst" ? "GST" : "Team"
-        } average workload.`;
-  }
-
-  if (mode === "users" && selectedUsers.length > 0) {
-    // Find who has the max
-    let maxUser = "You";
-    let maxVal = totalMain;
-
-    selectedUsers.forEach((u) => {
-      const uTotal = data.reduce((acc, d) => acc + (d[`compare_${u}`] || 0), 0);
-      if (uTotal > maxVal) {
-        maxVal = uTotal;
-        maxUser = u;
-      }
-    });
-
-    if (maxUser === "You")
-      return `âš”ï¸ You handled the most tickets (${maxVal}) in this group.`;
-    return `âš”ï¸ ${maxUser} handled the most tickets (${maxVal}) in this group.`;
-  }
-
-  return "Analysis complete.";
-};
-
-// --- MULTI-SELECT DROPDOWN COMPONENT ---
-const MultiUserSelect = ({ allUsers, selectedUsers, onChange }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef]);
-
-  const toggleUser = (user) => {
-    if (selectedUsers.includes(user)) {
-      onChange(selectedUsers.filter((u) => u !== user));
-    } else {
-      onChange([...selectedUsers, user]);
-    }
-  };
-
-  return (
-    <div className="relative" ref={wrapperRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-indigo-400 transition-colors min-w-[160px] justify-between"
-      >
-        <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-slate-400" />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            {selectedUsers.length === 0
-              ? "Select Peers..."
-              : `${selectedUsers.length} Selected`}
-          </span>
-        </div>
-        <ChevronDown className="w-4 h-4 text-slate-400" />
-      </button>
-
-      {isOpen && (
-        <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto p-2">
-          {allUsers.map((user) => (
-            <div
-              key={user}
-              onClick={() => toggleUser(user)}
-              className="flex items-center gap-3 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
-            >
-              <div
-                className={`w-4 h-4 rounded border flex items-center justify-center ${
-                  selectedUsers.includes(user)
-                    ? "bg-indigo-500 border-indigo-500"
-                    : "border-slate-400"
-                }`}
-              >
-                {selectedUsers.includes(user) && (
-                  <Check className="w-3 h-3 text-white" />
-                )}
-              </div>
-              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                {user}
-              </span>
-            </div>
+          Performance Overview
+          {stats?.totalTickets > 0 && (
+            <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+              {stats.totalTickets.toLocaleString()} tickets
+            </span>
+          )}
+        </h2>
+        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          {QUARTERS.map(q => (
+            <button key={q.id} onClick={() => handleQuarterChange(q.id)}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${selectedQuarter === q.id ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+              {q.label}
+            </button>
           ))}
         </div>
-      )}
-    </div>
-  );
-};
-
-// --- HELPER: Process DAILY Data (Granular) ---
-const processDailyData = (tickets, days = 30) => {
-  const end = new Date();
-  const start = subDays(end, days);
-
-  const daysInterval = eachDayOfInterval({ start, end });
-
-  return daysInterval.map((day) => {
-    const dayLabel = format(day, "MMM dd");
-
-    const created = tickets.filter(
-      (t) => t.created_date && isSameDay(parseISO(t.created_date), day)
-    );
-    const solved = tickets.filter(
-      (t) =>
-        t.actual_close_date && isSameDay(parseISO(t.actual_close_date), day)
-    );
-
-    // RWT Calculation
-    const totalRwtHours = solved.reduce((acc, t) => {
-      const c = parseISO(t.created_date);
-      const cl = parseISO(t.actual_close_date);
-      return acc + differenceInHours(cl, c);
-    }, 0);
-    const avgRwt = solved.length
-      ? Math.round(totalRwtHours / solved.length)
-      : 0;
-
-    // Debt Cleared (>15 days)
-    const oldClosed = solved.filter((t) => {
-      const c = parseISO(t.created_date);
-      const cl = parseISO(t.actual_close_date);
-      return differenceInHours(cl, c) / 24 > 15;
-    }).length;
-
-    return {
-      name: dayLabel,
-      created: created.length,
-      solved: solved.length,
-      rwt: avgRwt,
-      oldClosed: oldClosed,
-    };
-  });
-};
-
-// --- SUB-COMPONENT: AI Insight Card ---
-const InsightCard = ({ metric, data, context, comparison }) => {
-  const [insight, setInsight] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const generateInsight = async () => {
-    setLoading(true);
-    try {
-      const API_BASE = "http://localhost:5000";
-      const res = await axios.post(`${API_BASE}/api/analytics/insight`, {
-        metric,
-        chartData: data,
-        context,
-        comparison,
-      });
-      setInsight(res.data.insight);
-    } catch (e) {
-      setInsight("Rate limit exceeded. Try again in 30s.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="absolute top-4 right-14 z-20">
-      {!insight ? (
-        <button
-          onClick={generateInsight}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm border border-indigo-100 hover:border-indigo-300"
-        >
-          {loading ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <Sparkles className="w-3 h-3" />
-          )}
-          {comparison ? "Compare vs Team" : "Analyze Trend"}
-        </button>
-      ) : (
-        <div className="absolute right-0 top-8 w-72 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border border-indigo-100 dark:border-indigo-900/50 p-4 rounded-xl shadow-xl animate-in fade-in slide-in-from-top-2 z-50">
-          <button
-            onClick={() => setInsight(null)}
-            className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
-          >
-            <X className="w-3 h-3" />
-          </button>
-          <h4 className="text-[10px] uppercase font-bold text-indigo-500 mb-1 flex items-center gap-1">
-            <Sparkles className="w-3 h-3" /> Gemini Analyst
-          </h4>
-          <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-            {insight}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// --- COMPONENT: SMART INSIGHTS ENGINE (Fixed Data Logic) ---
-const SmartInsights = ({
-  data,
-  metric,
-  showTeam,
-  showGST,
-  selectedUsers,
-  myTeamName,
-}) => {
-  // âœ… NEW: Empty State for Non-GST / No Selection
-  if (!selectedUsers || selectedUsers.length === 0) {
-    return (
-      <div className="w-full bg-slate-50/50 dark:bg-slate-900/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8 mb-6 flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-300">
-        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-full mb-3">
-          <Users className="w-6 h-6 text-indigo-400" />
-        </div>
-        <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">
-          No Assignee Selected
-        </h3>
-        <p className="text-xs text-slate-500 max-w-xs mt-1">
-          Select an assignee from the dropdown above to see their performance
-          stats.
-        </p>
-      </div>
-    );
-  }
-
-  if (!data || data.length === 0) return null;
-
-  // 1. CALCULATE "SELECTED TOTAL" (Dynamic Sum)
-  // We sum up the values for ALL selected users for every day.
-  const calculateSelectedTotal = (dataset) => {
-    return dataset.reduce((acc, day) => {
-      let dailySum = 0;
-      selectedUsers.forEach((user) => {
-        dailySum += day[user] || 0;
-      });
-      return acc + dailySum;
-    }, 0);
-  };
-
-  const myTotal = calculateSelectedTotal(data);
-  const teamTotal = data.reduce((acc, d) => acc + (d.compare_team || 0), 0);
-  const gstTotal = data.reduce((acc, d) => acc + (d.compare_gst || 0), 0);
-
-  // 2. Averages (Prevent divide by zero)
-  // Estimate roster sizes if not available
-  const teamSize =
-    myTeamName && TEAM_GROUPS[myTeamName]
-      ? Object.values(TEAM_GROUPS[myTeamName]).length
-      : 5;
-  const teamAvg = teamTotal > 0 ? Math.round(teamTotal / teamSize) : 0;
-
-  const gstSize = Object.values(FLAT_TEAM_MAP).length || 20;
-  const gstAvg = gstTotal > 0 ? Math.round(gstTotal / gstSize) : 0;
-
-  // 3. Trend Calculation (First Half vs Second Half)
-  const mid = Math.floor(data.length / 2);
-  const firstHalfTotal = calculateSelectedTotal(data.slice(0, mid));
-  const secondHalfTotal = calculateSelectedTotal(data.slice(mid));
-
-  const trendDiff = secondHalfTotal - firstHalfTotal;
-  const trendPcent =
-    firstHalfTotal > 0 ? Math.round((trendDiff / firstHalfTotal) * 100) : 100;
-
-  // 4. Label Logic (Singular vs Plural)
-  const isGroup = selectedUsers.length > 1;
-  const subjectLabel = isGroup ? "Group Velocity" : "My Velocity";
-  const subjectText = isGroup ? "Selected users" : "You";
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 animate-in slide-in-from-bottom-4 duration-500">
-      {/* CARD 1: VELOCITY */}
-      <div className="bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-900/20 dark:to-slate-900 border border-indigo-100 dark:border-indigo-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
-        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-          <Activity className="w-12 h-12 text-indigo-600" />
-        </div>
-        <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">
-          {subjectLabel}
-        </h4>
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold text-slate-800 dark:text-white">
-            {myTotal}
-          </span>
-          <span className="text-xs text-slate-500 font-medium">
-            {METRICS[metric]?.desc || "Units"}
-          </span>
-        </div>
-        <div
-          className={`text-xs font-bold mt-2 flex items-center gap-1 ${
-            trendDiff >= 0 ? "text-emerald-600" : "text-rose-500"
-          }`}
-        >
-          {trendDiff >= 0 ? (
-            <TrendingUp className="w-3 h-3" />
-          ) : (
-            <TrendingDown className="w-3 h-3" />
-          )}
-          {Math.abs(trendPcent)}% {trendDiff >= 0 ? "Increase" : "Decrease"} (vs
-          start)
-        </div>
       </div>
 
-      {/* CARD 2: TEAM CONTEXT */}
-      {showTeam ? (
-        <div className="bg-gradient-to-br from-violet-50 to-white dark:from-violet-900/20 dark:to-slate-900 border border-violet-100 dark:border-violet-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Users className="w-12 h-12 text-violet-600" />
-          </div>
-          <h4 className="text-xs font-bold text-violet-500 uppercase tracking-wider mb-1">
-            Vs {myTeamName || "Team"}
-          </h4>
-
-          <div className="flex flex-col gap-1">
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-800 dark:text-white">
-                {myTotal - teamAvg > 0
-                  ? `+${myTotal - teamAvg}`
-                  : myTotal - teamAvg}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                vs Team Avg
-              </span>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
-              {subjectText} contributed{" "}
-              <strong className="text-violet-600 dark:text-violet-400">
-                {Math.round((myTotal / (teamTotal || 1)) * 100)}%
-              </strong>{" "}
-              of the entire team's volume.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
-          Select "Vs Team" to see analysis
-        </div>
-      )}
-
-      {/* CARD 3: GST CONTEXT */}
-      {showGST ? (
-        <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 border border-emerald-100 dark:border-emerald-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Globe className="w-12 h-12 text-emerald-600" />
-          </div>
-          <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-1">
-            Vs Global (GST)
-          </h4>
-
-          <div className="flex flex-col gap-1">
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-800 dark:text-white">
-                {Math.round((myTotal / (gstAvg || 1)) * 100)}%
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                of Avg Load
-              </span>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
-              Global Avg:{" "}
-              <strong className="text-slate-800 dark:text-slate-200">
-                {gstAvg}
-              </strong>
-              .{subjectText} are {myTotal > gstAvg ? "leading" : "trailing"} by{" "}
-              <strong className="text-emerald-600 dark:text-emerald-400">
-                {Math.abs(myTotal - gstAvg)}
-              </strong>
-              .
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
-          Select "Vs GST" to see analysis
-        </div>
-      )}
-    </div>
-  );
-};
-
-// --- MAIN DASHBOARD ---
-const AnalyticsDashboard = ({
-  tickets = [], // âœ… Fix: Default to empty array
-  sidebarFilteredTickets = [], // âœ… Fix: Default to empty array
-  filterOwner,
-}) => {
-  const {
-    theme,
-    currentUser,
-    // tickets: activeTickets,
-    analyticsTickets,
-    fetchAnalyticsTickets,
-  } = useTicketStore();
-
-
-  // ✅ FIXED: Force fetch Analytics Data on mount
-  useEffect(() => {
-    if (fetchAnalyticsTickets) {
-      console.log("📊 Dashboard: Fetching full analytics dataset...");
-      fetchAnalyticsTickets();
-    }
-  }, [fetchAnalyticsTickets]);
-
-  // ✅ DEBUG: Log when analyticsTickets updates
-  useEffect(() => {
-    console.log(`📊 [Dashboard] analyticsTickets updated: ${analyticsTickets?.length || 0} tickets`);
-  }, [analyticsTickets]);
-
-  // Use Analytics (MongoDB) data as primary source
-  const sourceTickets = useMemo(() => {
-    if (analyticsTickets && analyticsTickets.length > 0) {
-      console.log(`📊 [Dashboard] Using analyticsTickets: ${analyticsTickets.length}`);
-      return analyticsTickets;
-    }
-    console.log(`📊 [Dashboard] Fallback to tickets prop: ${tickets?.length || 0}`);
-    return tickets || [];
-  }, [analyticsTickets, tickets]);
-
-  const isDark = theme === "dark";
-  const [expandedMetric, setExpandedMetric] = useState(null);
-  // 1. SMART IDENTITY RESOLVER
-  const resolvedCurrentUser = useMemo(() => {
-    if (!currentUser?.name) return null;
-    const cleanLoginName = currentUser.name.toLowerCase().trim();
-    const rosterNames = Object.values(FLAT_TEAM_MAP);
-
-    // Priority: Exact Match -> Partial Match (e.g. "Rohan" in "Rohan Jadhav")
-    return (
-      rosterNames.find((rName) => {
-        const cleanRoster = rName.toLowerCase().trim();
-        return (
-          cleanLoginName === cleanRoster ||
-          cleanLoginName.includes(cleanRoster) ||
-          cleanRoster.includes(cleanLoginName)
-        );
-      }) || currentUser.name
-    );
-  }, [currentUser]);
-
-  // âœ… NEW: Role Simulation State (For Testing)
-  const [simulateNonGST, setSimulateNonGST] = useState(false);
-
-  // âœ… NEW STATES
-  const [excludeZendesk, setExcludeZendesk] = useState(false);
-  const [metricsViewMode, setMetricsViewMode] = useState("weekly");
-  // âœ… FIX: Define missing filterPriority state
-  const [filterPriority, setFilterPriority] = useState("All");
-  const [timeRange, setTimeRange] = useState(30);
-
-  // âœ… UPDATED: Complete filteredTickets Logic
-  const filteredTickets = useMemo(() => {
-    let data = sourceTickets || [];
-
-    // 1. ZENDESK EXCLUSION (Global First Step)
-    if (excludeZendesk) {
-     data = data.filter((t) => !t.is_zendesk);
-
-    }
-
-    // 2. OWNER FILTER
-    if (filterOwner !== "All") {
-      // Logic for filtering by Team/Individual
-      const teamMembers = TEAM_GROUPS[filterOwner];
-      if (teamMembers) {
-        // Filter by Team Group (using IDs or Names)
-        const memberNames = Object.values(teamMembers);
-        data = data.filter((t) =>
-          t.owned_by?.some((owner) => memberNames.includes(owner.display_name))
-        );
-      } else {
-        // Filter by Individual
-        data = data.filter((t) =>
-          t.owned_by?.some((owner) => owner.display_name === filterOwner)
-        );
-      }
-    }
-
-    // 3. PRIORITY FILTER
-    if (filterPriority !== "All") {
-      data = data.filter(
-        (t) =>
-          t.priority &&
-          t.priority.toLowerCase() === filterPriority.toLowerCase()
-      );
-    }
-
-    // "All Time" does nothing (keeps all Q4 2025+ data)
-
-    return data;
-  }, [sourceTickets, filterOwner, filterPriority, excludeZendesk]);
-
-  
-
-  // âœ… UPDATED: isGSTUser Logic (Respects Simulation)
-  const isGSTUser = useMemo(() => {
-    if (simulateNonGST) return false; // Force Non-GST if simulating
-    return (
-      resolvedCurrentUser &&
-      Object.values(FLAT_TEAM_MAP).includes(resolvedCurrentUser)
-    );
-  }, [resolvedCurrentUser, simulateNonGST]);
-
-  // âœ… UPDATED: Selection State (Default to [] if Non-GST)
-  const [selectedUsers, setSelectedUsers] = useState(() => {
-    // If GST, default to Self. If Non-GST, default to Empty [].
-    return isGSTUser && resolvedCurrentUser ? [resolvedCurrentUser] : [];
-  });
-
-  // âœ… NEW: Effect to reset selection when toggling simulation
-  useEffect(() => {
-    if (!isGSTUser) {
-      setSelectedUsers([]); // Clear selection when becoming Non-GST
-    } else if (resolvedCurrentUser && selectedUsers.length === 0) {
-      setSelectedUsers([resolvedCurrentUser]); // Restore Self when becoming GST
-    }
-  }, [isGSTUser, resolvedCurrentUser]);
-
-  // --- STATE ---
-  const [subject, setSubject] = useState("Me");
-
-  const [showTeam, setShowTeam] = useState(false);
-  const [showGST, setShowGST] = useState(false);
-  const isTeamSelected = Object.keys(TEAM_GROUPS).includes(subject);
-
-  // Comparison State
-  const [compareMode, setCompareMode] = useState("none"); // none, time, team, gst, users
-  const [selectedPeers, setSelectedPeers] = useState([]);
-
-  // --- CLEVERTAP TRACKING ---
-
-  // 1. Track when Chart is Opened
-  useEffect(() => {
-    if (expandedMetric) {
-      trackEvent("Analytics Chart Expanded", {
-        metric: METRICS[expandedMetric]?.label,
-        user: currentUser?.name,
-      });
-    }
-  }, [expandedMetric]);
-
-  // 2. Track Interaction / Queries inside Expanded View
-  useEffect(() => {
-    if (!expandedMetric) return;
-
-    // Debounce slightly or just log the combination
-    trackEvent("Analytics Insight Query", {
-      metric: METRICS[expandedMetric]?.label,
-      compare_team: showTeam,
-      compare_gst: showGST,
-      days: timeRange,
-      peers_selected: selectedUsers.length,
-      users: selectedUsers.join(", "),
-    });
-  }, [showTeam, showGST, timeRange, selectedUsers]);
-
-  const days = useMemo(() => {
-    // âœ… Fix: Check if tickets exists AND is an array before accessing .length or .map
-    if (!tickets || !Array.isArray(tickets) || !tickets.length) return 30;
-
-    const dates = tickets
-      .map((t) => t.created_date)
-      .filter(Boolean)
-      .map((d) => parseISO(d))
-      .sort((a, b) => a - b);
-
-    const diff = differenceInDays(dates[dates.length - 1], dates[0]);
-
-    return Math.max(diff + 1, 30); // fallback safety
-  }, [tickets]);
-
-  const { dailyData, comparisonStats } = useMemo(() => {
-    const globalDaily = processDailyData(tickets, days);
-
-    let comp = null;
-    if (filterOwner !== "All") {
-      const userTickets = tickets.filter(
-        (t) =>
-          t.owned_by?.[0]?.display_id === filterOwner.split(" ")[0] ||
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] === filterOwner
-      );
-
-      const globalRWT =
-        globalDaily.reduce((acc, d) => acc + d.rwt, 0) /
-        (globalDaily.filter((d) => d.rwt > 0).length || 1);
-
-      const globalSolved = globalDaily.reduce((acc, d) => acc + d.solved, 0);
-
-      const userDaily = processDailyData(userTickets, days);
-
-      const userRWT =
-        userDaily.reduce((acc, d) => acc + d.rwt, 0) /
-        (userDaily.filter((d) => d.rwt > 0).length || 1);
-
-      const userSolved = userTickets.filter((t) => t.actual_close_date).length;
-
-      comp = {
-        rwt: {
-          userVal: `${Math.round(userRWT)}h`,
-          teamVal: `${Math.round(globalRWT)}h`,
-        },
-        volume: {
-          userVal: `${userSolved}`,
-          teamVal: `${Math.round(globalSolved / 10)} (Avg)`,
-        },
-        userDaily,
-      };
-    }
-
-    return {
-      dailyData: comp ? comp.userDaily : globalDaily,
-      comparisonStats: comp,
-    };
-  }, [tickets, filterOwner, days]);
-
-  const context = filterOwner === "All" ? "Global Team" : filterOwner;
-
-  // --- CSAT LOGIC ---
-  const { badTickets, allPerformers } = useMemo(() => {
-    const badList = [];
-    const ownerStats = {};
-    tickets.forEach((t) => {
-      const ownerId = t.owned_by?.[0]?.display_id;
-      if (ownerId && FLAT_TEAM_MAP[ownerId]) {
-        let realName = t.owned_by?.[0]?.display_name || FLAT_TEAM_MAP[ownerId];
-        if (typeof realName !== "string") realName = "";
-        realName = realName.trim();
-        if (
-          realName &&
-          realName.length > 2 &&
-          !HIDDEN_USERS.includes(realName)
-        ) {
-          if (!ownerStats[realName])
-            ownerStats[realName] = {
-              name: realName,
-              good: 0,
-              bad: 0,
-              total: 0,
-            };
-          const sentiment = getCSATStatus(t);
-          if (sentiment === "Good") ownerStats[realName].good += 1;
-          if (sentiment === "Bad") ownerStats[realName].bad += 1;
-          ownerStats[realName].total += 1;
-        }
-      }
-      const sentiment = getCSATStatus(t);
-      const isBad = sentiment === "Bad";
-      const matchesOwner =
-        filterOwner === "All" ||
-        t.owned_by?.[0]?.display_id === filterOwner.split(" ")[0];
-      if (isBad && matchesOwner) badList.push(t);
-    });
-    const sortedPerformers = Object.values(ownerStats)
-      .map((p) => ({
-        ...p,
-        winRate: p.total > 0 ? Math.round((p.good / p.total) * 100) : 0,
-      }))
-      .sort((a, b) => {
-        if (b.good !== a.good) return b.good - a.good;
-        return b.winRate - a.winRate;
-      });
-    return { badTickets: badList, allPerformers: sortedPerformers };
-  }, [tickets, filterOwner]);
-
-  // --- CHART DATA (Small) ---
-  const defaultData = useMemo(() => {
-    return processComparisonData(
-      tickets,
-      30,
-      "none",
-      [],
-      currentUser,
-      filterOwner
-    );
-  }, [tickets, currentUser, filterOwner]);
-
-  // --- SMALL CHARTS DATA ---
-  const smallChartData = useMemo(() => {
-    // Use the tickets prop which is already filtered by date and team
-    const dataToUse = tickets && tickets.length > 0 ? tickets : sourceTickets;
-
-    // Determine subject based on filterOwner
-    let subject = "All";
-    if (filterOwner && filterOwner !== "All") {
-      subject = filterOwner;
-    }
-
-    // Calculate date range from the ACTUAL filtered data
-    let dynamicDays = 30; // Default fallback
-    if (dataToUse.length > 0) {
-      const dates = dataToUse
-        .map((t) => t.created_date)
-        .filter(Boolean)
-        .map((d) => parseISO(d))
-        .sort((a, b) => a - b);
-
-      if (dates.length > 0) {
-        const oldestDate = dates[0];
-        const newestDate = dates[dates.length - 1];
-        const diff = differenceInDays(newestDate, oldestDate);
-        // Use the actual span of data, minimum 1 day for "Today"
-        dynamicDays = diff === 0 ? 1 : diff + 1;
-      }
-    }
-
-    return {
-      volume: processChartData(
-        dataToUse,
-        "volume",
-        dynamicDays,
-        subject,
-        currentUser
-      ),
-      solved: processChartData(
-        dataToUse,
-        "solved",
-        dynamicDays,
-        subject,
-        currentUser
-      ),
-      rwt: processChartData(
-        dataToUse,
-        "rwt",
-        dynamicDays,
-        subject,
-        currentUser
-      ),
-      backlog: processChartData(
-        dataToUse,
-        "backlog",
-        dynamicDays,
-        subject,
-        currentUser
-      ),
-    };
-  }, [tickets, sourceTickets, currentUser, filterOwner]);
-
-  // âœ… DYNAMIC TEAM DETECTION (Compatible with your utils.js structure)
-  const myTeamName = useMemo(() => {
-    // 1. Identify who we are looking at
-    const usersToCheck =
-      selectedUsers.length > 0 ? selectedUsers : [resolvedCurrentUser];
-
-    // 2. Find the team for the FIRST valid user
-    for (const user of usersToCheck) {
-      if (!user) continue;
-
-      // ðŸ” FIX: Use Object.values() because your utils.js groups are Objects {ID: Name}
-      const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
-        const groupMembers = Object.values(TEAM_GROUPS[groupKey]); // Get list of names ["Aditya", "Shweta"...]
-        return groupMembers.includes(user);
-      });
-
-      if (foundTeamKey) {
-        // Optional: Add "Team " prefix if the key is just "Shweta"
-        return foundTeamKey.startsWith("Team")
-          ? foundTeamKey
-          : `Team ${foundTeamKey}`;
-      }
-    }
-
-    // 3. Fallback
-    return "Team Mashnu";
-  }, [selectedUsers, resolvedCurrentUser]);
-
-  // --- EXPANDED CHART DATA ---
-  const expandedData = useMemo(() => {
-    if (!expandedMetric) return [];
-    return processMultiUserData(
-      sourceTickets,
-      expandedMetric,
-      timeRange,
-      selectedUsers,
-      showTeam,
-      showGST,
-      myTeamName
-    );
-  }, [
-    sourceTickets,
-    expandedMetric,
-    timeRange,
-    selectedUsers,
-    showTeam,
-    showGST,
-    myTeamName,
-  ]);
-
-  const colors = {
-    grid: isDark ? "#1e293b" : "#f1f5f9",
-    text: isDark ? "#94a3b8" : "#64748b",
-    tooltipBg: isDark ? "#0f172a" : "#ffffff",
-  };
-  const allUserNames = Object.values(FLAT_TEAM_MAP).sort();
-  const allTeamNames = Object.keys(TEAM_GROUPS).sort();
-  const insight = useMemo(
-    () => generateInsight(expandedData, compareMode, selectedPeers),
-    [expandedData, compareMode, selectedPeers]
-  );
-
-  // --- MODAL RENDERER (Centered & Blurred) ---
-  // const renderExpandedModal = (title, children) => {
-  //   if (!expandedChart) return null;
-  //   return (
-  //     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4 animate-in fade-in duration-200">
-  //       {/* Click outside to close */}
-  //       <div
-  //         className="absolute inset-0"
-  //         onClick={() => setExpandedChart(null)}
-  //       ></div>
-
-  //       <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-[500px] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 relative flex flex-col z-10 p-6">
-  //         <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
-  //           <div>
-  //             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-3">
-  //               <Activity className="w-5 h-5 text-indigo-500" /> {title}
-  //             </h2>
-  //             <p className="text-xs text-slate-500 mt-1">Performance</p>
-  //           </div>
-  //           <button
-  //             onClick={() => setExpandedChart(null)}
-  //             className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
-  //           >
-  //             <X className="w-6 h-6 text-slate-500" />
-  //           </button>
-  //         </div>
-  //         <div className="flex-1 w-full min-h-0">
-  //           <ResponsiveContainer width="100%" height="100%">
-  //             {children}
-  //           </ResponsiveContainer>
-  //         </div>
-  //       </div>
-  //     </div>
-  //   );
-  // };
-
-  // Split into Top 3 and Runners Up
-  const podium = [allPerformers[1], allPerformers[0], allPerformers[2]];
-  const runnersUp = allPerformers.slice(3);
-
-  return (
-    <div className="space-y-8 animate-in fade-in pb-20">
-      {/* SECTION 1: CSAT CHAMPIONS (Podium Style) */}
-      {/* 1. PODIUM */}
-
-      {/* SECTION 1: CHAMPIONS ARENA */}
-      <div className="flex flex-col xl:flex-row gap-6">
-        {/* 70% Width: The Podium */}
-        <div className="xl:w-[70%] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm relative overflow-hidden transition-colors">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-indigo-500 to-transparent opacity-50"></div>
-
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-500" /> CSAT Champions
-            </h3>
-            <span className="text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
-              Top Performers
-            </span>
-          </div>
-
-          <div className="flex items-end justify-center gap-2 sm:gap-6 h-72 sm:h-96 pb-2">
-            {podium.map((person, idx) => {
-              if (!person) return null;
-
-              const isGold = idx === 1;
-              const rank = isGold ? 1 : idx === 0 ? 2 : 3;
-
-              // ðŸš€ FIX: Increased non-gold height to 65% so text fits
-              const heightClass = isGold ? "h-full" : "h-[65%]";
-
-              // ðŸš€ FIX: Only Gold gets large padding (pt-10). Others get small padding (pt-3)
-              const paddingClass = isGold ? "pt-10" : "pt-3";
-
-              const colorClass = isGold
-                ? "from-amber-100 to-amber-50/10 border-amber-200 text-amber-600 dark:from-amber-500/20 dark:to-slate-900 dark:border-amber-500/50 dark:text-amber-400"
-                : rank === 2
-                ? "from-slate-200 to-slate-50/10 border-slate-300 text-slate-600 dark:from-slate-600/20 dark:to-slate-900 dark:border-slate-500/50 dark:text-slate-400"
-                : "from-orange-100 to-orange-50/10 border-orange-200 text-orange-700 dark:from-orange-600/20 dark:to-slate-900 dark:border-orange-500/50 dark:text-orange-400";
-
-              return (
-                <div
-                  key={person.name}
-                  className={`relative flex flex-col items-center justify-end w-1/3 max-w-[180px] ${heightClass} transition-all duration-700 ease-out`}
-                >
-                  {/* Avatar & Badge (Lifted -mt-16) */}
-                  <div
-                    className={`relative mb-4 flex flex-col items-center z-20 ${
-                      isGold ? "-mt-16" : ""
-                    }`}
-                  >
-                    {isGold && (
-                      <Crown
-                        className="w-10 h-10 text-amber-500 mb-2 animate-bounce"
-                        fill="currentColor"
-                      />
-                    )}
-                    <div
-                      className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl font-bold border-4 shadow-xl bg-white dark:bg-slate-800 ${
-                        colorClass.split(" ")[2]
-                      }`}
-                    >
-                      {person.name.charAt(0)}
-                    </div>
-                    <div
-                      className={`absolute -bottom-3 px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-white dark:bg-slate-800 border shadow-md ${
-                        colorClass.split(" ")[2]
-                      }`}
-                    >
-                      Rank #{rank}
-                    </div>
-                  </div>
-
-                  {/* The Bar */}
-                  <div
-                    className={`w-full rounded-t-3xl border-t border-x bg-gradient-to-b ${colorClass} flex flex-col items-center justify-start ${paddingClass} pb-4 shadow-sm relative overflow-hidden group hover:opacity-90 cursor-pointer`}
-                  >
-                    {isGold && (
-                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-40 bg-amber-400/20 blur-[60px] rounded-full pointer-events-none"></div>
-                    )}
-
-                    {/* ðŸš€ FIX: Removed forced color class. Added relative + z-20 */}
-                    <h4 className="font-bold text-sm sm:text-base text-center px-1 mb-2 truncate w-full z-20 relative">
-                      {person.name}
-                    </h4>
-
-                    <div className="flex items-center gap-1 bg-white/60 dark:bg-black/30 px-4 py-1.5 rounded-full z-10 backdrop-blur-md shadow-sm border border-white/20">
-                      <Smile className="w-4 h-4" />
-                      <span className="text-sm font-bold">{person.good}</span>
-                    </div>
-                    <p className="text-[10px] mt-3 opacity-70 z-10 font-medium">
-                      {person.winRate}% Positive
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 30% Width: The Leaderboard List */}
-        <div className="xl:w-[30%] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-0 shadow-sm flex flex-col overflow-hidden transition-colors">
-          <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
-            <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm flex items-center gap-2">
-              <Medal className="w-4 h-4 text-slate-400" /> Honorable Mentions
-            </h3>
-          </div>
-
-          <div className="overflow-y-auto max-h-[400px] p-2 space-y-1 custom-scrollbar">
-            {runnersUp.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-10">
-                <User className="w-8 h-8 mb-2 opacity-20" />
-                <p>No other active agents.</p>
-              </div>
-            ) : (
-              runnersUp.map((person, idx) => (
-                <div
-                  key={person.name}
-                  className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group border border-transparent hover:border-slate-100 dark:hover:border-slate-700"
-                >
-                  <span className="text-xs font-bold text-slate-400 w-4 text-center">
-                    #{idx + 4}
-                  </span>
-
-                  <div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs font-bold">
-                    {person.name.charAt(0)}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
-                        {person.name}
-                      </p>
-                      <span className="text-[10px] font-medium text-slate-500">
-                        {person.good} Good
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-400 rounded-full"
-                        style={{ width: `${person.winRate}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mt-8 mb-4 flex items-center gap-2">
-        <Activity className="w-5 h-5 text-indigo-500" /> Performance Analytics
-      </h2>
-
-      {/* âœ… INSERT HERE: Zendesk Toggle + Metrics Cards */}
-      <div className="px-6 mb-2 flex justify-end">
-        <button
-          onClick={() => setExcludeZendesk(!excludeZendesk)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border ${
-            excludeZendesk
-              ? "bg-slate-800 text-white border-slate-800 shadow-md ring-2 ring-slate-200 dark:ring-slate-700"
-              : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300"
-          }`}
-        >
-          {excludeZendesk ? (
-            <Check className="w-3 h-3" />
-          ) : (
-            <ListFilter className="w-3 h-3" />
-          )}
-          Exclude Zendesk Imports
-        </button>
-      </div>
-
-      <div className="px-6">
-        <OverallMetricsCards
-          data={filteredTickets} // Just pass the raw list, component filters Q1/Q4 itself
-        />
-      </div>
-
-      {/* 2. CHARTS GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {Object.entries(METRICS).map(([key, config]) => (
-          <div
-            key={key}
-            className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 relative group hover:border-indigo-500/30 transition-colors"
-          >
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm flex items-center gap-2">
-                  <config.icon
-                    className="w-4 h-4"
-                    style={{ color: config.color }}
-                  />{" "}
-                  {config.label}
-                </h3>
-                <p className="text-xs text-slate-500">{config.desc}</p>
-              </div>
-              <button
-                onClick={() => {
-                  setExpandedMetric(key);
-                  setSubject("Me");
-                  setShowTeam(false);
-                  setShowGST(false);
-                }}
-                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-indigo-500 transition-colors"
-              >
-                <Maximize2 className="w-4 h-4" />
+      {selectedQuarter === "Q1_26" && (
+        <div className="flex items-center gap-2 pl-1">
+          <span className="text-xs text-slate-500 font-medium">Weekly:</span>
+          <div className="flex gap-1">
+            <button onClick={() => handleWeekChange("Q1_26")}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${!selectedWeek ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>
+              All Q1
+            </button>
+            {Q1_WEEKS.map(w => (
+              <button key={w.id} onClick={() => handleWeekChange(w.id)}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${selectedWeek === w.id ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>
+                {w.label}
               </button>
-            </div>
-
-            <div className="h-[160px] w-full text-xs">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={smallChartData[key]}>
-                  <defs>
-                    <linearGradient
-                      id={`grad-${key}`}
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="5%"
-                        stopColor={config.color}
-                        stopOpacity={0.2}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor={config.color}
-                        stopOpacity={0}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke={colors.grid}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: colors.text, fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                    minTickGap={20}
-                  />
-                  <YAxis
-                    tick={{ fill: colors.text, fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <RechartsTooltip
-                    formatter={(value) => [`${value}`, config.desc]}
-                    labelFormatter={(label) => `${label}`}
-                    contentStyle={{
-                      backgroundColor: colors.tooltipBg,
-                      borderRadius: "8px",
-                      border: "none",
-                    }}
-                  />
-
-                  <Area
-                    type="monotone"
-                    dataKey="main"
-                    stroke={config.color}
-                    fill={`url(#grad-${key})`}
-                    strokeWidth={2}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* 5. EXPANDED VIEW (Multi-Select) */}
-      {expandedMetric && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
-          <div
-            className="absolute inset-0"
-            onClick={() => setExpandedMetric(null)}
-          ></div>
-
-          <div className="bg-white dark:bg-slate-900 w-[95vw] h-[90vh] rounded-3xl shadow-2xl border border-white/10 relative flex flex-col z-10 overflow-visible ring-1 ring-white/5">
-            {/* HEADER (Identity Correctness: No "Analyzing Rohan" text) */}
-            <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-between items-center shrink-0 rounded-t-3xl">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
-                  <div
-                    className={`p-2 rounded-xl bg-opacity-10`}
-                    style={{
-                      backgroundColor: `${METRICS[expandedMetric].color}20`,
-                    }}
-                  >
-                    {React.createElement(METRICS[expandedMetric].icon, {
-                      className: "w-6 h-6",
-                      color: METRICS[expandedMetric].color,
-                    })}
-                  </div>
-                  {METRICS[expandedMetric].label} Analysis
-                  {/* âœ… NEW: SUPER ADMIN TOGGLE (Visible only to Rohan) */}
-                  {currentUser?.name?.toLowerCase().includes("rohan") && (
-                    <button
-                      onClick={() => setSimulateNonGST(!simulateNonGST)}
-                      className={`ml-4 text-[10px] px-2 py-1 rounded-full border transition-all ${
-                        simulateNonGST
-                          ? "bg-rose-100 text-rose-700 border-rose-200"
-                          : "bg-emerald-100 text-emerald-700 border-emerald-200"
-                      }`}
-                      title="Toggle User Role for Testing"
-                    >
-                      {simulateNonGST
-                        ? "Simulating: NON-GST"
-                        : "Role: SUPER ADMIN"}
-                    </button>
-                  )}
-                </h2>
-              </div>
-
-              {/* RIGHT SIDE: CLOSE BUTTON (The X) */}
-              <button
-                onClick={() => setExpandedMetric(null)}
-                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer group"
-              >
-                <X className="w-6 h-6 text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300 transition-colors" />
-              </button>
-            </div>
-
-            {/* CONTROLS (Simplification: Checkbox List) */}
-            <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 backdrop-blur border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4 shrink-0 relative z-50">
-              {/* Multi-User Checkbox Dropdown */}
-              <div className="relative group">
-                <button className="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-indigo-500 transition-all min-w-[220px] justify-between">
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                      {selectedUsers.length > 0
-                        ? `${selectedUsers.length} Users Selected`
-                        : "Select Users..."}
-                    </span>
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-indigo-500" />
-                </button>
-
-                {/* Dropdown Menu */}
-                <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2 hidden group-hover:block max-h-[60vh] overflow-y-auto z-[60]">
-                  {allUserNames.map((user) => (
-                    <label
-                      key={user}
-                      className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedUsers.includes(user)}
-                        onChange={(e) => {
-                          if (e.target.checked)
-                            setSelectedUsers([...selectedUsers, user]);
-                          else
-                            setSelectedUsers(
-                              selectedUsers.filter((u) => u !== user)
-                            );
-                        }}
-                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span className="text-sm text-slate-700 dark:text-slate-200">
-                        {user}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Time Range */}
-              <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                <Calendar className="w-4 h-4 text-slate-400" />
-                <select
-                  className="bg-transparent text-sm font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                  value={timeRange}
-                  onChange={(e) => setTimeRange(Number(e.target.value))}
-                >
-                  <option value={7}>Last 7 Days</option>
-                  <option value={14}>Last 14 Days</option>
-                  <option value={30}>Last 30 Days</option>
-                  <option value={90}>Last 3 Months</option>
-                </select>
-              </div>
-
-              <div className="h-8 w-px bg-slate-300 dark:bg-slate-700 mx-2"></div>
-
-              <button
-                onClick={() => setShowTeam(!showTeam)}
-                className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${
-                  showTeam
-                    ? "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 text-indigo-600 dark:text-indigo-300"
-                    : "border-transparent text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full border ${
-                    showTeam
-                      ? "bg-indigo-500 border-indigo-500"
-                      : "border-slate-400"
-                  }`}
-                ></div>
-                Vs Team
-              </button>
-
-              <button
-                onClick={() => setShowGST(!showGST)}
-                className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${
-                  showGST
-                    ? "bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 text-emerald-600 dark:text-emerald-300"
-                    : "border-transparent text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full border ${
-                    showGST
-                      ? "bg-emerald-500 border-emerald-500"
-                      : "border-slate-400"
-                  }`}
-                ></div>
-                Vs GST
-              </button>
-            </div>
-
-            {/* SMART INSIGHTS PANEL (The "Crazy" Part) */}
-            <div className="px-8 pt-6 pb-2 bg-slate-50/50 dark:bg-slate-900/50">
-              <SmartInsights
-                data={expandedData}
-                metric={expandedMetric}
-                showTeam={showTeam}
-                showGST={showGST}
-                selectedUsers={selectedUsers} // âœ… ADD THIS PROP
-                currentUser={resolvedCurrentUser}
-                myTeamName={myTeamName}
-              />
-            </div>
-
-            {/* CHART AREA (Modern Design) */}
-            <div className="flex-1 w-full bg-slate-50/50 dark:bg-slate-900/50 p-6 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={expandedData}
-                  margin={{ top: 20, right: 30, left: 10, bottom: 0 }}
-                >
-                  <defs>
-                    {/* Modern Gradients */}
-                    <linearGradient id="colorTeam" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorGST" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke={isDark ? "#1e293b" : "#e2e8f0"}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{
-                      fill: isDark ? "#94a3b8" : "#64748b",
-                      fontSize: 11,
-                      fontWeight: 500,
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                    dy={10}
-                    minTickGap={30}
-                  />
-                  <YAxis
-                    tick={{
-                      fill: isDark ? "#94a3b8" : "#64748b",
-                      fontSize: 11,
-                      fontWeight: 500,
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <RechartsTooltip
-                    contentStyle={{
-                      backgroundColor: isDark ? "#0f172a" : "#ffffff",
-                      borderRadius: "12px",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
-                    }}
-                    cursor={{
-                      stroke: isDark ? "#334155" : "#cbd5e1",
-                      strokeWidth: 1,
-                      strokeDasharray: "4 4",
-                    }}
-                  />
-                  <Legend
-                    wrapperStyle={{ paddingTop: "20px" }}
-                    iconType="circle"
-                  />
-
-                  {/* MODERN COLOR PALETTE */}
-                  {selectedUsers.map((user, index) => {
-                    // Clean, distinct colors: Indigo, Emerald, Amber, Rose, Cyan
-                    const palette = [
-                      "#6366f1",
-                      "#10b981",
-                      "#f59e0b",
-                      "#f43f5e",
-                      "#06b6d4",
-                    ];
-                    const color = palette[index % palette.length];
-
-                    return (
-                      <Area
-                        key={user}
-                        type="monotone"
-                        dataKey={user}
-                        name={user}
-                        stroke={color}
-                        fill={color}
-                        fillOpacity={0.1} // Subtle fill
-                        strokeWidth={3}
-                        activeDot={{ r: 6, strokeWidth: 0, fill: color }}
-                        animationDuration={1000}
-                      />
-                    );
-                  })}
-
-                  {selectedUsers.length === 0 && (
-                    <text
-                      x="50%"
-                      y="50%"
-                      textAnchor="middle"
-                      fill="#94a3b8"
-                      fontSize="14"
-                    >
-                      Select users from the dropdown to analyze data
-                    </text>
-                  )}
-
-                  {/* COMPARISON LINES - Solid & Uniform */}
-                  {showTeam && (
-                    <Area
-                      type="monotone"
-                      dataKey="compare_team"
-                      name="Team Total"
-                      stroke="#6366f1" // Indigo
-                      fill="none"
-                      strokeWidth={3}
-                      // Removed strokeDasharray to make it solid
-                      animationDuration={1000}
-                    />
-                  )}
-                  {showGST && (
-                    <Area
-                      type="monotone"
-                      dataKey="compare_gst"
-                      name="GST Total"
-                      stroke="#10b981" // Emerald
-                      fill="none"
-                      strokeWidth={3}
-                      // Removed strokeDasharray to make it solid
-                      animationDuration={1000}
-                    />
-                  )}
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION 2: ALERTS (Negative Feedback) */}
-      {badTickets.length > 0 && (
-        <div className="bg-rose-50/50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/50 rounded-xl p-6 transition-colors">
-          <h3 className="text-rose-800 dark:text-rose-400 font-bold flex items-center gap-2 mb-4 text-xs uppercase tracking-wide">
-            <AlertCircle className="w-4 h-4" /> Negative Feedback (
-            {badTickets.length})
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {badTickets.map((t) => (
-              <div
-                key={t.id}
-                className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-rose-100 dark:border-rose-900/30 hover:border-rose-300 transition-all cursor-pointer group"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-[10px] font-bold text-slate-400 font-mono bg-slate-50 dark:bg-slate-700 px-1.5 py-0.5 rounded">
-                    {t.display_id}
-                  </span>
-                  <a
-                    href={`https://app.devrev.ai/clevertapsupport/works/${t.display_id}`}
-                    target="_blank"
-                    className="text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 line-clamp-2 mb-3">
-                  {t.title}
-                </p>
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/50 px-2 py-1 rounded-full">
-                    <Frown className="w-3 h-3" /> BAD RATING
-                  </div>
-                  <span className="text-[10px] text-slate-400">
-                    {format(parseISO(t.created_date), "MMM d")}
-                  </span>
-                </div>
-              </div>
             ))}
           </div>
         </div>
       )}
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <MetricCard title="Avg RWT" value={stats?.avgRWT || "0.0"} unit="Hrs" color="violet" sparkKey="avgRWT" icon={Clock} />
+        <MetricCard title="Positive CSAT" value={stats?.positiveCSAT || 0} unit="Count" color="emerald" sparkKey="csat" icon={Smile} />
+        <MetricCard title="FRR Met" value={`${stats?.frrPercent || 0}`} unit="%" color="amber" sparkKey="frrPercent" icon={Zap} />
+        <MetricCard title="Avg Iterations" value={stats?.avgIterations || "0.0"} unit="" color="blue" sparkKey="avgIterations" icon={Layers} />
+        <MetricCard title="Avg FRT" value={stats?.avgFRT || "0.0"} unit="Hrs" color="rose" sparkKey="avgFRT" icon={TrendingUp} />
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// CSAT LEADERBOARD
+// ============================================================================
+const CSATLeaderboard = ({ leaderboard = [], isLoading }) => {
+  const podium = leaderboard.slice(0, 3);
+  const runnersUp = leaderboard.slice(3, 15);
+  const podiumOrder = podium.length >= 3 ? [podium[1], podium[0], podium[2]] : podium;
+
+  const getPodiumStyle = (idx) => {
+    const styles = [
+      { height: "h-32", color: "from-slate-200 to-slate-100 dark:from-slate-700 dark:to-slate-800", border: "border-slate-300", rank: 2 },
+      { height: "h-40", color: "from-amber-200 to-amber-100 dark:from-amber-900/50 dark:to-amber-800/30", border: "border-amber-400", rank: 1 },
+      { height: "h-28", color: "from-orange-200 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/20", border: "border-orange-300", rank: 3 },
+    ];
+    return styles[idx] || styles[2];
+  };
+
+  if (isLoading) return <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border animate-pulse h-96" />;
+
+  return (
+    <div className="bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-50 to-transparent dark:from-amber-900/20">
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+          <Crown className="w-5 h-5 text-amber-500" /> CSAT Champions
+        </h3>
+      </div>
+      <div className="px-6 py-8">
+        <div className="flex items-end justify-center gap-4 mb-8">
+          {podiumOrder.map((person, idx) => {
+            const style = getPodiumStyle(idx);
+            const isGold = style.rank === 1;
+            return (
+              <div key={person?.name || idx} className="flex flex-col items-center">
+                <div className={`relative mb-3 ${isGold ? "-mt-8" : ""}`}>
+                  {isGold && <Crown className="absolute -top-6 left-1/2 -translate-x-1/2 w-8 h-8 text-amber-500 animate-bounce" />}
+                  <div className={`w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold border-4 ${style.border} bg-gradient-to-br ${style.color}`}>
+                    {person?.name?.[0] || "?"}
+                  </div>
+                  <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${style.rank === 1 ? "bg-amber-500 text-white" : style.rank === 2 ? "bg-slate-400 text-white" : "bg-orange-400 text-white"}`}>
+                    {style.rank}
+                  </div>
+                </div>
+                <div className={`${style.height} w-24 bg-gradient-to-t ${style.color} rounded-t-xl flex flex-col items-center justify-start pt-4 border-x border-t ${style.border}`}>
+                  <span className="text-sm font-bold text-slate-800 dark:text-white text-center px-1 truncate w-full">{person?.name?.split(" ")[0] || "—"}</span>
+                  <div className="flex items-center gap-1 mt-1">
+                    <Smile className="w-3 h-3 text-emerald-500" />
+                    <span className="text-lg font-black text-emerald-600">{person?.goodCSAT || 0}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-1">{person?.winRate || 0}% win</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {runnersUp.length > 0 && (
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
+            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2"><Medal className="w-4 h-4" /> Runners Up</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {runnersUp.map((person, idx) => (
+                <div key={person.name} className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                  <span className="text-xs font-bold text-slate-400 w-5">{idx + 4}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{person.name}</p>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                      <span className="text-emerald-600 font-bold">{person.goodCSAT} 👍</span>
+                      <span>{person.winRate}%</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// DSAT ALERTS
+// ============================================================================
+const DSATAlerts = ({ badTickets = [], isLoading }) => {
+  const [showAll, setShowAll] = useState(false);
+  const displayTickets = showAll ? badTickets : badTickets.slice(0, 6);
+
+  if (!badTickets.length && !isLoading) return null;
+
+  return (
+    <div className="bg-gradient-to-br from-rose-50 to-white dark:from-rose-900/10 dark:to-slate-900 border border-rose-200 dark:border-rose-900/50 rounded-2xl overflow-hidden">
+      <div className="px-6 py-4 border-b border-rose-100 dark:border-rose-900/30 flex justify-between items-center">
+        <h3 className="text-base font-bold text-rose-700 dark:text-rose-400 flex items-center gap-2">
+          <AlertCircle className="w-5 h-5" /> Negative Feedback ({badTickets.length})
+        </h3>
+        {badTickets.length > 6 && (
+          <button onClick={() => setShowAll(!showAll)} className="text-xs font-semibold text-rose-600 flex items-center gap-1">
+            {showAll ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            {showAll ? "Show Less" : `Show All`}
+          </button>
+        )}
+      </div>
+      <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {displayTickets.map((t) => (
+          <div key={t.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-rose-100 dark:border-rose-900/30 group">
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{t.display_id}</span>
+              <a href={`https://app.devrev.ai/clevertapsupport/works/${t.display_id}`} target="_blank" rel="noopener noreferrer" className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100">
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            </div>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200 line-clamp-2 mb-3">{t.title}</p>
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 px-2 py-1 rounded-full">
+                <Frown className="w-3 h-3" /> BAD
+              </div>
+              <span className="text-[10px] text-slate-400">{t.owner}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// INDIVIDUAL CHARTS
+// ============================================================================
+const IndividualCharts = ({ individualTrends = {}, currentUser, isGSTUser }) => {
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [compareMode, setCompareMode] = useState(null);
+  const [timeView, setTimeView] = useState("daily");
+
+  const allUsers = useMemo(() => Object.keys(individualTrends).filter(u => !HIDDEN_USERS.includes(u)).sort(), [individualTrends]);
+
+  useEffect(() => {
+    if (isGSTUser && currentUser && allUsers.includes(currentUser)) setSelectedUsers([currentUser]);
+  }, [isGSTUser, currentUser, allUsers]);
+
+  const chartData = useMemo(() => {
+    if (!selectedUsers.length) return [];
+    const allDates = new Set();
+    selectedUsers.forEach(user => (individualTrends[user] || []).forEach(d => allDates.add(d.date)));
+    const sortedDates = Array.from(allDates).sort();
+
+    const grouped = {};
+    sortedDates.forEach(date => {
+      let key = date;
+      if (timeView === "weekly") key = format(parseISO(date), "yyyy-'W'ww");
+      else if (timeView === "monthly") key = date.substring(0, 7);
+
+      if (!grouped[key]) {
+        grouped[key] = { name: key };
+        selectedUsers.forEach(u => { grouped[key][u] = 0; });
+        grouped[key].compare_gst = 0;
+      }
+      selectedUsers.forEach(user => {
+        const userDay = (individualTrends[user] || []).find(d => d.date === date);
+        if (userDay) grouped[key][user] += userDay.solved;
+      });
+      Object.keys(individualTrends).forEach(user => {
+        const userDay = (individualTrends[user] || []).find(d => d.date === date);
+        if (userDay) grouped[key].compare_gst += userDay.solved;
+      });
+    });
+    return Object.values(grouped).slice(-30);
+  }, [selectedUsers, individualTrends, timeView]);
+
+  const handleUserToggle = (user) => {
+    setSelectedUsers(prev => prev.includes(user) ? prev.filter(u => u !== user) : [...prev, user].slice(0, 5));
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap justify-between items-center gap-4">
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+          <Activity className="w-5 h-5 text-indigo-500" /> Individual Performance
+          <span className="text-xs font-normal text-slate-400">(60 Days)</span>
+        </h3>
+        <div className="flex items-center gap-3">
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+            {["daily", "weekly", "monthly"].map(v => (
+              <button key={v} onClick={() => setTimeView(v)}
+                className={`px-3 py-1 text-[10px] font-bold rounded-md ${timeView === v ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm" : "text-slate-500"}`}>
+                {v.charAt(0).toUpperCase() + v.slice(1)}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setCompareMode(compareMode === "gst" ? null : "gst")}
+            className={`px-3 py-1.5 text-[10px] font-bold rounded-lg border ${compareMode === "gst" ? "bg-emerald-50 border-emerald-200 text-emerald-600" : "border-slate-200 text-slate-500"}`}>
+            Vs GST
+          </button>
+        </div>
+      </div>
+      <div className="px-6 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="flex flex-wrap gap-2">
+          {allUsers.slice(0, 20).map((user, idx) => (
+            <button key={user} onClick={() => handleUserToggle(user)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all ${selectedUsers.includes(user) ? "text-white shadow-md" : "bg-white dark:bg-slate-800 text-slate-600 border border-slate-200"}`}
+              style={selectedUsers.includes(user) ? { backgroundColor: CHART_COLORS[selectedUsers.indexOf(user) % CHART_COLORS.length] } : {}}>
+              {user.split(" ")[0]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="p-6 h-80">
+        {selectedUsers.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-slate-400 text-sm">Select engineers to view trends</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} />
+              <RechartsTooltip contentStyle={{ backgroundColor: "#0f172a", borderRadius: 12, border: "none" }} />
+              <Legend />
+              {selectedUsers.map((user, idx) => (
+                <Area key={user} type="monotone" dataKey={user} name={user} stroke={CHART_COLORS[idx % CHART_COLORS.length]} fill={CHART_COLORS[idx % CHART_COLORS.length]} fillOpacity={0.2} strokeWidth={2} dot={false} />
+              ))}
+              {compareMode === "gst" && <Line type="monotone" dataKey="compare_gst" name="GST Total" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// MAIN DASHBOARD
+// ============================================================================
+const AnalyticsDashboard = ({ filterOwner }) => {
+  const { theme, currentUser, analyticsData, analyticsLoading, fetchAnalyticsData } = useTicketStore();
+  const [currentQuarter, setCurrentQuarter] = useState("Q4_25");
+  const [excludeZendesk, setExcludeZendesk] = useState(false);
+  const [viewMode, setViewMode] = useState("gst");
+
+  const resolvedCurrentUser = useMemo(() => {
+    if (!currentUser?.name) return null;
+    const cleanName = currentUser.name.toLowerCase().trim();
+    return Object.values(FLAT_TEAM_MAP).find(name => cleanName.includes(name.toLowerCase()) || name.toLowerCase().includes(cleanName)) || currentUser.name;
+  }, [currentUser]);
+
+  const isGSTUser = useMemo(() => resolvedCurrentUser && Object.values(FLAT_TEAM_MAP).includes(resolvedCurrentUser), [resolvedCurrentUser]);
+
+  useEffect(() => {
+    fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, owner: filterOwner !== "All" ? filterOwner : null });
+  }, [currentQuarter, excludeZendesk, filterOwner, fetchAnalyticsData]);
+
+  const handleQuarterChange = useCallback((quarter) => setCurrentQuarter(quarter), []);
+  const handleRefresh = () => fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, forceRefresh: true });
+
+  return (
+    <div className="space-y-8 p-6 max-w-[1600px] mx-auto">
+      <div className="flex flex-wrap justify-between items-center gap-4">
+        <div className="flex items-center gap-3">
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <button onClick={() => setViewMode("gst")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${viewMode === "gst" ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm" : "text-slate-500"}`}>
+              <Users className="w-4 h-4" /> GST View
+            </button>
+            <button onClick={() => setViewMode("global")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${viewMode === "global" ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm" : "text-slate-500"}`}>
+              <Globe className="w-4 h-4" /> Global View
+            </button>
+          </div>
+          {resolvedCurrentUser && (
+            <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+              👤 {resolvedCurrentUser} {isGSTUser && <span className="text-emerald-500">(GST)</span>}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setExcludeZendesk(!excludeZendesk)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border ${excludeZendesk ? "bg-slate-800 text-white border-slate-800" : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200"}`}>
+            {excludeZendesk ? <Check className="w-3 h-3" /> : <ListFilter className="w-3 h-3" />} Exclude Zendesk
+          </button>
+          <button onClick={handleRefresh} disabled={analyticsLoading}
+            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 disabled:opacity-50">
+            <RefreshCw className={`w-4 h-4 ${analyticsLoading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      <PerformanceMetricsCards stats={analyticsData?.stats} trends={analyticsData?.trends} currentQuarter={currentQuarter} onQuarterChange={handleQuarterChange} isLoading={analyticsLoading} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <CSATLeaderboard leaderboard={analyticsData?.leaderboard} isLoading={analyticsLoading} />
+        <IndividualCharts individualTrends={analyticsData?.individualTrends} currentUser={resolvedCurrentUser} isGSTUser={isGSTUser} />
+      </div>
+
+      <DSATAlerts badTickets={analyticsData?.badTickets} isLoading={analyticsLoading} />
     </div>
   );
 };
