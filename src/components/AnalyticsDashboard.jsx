@@ -416,6 +416,63 @@ const AnalyticsDashboard = ({ filterOwner }) => {
         <IndividualCharts individualTrends={analyticsData?.individualTrends} currentUser={resolvedCurrentUser} isGSTUser={isGSTUser} />
       </div>
 
+      {/* MISSING CHARTS SECTION */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Ticket Creation Chart */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-blue-500" /> Ticket Creation Trend
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={analyticsData?.trends || []}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <RechartsTooltip />
+                <Area type="monotone" dataKey="solved" name="Tickets Closed" stroke="#6366f1" fill="#6366f1" fillOpacity={0.2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* RWT Trend Chart */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+            <Clock className="w-5 h-5 text-violet-500" /> RWT Trend
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={analyticsData?.trends || []}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <RechartsTooltip />
+                <Area type="monotone" dataKey="avgRWT" name="Avg RWT (hrs)" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Backlog Clearance Chart */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+            <Check className="w-5 h-5 text-emerald-500" /> Backlog Clearance (&gt;15 days)
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={analyticsData?.backlogCleared || []}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <RechartsTooltip />
+                <Area type="monotone" dataKey="count" name="Old Tickets Cleared" stroke="#10b981" fill="#10b981" fillOpacity={0.2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
       <DSATAlerts badTickets={analyticsData?.badTickets} isLoading={analyticsLoading} />
     </div>
   );

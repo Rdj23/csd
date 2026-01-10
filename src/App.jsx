@@ -400,7 +400,7 @@ const App = () => {
 
   // ✅ 4. FILTERED TICKETS (Depends on currentFilters)
   const filteredTickets = useMemo(() => {
-    if (activeTab === "vistas" && !selectedViewId) return [];
+    if (activeTab === "vistas" && !selectedViewId && myViews.length > 0) return [];
 
     return tickets
       .map((t) => {
@@ -418,7 +418,9 @@ const App = () => {
         const csm = t.custom_fields?.tnt__csm_email_id || "Unknown";
         const tam = t.custom_fields?.tnt__tam || "Unknown";
         const rwtMs = formatRWT(t.custom_fields?.tnt__customer_wait_time);
-        const isActive = Object.keys(STAGE_MAP).includes(t.stage?.name);
+        const stageName = t.stage?.name || "";
+        const isActive = Object.keys(STAGE_MAP).includes(stageName) || 
+          (activeTab === "csd" && !stageName.toLowerCase().includes("solved") && !stageName.toLowerCase().includes("closed"));
 
         return {
           ...t,
@@ -436,9 +438,15 @@ const App = () => {
           tam,
         };
       })
-      .filter((t) => {
-        if (activeTab === "csd" && !t.isCSD) return false;
-        if (activeTab !== "analytics" && !t.isActive) return false;
+     .filter((t) => {
+        if (activeTab === "csd") {
+          if (!t.isCSD) return false;
+          // For CSD, show all non-closed tickets
+          const stage = t.stage?.name?.toLowerCase() || "";
+          if (stage.includes("solved") || stage.includes("closed")) return false;
+        } else if (activeTab !== "analytics" && !t.isActive) {
+          return false;
+        }
 
         const currentSearch = (searchQueries[activeTab] || "").toLowerCase();
         const matchesSearch =
@@ -822,7 +830,7 @@ const App = () => {
 
               {/* RIGHT: This Week + Actions */}
               <div className="flex items-center gap-3">
-                {activeTab === "analytics" && myStats && (
+                {activeTab === "analytics" && myStats && viewMode === "gst" && (
                   <div className="hidden lg:flex items-center gap-6 px-4 py-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/50">
                     <span className="text-[11px] text-slate-400">
                       This Week

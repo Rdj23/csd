@@ -215,6 +215,14 @@ app.get("/api/tickets/analytics", async (req, res) => {
       ticket_id: 1, display_id: 1, title: 1, owner: 1, created_date: 1, closed_date: 1
     }).sort({ closed_date: -1 }).limit(50).lean();
 
+    // Backlog Clearance (tickets >15 days old when closed)
+    const backlogCleared = await AnalyticsTicket.aggregate([
+      { $match: { ...matchConditions, $expr: { $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 24 * 60 * 60 * 1000] } } },
+      { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+      { $limit: 60 }
+    ]);
+
     // Individual trends (last 60 days)
     const sixtyDaysAgo = new Date(); sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
     const individualTrends = await AnalyticsTicket.aggregate([
@@ -244,6 +252,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
         date: t._id, solved: t.solved,
         avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
         avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
+        backlogCleared: backlogCleared.map(b => ({ date: b._id, count: b.count })),
         positiveCSAT: t.positiveCSAT
       })),
       leaderboard: leaderboard.map(l => ({
