@@ -544,6 +544,8 @@ const App = () => {
       ? { red: "> 7 Days", yellow: "3-7 Days", green: "< 3 Days" }
       : { red: "> 15 Days", yellow: "10-15 Days", green: "< 10 Days" };
 
+      
+
   const KPICard = ({
     count,
     label,
@@ -586,6 +588,7 @@ const App = () => {
       </GoogleOAuthProvider>
     );
 
+    
   return (
     // ✅ 1. OUTER CONTAINER: Locked height, no window scroll
     <div
@@ -830,7 +833,7 @@ const App = () => {
 
               {/* RIGHT: This Week + Actions */}
               <div className="flex items-center gap-3">
-                {activeTab === "analytics" && myStats && viewMode === "gst" && (
+                {activeTab === "analytics" && myStats && (
                   <div className="hidden lg:flex items-center gap-6 px-4 py-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/50">
                     <span className="text-[11px] text-slate-400">
                       This Week
