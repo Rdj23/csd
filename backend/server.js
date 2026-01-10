@@ -14,6 +14,12 @@ import { OAuth2Client } from "google-auth-library";
 import { parseISO, format } from "date-fns";
 import mongoose from "mongoose";
 
+// Memory management for Render
+if (process.env.NODE_ENV === 'production') {
+  const v8 = await import('v8');
+  v8.setFlagsFromString('--max-old-space-size=512');
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -314,7 +320,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
       if (lastDate < TARGET_DATE) break;
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 500);
+    } while (cursor && loop < 100);
 
     const activeTickets = collected.filter(t => {
       const stage = t.stage?.name?.toLowerCase() || "";
@@ -328,6 +334,8 @@ const fetchAndCacheTickets = async (source = "auto") => {
     }));
 
     cache.set("tickets_active", activeTickets);
+    collected = null; // Free memory
+    if (global.gc) global.gc();
     console.log(`✅ ${activeTickets.length} active tickets cached`);
     io.emit("REFRESH_TICKETS", activeTickets);
   } catch (e) {
