@@ -779,10 +779,37 @@ const App = () => {
                           ) : null;
                         })}
 
-                        <div className="relative">
-                          <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium">
-                            <Plus className="w-3.5 h-3.5" /> Filter
-                          </button>
+                       <div className="relative group" tabIndex={-1}>
+  <button
+    onClick={(e) => {
+      const parent = e.currentTarget.closest(".group");
+      if (document.activeElement === parent) {
+        parent.blur(); // close
+      } else {
+        parent.focus(); // open
+      }
+    }}
+    className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+  >
+    <Plus className="w-3.5 h-3.5" /> Filter
+  </button>
+
+                        <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-1 hidden group-focus-within:block">
+                          {FILTER_CONFIG.filter(
+                            (f) => !visibleFilterKeys.includes(f.key)
+                          ).map((f) => (
+                            <button
+                              key={f.key}
+                              onClick={() =>
+                                setVisibleFilterKeys((prev) => [...prev, f.key])
+                              }
+                              className="w-full text-left flex items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg"
+                            >
+                              <f.icon className="w-3.5 h-3.5 opacity-70" />{" "}
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
                         </div>
                       </>
                     )}

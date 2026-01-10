@@ -22,7 +22,7 @@ export const useTicketStore = create(
         localStorage.removeItem("ticket-store"); // Optional: Clear data on logout
       },
 
-      // ✅ ACTION: Connect to Real-Time Stream
+      // âœ… ACTION: Connect to Real-Time Stream
       connectSocket: () => {
         const { socket } = get();
         if (socket) return;
@@ -31,12 +31,12 @@ export const useTicketStore = create(
         const newSocket = io(API_URL);
 
         newSocket.on("connect", () => {
-          console.log("🟢 Connected to Real-Time Server");
+          console.log("ðŸŸ¢ Connected to Real-Time Server");
         });
 
-        // ⚡ LISTEN: When server says "Here is new data", update instantly
+        // âš¡ LISTEN: When server says "Here is new data", update instantly
         newSocket.on("REFRESH_TICKETS", (updatedTickets) => {
-          console.log("🔥 Live Update Received!");
+          console.log("ðŸ”¥ Live Update Received!");
           set({ tickets: updatedTickets, lastSync: new Date() });
         });
 
@@ -134,13 +134,13 @@ export const useTicketStore = create(
           const res = await fetch(`${API_URL}/api/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            // ✅ FIX: Change 'token' to 'credential' to match server.js
+            // âœ… FIX: Change 'token' to 'credential' to match server.js
             body: JSON.stringify({ credential: credentialResponse.credential }),
           });
 
           const data = await res.json();
 
-          // ✅ FIX: Remove 'data.success' check since server doesn't send it
+          // âœ… FIX: Remove 'data.success' check since server doesn't send it
           if (res.ok && data.user) {
             set({
               currentUser: data.user,
@@ -174,15 +174,24 @@ export const useTicketStore = create(
             lastSync: new Date(),
             isLoading: false,
           });
-          // You might need to add 'analyticsTickets: []' to your initial state
-          const analyticsRes = await fetch(`${API_URL}/api/tickets/analytics`);
-          const analyticsData = await analyticsRes.json();
-          // You can choose to merge them or store separately. 
-          // Storing separately is cleaner for the Dashboard component.
-          set({ analyticsTickets: analyticsData.tickets || [] });
+          // Analytics is now fetched separately by fetchAnalyticsTickets
         } catch (error) {
           console.error("Sync failed:", error);
           set({ isLoading: false });
+        }
+      },
+
+      // ✅ NEW: Dedicated Analytics Fetch (All Historical Data)
+      fetchAnalyticsTickets: async () => {
+        try {
+          const API_URL = getApiUrl();
+          console.log("📊 [Store] Fetching analytics from MongoDB...");
+          const res = await fetch(`${API_URL}/api/tickets/analytics`);
+          const data = await res.json();
+          console.log(`📊 [Store] Received ${data.tickets?.length || 0} analytics tickets`);
+          set({ analyticsTickets: data.tickets || [] });
+        } catch (error) {
+          console.error("Analytics fetch failed:", error);
         }
       },
 
@@ -230,10 +239,10 @@ export const useTicketStore = create(
 
           if (!response.ok) throw new Error("DevRev Sync Failed");
         } catch (err) {
-          console.error("❌ Post failed:", err);
+          console.error("âŒ Post failed:", err);
           throw err;
         }
-        // ✅ On Success:
+        // âœ… On Success:
         trackEvent("Comment Added", {
           "Ticket ID": displayId,
           "Comment Length": text.length,

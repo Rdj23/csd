@@ -1,11 +1,15 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
-  format,
   subDays,
   eachDayOfInterval,
   isSameDay,
   parseISO,
   differenceInHours,
+  startOfWeek,
+  startOfMonth,
+  format,
+  isSameWeek,
+  isSameMonth,
 } from "date-fns";
 import {
   ResponsiveContainer,
@@ -44,7 +48,9 @@ import {
   Smile,
   Crown,
   Medal,
-  Globe
+  Globe,
+  CalendarDays,
+  ListFilter,
 } from "lucide-react";
 import axios from "axios";
 import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
@@ -62,7 +68,7 @@ const HIDDEN_USERS = [
   "null",
 ];
 
-// ✅ 4th Chart is now Backlog Clearance
+// âœ… 4th Chart is now Backlog Clearance
 const METRICS = {
   volume: {
     label: "Incoming Volume",
@@ -89,14 +95,232 @@ const METRICS = {
     desc: "Solved (Age > 15 Days)",
   },
 };
-// ============================================================================
-// 2. DATA PROCESSING ENGINE
-// ============================================================================
+//
 
-// [Existing METRICS object remains here...]
+// --- OVERALL METRICS CARDS ---
+const OverallMetricsCards = ({ data }) => {
+  // Default to Q4 '25 to match your data
+  const [vpView, setVpView] = useState("Q4 '25"); 
 
-// 1. UPDATED: Handles "All" subject for Global View
-// 1. OPTIMIZED: High Performance Date Indexing (Fixes Lag)
+  // 1. FILTER LOGIC (Debugged)
+  const filteredData = useMemo(() => {
+    if (!data || !data.length) return [];
+
+    const now = new Date();
+    let start, end;
+
+    switch (vpView) {
+      case "Q4 '25":
+        start = new Date("2025-10-01");
+        end = new Date("2025-12-31");
+        break;
+      case "Q1 '26":
+        start = new Date("2026-01-01");
+        end = new Date("2026-03-31");
+        break;
+      case "Month": 
+        start = subDays(now, 30);
+        end = now;
+        break;
+      default:
+        start = new Date("2025-10-01");
+        end = now;
+    }
+
+    return data.filter((t) => {
+      // Must have a close date to be in analytics
+      if (!t.actual_close_date) return false;
+      
+      const d = parseISO(t.actual_close_date);
+      return d >= start && d <= end;
+    });
+  }, [data, vpView]);
+
+  // 3. Calculate Aggregates (STRICT DB ONLY - NO FALLBACKS)
+  const stats = useMemo(() => {
+    if (!filteredData || filteredData.length === 0) {
+        return { rwt: "0.0", frr: 0, iter: "0.0", frt: "0.0", csat: 0 };
+    }
+
+    let totalRWT = 0, countRWT = 0;
+    let totalFRT = 0, countFRT = 0;
+    let totalIter = 0, countIter = 0;
+    let frrMet = 0, countFRR = 0;
+    let goodCsatCount = 0;
+
+    filteredData.forEach((t) => {
+      // Helper to safely parse numbers
+      const getNum = (v) => (v !== null && v !== undefined && v !== "") ? Number(v) : null;
+
+      // âœ… STRICT: Only use the value if it exists in the DB
+      const rwt = getNum(t.rwt);
+      const frt = getNum(t.frt);
+      const iter = getNum(t.iterations);
+      
+      // RWT: Count ONLY if valid number exists in DB
+      if (rwt !== null) {
+        totalRWT += rwt;
+        countRWT++;
+      }
+
+      // FRT
+      if (frt !== null) {
+        totalFRT += frt;
+        countFRT++;
+      }
+
+      // Iterations
+      if (iter !== null) {
+        totalIter += iter;
+        countIter++;
+      }
+
+      // FRR (Boolean check)
+      if (t.frr !== undefined && t.frr !== null) {
+        if (t.frr === true || t.frr === "true") frrMet++;
+        countFRR++;
+      }
+
+      // CSAT (Raw Count of "Good" = 2)
+      if (Number(t.csat) === 2) {
+        goodCsatCount++;
+      }
+    });
+
+    return {
+      rwt: countRWT > 0 ? (totalRWT / countRWT).toFixed(1) : "0.0",
+      frr: countFRR > 0 ? Math.round((frrMet / countFRR) * 100) : 0,
+      iter: countIter > 0 ? (totalIter / countIter).toFixed(1) : "0.0",
+      frt: countFRT > 0 ? (totalFRT / countFRT).toFixed(1) : "0.0",
+      csat: goodCsatCount, // Raw Count
+    };
+  }, [filteredData]);
+
+  // 4. Sparkline Trend Logic (Robust & Safe)
+  const getTrendData = (key) => {
+    const grouped = {};
+    const isQuarter = vpView.includes("Q"); // Group by Week for Quarters
+
+    filteredData.forEach((t) => {
+      // âœ… Safety Check: Ensure date exists (Using normalized field)
+      if (!t.actual_close_date) return;
+      
+      const date = parseISO(t.actual_close_date);
+      
+      // Dynamic Grouping (Week vs Day)
+      let k = isQuarter 
+        ? format(startOfWeek(date), "yyyy-MM-dd") 
+        : format(date, "yyyy-MM-dd");
+
+      if (!grouped[k]) grouped[k] = { sum: 0, count: 0 };
+
+      // --- CSAT LOGIC (Trend of POSITIVE counts) ---
+      if (key === 'csat') {
+         // If CSAT is "Good" (2), add to sum
+         if (Number(t.csat) === 2) {
+             grouped[k].sum += 1;
+             grouped[k].count++; // Increment count to show activity exists
+         }
+         return; 
+      } 
+      
+      // --- OTHER METRICS (RWT, FRT, Iterations) ---
+      let val = t[key];
+      
+      // Check if value is valid number (allow 0, reject null/undefined)
+      if (val !== null && val !== undefined && val !== "") {
+         grouped[k].sum += Number(val);
+         grouped[k].count++;
+      }
+    });
+
+    return Object.keys(grouped).sort().map(k => ({
+       name: k,
+       val: key === 'csat' 
+         ? grouped[k].sum // Sum for CSAT (Raw Count)
+         : (grouped[k].count > 0 ? grouped[k].sum / grouped[k].count : 0) // Average for others
+    }));
+  };
+
+  const Card = ({ title, value, unit, color, dataKey }) => (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-md transition-all relative overflow-hidden group h-40">
+      {/* Glow Effect */}
+      <div className={`absolute -right-6 -top-6 w-24 h-24 bg-${color}-500/10 rounded-full blur-2xl group-hover:bg-${color}-500/20 transition-all`}></div>
+      
+      {/* Header */}
+      <div className="flex justify-between items-start z-10">
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{title}</span>
+        <div className={`p-1.5 rounded-lg bg-${color}-50 dark:bg-${color}-900/20 text-${color}-600`}>
+           <Activity className="w-3.5 h-3.5" />
+        </div>
+      </div>
+      
+      {/* Main Value */}
+      <div className="flex items-baseline gap-1 z-10 mt-2">
+        <span className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">{value}</span>
+        <span className="text-xs font-semibold text-slate-400">{unit}</span>
+      </div>
+
+      {/* Sparkline */}
+      <div className="h-10 w-full mt-auto opacity-70">
+        <ResponsiveContainer width="100%" height="100%">
+           <AreaChart data={getTrendData(dataKey)}>
+              <defs>
+                 <linearGradient id={`grad-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={`var(--color-${color}-500)`} stopOpacity={0.4}/>
+                    <stop offset="100%" stopColor={`var(--color-${color}-500)`} stopOpacity={0}/>
+                 </linearGradient>
+              </defs>
+              <Area 
+                type="monotone" 
+                dataKey="val" 
+                stroke={`var(--color-${color}-500)`} 
+                fill={`url(#grad-${dataKey})`} 
+                strokeWidth={2} 
+                dot={false}
+              />
+           </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="mb-8 animate-in slide-in-from-top-4 duration-500">
+       <div className="flex justify-between items-center mb-5 px-1">
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+             <Trophy className="w-5 h-5 text-indigo-500" />
+             Performance Overview
+          </h2>
+          
+          {/* VP CONTROLS (Pills) */}
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+             {['Q4 \'25', 'Q1 \'26', 'Month'].map(mode => (
+                <button
+                   key={mode}
+                   onClick={() => setVpView(mode)}
+                   className={`px-4 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                      vpView === mode 
+                      ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm ring-1 ring-black/5" 
+                      : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"
+                   }`}
+                >
+                   {mode}
+                </button>
+             ))}
+          </div>
+       </div>
+
+       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <Card title="Avg RWT" value={stats.rwt} unit="Hrs" color="violet" dataKey="rwt" />
+          <Card title="Positive CSAT" value={stats.csat} unit="Count" color="emerald" dataKey="csat" />
+          <Card title="First Resp Met" value={stats.frr} unit="%" color="amber" dataKey="frr" />
+          <Card title="Avg Iterations" value={stats.iter} unit="" color="blue" dataKey="iterations" />
+          <Card title="Avg FRT" value={stats.frt} unit="Hrs" color="rose" dataKey="frt" />
+       </div>
+    </div>
+  );
+  };
 const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
   if (!tickets || tickets.length === 0) return [];
 
@@ -123,7 +347,7 @@ const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
         FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
         t.owned_by?.[0]?.display_name ||
         "";
-      // TEAM selected → match any team member
+      // TEAM selected â†’ match any team member
       if (isTeam) {
         const teamMembers = Object.values(TEAM_GROUPS[subjectName]);
         if (!teamMembers.some((m) => owner.includes(m))) continue;
@@ -142,7 +366,6 @@ const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
     if (!ticketsByDate[dateKey]) ticketsByDate[dateKey] = [];
     ticketsByDate[dateKey].push(t);
   }
-
 
   // Helper for Values
   const getTicketValue = (t) => {
@@ -440,8 +663,8 @@ const generateInsight = (data, mode, selectedUsers) => {
     const diff = totalMain - totalPrev;
     const pcent = totalPrev ? Math.round((diff / totalPrev) * 100) : 0;
     return diff > 0
-      ? `🚀 Workload UP ${pcent}% vs previous period (${totalMain} vs ${totalPrev}).`
-      : `📉 Workload DOWN ${Math.abs(pcent)}% vs previous period.`;
+      ? `ðŸš€ Workload UP ${pcent}% vs previous period (${totalMain} vs ${totalPrev}).`
+      : `ðŸ“‰ Workload DOWN ${Math.abs(pcent)}% vs previous period.`;
   }
 
   if (mode === "team" || mode === "gst") {
@@ -453,10 +676,10 @@ const generateInsight = (data, mode, selectedUsers) => {
       ? Math.round(((totalMain - totalAvg) / totalAvg) * 100)
       : 0;
     return pcent > 0
-      ? `🏆 You handled ${pcent}% more tickets than the ${
+      ? `ðŸ† You handled ${pcent}% more tickets than the ${
           mode === "gst" ? "GST" : "Team"
         } average.`
-      : `📊 You are at ${100 + pcent}% of the ${
+      : `ðŸ“Š You are at ${100 + pcent}% of the ${
           mode === "gst" ? "GST" : "Team"
         } average workload.`;
   }
@@ -475,8 +698,8 @@ const generateInsight = (data, mode, selectedUsers) => {
     });
 
     if (maxUser === "You")
-      return `⚔️ You handled the most tickets (${maxVal}) in this group.`;
-    return `⚔️ ${maxUser} handled the most tickets (${maxVal}) in this group.`;
+      return `âš”ï¸ You handled the most tickets (${maxVal}) in this group.`;
+    return `âš”ï¸ ${maxUser} handled the most tickets (${maxVal}) in this group.`;
   }
 
   return "Analysis complete.";
@@ -655,27 +878,32 @@ const InsightCard = ({ metric, data, context, comparison }) => {
   );
 };
 
-
-
-
 // --- COMPONENT: SMART INSIGHTS ENGINE (Fixed Data Logic) ---
-const SmartInsights = ({ data, metric, showTeam, showGST, selectedUsers, myTeamName }) => {
-
-  // ✅ NEW: Empty State for Non-GST / No Selection
+const SmartInsights = ({
+  data,
+  metric,
+  showTeam,
+  showGST,
+  selectedUsers,
+  myTeamName,
+}) => {
+  // âœ… NEW: Empty State for Non-GST / No Selection
   if (!selectedUsers || selectedUsers.length === 0) {
     return (
       <div className="w-full bg-slate-50/50 dark:bg-slate-900/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8 mb-6 flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-300">
-         <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-full mb-3">
-            <Users className="w-6 h-6 text-indigo-400" />
-         </div>
-         <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Assignee Selected</h3>
-         <p className="text-xs text-slate-500 max-w-xs mt-1">
-           Select an assignee from the dropdown above to see their performance stats.
-         </p>
+        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-full mb-3">
+          <Users className="w-6 h-6 text-indigo-400" />
+        </div>
+        <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+          No Assignee Selected
+        </h3>
+        <p className="text-xs text-slate-500 max-w-xs mt-1">
+          Select an assignee from the dropdown above to see their performance
+          stats.
+        </p>
       </div>
     );
   }
-
 
   if (!data || data.length === 0) return null;
 
@@ -684,8 +912,8 @@ const SmartInsights = ({ data, metric, showTeam, showGST, selectedUsers, myTeamN
   const calculateSelectedTotal = (dataset) => {
     return dataset.reduce((acc, day) => {
       let dailySum = 0;
-      selectedUsers.forEach(user => {
-        dailySum += (day[user] || 0);
+      selectedUsers.forEach((user) => {
+        dailySum += day[user] || 0;
       });
       return acc + dailySum;
     }, 0);
@@ -694,12 +922,15 @@ const SmartInsights = ({ data, metric, showTeam, showGST, selectedUsers, myTeamN
   const myTotal = calculateSelectedTotal(data);
   const teamTotal = data.reduce((acc, d) => acc + (d.compare_team || 0), 0);
   const gstTotal = data.reduce((acc, d) => acc + (d.compare_gst || 0), 0);
-  
+
   // 2. Averages (Prevent divide by zero)
   // Estimate roster sizes if not available
-  const teamSize = myTeamName && TEAM_GROUPS[myTeamName] ? Object.values(TEAM_GROUPS[myTeamName]).length : 5; 
+  const teamSize =
+    myTeamName && TEAM_GROUPS[myTeamName]
+      ? Object.values(TEAM_GROUPS[myTeamName]).length
+      : 5;
   const teamAvg = teamTotal > 0 ? Math.round(teamTotal / teamSize) : 0;
-  
+
   const gstSize = Object.values(FLAT_TEAM_MAP).length || 20;
   const gstAvg = gstTotal > 0 ? Math.round(gstTotal / gstSize) : 0;
 
@@ -707,9 +938,10 @@ const SmartInsights = ({ data, metric, showTeam, showGST, selectedUsers, myTeamN
   const mid = Math.floor(data.length / 2);
   const firstHalfTotal = calculateSelectedTotal(data.slice(0, mid));
   const secondHalfTotal = calculateSelectedTotal(data.slice(mid));
-  
+
   const trendDiff = secondHalfTotal - firstHalfTotal;
-  const trendPcent = firstHalfTotal > 0 ? Math.round((trendDiff / firstHalfTotal) * 100) : 100;
+  const trendPcent =
+    firstHalfTotal > 0 ? Math.round((trendDiff / firstHalfTotal) * 100) : 100;
 
   // 4. Label Logic (Singular vs Plural)
   const isGroup = selectedUsers.length > 1;
@@ -718,100 +950,152 @@ const SmartInsights = ({ data, metric, showTeam, showGST, selectedUsers, myTeamN
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 animate-in slide-in-from-bottom-4 duration-500">
-      
       {/* CARD 1: VELOCITY */}
       <div className="bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-900/20 dark:to-slate-900 border border-indigo-100 dark:border-indigo-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-           <Activity className="w-12 h-12 text-indigo-600" />
+          <Activity className="w-12 h-12 text-indigo-600" />
         </div>
-        <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">{subjectLabel}</h4>
+        <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">
+          {subjectLabel}
+        </h4>
         <div className="flex items-baseline gap-2">
-           <span className="text-2xl font-bold text-slate-800 dark:text-white">{myTotal}</span>
-           <span className="text-xs text-slate-500 font-medium">{METRICS[metric]?.desc || "Units"}</span>
+          <span className="text-2xl font-bold text-slate-800 dark:text-white">
+            {myTotal}
+          </span>
+          <span className="text-xs text-slate-500 font-medium">
+            {METRICS[metric]?.desc || "Units"}
+          </span>
         </div>
-        <div className={`text-xs font-bold mt-2 flex items-center gap-1 ${trendDiff >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-           {trendDiff >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-           {Math.abs(trendPcent)}% {trendDiff >= 0 ? 'Increase' : 'Decrease'} (vs start)
+        <div
+          className={`text-xs font-bold mt-2 flex items-center gap-1 ${
+            trendDiff >= 0 ? "text-emerald-600" : "text-rose-500"
+          }`}
+        >
+          {trendDiff >= 0 ? (
+            <TrendingUp className="w-3 h-3" />
+          ) : (
+            <TrendingDown className="w-3 h-3" />
+          )}
+          {Math.abs(trendPcent)}% {trendDiff >= 0 ? "Increase" : "Decrease"} (vs
+          start)
         </div>
       </div>
 
       {/* CARD 2: TEAM CONTEXT */}
       {showTeam ? (
-         <div className="bg-gradient-to-br from-violet-50 to-white dark:from-violet-900/20 dark:to-slate-900 border border-violet-100 dark:border-violet-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-               <Users className="w-12 h-12 text-violet-600" />
+        <div className="bg-gradient-to-br from-violet-50 to-white dark:from-violet-900/20 dark:to-slate-900 border border-violet-100 dark:border-violet-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Users className="w-12 h-12 text-violet-600" />
+          </div>
+          <h4 className="text-xs font-bold text-violet-500 uppercase tracking-wider mb-1">
+            Vs {myTeamName || "Team"}
+          </h4>
+
+          <div className="flex flex-col gap-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-800 dark:text-white">
+                {myTotal - teamAvg > 0
+                  ? `+${myTotal - teamAvg}`
+                  : myTotal - teamAvg}
+              </span>
+              <span className="text-xs text-slate-500 font-medium">
+                vs Team Avg
+              </span>
             </div>
-            <h4 className="text-xs font-bold text-violet-500 uppercase tracking-wider mb-1">Vs {myTeamName || "Team"}</h4>
-            
-            <div className="flex flex-col gap-1">
-               <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-slate-800 dark:text-white">
-                     {myTotal - teamAvg > 0 ? `+${myTotal - teamAvg}` : myTotal - teamAvg}
-                  </span>
-                  <span className="text-xs text-slate-500 font-medium">vs Team Avg</span>
-               </div>
-               <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
-                  {subjectText} contributed <strong className="text-violet-600 dark:text-violet-400">{Math.round((myTotal / (teamTotal || 1)) * 100)}%</strong> of the entire team's volume.
-               </p>
-            </div>
-         </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
+              {subjectText} contributed{" "}
+              <strong className="text-violet-600 dark:text-violet-400">
+                {Math.round((myTotal / (teamTotal || 1)) * 100)}%
+              </strong>{" "}
+              of the entire team's volume.
+            </p>
+          </div>
+        </div>
       ) : (
-         <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
-            Select "Vs Team" to see analysis
-         </div>
+        <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
+          Select "Vs Team" to see analysis
+        </div>
       )}
 
       {/* CARD 3: GST CONTEXT */}
       {showGST ? (
-         <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 border border-emerald-100 dark:border-emerald-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-               <Globe className="w-12 h-12 text-emerald-600" />
+        <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 border border-emerald-100 dark:border-emerald-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Globe className="w-12 h-12 text-emerald-600" />
+          </div>
+          <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-1">
+            Vs Global (GST)
+          </h4>
+
+          <div className="flex flex-col gap-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-800 dark:text-white">
+                {Math.round((myTotal / (gstAvg || 1)) * 100)}%
+              </span>
+              <span className="text-xs text-slate-500 font-medium">
+                of Avg Load
+              </span>
             </div>
-            <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-1">Vs Global (GST)</h4>
-            
-             <div className="flex flex-col gap-1">
-               <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-slate-800 dark:text-white">
-                     {Math.round((myTotal / (gstAvg || 1)) * 100)}%
-                  </span>
-                  <span className="text-xs text-slate-500 font-medium">of Avg Load</span>
-               </div>
-               <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
-                  Global Avg: <strong className="text-slate-800 dark:text-slate-200">{gstAvg}</strong>. 
-                  {subjectText} are {myTotal > gstAvg ? "leading" : "trailing"} by <strong className="text-emerald-600 dark:text-emerald-400">{Math.abs(myTotal - gstAvg)}</strong>.
-               </p>
-            </div>
-         </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-tight">
+              Global Avg:{" "}
+              <strong className="text-slate-800 dark:text-slate-200">
+                {gstAvg}
+              </strong>
+              .{subjectText} are {myTotal > gstAvg ? "leading" : "trailing"} by{" "}
+              <strong className="text-emerald-600 dark:text-emerald-400">
+                {Math.abs(myTotal - gstAvg)}
+              </strong>
+              .
+            </p>
+          </div>
+        </div>
       ) : (
-         <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
-            Select "Vs GST" to see analysis
-         </div>
+        <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-center text-xs text-slate-400">
+          Select "Vs GST" to see analysis
+        </div>
       )}
-      
     </div>
   );
 };
 
 // --- MAIN DASHBOARD ---
 const AnalyticsDashboard = ({
-
-
- tickets = [],                // ✅ Fix: Default to empty array
-  sidebarFilteredTickets = [], // ✅ Fix: Default to empty array
+  tickets = [], // âœ… Fix: Default to empty array
+  sidebarFilteredTickets = [], // âœ… Fix: Default to empty array
   filterOwner,
 }) => {
   const {
     theme,
     currentUser,
-    tickets: activeTickets,
+    // tickets: activeTickets,
     analyticsTickets,
+    fetchAnalyticsTickets,
   } = useTicketStore();
-  // Use History if available, else Active
-  // Robust Fallback for Data
-  const sourceTickets =
-    analyticsTickets && analyticsTickets.length > 0
-      ? analyticsTickets
-      : activeTickets || [];
+
+
+  // ✅ FIXED: Force fetch Analytics Data on mount
+  useEffect(() => {
+    if (fetchAnalyticsTickets) {
+      console.log("📊 Dashboard: Fetching full analytics dataset...");
+      fetchAnalyticsTickets();
+    }
+  }, [fetchAnalyticsTickets]);
+
+  // ✅ DEBUG: Log when analyticsTickets updates
+  useEffect(() => {
+    console.log(`📊 [Dashboard] analyticsTickets updated: ${analyticsTickets?.length || 0} tickets`);
+  }, [analyticsTickets]);
+
+  // Use Analytics (MongoDB) data as primary source
+  const sourceTickets = useMemo(() => {
+    if (analyticsTickets && analyticsTickets.length > 0) {
+      console.log(`📊 [Dashboard] Using analyticsTickets: ${analyticsTickets.length}`);
+      return analyticsTickets;
+    }
+    console.log(`📊 [Dashboard] Fallback to tickets prop: ${tickets?.length || 0}`);
+    return tickets || [];
+  }, [analyticsTickets, tickets]);
+
   const isDark = theme === "dark";
   const [expandedMetric, setExpandedMetric] = useState(null);
   // 1. SMART IDENTITY RESOLVER
@@ -833,31 +1117,82 @@ const AnalyticsDashboard = ({
     );
   }, [currentUser]);
 
-
-  // ✅ NEW: Role Simulation State (For Testing)
+  // âœ… NEW: Role Simulation State (For Testing)
   const [simulateNonGST, setSimulateNonGST] = useState(false);
 
- 
+  // âœ… NEW STATES
+  const [excludeZendesk, setExcludeZendesk] = useState(false);
+  const [metricsViewMode, setMetricsViewMode] = useState("weekly");
+  // âœ… FIX: Define missing filterPriority state
+  const [filterPriority, setFilterPriority] = useState("All");
+  const [timeRange, setTimeRange] = useState(30);
 
-  // ✅ UPDATED: isGSTUser Logic (Respects Simulation)
+  // âœ… UPDATED: Complete filteredTickets Logic
+  const filteredTickets = useMemo(() => {
+    let data = sourceTickets || [];
+
+    // 1. ZENDESK EXCLUSION (Global First Step)
+    if (excludeZendesk) {
+     data = data.filter((t) => !t.is_zendesk);
+
+    }
+
+    // 2. OWNER FILTER
+    if (filterOwner !== "All") {
+      // Logic for filtering by Team/Individual
+      const teamMembers = TEAM_GROUPS[filterOwner];
+      if (teamMembers) {
+        // Filter by Team Group (using IDs or Names)
+        const memberNames = Object.values(teamMembers);
+        data = data.filter((t) =>
+          t.owned_by?.some((owner) => memberNames.includes(owner.display_name))
+        );
+      } else {
+        // Filter by Individual
+        data = data.filter((t) =>
+          t.owned_by?.some((owner) => owner.display_name === filterOwner)
+        );
+      }
+    }
+
+    // 3. PRIORITY FILTER
+    if (filterPriority !== "All") {
+      data = data.filter(
+        (t) =>
+          t.priority &&
+          t.priority.toLowerCase() === filterPriority.toLowerCase()
+      );
+    }
+
+    // "All Time" does nothing (keeps all Q4 2025+ data)
+
+    return data;
+  }, [sourceTickets, filterOwner, filterPriority, excludeZendesk]);
+
+  
+
+  // âœ… UPDATED: isGSTUser Logic (Respects Simulation)
   const isGSTUser = useMemo(() => {
-      if (simulateNonGST) return false; // Force Non-GST if simulating
-      return resolvedCurrentUser && Object.values(FLAT_TEAM_MAP).includes(resolvedCurrentUser);
+    if (simulateNonGST) return false; // Force Non-GST if simulating
+    return (
+      resolvedCurrentUser &&
+      Object.values(FLAT_TEAM_MAP).includes(resolvedCurrentUser)
+    );
   }, [resolvedCurrentUser, simulateNonGST]);
 
-  // ✅ UPDATED: Selection State (Default to [] if Non-GST)
+  // âœ… UPDATED: Selection State (Default to [] if Non-GST)
   const [selectedUsers, setSelectedUsers] = useState(() => {
-      // If GST, default to Self. If Non-GST, default to Empty [].
-      return isGSTUser && resolvedCurrentUser ? [resolvedCurrentUser] : [];
+    // If GST, default to Self. If Non-GST, default to Empty [].
+    return isGSTUser && resolvedCurrentUser ? [resolvedCurrentUser] : [];
   });
 
-  // ✅ NEW: Effect to reset selection when toggling simulation
+  // âœ… NEW: Effect to reset selection when toggling simulation
   useEffect(() => {
-     if (!isGSTUser) {
-         setSelectedUsers([]); // Clear selection when becoming Non-GST
-     } else if (resolvedCurrentUser && selectedUsers.length === 0) {
-         setSelectedUsers([resolvedCurrentUser]); // Restore Self when becoming GST
-     }
+    if (!isGSTUser) {
+      setSelectedUsers([]); // Clear selection when becoming Non-GST
+    } else if (resolvedCurrentUser && selectedUsers.length === 0) {
+      setSelectedUsers([resolvedCurrentUser]); // Restore Self when becoming GST
+    }
   }, [isGSTUser, resolvedCurrentUser]);
 
   // --- STATE ---
@@ -870,15 +1205,15 @@ const AnalyticsDashboard = ({
   // Comparison State
   const [compareMode, setCompareMode] = useState("none"); // none, time, team, gst, users
   const [selectedPeers, setSelectedPeers] = useState([]);
-  const [timeRange, setTimeRange] = useState(30);
+
   // --- CLEVERTAP TRACKING ---
-  
+
   // 1. Track when Chart is Opened
   useEffect(() => {
     if (expandedMetric) {
-      trackEvent("Analytics Chart Expanded", { 
+      trackEvent("Analytics Chart Expanded", {
         metric: METRICS[expandedMetric]?.label,
-        user: currentUser?.name 
+        user: currentUser?.name,
       });
     }
   }, [expandedMetric]);
@@ -894,12 +1229,12 @@ const AnalyticsDashboard = ({
       compare_gst: showGST,
       days: timeRange,
       peers_selected: selectedUsers.length,
-      users: selectedUsers.join(", ")
+      users: selectedUsers.join(", "),
     });
   }, [showTeam, showGST, timeRange, selectedUsers]);
 
   const days = useMemo(() => {
-    // ✅ Fix: Check if tickets exists AND is an array before accessing .length or .map
+    // âœ… Fix: Check if tickets exists AND is an array before accessing .length or .map
     if (!tickets || !Array.isArray(tickets) || !tickets.length) return 30;
 
     const dates = tickets
@@ -1018,12 +1353,11 @@ const AnalyticsDashboard = ({
     );
   }, [tickets, currentUser, filterOwner]);
 
-
-// --- SMALL CHARTS DATA ---
+  // --- SMALL CHARTS DATA ---
   const smallChartData = useMemo(() => {
     // Use the tickets prop which is already filtered by date and team
     const dataToUse = tickets && tickets.length > 0 ? tickets : sourceTickets;
-    
+
     // Determine subject based on filterOwner
     let subject = "All";
     if (filterOwner && filterOwner !== "All") {
@@ -1049,36 +1383,63 @@ const AnalyticsDashboard = ({
     }
 
     return {
-      volume: processChartData(dataToUse, "volume", dynamicDays, subject, currentUser),
-      solved: processChartData(dataToUse, "solved", dynamicDays, subject, currentUser),
-      rwt: processChartData(dataToUse, "rwt", dynamicDays, subject, currentUser),
-      backlog: processChartData(dataToUse, "backlog", dynamicDays, subject, currentUser),
+      volume: processChartData(
+        dataToUse,
+        "volume",
+        dynamicDays,
+        subject,
+        currentUser
+      ),
+      solved: processChartData(
+        dataToUse,
+        "solved",
+        dynamicDays,
+        subject,
+        currentUser
+      ),
+      rwt: processChartData(
+        dataToUse,
+        "rwt",
+        dynamicDays,
+        subject,
+        currentUser
+      ),
+      backlog: processChartData(
+        dataToUse,
+        "backlog",
+        dynamicDays,
+        subject,
+        currentUser
+      ),
     };
   }, [tickets, sourceTickets, currentUser, filterOwner]);
 
-  // ✅ DYNAMIC TEAM DETECTION (Compatible with your utils.js structure)
+  // âœ… DYNAMIC TEAM DETECTION (Compatible with your utils.js structure)
   const myTeamName = useMemo(() => {
     // 1. Identify who we are looking at
-    const usersToCheck = selectedUsers.length > 0 ? selectedUsers : [resolvedCurrentUser];
-    
+    const usersToCheck =
+      selectedUsers.length > 0 ? selectedUsers : [resolvedCurrentUser];
+
     // 2. Find the team for the FIRST valid user
     for (const user of usersToCheck) {
-       if (!user) continue;
-       
-       // 🔍 FIX: Use Object.values() because your utils.js groups are Objects {ID: Name}
-       const foundTeamKey = Object.keys(TEAM_GROUPS).find(groupKey => {
-          const groupMembers = Object.values(TEAM_GROUPS[groupKey]); // Get list of names ["Aditya", "Shweta"...]
-          return groupMembers.includes(user);
-       });
+      if (!user) continue;
 
-       if (foundTeamKey) {
-           // Optional: Add "Team " prefix if the key is just "Shweta"
-           return foundTeamKey.startsWith("Team") ? foundTeamKey : `Team ${foundTeamKey}`;
-       }
+      // ðŸ” FIX: Use Object.values() because your utils.js groups are Objects {ID: Name}
+      const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
+        const groupMembers = Object.values(TEAM_GROUPS[groupKey]); // Get list of names ["Aditya", "Shweta"...]
+        return groupMembers.includes(user);
+      });
+
+      if (foundTeamKey) {
+        // Optional: Add "Team " prefix if the key is just "Shweta"
+        return foundTeamKey.startsWith("Team")
+          ? foundTeamKey
+          : `Team ${foundTeamKey}`;
+      }
     }
 
     // 3. Fallback
-    return "Team Mashnu"; 
+    return "Team Mashnu";
   }, [selectedUsers, resolvedCurrentUser]);
 
   // --- EXPANDED CHART DATA ---
@@ -1182,10 +1543,10 @@ const AnalyticsDashboard = ({
               const isGold = idx === 1;
               const rank = isGold ? 1 : idx === 0 ? 2 : 3;
 
-              // 🚀 FIX: Increased non-gold height to 65% so text fits
+              // ðŸš€ FIX: Increased non-gold height to 65% so text fits
               const heightClass = isGold ? "h-full" : "h-[65%]";
 
-              // 🚀 FIX: Only Gold gets large padding (pt-10). Others get small padding (pt-3)
+              // ðŸš€ FIX: Only Gold gets large padding (pt-10). Others get small padding (pt-3)
               const paddingClass = isGold ? "pt-10" : "pt-3";
 
               const colorClass = isGold
@@ -1235,7 +1596,7 @@ const AnalyticsDashboard = ({
                       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-40 bg-amber-400/20 blur-[60px] rounded-full pointer-events-none"></div>
                     )}
 
-                    {/* 🚀 FIX: Removed forced color class. Added relative + z-20 */}
+                    {/* ðŸš€ FIX: Removed forced color class. Added relative + z-20 */}
                     <h4 className="font-bold text-sm sm:text-base text-center px-1 mb-2 truncate w-full z-20 relative">
                       {person.name}
                     </h4>
@@ -1309,6 +1670,31 @@ const AnalyticsDashboard = ({
         <Activity className="w-5 h-5 text-indigo-500" /> Performance Analytics
       </h2>
 
+      {/* âœ… INSERT HERE: Zendesk Toggle + Metrics Cards */}
+      <div className="px-6 mb-2 flex justify-end">
+        <button
+          onClick={() => setExcludeZendesk(!excludeZendesk)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border ${
+            excludeZendesk
+              ? "bg-slate-800 text-white border-slate-800 shadow-md ring-2 ring-slate-200 dark:ring-slate-700"
+              : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+          }`}
+        >
+          {excludeZendesk ? (
+            <Check className="w-3 h-3" />
+          ) : (
+            <ListFilter className="w-3 h-3" />
+          )}
+          Exclude Zendesk Imports
+        </button>
+      </div>
+
+      <div className="px-6">
+        <OverallMetricsCards
+          data={filteredTickets} // Just pass the raw list, component filters Q1/Q4 itself
+        />
+      </div>
+
       {/* 2. CHARTS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {Object.entries(METRICS).map(([key, config]) => (
@@ -1325,9 +1711,7 @@ const AnalyticsDashboard = ({
                   />{" "}
                   {config.label}
                 </h3>
-                <p className="text-xs text-slate-500">
-                  {config.desc} 
-                </p>
+                <p className="text-xs text-slate-500">{config.desc}</p>
               </div>
               <button
                 onClick={() => {
@@ -1431,30 +1815,33 @@ const AnalyticsDashboard = ({
                     })}
                   </div>
                   {METRICS[expandedMetric].label} Analysis
+                  {/* âœ… NEW: SUPER ADMIN TOGGLE (Visible only to Rohan) */}
+                  {currentUser?.name?.toLowerCase().includes("rohan") && (
+                    <button
+                      onClick={() => setSimulateNonGST(!simulateNonGST)}
+                      className={`ml-4 text-[10px] px-2 py-1 rounded-full border transition-all ${
+                        simulateNonGST
+                          ? "bg-rose-100 text-rose-700 border-rose-200"
+                          : "bg-emerald-100 text-emerald-700 border-emerald-200"
+                      }`}
+                      title="Toggle User Role for Testing"
+                    >
+                      {simulateNonGST
+                        ? "Simulating: NON-GST"
+                        : "Role: SUPER ADMIN"}
+                    </button>
+                  )}
+                </h2>
+              </div>
 
-                  {/* ✅ NEW: SUPER ADMIN TOGGLE (Visible only to Rohan) */}
-                    {currentUser?.name?.toLowerCase().includes("rohan") && (
-                       <button 
-                         onClick={() => setSimulateNonGST(!simulateNonGST)}
-                         className={`ml-4 text-[10px] px-2 py-1 rounded-full border transition-all ${simulateNonGST ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}
-                         title="Toggle User Role for Testing"
-                       >
-                         {simulateNonGST ? "Simulating: NON-GST" : "Role: SUPER ADMIN"}
-                       </button>
-                    )}
-                  </h2>
-                </div>
-             
-               {/* RIGHT SIDE: CLOSE BUTTON (The X) */}
-              <button 
-                onClick={() => setExpandedMetric(null)} 
+              {/* RIGHT SIDE: CLOSE BUTTON (The X) */}
+              <button
+                onClick={() => setExpandedMetric(null)}
                 className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer group"
               >
                 <X className="w-6 h-6 text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300 transition-colors" />
               </button>
-         
             </div>
-           
 
             {/* CONTROLS (Simplification: Checkbox List) */}
             <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 backdrop-blur border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4 shrink-0 relative z-50">
@@ -1556,19 +1943,18 @@ const AnalyticsDashboard = ({
 
             {/* SMART INSIGHTS PANEL (The "Crazy" Part) */}
             <div className="px-8 pt-6 pb-2 bg-slate-50/50 dark:bg-slate-900/50">
-            <SmartInsights 
-                  data={expandedData} 
-                  metric={expandedMetric}
-                  showTeam={showTeam}
-                  showGST={showGST}
-                  selectedUsers={selectedUsers} // ✅ ADD THIS PROP
-                  currentUser={resolvedCurrentUser}
-                  myTeamName={myTeamName}
-               />
+              <SmartInsights
+                data={expandedData}
+                metric={expandedMetric}
+                showTeam={showTeam}
+                showGST={showGST}
+                selectedUsers={selectedUsers} // âœ… ADD THIS PROP
+                currentUser={resolvedCurrentUser}
+                myTeamName={myTeamName}
+              />
             </div>
 
-
-           {/* CHART AREA (Modern Design) */}
+            {/* CHART AREA (Modern Design) */}
             <div className="flex-1 w-full bg-slate-50/50 dark:bg-slate-900/50 p-6 relative">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
@@ -1578,15 +1964,15 @@ const AnalyticsDashboard = ({
                   <defs>
                     {/* Modern Gradients */}
                     <linearGradient id="colorTeam" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorGST" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  
+
                   <CartesianGrid
                     strokeDasharray="3 3"
                     vertical={false}
@@ -1594,14 +1980,22 @@ const AnalyticsDashboard = ({
                   />
                   <XAxis
                     dataKey="name"
-                    tick={{ fill: isDark ? "#94a3b8" : "#64748b", fontSize: 11, fontWeight: 500 }}
+                    tick={{
+                      fill: isDark ? "#94a3b8" : "#64748b",
+                      fontSize: 11,
+                      fontWeight: 500,
+                    }}
                     axisLine={false}
                     tickLine={false}
                     dy={10}
                     minTickGap={30}
                   />
                   <YAxis
-                    tick={{ fill: isDark ? "#94a3b8" : "#64748b", fontSize: 11, fontWeight: 500 }}
+                    tick={{
+                      fill: isDark ? "#94a3b8" : "#64748b",
+                      fontSize: 11,
+                      fontWeight: 500,
+                    }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -1610,9 +2004,13 @@ const AnalyticsDashboard = ({
                       backgroundColor: isDark ? "#0f172a" : "#ffffff",
                       borderRadius: "12px",
                       border: "1px solid rgba(255,255,255,0.1)",
-                      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)"
+                      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
                     }}
-                    cursor={{ stroke: isDark ? "#334155" : "#cbd5e1", strokeWidth: 1, strokeDasharray: "4 4" }}
+                    cursor={{
+                      stroke: isDark ? "#334155" : "#cbd5e1",
+                      strokeWidth: 1,
+                      strokeDasharray: "4 4",
+                    }}
                   />
                   <Legend
                     wrapperStyle={{ paddingTop: "20px" }}

@@ -10,7 +10,7 @@ import {
   AlertTriangle,
   Building2,
 } from "lucide-react";
-import { FLAT_TEAM_MAP, STAGE_MAP, displayRWT } from "../utils";
+import { FLAT_TEAM_MAP, STAGE_MAP } from "../utils";
 import RemarkPopover from "./RemarkPopover";
 
 const ITEMS_PER_PAGE = 20;
@@ -33,13 +33,16 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
   const sortedTickets = [...tickets].sort((a, b) => {
     if (sortConfig.key === "days")
       return sortConfig.direction === "asc" ? a.days - b.days : b.days - a.days;
-    if (sortConfig.key === "rwt")
-      return sortConfig.direction === "asc"
-        ? a.rwtMs - b.rwtMs
-        : b.rwtMs - a.rwtMs;
+   if (sortConfig.key === "rwt") {
+      const valA = a.rwt || 0;
+      const valB = b.rwt || 0;
+      return sortConfig.direction === "asc" 
+        ? valA - valB 
+        : valB - valA;
+    }
+
     return b.priority - a.priority || a.days - b.days;
   });
-
   const handleSort = (key) =>
     setSortConfig((c) => ({
       key,
@@ -92,7 +95,7 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
     </button>
   );
 
-  return (
+return (
     <div className="space-y-6 animate-in fade-in pb-20 relative">
       {/* 2. TABLE */}
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col transition-colors relative">
@@ -100,22 +103,33 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
           <table className="w-full text-left border-collapse min-w-[1400px]">
             <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-wider font-semibold">
               <tr>
+                {/* 1. Ticket (Sticky Left) */}
                 <th className="p-4 w-[300px] align-middle sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 border-r border-slate-100 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Ticket
                 </th>
+                {/* 2. Region */}
                 <th className="p-4 w-[150px] align-middle">Region</th>
+                {/* 3. Owner */}
                 <th className="p-4 w-[180px] align-middle">Owner</th>
+                {/* 4. CSM */}
                 <th className="p-4 w-[180px] align-middle">CSM</th>
+                {/* 5. TAM */}
                 <th className="p-4 w-[180px] align-middle">TAM</th>
-                <th
-                  className="p-4 w-[120px] align-middle cursor-pointer hover:text-slate-800"
+                {/* 6. RWT */}
+                <th 
+                  className="p-3 font-medium text-center w-[100px] cursor-pointer hover:text-slate-800"
                   onClick={() => handleSort("rwt")}
                 >
-                  <div className="flex items-center gap-1">
-                    Wait Time <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                   <div className="flex items-center justify-center gap-1">
+                    RWT <ArrowUpDown className="w-3 h-3 text-slate-300" />
                   </div>
                 </th>
+                {/* 7. Iteration */}
+                <th className="p-3 font-medium text-center w-[80px]">Iter.</th>
+                {/* 8. Stage */}
                 <th className="p-4 w-[120px] align-middle">Stage</th>
+                
+                {/* 9. Age (Sticky Right 1) */}
                 <th
                   className="p-4 w-[100px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] cursor-pointer"
                   onClick={() => handleSort("days")}
@@ -124,12 +138,14 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
                     Age <ArrowUpDown className="w-3 h-3 text-slate-300" />
                   </div>
                 </th>
-                {/* ✅ FIX: Added min-w-[180px] to lock width and prevent gap */}
+                
+                {/* 10. Status (Sticky Right 2) */}
                 <th className="p-4 w-[180px] min-w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-5px_0_5px_-5px_rgba(0,0,0,0.1)]">
                   Status
                 </th>
               </tr>
             </thead>
+            
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
               {paginatedTickets.map((t) => {
                 const ownerName =
@@ -143,7 +159,7 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
                     key={t.id}
                     className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors group text-sm"
                   >
-                    {/* LEFT STICKY */}
+                    {/* 1. Ticket (Sticky Left) */}
                     <td className="p-4 align-middle sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-r border-slate-100 dark:border-slate-800">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-mono text-xs text-slate-500 font-bold">
@@ -171,14 +187,14 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
                       )}
                     </td>
 
-                    {/* SCROLLABLE */}
+                    {/* 2. Region */}
                     <td className="p-4 align-middle">
                       <span className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
                         {t.region}
                       </span>
                     </td>
 
-                    {/* ✅ CLICKABLE OWNER */}
+                    {/* 3. Owner (Clickable) */}
                     <td className="p-4 align-middle">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
@@ -196,26 +212,40 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
                       </div>
                     </td>
 
+                    {/* 4. CSM */}
                     <td className="p-4 align-middle text-slate-600 dark:text-slate-400 text-xs">
                       {csmName}
                     </td>
+                    
+                    {/* 5. TAM */}
                     <td className="p-4 align-middle text-slate-600 dark:text-slate-400 text-xs">
                       {tamName}
                     </td>
-                    <td className="p-4 align-middle text-slate-600 dark:text-slate-300 text-xs font-medium">
-                      {displayRWT(t.rwtMs)}
-                    </td>
+                    
+                    {/* 6. RWT */}
+                   <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-300">
+                     {t.rwt !== null && t.rwt !== undefined ? `${t.rwt}h` : "-"}
+                   </td>
+
+                   {/* 7. Iterations */}
+                   <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-300">
+                      {t.iterations}
+                   </td>
+                    
+                    {/* 8. Stage */}
                     <td className="p-4 align-middle">
                       <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800">
                         {STAGE_MAP[t.stage?.name]?.label || t.stage?.name}
                       </span>
                     </td>
 
-                    {/* RIGHT STICKY */}
+                    {/* 9. Age (Sticky Right 1) */}
                     <td className="px-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-sm font-medium">{t.days} Days</span>
                     </td>
-                    <td className="p-4 align-middle min-w-[180px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800">
+                    
+                    {/* 10. Status (Sticky Right 2) */}
+                    <td className="p-4 align-middle min-w-[180px] w-[180px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent">
                       <div className="flex items-center gap-2 relative">
                         <span
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border whitespace-nowrap ${t.uiColor}`}

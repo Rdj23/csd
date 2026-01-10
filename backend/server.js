@@ -29,7 +29,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// ✅ CACHE: Set TTL to 0 (Infinite) because we control updates manually via Webhook
+// âœ… CACHE: Set TTL to 0 (Infinite) because we control updates manually via Webhook
 const cache = new NodeCache({ stdTTL: 0 });
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -44,8 +44,8 @@ let syncTimeout = null;
 // --- MONGODB CONNECTION ---
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("🍃 MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Error:", err));
+  .then(() => console.log("ðŸƒ MongoDB Connected"))
+  .catch((err) => console.error("âŒ MongoDB Error:", err));
 
 // --- SCHEMAS ---
 const RemarkSchema = new mongoose.Schema({
@@ -64,6 +64,34 @@ const ViewSchema = new mongoose.Schema({
 });
 const View = mongoose.model("View", ViewSchema);
 
+// âœ… NEW: Analytics Archive Schema (Optimized for Charts)
+const AnalyticsTicketSchema = new mongoose.Schema({
+  ticket_id: { type: String, unique: true, index: true }, // TKT-123
+  display_id: String,
+  title: String,
+  created_date: Date,
+  closed_date: Date,
+
+  // Dimensions for Filtering
+  owner: { type: String, index: true }, // "Rohan"
+  team: String, // "Mashnu"
+  region: String, // "India"
+  priority: String, // "High"
+  is_zendesk: Boolean,
+
+  // Metrics (Pre-calculated numbers)
+  rwt: Number, // 5.25
+  frt: Number, // 1.01
+  iterations: Number, // 3
+  csat: Number, // 5.0 or null
+  frr: Boolean, // true/false
+});
+
+const AnalyticsTicket = mongoose.model(
+  "AnalyticsTicket",
+  AnalyticsTicketSchema
+);
+
 // --- MIDDLEWARE ---
 app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
@@ -73,11 +101,15 @@ app.use((req, res, next) => {
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://clevertapintel.globalsupportteam.com"],
+    origin: [
+      "http://localhost:5173",
+      "https://clevertapintel.globalsupportteam.com",
+    ],
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // --- REMARKS DATABASE SETUP ---
 const REMARKS_FILE = path.join(__dirname, "remarks.json");
@@ -98,118 +130,277 @@ const writeRemarksDB = (data) => {
 let isSyncing = false; // Is a sync currently running?
 let syncQueued = false; // Do we need to run again after this?
 
+//
 const fetchAndCacheTickets = async (source = "auto") => {
-  console.log("🔄 Syncing Tickets from DevRev...");
+  console.log("ðŸ”„ Syncing Tickets from DevRev...");
 
   if (isSyncing) {
-    console.log(
-      `⚠️ Sync in progress. Queueing next run (Source: ${source})...`
-    );
+    console.log(`âš ï¸ Sync in progress. Queueing next run...`);
     syncQueued = true;
     return;
   }
 
   isSyncing = true;
-  console.log("🔄 Syncing Tickets from DevRev...");
 
   try {
     let collected = [];
     let cursor = null;
     let loop = 0;
 
+    // âœ… 1. DYNAMIC TARGET DATE (July 1st, 2025 to cover Q3 & Q4)
+    const TARGET_HISTORY_DATE = new Date("2025-07-01");
+    let reachedHistoryLimit = false;
+
+    console.log(
+      `   ðŸš€ Starting Smart Download (Target: ${TARGET_HISTORY_DATE.toISOString()})...`
+    );
+
     do {
+      if (loop % 5 === 0) console.log(`   â³ Fetching Page ${loop + 1}...`);
+
       const response = await axios.get(
         `${DEVREV_API}/works.list?limit=50&type=ticket${
           cursor ? `&cursor=${cursor}` : ""
         }`,
-        { headers: HEADERS, timeout: 30000 } // 15s timeout per request
+        { headers: HEADERS, timeout: 30000 }
       );
-      collected = [...collected, ...(response.data.works || [])];
+
+      const newWorks = response.data.works || [];
+      if (newWorks.length === 0) break; // API empty
+
+      collected = [...collected, ...newWorks];
+
+      // âœ… 2. SMART CHECK: Have we reached the past?
+      // DevRev returns 'modified_date' by default. If the last item was modified
+      // BEFORE our target, then it (and all older items) are definitely outside our range.
+      const lastItem = newWorks[newWorks.length - 1];
+      const lastDate = parseISO(lastItem.created_date); // Checking created_date is safer for "New Ticket" stats
+
+      if (lastDate < TARGET_HISTORY_DATE) {
+        reachedHistoryLimit = true;
+        console.log(
+          `   ðŸ›‘ Reached History Limit! (Last Ticket: ${lastDate.toISOString()})`
+        );
+      }
+
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 100); // Cap increased to ~5000 tickets
 
-    // 2. Filter & Process
-    const HISTORY_START_DATE = new Date("2024-01-01");
-    const fourMonthsAgo = subMonths(new Date(), 4);
-    const allProcessed = collected.reduce((acc, t) => {
-      const isSolved = t.stage?.name === "Solved" || t.stage?.name === "Closed";
-      if (!isSolved || isAfter(parseISO(t.modified_date), fourMonthsAgo)) {
-        acc.push({
-          id: t.id,
-          display_id: t.display_id,
-          title: t.title,
-          priority: t.priority,
-          severity: t.severity,
-          account: t.account,
-          stage: t.stage,
-          owned_by: t.owned_by,
-          created_date: t.created_date,
-          actual_close_date: t.actual_close_date,
-          modified_date: t.modified_date,
-          custom_fields: t.custom_fields,
-          tags: t.tags,
-          account: t.account,
-          reported_by: t.tnt__created_by,
-        });
-      }
-      return acc;
-    }, []);
-    // 3. OPTIMIZATION: Split into "Active" and "Analytics" buckets
-
-    // Bucket A: Fast Load (Active Tickets + Solved Recently)
-    // This is what the user sees IMMEDIATELY.
-    const activeView = allProcessed.filter((t) => {
-      const isSolved = t.stage?.name === "Solved" || t.stage?.name === "Closed";
-      if (!isSolved) return true; // Always keep active
-
-      // Keep solved only if modified in last 7 days (Recent context)
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      return new Date(t.modified_date) > sevenDaysAgo;
-    });
-
-    // Bucket B: Analytics Load (Everything since Start Date)
-    // This loads in the background for the Charts.
-    const analyticsView = allProcessed.filter((t) => {
-      // Keep everything after our fixed start date
-      return new Date(t.modified_date) > HISTORY_START_DATE;
-    });
-
-    // 4. Update Cache with TWO keys
-    cache.set("tickets_active", activeView); // ~100-200 tickets (Fast)
-    cache.set("tickets_analytics", analyticsView); // ~2000+ tickets (Slow)
+      // Safety Cap: 500 pages (25,000 tickets) just in case of infinite loop
+    } while (cursor && !reachedHistoryLimit && loop < 500);
 
     console.log(
-      `✅ Sync Complete: ${activeView.length} Active / ${analyticsView.length} Analytics tickets cached.`
+      `   âœ… Download Finished! Collected ${collected.length} raw tickets.`
     );
 
-    // Emit 'REFRESH_TICKETS' with Active view first for instant UI update
-    io.emit("REFRESH_TICKETS", activeView);
-    // You can add a separate event for analytics if you want real-time charts,
-    // or just let the dashboard fetch it on load.
+    // 2. Filter & Process
+    const allProcessed = collected.reduce((acc, t) => {
+      // Filter out anything older than July 1st
+      const createDate = parseISO(t.created_date);
+      if (createDate < TARGET_HISTORY_DATE) return acc;
+
+      const parseMetric = (val) => {
+        if (val === undefined || val === null || val === "") return null;
+        const num = Number(val);
+        return isNaN(num) ? null : num;
+      };
+
+      const isZD = t.tags?.some(
+        (tagItem) => tagItem.tag?.name === "Zendesk import"
+      );
+
+      acc.push({
+        id: t.id,
+        display_id: t.display_id,
+        title: t.title,
+        priority: t.priority,
+        severity: t.severity,
+        account: t.account,
+        stage: t.stage,
+        owned_by: t.owned_by,
+        created_date: t.created_date,
+        actual_close_date: t.actual_close_date,
+        modified_date: t.modified_date,
+        custom_fields: t.custom_fields,
+        tags: t.tags,
+        // Metrics
+        rwt: parseMetric(t.custom_fields?.tnt__rwt_business_hours),
+        iterations: parseMetric(t.custom_fields?.tnt__iteration_count) || 0,
+        frt: parseMetric(t.custom_fields?.tnt__frt_hours),
+        csat: parseMetric(t.custom_fields?.tnt__csatrating),
+        frr: t.custom_fields?.tnt__frr === true,
+        isZendesk: !!isZD,
+      });
+
+      return acc;
+    }, []);
+
+    // ðŸ“Š DEBUG: QUARTERLY CSAT CHECK (Q3, Q4, Q1)
+    const getQuarterStats = (start, end, label) => {
+      const batch = allProcessed.filter((t) => {
+        const d = parseISO(t.created_date);
+        return d >= new Date(start) && d <= new Date(end);
+      });
+
+      const csatTickets = batch.filter((t) => t.csat !== null);
+      const avgCsat =
+        csatTickets.length > 0
+          ? csatTickets.reduce((a, b) => a + b.csat, 0) / csatTickets.length
+          : 0;
+
+      console.log(`\nðŸ“… --- ${label} STATS ---`);
+      console.log(`   Tickets: ${batch.length}`);
+      console.log(`   CSAT Count: ${csatTickets.length}`);
+      console.log(`   ðŸ† Avg CSAT: ${avgCsat.toFixed(2)}`);
+    };
+
+    // Q3 2025 (Jul - Sep)
+    getQuarterStats("2025-07-01", "2025-09-30", "Q3 2025");
+    // Q4 2025 (Oct - Dec)
+    getQuarterStats("2025-10-01", "2025-12-31", "Q4 2025");
+    // Q1 2026 (Jan - Current)
+    getQuarterStats("2026-01-01", "2026-03-31", "Q1 2026");
+
+    const analyticsView = allProcessed;
+
+    cache.set(
+      "tickets_active",
+      allProcessed.filter(
+        (t) => t.stage?.name !== "Solved" && t.stage?.name !== "Closed"
+      )
+    );
+    cache.set("tickets_analytics", analyticsView);
+    cache.set("tickets_all", allProcessed);
+
+    console.log(`âœ… Sync Complete: ${analyticsView.length} tickets cached.`);
+    io.emit("REFRESH_TICKETS", cache.get("tickets_active"));
   } catch (e) {
-    console.error("❌ Sync Failed:", e.message);
+    console.error("âŒ Sync Failed:", e.message);
   } finally {
     isSyncing = false;
     if (syncQueued) {
-      console.log("🔁 Executing queued sync...");
       syncQueued = false;
       fetchAndCacheTickets("queued");
     }
   }
 };
 
+//
+// ðŸ”„ SYNC HISTORY TO MONGODB (Strictly Solved/Closed Only)
+const syncHistoricalToDB = async (fullHistory = false) => {
+  console.log(`ðŸ“¦ Starting Analytics Dump to MongoDB (Solved Only)...`);
+
+  let url = `${DEVREV_API}/works.list?limit=50&type=ticket`;
+  let cursor = null;
+  let loop = 0;
+  let processedCount = 0;
+
+  // Target: July 1st 2025 (Start of Q3)
+  const TARGET_DATE = new Date("2025-07-01");
+
+  do {
+    try {
+      const res = await axios.get(
+        `${url}${cursor ? `&cursor=${cursor}` : ""}`,
+        { headers: HEADERS }
+      );
+
+      const works = res.data.works || [];
+      if (works.length === 0) break;
+
+      // 1. SMART STOP: Check date of last item
+      const lastItemDate = new Date(works[works.length - 1].created_date);
+      if (lastItemDate < TARGET_DATE && !fullHistory) {
+        console.log("   ðŸ›‘ Reached History Limit (July 2025). Stopping.");
+        break;
+      }
+
+      // 2. STRICT FILTER: Only Process Solved/Closed/Resolved Tickets
+      const solvedWorks = works.filter((t) => {
+        const stage = t.stage?.name?.toLowerCase() || "";
+        const state = t.state?.name?.toLowerCase() || "";
+
+        // Must be explicitly solved/closed AND have a close date
+        const isSolved =
+          stage.includes("solved") ||
+          stage.includes("closed") ||
+          state === "closed";
+        const hasCloseDate = !!t.actual_close_date;
+
+        return isSolved && hasCloseDate;
+      });
+
+      if (solvedWorks.length > 0) {
+        const bulkOps = solvedWorks.map((t) => {
+          const parse = (v) =>
+            v === undefined || v === null || v === "" ? null : Number(v);
+          const ownerName = t.owned_by?.[0]?.display_name || "Unassigned";
+
+          return {
+            updateOne: {
+              filter: { ticket_id: t.display_id },
+              update: {
+                $set: {
+                  ticket_id: t.display_id,
+                  display_id: t.display_id,
+                  title: t.title,
+                  created_date: t.created_date,
+                  // Store as Date object for easier Mongo queries
+                  closed_date: new Date(t.actual_close_date),
+                  owner: ownerName,
+                  region: t.custom_fields?.tnt__region_salesforce || "Unknown",
+                  priority: t.priority,
+                  is_zendesk: t.tags?.some(
+                    (tag) => tag.tag?.name === "Zendesk import"
+                  ),
+
+                  // Metrics
+                  rwt: parse(t.custom_fields?.tnt__rwt_business_hours),
+                  frt: parse(t.custom_fields?.tnt__frt_hours),
+                  iterations: parse(t.custom_fields?.tnt__iteration_count),
+                  csat: parse(t.custom_fields?.tnt__csatrating),
+                  frr: t.custom_fields?.tnt__frr === true,
+                },
+              },
+              upsert: true,
+            },
+          };
+        });
+
+        await AnalyticsTicket.bulkWrite(bulkOps);
+        processedCount += bulkOps.length;
+        if (processedCount % 50 === 0)
+          console.log(`   â³ Saved ${processedCount} Solved tickets...`);
+      }
+
+      cursor = res.data.next_cursor;
+      loop++;
+
+      if (loop > 1000) {
+        console.log("âš ï¸ Safety limit reached.");
+        break;
+      }
+    } catch (e) {
+      console.error("Dump Error:", e.message);
+      break;
+    }
+  } while (cursor);
+
+  console.log(
+    `âœ… Analytics Dump Complete. ${processedCount} Solved tickets secured in MongoDB.`
+  );
+};
+
 // 2. API ROUTES
 // ============================================================================
 
-// ✅ WEBHOOK: The "Traffic Controller"
+// âœ… WEBHOOK: The "Traffic Controller"
 app.post("/api/webhooks/devrev", (req, res) => {
   const event = req.body;
 
   // 1. Handshake (Keep connection alive)
   if (event.type === "webhook_verify" && event.challenge) {
-    console.log("🤝 Verifying Webhook...");
+    console.log("ðŸ¤ Verifying Webhook...");
     return res.status(200).json({ challenge: event.challenge });
   }
 
@@ -219,7 +410,7 @@ app.post("/api/webhooks/devrev", (req, res) => {
     event.type === "work_updated" ||
     event.type === "work_deleted"
   ) {
-    console.log(`⚡ Event Received: ${event.type}. Debouncing...`);
+    console.log(`âš¡ Event Received: ${event.type}. Debouncing...`);
 
     // Reset the timer. We wait 5 seconds of "silence" before syncing.
     if (syncTimeout) clearTimeout(syncTimeout);
@@ -232,30 +423,100 @@ app.post("/api/webhooks/devrev", (req, res) => {
   res.status(200).send("OK");
 });
 
-// ✅ 2. ANALYTICS ENDPOINT (Background)
-// Used by AnalyticsDashboard.jsx
+//
+
+// ✅ 2. ANALYTICS ENDPOINT (Optimized - Minimal Fields)
 app.get("/api/tickets/analytics", async (req, res) => {
-  // 1. Try to get specific analytics cache first
-  let cached = cache.get("tickets_analytics");
+  try {
+    console.log("📊 Analytics: Fetching ALL data from MongoDB...");
 
-  // 2. Fallback: If we haven't split the cache yet, return ALL tickets
-  // (This ensures charts work even before the optimization runs)
-  if (!cached) {
-    cached = cache.get("tickets_all") || [];
+    // 1. QUERY MONGODB - Only fetch fields needed for analytics
+    const dbTickets = await AnalyticsTicket.find(
+      { owner: { $not: { $regex: "anmol-sawhney", $options: "i" } } },
+      {
+        // Only select fields needed for charts (reduces payload ~80%)
+        ticket_id: 1,
+        display_id: 1,
+        title: 1,
+        created_date: 1,
+        closed_date: 1,
+        owner: 1,
+        rwt: 1,
+        frt: 1,
+        iterations: 1,
+        csat: 1,
+        frr: 1,
+        is_zendesk: 1,
+        priority: 1,
+      }
+    ).lean();
+
+    console.log(`   ✅ DB HIT: Found ${dbTickets.length} tickets`);
+
+    if (dbTickets.length === 0) {
+      console.log("   ⚠️ WARNING: DB is empty. Did you run the backfill?");
+      return res.json({ tickets: [] });
+    }
+
+    // 2. NORMALIZE DATA (Lightweight transform)
+    const cleanData = dbTickets.map((t) => {
+      const created = t.created_date
+        ? new Date(t.created_date).toISOString()
+        : null;
+      const closed = t.closed_date || null;
+
+      let ownerName = typeof t.owner === "string" ? t.owner : "Unassigned";
+
+      return {
+        id: t.ticket_id,
+        display_id: t.display_id,
+        title: t.title,
+        created_date: created,
+        actual_close_date: closed ? new Date(closed).toISOString() : null,
+        owned_by: [{ display_name: ownerName }],
+        priority: t.priority,
+        rwt: t.rwt ?? null,
+        frt: t.frt ?? null,
+        iterations: t.iterations ?? 0,
+        csat: t.csat ?? null,
+        frr: t.frr === true,
+        is_zendesk: t.is_zendesk || false,
+      };
+    });
+
+    const payloadSize = Math.round(JSON.stringify(cleanData).length / 1024);
+    console.log(`   📦 Sending ${cleanData.length} tickets (${payloadSize}KB)`);
+
+    res.json({ tickets: cleanData });
+  } catch (e) {
+    console.error("❌ Analytics API Error:", e);
+    res.status(500).json({ tickets: [] });
   }
+});
+// âœ… AUTOMATION: DAILY DB SYNC (The "Cron Job")
+// Runs every 24 hours to save yesterday's solved tickets to Mongo
+setInterval(() => {
+  console.log("â° Daily Cron: Syncing Solved Tickets to DB...");
+  syncHistoricalToDB(false); // false = incremental sync (fast)
+}, 24 * 60 * 60 * 1000);
 
-  res.json({ tickets: cached });
+// --- END OF FILE ---
+//
+app.post("/api/admin/backfill", async (req, res) => {
+  // Run in background so request doesn't timeout
+  syncHistoricalToDB(true).then(() => console.log("Backfill finished"));
+  res.json({ message: "Backfill started in background. Check terminal logs." });
 });
 
-// ✅ MANUAL FORCE SYNC (The "Fix It Now" Button)
+// âœ… MANUAL FORCE SYNC (The "Fix It Now" Button)
 app.post("/api/tickets/sync", async (req, res) => {
-  console.log("🫵 Manual Sync Triggered from UI");
+  console.log("ðŸ«µ Manual Sync Triggered from UI");
   // Bypass debounce, but respect concurrency lock
   fetchAndCacheTickets("manual");
   res.json({ success: true, message: "Sync started" });
 });
 
-// ✅ GET TICKETS (Instant RAM access)
+// âœ… GET TICKETS (Instant RAM access)
 app.get("/api/tickets", async (req, res) => {
   const cached = cache.get("tickets_active");
   if (cached) {
@@ -501,24 +762,29 @@ const getUserShiftStatus = (userName) => {
   return {
     isActive,
     status: isActive ? "Active" : "Away",
-    shiftName: cleanShiftKey, // ✅ Sends "Shift 1", "Shift 2" cleanly
+    shiftName: cleanShiftKey, // âœ… Sends "Shift 1", "Shift 2" cleanly
     timings: `${start} - ${end}`,
   };
 };
-// ✅ UPDATED: Roster Sync with Deep Debugging
+// âœ… UPDATED: Roster Sync with Deep Debugging
 const syncRoster = async () => {
   try {
-    console.log("\n🔄 --- STARTING ROSTER SYNC ---");
+    console.log("\nðŸ”„ --- STARTING ROSTER SYNC ---");
     const spreadsheetId = process.env.ROSTER_SHEET_ID;
-    console.log(`   👉 Spreadsheet ID: ${spreadsheetId}`);
+    console.log(`   ðŸ‘‰ Spreadsheet ID: ${spreadsheetId}`);
 
     if (!spreadsheetId) {
-      console.error("   ❌ Error: ROSTER_SHEET_ID is missing in .env");
+      console.error("   âŒ Error: ROSTER_SHEET_ID is missing in .env");
       return;
     }
 
+    // NEW - reading from env variable
     const auth = new google.auth.GoogleAuth({
-      keyFile: "google-sheets-key.json",
+      credentials: JSON.parse(
+        Buffer.from(process.env.GOOGLE_SHEETS_KEY_BASE64, "base64").toString(
+          "utf-8"
+        )
+      ),
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
     const client = await auth.getClient();
@@ -527,7 +793,7 @@ const syncRoster = async () => {
     // 1. Get Sheet Name & Data
     const meta = await googleSheets.spreadsheets.get({ spreadsheetId });
     const sheetName = meta.data.sheets[0].properties.title;
-    console.log(`   👉 Found Sheet Name: "${sheetName}"`);
+    console.log(`   ðŸ‘‰ Found Sheet Name: "${sheetName}"`);
 
     const getRows = await googleSheets.spreadsheets.values.get({
       spreadsheetId,
@@ -536,10 +802,10 @@ const syncRoster = async () => {
     });
 
     const rawRows = getRows.data.values || [];
-    console.log(`   👉 Raw Rows Fetched: ${rawRows.length}`);
+    console.log(`   ðŸ‘‰ Raw Rows Fetched: ${rawRows.length}`);
 
     if (rawRows.length === 0) {
-      console.error("   ❌ Error: Sheet is empty.");
+      console.error("   âŒ Error: Sheet is empty.");
       return;
     }
 
@@ -550,7 +816,7 @@ const syncRoster = async () => {
       if (rowStr.includes("Designation")) {
         headerRowIndex = i;
         console.log(
-          `   ✅ Header found at Row ${i + 1}: ${rowStr.substring(0, 100)}...`
+          `   âœ… Header found at Row ${i + 1}: ${rowStr.substring(0, 100)}...`
         );
         break;
       }
@@ -558,7 +824,7 @@ const syncRoster = async () => {
 
     if (headerRowIndex === -1) {
       console.error(
-        "   ❌ Error: Could not find 'Designation' column in first 20 rows."
+        "   âŒ Error: Could not find 'Designation' column in first 20 rows."
       );
       return;
     }
@@ -569,7 +835,7 @@ const syncRoster = async () => {
 
     // Debug: Log first 5 columns to check format
     console.log(
-      `   👉 Headers Check: ${JSON.stringify(headerRow.slice(0, 5))}`
+      `   ðŸ‘‰ Headers Check: ${JSON.stringify(headerRow.slice(0, 5))}`
     );
 
     headerRow.forEach((col, index) => {
@@ -584,14 +850,14 @@ const syncRoster = async () => {
 
     const dateKeys = Object.keys(DATE_COL_MAP);
     console.log(
-      `   ✅ Mapped ${dateKeys.length} Date Columns (e.g., ${
+      `   âœ… Mapped ${dateKeys.length} Date Columns (e.g., ${
         dateKeys[0]
       } -> Index ${DATE_COL_MAP[dateKeys[0]]})`
     );
 
     if (dateKeys.length === 0) {
       console.error(
-        "   ❌ Error: No date columns identified. Check date format in row " +
+        "   âŒ Error: No date columns identified. Check date format in row " +
           (headerRowIndex + 1)
       );
     }
@@ -608,7 +874,7 @@ const syncRoster = async () => {
       return isValid;
     });
 
-    console.log(`   ✅ Processed ${ROSTER_ROWS.length} Valid Engineer Rows.`);
+    console.log(`   âœ… Processed ${ROSTER_ROWS.length} Valid Engineer Rows.`);
 
     // Log the first valid user to verify parsing
     if (ROSTER_ROWS.length > 0) {
@@ -618,9 +884,9 @@ const syncRoster = async () => {
       );
     }
 
-    console.log("🔄 --- ROSTER SYNC COMPLETE ---\n");
+    console.log("ðŸ”„ --- ROSTER SYNC COMPLETE ---\n");
   } catch (e) {
-    console.error("   ❌ SYNC FAILED:", e.message);
+    console.error("   âŒ SYNC FAILED:", e.message);
     if (e.message.includes("invalid_grant")) {
       console.error(
         "      -> Check google-sheets-key.json (Permissions/Expiry)"
@@ -632,7 +898,7 @@ const syncRoster = async () => {
   }
 };
 
-// ✅ UPDATED: Profile Status with Q1 Stats, Decimals & Smart Workload
+// âœ… UPDATED: Profile Status with Q1 Stats, Decimals & Smart Workload
 app.post("/api/profile/status", async (req, res) => {
   const { userName, activeTickets, teamMembers } = req.body;
   const DESIGNATION_COL_INDEX = 1;
@@ -671,9 +937,9 @@ app.post("/api/profile/status", async (req, res) => {
   // 3. CALCULATE Q1 STATS (Jan 1 2026 - Mar 31 2026)
   let allTickets = cache.get("tickets_analytics") || [];
 
-  // 🔍 LOG 1: Check if we actually have tickets to analyze
+  // ðŸ” LOG 1: Check if we actually have tickets to analyze
   console.log(
-    `🔍 [Stats Debug] User: ${userName} | Total Cached Tickets: ${allTickets.length}`
+    `ðŸ” [Stats Debug] User: ${userName} | Total Cached Tickets: ${allTickets.length}`
   );
 
   const startQ1 = new Date("2026-01-01");
@@ -692,41 +958,13 @@ app.post("/api/profile/status", async (req, res) => {
     return isOwner && isQ1;
   });
 
-  // 🔍 LOG 2: Check how many tickets were found for this user in Q1
+  // ðŸ” LOG 2: Check how many tickets were found for this user in Q1
   console.log(
-    `🔍 [Stats Debug] Found ${myQ1Tickets.length} tickets solved in Q1.`
+    `ðŸ” [Stats Debug] Found ${myQ1Tickets.length} tickets solved in Q1.`
   );
 
   const q1SolvedCount = myQ1Tickets.length;
 
-  // Avg Resolution in Decimal Hours (e.g. 2.3 Hrs)
-  let totalMinutes = 0;
-  let countRwt = 0;
-  myQ1Tickets.forEach((t) => {
-    if (t.created_date && t.actual_close_date) {
-      // Use minutes for precision
-      const mins = differenceInMinutes(
-        parseISO(t.actual_close_date),
-        parseISO(t.created_date)
-      );
-
-      // 🔍 LOG 3: Log the first ticket's calculation to verify math
-      if (countRwt === 0)
-        console.log(`   👉 Sample Ticket (${t.display_id}): ${mins} mins`);
-      if (mins >= 0) {
-        totalMinutes += mins;
-        countRwt++;
-      }
-    }
-  });
-
-  // Convert minutes to decimal hours (e.g. 150 mins / 60 = 2.5 hrs)
-  const avgRwtVal =
-    countRwt > 0 ? (totalMinutes / countRwt / 60).toFixed(1) : "0.0";
-  console.log(
-    `🔍 [Stats Debug] Total Mins: ${totalMinutes} / Count: ${countRwt} = ${avgRwtVal} Hrs`
-  );
-  const formattedAvgRwt = `${avgRwtVal} Hrs`;
   // 4. LIVE WORKLOAD SUMMARY LOGIC
   let aiSummary = "";
   const ticketCount = activeTickets ? activeTickets.length : 0;
@@ -811,10 +1049,20 @@ app.post("/api/roster/sync", async (req, res) => {
 // --- STARTUP ---
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`ðŸš€ Server running on port ${PORT}`);
 
-  // 🚀 INSTANT START: Fetch data immediately on boot
-  fetchAndCacheTickets("boot");
+  // ðŸš€ INSTANT START: Fetch data immediately on boot
+  // fetchAndCacheTickets("boot");
+
+  // âœ… Load from MongoDB first (instant)
+  console.log("ðŸ“¦ Loading cached analytics from MongoDB...");
+  const cachedCount = await AnalyticsTicket.countDocuments();
+
+  if (cachedCount === 0) {
+    console.log("âš ï¸ MongoDB empty. Run backfill: POST /api/admin/backfill");
+  } else {
+    console.log(`âœ… Found ${cachedCount} tickets in MongoDB. Ready to serve.`);
+  }
 
   // Roster Sync
   await syncRoster();
@@ -823,4 +1071,8 @@ server.listen(PORT, async () => {
 // Background Loops
 setInterval(syncRoster, 15 * 60 * 1000); // 15 mins for Roster
 // Safety Net: Re-fetch tickets every 10 mins just in case a webhook was missed
-setInterval(fetchAndCacheTickets, 10 * 60 * 1000);
+// setInterval(fetchAndCacheTickets, 10 * 60 * 1000);
+setInterval(() => {
+  console.log("â° Daily Cron: Syncing Solved Tickets to DB...");
+  syncHistoricalToDB(false);
+}, 24 * 60 * 60 * 1000);

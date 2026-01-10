@@ -69,9 +69,3 @@ export const formatRWT = (epoch) => {
   return Math.max(0, Date.now() - (epoch * 1000));
 };
 
-export const displayRWT = (ms) => {
-  if (!ms || ms <= 0) return "-";
-  const hours = Math.floor(ms / (1000 * 60 * 60));
-  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-  return `${hours}h ${minutes}m`;
-};
