@@ -77,9 +77,11 @@ const AnalyticsTicketSchema = new mongoose.Schema({
   rwt: Number,
   frt: Number,
   iterations: Number,
-  csat: Number,
-  frr: Boolean,
-});
+  // ✅ FIX 3: CSAT is Number (0, 1, 2)
+  csat: { type: Number, default: 0 },
+  // ✅ FIX 4: FRR is Number (0 or 1)
+  frr: { type: Number, default: 0 },
+},{ versionKey: false });
 
 AnalyticsTicketSchema.index({ closed_date: 1, owner: 1 });
 const AnalyticsTicket = mongoose.model("AnalyticsTicket", AnalyticsTicketSchema);
@@ -169,8 +171,9 @@ app.get("/api/tickets/analytics", async (req, res) => {
         avgIterations: { $avg: { $cond: [{ $ne: ["$iterations", null] }, "$iterations", null] } },
         positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
         negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-        frrMet: { $sum: { $cond: [{ $eq: ["$frr", true] }, 1, 0] } },
-        frrTotal: { $sum: { $cond: [{ $ne: ["$frr", null] }, 1, 0] } },
+       // ✅ FIX 4: Updated FRR Aggregation (Sum of 1s)
+        frrMet: { $sum: "$frr" }, 
+        frrTotal: { $sum: 1 },
       }}
     ]);
 
@@ -358,7 +361,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
 const syncHistoricalToDB = async (fullHistory = false) => {
   console.log("📦 Syncing to MongoDB...");
   let cursor = null, loop = 0, processedCount = 0;
-  const TARGET_DATE = new Date("2025-07-01");
+  const TARGET_DATE = new Date("2025-10-01");
 
   do {
     try {
@@ -372,30 +375,55 @@ const syncHistoricalToDB = async (fullHistory = false) => {
 
       const solved = works.filter(t => {
         const stage = t.stage?.name?.toLowerCase() || "";
-        return (stage.includes("solved") || stage.includes("closed")) && t.actual_close_date;
+        return (stage.includes("solved") || stage.includes("closed")  || stage.includes("Resolved")) && t.actual_close_date;
       });
 
-      if (solved.length) {
-        const ops = solved.map(t => ({
-          updateOne: {
-            filter: { ticket_id: t.display_id },
-            update: { $set: {
-              ticket_id: t.display_id, display_id: t.display_id, title: t.title,
-              created_date: new Date(t.created_date), closed_date: new Date(t.actual_close_date),
-              owner: t.owned_by?.[0]?.display_name || "Unassigned",
-              region: t.custom_fields?.tnt__region_salesforce || "Unknown", priority: t.priority,
-              is_zendesk: t.tags?.some(tag => tag.tag?.name === "Zendesk import"),
-              rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
-              frt: t.custom_fields?.tnt__frt_hours ?? null,
-              iterations: t.custom_fields?.tnt__iteration_count ?? null,
-              csat: t.custom_fields?.tnt__csatrating ?? null,
-              frr: t.custom_fields?.tnt__frr === true,
-            }},
-            upsert: true
-          }
-        }));
-        await AnalyticsTicket.bulkWrite(ops);
-        processedCount += ops.length;
+     if (solved.length) {
+        const ops = solved
+          // ✅ FIX 1: Filter out Anmol BEFORE creating ops
+          .filter(t => {
+            const owner = t.owned_by?.[0]?.display_name || "";
+            return !owner.toLowerCase().includes("anmol-sawhney");
+          })
+          .map(t => {
+            // ✅ FIX 3: CSAT Integer Logic (0, 1, 2)
+            const csatRaw = t.custom_fields?.tnt__csatrating;
+            let csatVal = 0;
+            if (csatRaw == 1 || csatRaw == "1") csatVal = 1;
+            if (csatRaw == 2 || csatRaw == "2") csatVal = 2;
+
+            // ✅ FIX 4: FRR Logic (0 or 1)
+            // If custom field is true OR iterations == 1, then FRR is met
+            let frrVal = 0;
+            if (t.custom_fields?.tnt__frr === true) frrVal = 1;
+            const iterations = t.custom_fields?.tnt__iteration_count;
+            if (iterations === 1) frrVal = 1; 
+
+            return {
+              updateOne: {
+                filter: { ticket_id: t.display_id },
+                update: { $set: {
+                  ticket_id: t.display_id, display_id: t.display_id, title: t.title,
+                  created_date: new Date(t.created_date), closed_date: new Date(t.actual_close_date),
+                  owner: t.owned_by?.[0]?.display_name || "Unassigned",
+                  region: t.custom_fields?.tnt__region_salesforce || "Unknown", priority: t.priority,
+                  is_zendesk: t.tags?.some(tag => tag.tag?.name === "Zendesk import"),
+                  rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
+                  frt: t.custom_fields?.tnt__frt_hours ?? null,
+                  iterations: iterations ?? null,
+                  
+                  csat: csatVal,
+                  frr: frrVal, // Stored as Number (0/1)
+                }},
+                upsert: true
+              }
+            };
+          });
+
+        if (ops.length > 0) {
+            await AnalyticsTicket.bulkWrite(ops);
+            processedCount += ops.length;
+        }
       }
       cursor = res.data.next_cursor;
       loop++;
@@ -405,7 +433,6 @@ const syncHistoricalToDB = async (fullHistory = false) => {
   await AnalyticsCache.deleteMany({});
   console.log(`✅ ${processedCount} tickets synced. Cache cleared.`);
 };
-
 // Webhooks & Admin
 app.post("/api/webhooks/devrev", (req, res) => {
   const event = req.body;
