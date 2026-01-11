@@ -175,7 +175,7 @@ return (
                         </a>
                       </div>
                       <div
-                        className="text-xs text-slate-900 dark:text-slate-200 font-medium line-clamp-2"
+                        className="text-sm font-semibold text-slate-900 dark:text-slate-200 line-clamp-2"
                         title={t.title}
                       >
                         {t.title}
@@ -188,14 +188,16 @@ return (
                     </td>
 
                     {/* 2. Region */}
-                    <td className="p-4 align-middle">
+                    <td className="px-4 py-3 align-middle">
+
                       <span className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
                         {t.region}
                       </span>
                     </td>
 
                     {/* 3. Owner (Clickable) */}
-                    <td className="p-4 align-middle">
+                    <td className="px-4 py-3 align-middle">
+
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
                           {ownerName[0]}
@@ -233,7 +235,8 @@ return (
                    </td>
                     
                     {/* 8. Stage */}
-                    <td className="p-4 align-middle">
+                    <td className="px-4 py-3 align-middle">
+
                       <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800">
                         {STAGE_MAP[t.stage?.name]?.label || t.stage?.name}
                       </span>

@@ -38,7 +38,7 @@ const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) =
     <div className="relative" ref={containerRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)} 
-        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all whitespace-nowrap shadow-sm ${selected.length > 0 ? 'bg-white border-indigo-600 text-indigo-600 dark:bg-indigo-900/40 dark:border-indigo-500/50 dark:text-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600'}`}
+        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all whitespace-nowrap shadow-sm ${selected.length > 0 ? 'bg-white border-indigo-400 bg-indigo-50/60 dark:bg-indigo-900/30 text-indigo-600 dark:bg-indigo-900/40 dark:border-indigo-500/50 dark:text-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600'}`}
       >
         <Icon className={`w-3.5 h-3.5 ${selected.length > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
         <span className="max-w-[100px] truncate">

@@ -567,7 +567,12 @@ const App = () => {
   }) => (
     <button
       onClick={() => handleKPIFilter(filterVal)}
-      className={`relative overflow-hidden group transition-all duration-200 p-4 rounded-xl border flex justify-between shadow-sm hover:shadow-md text-left w-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 ${borderClass}`}
+      className={`relative overflow-hidden group transition-all duration-200 p-4 rounded-xl flex justify-between shadow-sm hover:shadow-md text-left w-full 
+bg-white dark:bg-slate-900
+${filterVal === "Healthy" ? "bg-emerald-50/60 dark:bg-emerald-900/10" : ""}
+${filterVal === "Needs Attention" ? "bg-amber-50/60 dark:bg-amber-900/10" : ""}
+${filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""}`}
+
     >
       <div>
         <p className="text-[10px] font-bold uppercase tracking-wider opacity-70 text-slate-500 dark:text-slate-400 mb-1">
@@ -580,7 +585,8 @@ const App = () => {
         </p>
       </div>
       <div className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
-        <Icon className="w-4 h-4 text-slate-400 dark:text-slate-300" />
+        <Icon className="w-4 h-4 text-slate-400 dark:text-slate-300 opacity-70" />
+
       </div>
     </button>
   );

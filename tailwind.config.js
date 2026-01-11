@@ -27,7 +27,7 @@ module.exports = {
         /* Borders */
         border: {
           light: "#E2E8F0", // slate-200
-          dark: "#334155",  // slate-700
+          dark: "#1E293B",  // slate-700
         },
       },
 

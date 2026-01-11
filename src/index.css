@@ -4,8 +4,9 @@
 
 /* ✅ FIX: Adapts to dark mode so overscroll area isn't white */
 body {
-  @apply bg-slate-50 dark:bg-[#0B1120] text-slate-900 dark:text-slate-100;
+  @apply bg-slate-50 dark:bg-[#020617] text-slate-900 dark:text-slate-100;
 }
+
 
 /* ✅ Hides scrollbar for Chrome, Safari and Opera */
 .no-scrollbar::-webkit-scrollbar {
