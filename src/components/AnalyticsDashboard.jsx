@@ -1507,42 +1507,45 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
     <div className="space-y-8 p-6 max-w-[1600px] mx-auto">
       {/* TOP CONTROLS */}
       <div className="flex flex-wrap justify-between items-center gap-4">
-        <div className="flex items-center gap-3">
-          {/* GST/Global Toggle - ONLY FOR SUPER ADMIN */}
-          {isSuperAdmin ? (
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-              <button
-                onClick={() => setViewMode("gst")}
-                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                  viewMode === "gst"
-                    ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
-              >
-                <Users className="w-4 h-4" /> GST View
-              </button>
-              <button
-                onClick={() => setViewMode("global")}
-                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                  viewMode === "global"
-                    ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                    : "text-slate-500"
-                }`}
-              >
-                <Globe className="w-4 h-4" /> Global View
-              </button>
-            </div>
-          ) : null}
+        {isSuperAdmin && (
+          <div className="flex items-center gap-3">
+            {/* GST/Global Toggle - ONLY FOR SUPER ADMIN */}
+            {isSuperAdmin ? (
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                <button
+                  onClick={() => setViewMode("gst")}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                    viewMode === "gst"
+                      ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                      : "text-slate-500"
+                  }`}
+                >
+                  <Users className="w-4 h-4" /> GST View
+                </button>
+                <button
+                  onClick={() => setViewMode("global")}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                    viewMode === "global"
+                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                      : "text-slate-500"
+                  }`}
+                >
+                  <Globe className="w-4 h-4" /> Global View
+                </button>
+              </div>
+            ) : null}
 
-         {isSuperAdmin && resolvedCurrentUser && (
-  <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
-    👤 {resolvedCurrentUser}{" "}
-    {isGSTUser && <span className="text-emerald-500">(GST)</span>}
-    {isSuperAdmin && <span className="text-amber-500 ml-1">(Admin)</span>}
-  </span>
-)}
-        </div>
-
+            {isSuperAdmin && resolvedCurrentUser && (
+              <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+                👤 {resolvedCurrentUser}{" "}
+                {isGSTUser && <span className="text-emerald-500">(GST)</span>}
+                {isSuperAdmin && (
+                  <span className="text-amber-500 ml-1">(Admin)</span>
+                )}
+              </span>
+            )}
+          </div>
+        )}
         {/* This Week Stats - Real-time from active tickets */}
         <div className="flex items-center gap-4">
           {/* <ThisWeekStats tickets={tickets} isGSTUser={isGSTUser} /> */}

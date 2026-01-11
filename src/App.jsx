@@ -150,7 +150,7 @@ const App = () => {
     });
 
     console.log("3. Total Tickets Found for Me:", myTickets.length);
-    console.log(myTickets);
+   
     // ----------------------------------------
 
     // 4. Calculate Metrics
