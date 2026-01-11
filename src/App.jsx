@@ -94,13 +94,17 @@ const App = () => {
     fetchViews,
     saveView,
     deleteView,
+   
   } = useTicketStore();
 
+  
   const [googleClientId, setGoogleClientId] = useState(null);
   const [activeTab, setActiveTab] = useState("tickets");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
@@ -130,11 +134,13 @@ const App = () => {
 
     if (!matchedName) return null; // Hide if not in roster
 
+    
     // 3. Filter My Tickets (From ALL tickets, ignoring current dashboard filters)
     const myTickets = tickets.filter((t) => {
       // Check both display_id map AND direct display_name
       const ownerIdName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id];
       const ownerDisplayName = t.owned_by?.[0]?.display_name;
+      
 
       const isMatch =
         (ownerIdName && ownerIdName.includes(matchedName)) ||
@@ -144,6 +150,7 @@ const App = () => {
     });
 
     console.log("3. Total Tickets Found for Me:", myTickets.length);
+    console.log(myTickets);
     // ----------------------------------------
 
     // 4. Calculate Metrics
@@ -400,7 +407,8 @@ const App = () => {
 
   // ✅ 4. FILTERED TICKETS (Depends on currentFilters)
   const filteredTickets = useMemo(() => {
-    if (activeTab === "vistas" && !selectedViewId && myViews.length > 0) return [];
+    if (activeTab === "vistas" && !selectedViewId && myViews.length > 0)
+      return [];
 
     return tickets
       .map((t) => {
@@ -419,8 +427,11 @@ const App = () => {
         const tam = t.custom_fields?.tnt__tam || "Unknown";
         const rwtMs = formatRWT(t.custom_fields?.tnt__customer_wait_time);
         const stageName = t.stage?.name || "";
-        const isActive = Object.keys(STAGE_MAP).includes(stageName) || 
-          (activeTab === "csd" && !stageName.toLowerCase().includes("solved") && !stageName.toLowerCase().includes("closed"));
+        const isActive =
+          Object.keys(STAGE_MAP).includes(stageName) ||
+          (activeTab === "csd" &&
+            !stageName.toLowerCase().includes("solved") &&
+            !stageName.toLowerCase().includes("closed"));
 
         return {
           ...t,
@@ -438,12 +449,13 @@ const App = () => {
           tam,
         };
       })
-     .filter((t) => {
+      .filter((t) => {
         if (activeTab === "csd") {
           if (!t.isCSD) return false;
           // For CSD, show all non-closed tickets
           const stage = t.stage?.name?.toLowerCase() || "";
-          if (stage.includes("solved") || stage.includes("closed")) return false;
+          if (stage.includes("solved") || stage.includes("closed"))
+            return false;
         } else if (activeTab !== "analytics" && !t.isActive) {
           return false;
         }
@@ -544,8 +556,6 @@ const App = () => {
       ? { red: "> 7 Days", yellow: "3-7 Days", green: "< 3 Days" }
       : { red: "> 15 Days", yellow: "10-15 Days", green: "< 10 Days" };
 
-      
-
   const KPICard = ({
     count,
     label,
@@ -588,7 +598,6 @@ const App = () => {
       </GoogleOAuthProvider>
     );
 
-    
   return (
     // ✅ 1. OUTER CONTAINER: Locked height, no window scroll
     <div
@@ -774,8 +783,10 @@ const App = () => {
                       </>
                     ) : (
                       <>
-                       {visibleFilterKeys.map((key) => {
-                          const config = FILTER_CONFIG.find((f) => f.key === key);
+                        {visibleFilterKeys.map((key) => {
+                          const config = FILTER_CONFIG.find(
+                            (f) => f.key === key
+                          );
                           return config ? (
                             <div key={key} className="flex items-center gap-1">
                               <MultiSelectFilter
@@ -787,7 +798,9 @@ const App = () => {
                               />
                               <button
                                 onClick={() => {
-                                  setVisibleFilterKeys((prev) => prev.filter((k) => k !== key));
+                                  setVisibleFilterKeys((prev) =>
+                                    prev.filter((k) => k !== key)
+                                  );
                                   setFilter(key, []);
                                 }}
                                 className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
@@ -799,37 +812,40 @@ const App = () => {
                           ) : null;
                         })}
 
-                       <div className="relative group" tabIndex={-1}>
-  <button
-    onClick={(e) => {
-      const parent = e.currentTarget.closest(".group");
-      if (document.activeElement === parent) {
-        parent.blur(); // close
-      } else {
-        parent.focus(); // open
-      }
-    }}
-    className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-  >
-    <Plus className="w-3.5 h-3.5" /> Filter
-  </button>
-
-                        <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-1 hidden group-focus-within:block">
-                          {FILTER_CONFIG.filter(
-                            (f) => !visibleFilterKeys.includes(f.key)
-                          ).map((f) => (
-                            <button
-                              key={f.key}
-                              onClick={() =>
-                                setVisibleFilterKeys((prev) => [...prev, f.key])
+                        <div className="relative group" tabIndex={-1}>
+                          <button
+                            onClick={(e) => {
+                              const parent = e.currentTarget.closest(".group");
+                              if (document.activeElement === parent) {
+                                parent.blur(); // close
+                              } else {
+                                parent.focus(); // open
                               }
-                              className="w-full text-left flex items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg"
-                            >
-                              <f.icon className="w-3.5 h-3.5 opacity-70" />{" "}
-                              {f.label}
-                            </button>
-                          ))}
-                        </div>
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Filter
+                          </button>
+
+                          <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-1 hidden group-focus-within:block">
+                            {FILTER_CONFIG.filter(
+                              (f) => !visibleFilterKeys.includes(f.key)
+                            ).map((f) => (
+                              <button
+                                key={f.key}
+                                onClick={() =>
+                                  setVisibleFilterKeys((prev) => [
+                                    ...prev,
+                                    f.key,
+                                  ])
+                                }
+                                className="w-full text-left flex items-center gap-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg"
+                              >
+                                <f.icon className="w-3.5 h-3.5 opacity-70" />{" "}
+                                {f.label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </>
                     )}
@@ -978,7 +994,10 @@ const App = () => {
             />
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => { setShowSaveInput(false); setNewViewName(""); }}
+                onClick={() => {
+                  setShowSaveInput(false);
+                  setNewViewName("");
+                }}
                 className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
               >
                 Cancel

@@ -11,7 +11,7 @@ import NodeCache from "node-cache";
 import { google } from "googleapis";
 import process from "process";
 import { OAuth2Client } from "google-auth-library";
-import { parseISO, format } from "date-fns";
+import { parseISO, format, subDays } from "date-fns";
 import mongoose from "mongoose";
 
 // Memory management for Render
@@ -129,25 +129,69 @@ const getQuarterDateRange = (quarter) => {
   const now = new Date();
   switch (quarter) {
     // Quarters
-    case "Q4_25": return { start: new Date("2025-10-01"), end: new Date("2025-12-31T23:59:59Z") };
-    case "Q1_26": return { start: new Date("2026-01-01"), end: new Date("2026-03-31T23:59:59Z") };
-    
+    case "Q4_25":
+      return {
+        start: new Date("2025-10-01"),
+        end: new Date("2025-12-31T23:59:59Z"),
+      };
+    case "Q1_26":
+      return {
+        start: new Date("2026-01-01"),
+        end: new Date("2026-03-31T23:59:59Z"),
+      };
+
     // Q1 2026 Weeks (Monday to Sunday)
-    case "Q1_26_W1": return { start: new Date("2026-01-06"), end: new Date("2026-01-12T23:59:59Z") };
-    case "Q1_26_W2": return { start: new Date("2026-01-13"), end: new Date("2026-01-19T23:59:59Z") };
-    case "Q1_26_W3": return { start: new Date("2026-01-20"), end: new Date("2026-01-26T23:59:59Z") };
-    case "Q1_26_W4": return { start: new Date("2026-01-27"), end: new Date("2026-02-02T23:59:59Z") };
-    case "Q1_26_W5": return { start: new Date("2026-02-03"), end: new Date("2026-02-09T23:59:59Z") };
-    case "Q1_26_W6": return { start: new Date("2026-02-10"), end: new Date("2026-02-16T23:59:59Z") };
-    
+    case "Q1_26_W1":
+      return {
+        start: new Date("2026-01-06"),
+        end: new Date("2026-01-12T23:59:59Z"),
+      };
+    case "Q1_26_W2":
+      return {
+        start: new Date("2026-01-13"),
+        end: new Date("2026-01-19T23:59:59Z"),
+      };
+    case "Q1_26_W3":
+      return {
+        start: new Date("2026-01-20"),
+        end: new Date("2026-01-26T23:59:59Z"),
+      };
+    case "Q1_26_W4":
+      return {
+        start: new Date("2026-01-27"),
+        end: new Date("2026-02-02T23:59:59Z"),
+      };
+    case "Q1_26_W5":
+      return {
+        start: new Date("2026-02-03"),
+        end: new Date("2026-02-09T23:59:59Z"),
+      };
+    case "Q1_26_W6":
+      return {
+        start: new Date("2026-02-10"),
+        end: new Date("2026-02-16T23:59:59Z"),
+      };
+
     // Q1 2026 Months
-    case "Q1_26_M1": return { start: new Date("2026-01-01"), end: new Date("2026-01-31T23:59:59Z") };
-    case "Q1_26_M2": return { start: new Date("2026-02-01"), end: new Date("2026-02-28T23:59:59Z") };
-    case "Q1_26_M3": return { start: new Date("2026-03-01"), end: new Date("2026-03-31T23:59:59Z") };
-    
+    case "Q1_26_M1":
+      return {
+        start: new Date("2026-01-01"),
+        end: new Date("2026-01-31T23:59:59Z"),
+      };
+    case "Q1_26_M2":
+      return {
+        start: new Date("2026-02-01"),
+        end: new Date("2026-02-28T23:59:59Z"),
+      };
+    case "Q1_26_M3":
+      return {
+        start: new Date("2026-03-01"),
+        end: new Date("2026-03-31T23:59:59Z"),
+      };
+
     default:
       // Default to last 60 days
-      const start = new Date(now); 
+      const start = new Date(now);
       start.setDate(start.getDate() - 60);
       return { start, end: now };
   }
@@ -424,27 +468,16 @@ app.get("/api/tickets/analytics", async (req, res) => {
     res.json(response);
   } catch (e) {
     console.error("❌ Analytics Error:", e);
-    res
-      .status(500)
-      .json({
-        stats: {},
-        trends: [],
-        leaderboard: [],
-        badTickets: [],
-        individualTrends: {},
-      });
+    res.status(500).json({
+      stats: {},
+      trends: [],
+      leaderboard: [],
+      badTickets: [],
+      individualTrends: {},
+    });
   }
 });
 
-// ============================================================================
-// ACTIVE TICKETS (Dashboard - Open/Pending only)
-// ============================================================================
-app.get("/api/tickets", async (req, res) => {
-  const cached = cache.get("tickets_active");
-  if (cached) return res.json({ tickets: cached });
-  await fetchAndCacheTickets("first_load");
-  res.json({ tickets: cache.get("tickets_active") || [] });
-});
 
 const fetchAndCacheTickets = async (source = "auto") => {
   if (isSyncing) {
@@ -455,10 +488,16 @@ const fetchAndCacheTickets = async (source = "auto") => {
   console.log("🔄 Syncing Active Tickets...");
 
   try {
+    // ✅ DEFINE sevenDaysAgo FIRST (before it's used!)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    console.log("📅 Including solved tickets since:", sevenDaysAgo.toISOString());
+
     let collected = [],
       cursor = null,
       loop = 0;
-    const TARGET_DATE = new Date("2025-07-01");
+    const TARGET_DATE = new Date("2025-10-01");
 
     do {
       const response = await axios.get(
@@ -467,6 +506,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
         }`,
         { headers: HEADERS, timeout: 30000 }
       );
+
       const newWorks = response.data.works || [];
       if (!newWorks.length) break;
       collected = [...collected, ...newWorks];
@@ -476,10 +516,26 @@ const fetchAndCacheTickets = async (source = "auto") => {
       loop++;
     } while (cursor && loop < 100);
 
+    // ✅ FILTER: Active tickets + Solved in last 7 days
     const activeTickets = collected
       .filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
-        return !stage.includes("solved") && !stage.includes("closed");
+        
+        // Keep all active/open tickets
+        if (stage.includes("waiting on assignee") || 
+            stage.includes("awaiting customer reply") || 
+            stage.includes("waiting on clevertap")) {
+          return true;
+        }
+        // Keep solved/closed ONLY if closed in last 7 days
+        if (stage.includes("solved") || stage.includes("closed") || stage.includes("resolved")) {
+          if (t.actual_close_date) {
+            return new Date(t.actual_close_date) >= sevenDaysAgo;
+          }
+          return false;
+        }
+        
+        return false;
       })
       .map((t) => ({
         id: t.id,
@@ -495,12 +551,19 @@ const fetchAndCacheTickets = async (source = "auto") => {
         custom_fields: t.custom_fields,
         tags: t.tags,
         isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+        actual_close_date: t.actual_close_date,
       }));
 
+       // Log for debugging
+    const solvedCount = activeTickets.filter(t => {
+      const stage = t.stage?.name?.toLowerCase() || "";
+      return stage.includes("solved") || stage.includes("closed");
+    }).length;
+    
     cache.set("tickets_active", activeTickets);
-    collected = null; // Free memory
+    collected = null;
     if (global.gc) global.gc();
-    console.log(`✅ ${activeTickets.length} active tickets cached`);
+    console.log(`✅ ${activeTickets.length} tickets cached (${solvedCount} solved in last 7 days)`);
     io.emit("REFRESH_TICKETS", activeTickets);
   } catch (e) {
     console.error("❌ Sync Failed:", e.message);
@@ -512,6 +575,19 @@ const fetchAndCacheTickets = async (source = "auto") => {
     }
   }
 };
+
+
+// ============================================================================
+// ACTIVE TICKETS (Dashboard - Open/Pending only)
+// ============================================================================
+app.get("/api/tickets", async (req, res) => {
+  const cached = cache.get("tickets_active");
+  if (cached) return res.json({ tickets: cached });
+  await fetchAndCacheTickets("first_load");
+  res.json({ tickets: cache.get("tickets_active") || [] });
+});
+
+
 
 const syncHistoricalToDB = async (fullHistory = false) => {
   console.log("📦 Syncing to MongoDB...");

@@ -363,13 +363,13 @@ const ThisWeekStats = ({ tickets, isGSTUser }) => {
 
   return (
     <div className="flex items-center gap-4 px-4 py-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-      <span className="text-xs font-medium text-slate-400">This Week</span>
+      <span className="text-xs font-medium text-slate-400">This Month</span>
       <div className="flex items-center gap-6">
         <div className="text-center">
           <div className="text-lg font-bold text-emerald-600">
             {weekStats.csat}
           </div>
-          <div className="text-[10px] text-slate-400 uppercase">CSAT</div>
+          <div className="text-[10px] text-slate-400 uppercase">DSAT</div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-blue-600">
@@ -1534,15 +1534,13 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
             </div>
           ) : null}
 
-          {resolvedCurrentUser && (
-            <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
-              👤 {resolvedCurrentUser}{" "}
-              {isGSTUser && <span className="text-emerald-500">(GST)</span>}
-              {isSuperAdmin && (
-                <span className="text-amber-500 ml-1">(Admin)</span>
-              )}
-            </span>
-          )}
+         {isSuperAdmin && resolvedCurrentUser && (
+  <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+    👤 {resolvedCurrentUser}{" "}
+    {isGSTUser && <span className="text-emerald-500">(GST)</span>}
+    {isSuperAdmin && <span className="text-amber-500 ml-1">(Admin)</span>}
+  </span>
+)}
         </div>
 
         {/* This Week Stats - Real-time from active tickets */}
