@@ -315,23 +315,88 @@ const processMultiUserData = (
   });
 };
 
-// ============================================================================
-// PERFORMANCE METRICS CARDS (Server-side data)
-// ============================================================================
+// PERFORMANCE METRICS CARDS - Updated with Time Rules & Hover Insights
+
 const PerformanceMetricsCards = ({
   stats,
   trends,
   onQuarterChange,
+  onGroupByChange,
   currentQuarter,
+  currentGroupBy,
   isLoading,
 }) => {
   const [selectedQuarter, setSelectedQuarter] = useState(
     currentQuarter || "Q4_25"
   );
+  const [groupBy, setGroupBy] = useState(currentGroupBy || "daily");
+  const [selectedWeek, setSelectedWeek] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const [hoveredCard, setHoveredCard] = useState(null);
+
+  // Current quarter is Q1_26
+  const isCurrentQuarter = selectedQuarter === "Q1_26";
+
+  // Get current week number in Q1 (Jan 1 = Week 1)
+  const today = new Date();
+  const q1Start = new Date("2026-01-01");
+  const daysSinceQ1Start = Math.floor(
+    (today - q1Start) / (1000 * 60 * 60 * 24)
+  );
+  const currentWeekNum = Math.min(Math.ceil((daysSinceQ1Start + 1) / 7), 13);
+  const currentMonthNum =
+    today.getMonth() >= 0 && today.getMonth() <= 2 ? today.getMonth() + 1 : 1;
+
+  // Week definitions for Q1
+  const Q1_WEEKS = [
+    { id: 1, label: "W1", range: "Jan 1-7" },
+    { id: 2, label: "W2", range: "Jan 8-14" },
+    { id: 3, label: "W3", range: "Jan 15-21" },
+    { id: 4, label: "W4", range: "Jan 22-28" },
+    { id: 5, label: "W5", range: "Jan 29 - Feb 4" },
+    { id: 6, label: "W6", range: "Feb 5-11" },
+    { id: 7, label: "W7", range: "Feb 12-18" },
+    { id: 8, label: "W8", range: "Feb 19-25" },
+    { id: 9, label: "W9", range: "Feb 26 - Mar 4" },
+    { id: 10, label: "W10", range: "Mar 5-11" },
+    { id: 11, label: "W11", range: "Mar 12-18" },
+    { id: 12, label: "W12", range: "Mar 19-25" },
+    { id: 13, label: "W13", range: "Mar 26-31" },
+  ];
+
+  // Month definitions with week ranges
+  const Q1_MONTHS = [
+    { id: 1, label: "M1", name: "January", weeks: "W1-W4", range: "Jan 1-31" },
+    { id: 2, label: "M2", name: "February", weeks: "W5-W8", range: "Feb 1-28" },
+    { id: 3, label: "M3", name: "March", weeks: "W9-W13", range: "Mar 1-31" },
+  ];
 
   const handleQuarterChange = (qId) => {
     setSelectedQuarter(qId);
+    setGroupBy("daily"); // Reset to daily when changing quarter
+    setSelectedWeek(null);
+    setSelectedMonth(null);
     onQuarterChange(qId);
+  };
+
+  const handleGroupByChange = (g) => {
+    if (!isCurrentQuarter) return; // Only allow for current quarter
+    setGroupBy(g);
+    setSelectedWeek(null);
+    setSelectedMonth(null);
+    onGroupByChange?.(g);
+  };
+
+  const handleWeekSelect = (weekId) => {
+    if (weekId > currentWeekNum) return; // Can't select future weeks
+    setSelectedWeek(selectedWeek === weekId ? null : weekId);
+    onGroupByChange?.(`Q1_26_W${weekId}`);
+  };
+
+  const handleMonthSelect = (monthId) => {
+    if (monthId > currentMonthNum) return;
+    setSelectedMonth(selectedMonth === monthId ? null : monthId);
+    onGroupByChange?.(`Q1_26_M${monthId}`);
   };
 
   const getSparklineData = (key) => {
@@ -347,42 +412,289 @@ const PerformanceMetricsCards = ({
     }));
   };
 
-  const MetricCard = ({ title, value, unit, color, sparkKey, icon: Icon }) => (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg transition-all h-44">
-      <div className="flex justify-between items-start">
-        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-          {title}
-        </span>
-        <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800">
-          <Icon className="w-4 h-4 text-slate-500" />
+  // Calculate insights for hover
+  const getInsights = (metricKey, currentValue) => {
+    if (!trends || trends.length < 7) return null;
+
+    const recentTrends = trends.slice(-14);
+    const thisWeek = recentTrends.slice(-7);
+    const lastWeek = recentTrends.slice(-14, -7);
+
+    const getValue = (t) => {
+      if (metricKey === "avgRWT") return t.avgRWT || 0;
+      if (metricKey === "csat") return t.positiveCSAT || 0;
+      if (metricKey === "frrPercent") return t.frrMet || 0;
+      if (metricKey === "avgIterations") return t.avgIterations || 0;
+      if (metricKey === "avgFRT") return t.avgFRT || 0;
+      return 0;
+    };
+
+    const thisWeekAvg =
+      thisWeek.reduce((a, t) => a + getValue(t), 0) / (thisWeek.length || 1);
+    const lastWeekAvg =
+      lastWeek.reduce((a, t) => a + getValue(t), 0) / (lastWeek.length || 1);
+    const change =
+      lastWeekAvg > 0
+        ? (((thisWeekAvg - lastWeekAvg) / lastWeekAvg) * 100).toFixed(1)
+        : 0;
+
+    const isPositiveGood = ["csat", "frrPercent"].includes(metricKey);
+    const isLowerBetter = ["avgRWT", "avgFRT", "avgIterations"].includes(
+      metricKey
+    );
+
+    const trendDirection =
+      thisWeekAvg > lastWeekAvg
+        ? "up"
+        : thisWeekAvg < lastWeekAvg
+        ? "down"
+        : "stable";
+    const isGood = isLowerBetter
+      ? trendDirection === "down"
+      : trendDirection === "up";
+
+    return {
+      thisWeekAvg: thisWeekAvg.toFixed(1),
+      lastWeekAvg: lastWeekAvg.toFixed(1),
+      change: Math.abs(change),
+      trendDirection,
+      isGood,
+      insight: isGood
+        ? `Improved ${Math.abs(change)}% vs last week`
+        : trendDirection === "stable"
+        ? "Stable performance"
+        : `${Math.abs(change)}% ${
+            isLowerBetter ? "higher" : "lower"
+          } than last week`,
+    };
+  };
+
+  // Metric Card with Hover Insights
+  const MetricCard = ({
+    title,
+    value,
+    unit,
+    color,
+    sparkKey,
+    icon: Icon,
+    metricKey,
+  }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const insights = getInsights(metricKey, value);
+
+    return (
+      <div
+        className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg transition-all h-44 group"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div className="flex justify-between items-start">
+          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            {title}
+          </span>
+          <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800">
+            <Icon className="w-4 h-4 text-slate-500" />
+          </div>
         </div>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-4xl font-black text-slate-800 dark:text-white">
+            {isLoading ? "..." : value}
+          </span>
+          <span className="text-sm font-semibold text-slate-400">{unit}</span>
+        </div>
+        <div className="h-12 w-full mt-auto">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={getSparklineData(sparkKey)}>
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={color}
+                fill={color}
+                fillOpacity={0.2}
+                strokeWidth={2}
+                dot={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Hover Insight Tooltip - Positioned smartly */}
+        {isHovered && insights && (
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 translate-y-full z-50 w-48 bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-800 rotate-45 border-l border-t border-slate-700"></div>
+
+            <div className="flex items-center gap-2 mb-2">
+              {insights.isGood ? (
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+              ) : insights.trendDirection === "stable" ? (
+                <Activity className="w-4 h-4 text-slate-400" />
+              ) : (
+                <TrendingDown className="w-4 h-4 text-rose-400" />
+              )}
+              <span
+                className={`text-xs font-bold ${
+                  insights.isGood
+                    ? "text-emerald-400"
+                    : insights.trendDirection === "stable"
+                    ? "text-slate-400"
+                    : "text-rose-400"
+                }`}
+              >
+                {insights.insight}
+              </span>
+            </div>
+
+            <div className="space-y-1 text-[10px]">
+              <div className="flex justify-between">
+                <span className="text-slate-400">This week avg:</span>
+                <span className="font-bold">{insights.thisWeekAvg}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Last week avg:</span>
+                <span className="font-medium text-slate-300">
+                  {insights.lastWeekAvg}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-4xl font-black text-slate-800 dark:text-white">
-          {isLoading ? "..." : value}
-        </span>
-        <span className="text-sm font-semibold text-slate-400">{unit}</span>
-      </div>
-      <div className="h-12 w-full mt-auto">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={getSparklineData(sparkKey)}>
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke={color}
-              fill={color}
-              fillOpacity={0.2}
-              strokeWidth={2}
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Time Controls Row */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Daily/Weekly/Monthly - Only for Current Quarter */}
+        <div
+          className={`flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl ${
+            !isCurrentQuarter ? "opacity-50" : ""
+          }`}
+        >
+          {["weekly", "monthly"].map((g) => (
+            <button
+              key={g}
+              onClick={() => handleGroupByChange(g)}
+              disabled={!isCurrentQuarter}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                groupBy === g && isCurrentQuarter
+                  ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              } ${!isCurrentQuarter ? "cursor-not-allowed" : ""}`}
+              title={
+                !isCurrentQuarter ? "Only available for current quarter" : ""
+              }
+            >
+              {g.charAt(0).toUpperCase() + g.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {!isCurrentQuarter && (
+          <span className="text-[10px] text-slate-400 italic">
+            (Drill-down available for current quarter only)
+          </span>
+        )}
+      </div>
+
+      {/* Week Selector - Only when Weekly is selected for Q1_26 */}
+      {isCurrentQuarter && groupBy === "weekly" && (
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+          <span className="text-xs font-medium text-slate-500 mr-2">
+            Select Week:
+          </span>
+          {Q1_WEEKS.slice(0, 6).map((week) => {
+            const isFuture = week.id > currentWeekNum;
+            const isSelected = selectedWeek === week.id;
+            return (
+              <div key={week.id} className="relative group/week">
+                <button
+                  onClick={() => handleWeekSelect(week.id)}
+                  disabled={isFuture}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    isSelected
+                      ? "bg-indigo-600 text-white shadow-md"
+                      : isFuture
+                      ? "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed opacity-50"
+                      : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 border border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  {week.label}
+                </button>
+                {/* Hover tooltip for date range */}
+                <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-slate-900 text-white text-[10px] rounded whitespace-nowrap opacity-0 group-hover/week:opacity-100 pointer-events-none z-20 transition-opacity">
+                  {week.range}
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
+                </div>
+              </div>
+            );
+          })}
+          {selectedWeek && (
+            <button
+              onClick={() => {
+                setSelectedWeek(null);
+                onGroupByChange?.("weekly");
+              }}
+              className="text-xs text-slate-400 hover:text-rose-500 ml-2"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Month Selector - Only when Monthly is selected for Q1_26 */}
+      {isCurrentQuarter && groupBy === "monthly" && (
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+          <span className="text-xs font-medium text-slate-500 mr-2">
+            Select Month:
+          </span>
+          {Q1_MONTHS.map((month) => {
+            const isFuture = month.id > currentMonthNum;
+            const isSelected = selectedMonth === month.id;
+            return (
+              <div key={month.id} className="relative group">
+                <button
+                  onClick={() => handleMonthSelect(month.id)}
+                  disabled={isFuture}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                    isSelected
+                      ? "bg-indigo-600 text-white shadow-md"
+                      : isFuture
+                      ? "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed opacity-50"
+                      : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 border border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  {month.label}
+                </button>
+                {/* Hover tooltip showing weeks in month */}
+                <div className="absolute -bottom-16 left-1/2 -translate-x-1/2 px-3 py-2 bg-slate-900 text-white text-[10px] rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-20 shadow-xl">
+                  <div className="font-bold mb-1">{month.name}</div>
+                  <div className="text-slate-300">{month.range}</div>
+                  <div className="text-indigo-300 mt-1">
+                    Weeks: {month.weeks}
+                  </div>
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
+                </div>
+              </div>
+            );
+          })}
+          {selectedMonth && (
+            <button
+              onClick={() => {
+                setSelectedMonth(null);
+                onGroupByChange?.("monthly");
+              }}
+              className="text-xs text-slate-400 hover:text-rose-500 ml-2"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Header with Quarter Selector */}
       <div className="flex flex-wrap justify-between items-center gap-4">
         <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
           <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl">
@@ -412,6 +724,7 @@ const PerformanceMetricsCards = ({
         </div>
       </div>
 
+      {/* Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <MetricCard
           title="Avg RWT"
@@ -420,6 +733,7 @@ const PerformanceMetricsCards = ({
           color="#8b5cf6"
           sparkKey="avgRWT"
           icon={Clock}
+          metricKey="avgRWT"
         />
         <MetricCard
           title="Positive CSAT"
@@ -428,6 +742,7 @@ const PerformanceMetricsCards = ({
           color="#10b981"
           sparkKey="csat"
           icon={Smile}
+          metricKey="csat"
         />
         <MetricCard
           title="FRR Met"
@@ -436,6 +751,7 @@ const PerformanceMetricsCards = ({
           color="#f59e0b"
           sparkKey="frrPercent"
           icon={Zap}
+          metricKey="frrPercent"
         />
         <MetricCard
           title="Avg Iterations"
@@ -444,6 +760,7 @@ const PerformanceMetricsCards = ({
           color="#3b82f6"
           sparkKey="avgIterations"
           icon={Layers}
+          metricKey="avgIterations"
         />
         <MetricCard
           title="Avg FRT"
@@ -452,6 +769,7 @@ const PerformanceMetricsCards = ({
           color="#f43f5e"
           sparkKey="avgFRT"
           icon={TrendingUp}
+          metricKey="avgFRT"
         />
       </div>
     </div>
@@ -905,12 +1223,14 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
       forceRefresh: true,
     });
 
-  // Chart data from server trends
+// Chart data from server trends
   const smallChartData = useMemo(() => {
     const serverTrends = analyticsData?.trends || [];
 
     return {
-      volume: serverTrends.map((t) => ({ name: t.date, main: t.solved || 0 })),
+      // Volume uses REAL-TIME tickets (created_date)
+      volume: processChartData(tickets, "volume", 30, "All", resolvedCurrentUser),
+      // Rest use MongoDB historical data
       solved: serverTrends.map((t) => ({ name: t.date, main: t.solved || 0 })),
       rwt: serverTrends.map((t) => ({ name: t.date, main: t.avgRWT || 0 })),
       backlog: serverTrends.map((t) => ({
@@ -918,7 +1238,7 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
         main: t.backlogCleared || 0,
       })),
     };
-  }, [analyticsData]);
+  }, [analyticsData, tickets, resolvedCurrentUser]);
   // Expanded chart data - use server individualTrends
   const expandedData = useMemo(() => {
     if (!expandedMetric) return [];
@@ -1056,26 +1376,6 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
             />
           </button>
         </div>
-      </div>
-
-      <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-        {[
-          { id: "daily", label: "Daily" },
-          { id: "weekly", label: "Weekly" },
-          { id: "monthly", label: "Monthly" },
-        ].map((g) => (
-          <button
-            key={g.id}
-            onClick={() => setGroupBy(g.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              groupBy === g.id
-                ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {g.label}
-          </button>
-        ))}
       </div>
 
       {/* PERFORMANCE METRICS */}

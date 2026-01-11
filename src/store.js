@@ -141,39 +141,44 @@ export const useTicketStore = create(
 
       // ============================================================================
       // ✅ ANALYTICS (Pre-aggregated from server - NO memory issues!)
-      // ============================================================================
-      fetchAnalyticsData: async (filters = {}) => {
-        set({ analyticsLoading: true });
-        try {
-          const API_URL = getApiUrl();
-          const params = new URLSearchParams();
-          
-          if (filters.quarter) params.append('quarter', filters.quarter);
-          if (filters.excludeZendesk) params.append('excludeZendesk', 'true');
-          if (filters.owner) params.append('owner', filters.owner);
-          if (filters.groupBy) params.append('groupBy', filters.groupBy);
-          if (filters.forceRefresh) params.append('forceRefresh', 'true');
+ // ============================================================================
+// STORE.JS CHANGES
+// ============================================================================
 
-          const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
-          console.log("📊 [Store] Fetching analytics:", url);
+// In fetchAnalyticsData function (around line 130-150), update to include groupBy:
 
-          const res = await fetch(url);
-          const data = await res.json();
+fetchAnalyticsData: async (filters = {}) => {
+  set({ analyticsLoading: true });
+  try {
+    const API_URL = getApiUrl();
+    const params = new URLSearchParams();
+    
+    if (filters.quarter) params.append('quarter', filters.quarter);
+    if (filters.excludeZendesk) params.append('excludeZendesk', 'true');
+    if (filters.owner) params.append('owner', filters.owner);
+    if (filters.forceRefresh) params.append('forceRefresh', 'true');
+    if (filters.groupBy) params.append('groupBy', filters.groupBy); // ADD THIS LINE
 
-          console.log("📊 [Store] Analytics received:", {
-            tickets: data.stats?.totalTickets,
-            trends: data.trends?.length,
-            leaderboard: data.leaderboard?.length
-          });
+    const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
+    console.log("📊 [Store] Fetching analytics:", url);
 
-          set({ analyticsData: data, analyticsLoading: false });
-          return data;
-        } catch (error) {
-          console.error("Analytics fetch failed:", error);
-          set({ analyticsLoading: false });
-          return null;
-        }
-      },
+    const res = await fetch(url);
+    const data = await res.json();
+
+    console.log("📊 [Store] Analytics received:", {
+      tickets: data.stats?.totalTickets,
+      trends: data.trends?.length,
+      leaderboard: data.leaderboard?.length
+    });
+
+    set({ analyticsData: data, analyticsLoading: false });
+    return data;
+  } catch (error) {
+    console.error("Analytics fetch failed:", error);
+    set({ analyticsLoading: false });
+    return null;
+  }
+},
 
       // Clear analytics cache (force refresh)
       refreshAnalytics: async (filters = {}) => {
