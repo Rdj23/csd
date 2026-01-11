@@ -129,69 +129,25 @@ const getQuarterDateRange = (quarter) => {
   const now = new Date();
   switch (quarter) {
     // Quarters
-    case "Q4_25":
-      return {
-        start: new Date("2025-10-01"),
-        end: new Date("2025-12-31T23:59:59Z"),
-      };
-    case "Q1_26":
-      return {
-        start: new Date("2026-01-01"),
-        end: new Date("2026-03-31T23:59:59Z"),
-      };
-
-    // Q1 2026 Weeks
-    case "Q1_26_W1":
-      return {
-        start: new Date("2026-01-01"),
-        end: new Date("2026-01-07T23:59:59Z"),
-      };
-    case "Q1_26_W2":
-      return {
-        start: new Date("2026-01-08"),
-        end: new Date("2026-01-14T23:59:59Z"),
-      };
-    case "Q1_26_W3":
-      return {
-        start: new Date("2026-01-15"),
-        end: new Date("2026-01-21T23:59:59Z"),
-      };
-    case "Q1_26_W4":
-      return {
-        start: new Date("2026-01-22"),
-        end: new Date("2026-01-28T23:59:59Z"),
-      };
-    case "Q1_26_W5":
-      return {
-        start: new Date("2026-01-29"),
-        end: new Date("2026-02-04T23:59:59Z"),
-      };
-    case "Q1_26_W6":
-      return {
-        start: new Date("2026-02-05"),
-        end: new Date("2026-02-11T23:59:59Z"),
-      };
-
+    case "Q4_25": return { start: new Date("2025-10-01"), end: new Date("2025-12-31T23:59:59Z") };
+    case "Q1_26": return { start: new Date("2026-01-01"), end: new Date("2026-03-31T23:59:59Z") };
+    
+    // Q1 2026 Weeks (Monday to Sunday)
+    case "Q1_26_W1": return { start: new Date("2026-01-06"), end: new Date("2026-01-12T23:59:59Z") };
+    case "Q1_26_W2": return { start: new Date("2026-01-13"), end: new Date("2026-01-19T23:59:59Z") };
+    case "Q1_26_W3": return { start: new Date("2026-01-20"), end: new Date("2026-01-26T23:59:59Z") };
+    case "Q1_26_W4": return { start: new Date("2026-01-27"), end: new Date("2026-02-02T23:59:59Z") };
+    case "Q1_26_W5": return { start: new Date("2026-02-03"), end: new Date("2026-02-09T23:59:59Z") };
+    case "Q1_26_W6": return { start: new Date("2026-02-10"), end: new Date("2026-02-16T23:59:59Z") };
+    
     // Q1 2026 Months
-    case "Q1_26_M1":
-      return {
-        start: new Date("2026-01-01"),
-        end: new Date("2026-01-31T23:59:59Z"),
-      };
-    case "Q1_26_M2":
-      return {
-        start: new Date("2026-02-01"),
-        end: new Date("2026-02-28T23:59:59Z"),
-      };
-    case "Q1_26_M3":
-      return {
-        start: new Date("2026-03-01"),
-        end: new Date("2026-03-31T23:59:59Z"),
-      };
-
+    case "Q1_26_M1": return { start: new Date("2026-01-01"), end: new Date("2026-01-31T23:59:59Z") };
+    case "Q1_26_M2": return { start: new Date("2026-02-01"), end: new Date("2026-02-28T23:59:59Z") };
+    case "Q1_26_M3": return { start: new Date("2026-03-01"), end: new Date("2026-03-31T23:59:59Z") };
+    
     default:
       // Default to last 60 days
-      const start = new Date(now);
+      const start = new Date(now); 
       start.setDate(start.getDate() - 60);
       return { start, end: now };
   }

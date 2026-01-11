@@ -68,7 +68,7 @@ const HIDDEN_USERS = [
   "Anmol",
   "anmol-sawhney",
 ];
-
+const SUPER_ADMIN_EMAIL = "rohan.jadhav@clevertap.com";
 // ============================================================================
 // METRICS CONFIG
 // ============================================================================
@@ -316,6 +316,77 @@ const processMultiUserData = (
 };
 
 // PERFORMANCE METRICS CARDS - Updated with Time Rules & Hover Insights
+const ThisWeekStats = ({ tickets, isGSTUser }) => {
+  // Calculate week start (Monday 12:00 AM)
+  const getWeekStart = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+    const monday = new Date(now.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  };
+
+  const weekStart = getWeekStart();
+
+  const weekStats = useMemo(() => {
+    if (!tickets || tickets.length === 0)
+      return { csat: 0, open: 0, solved: 0 };
+
+    const weekTickets = tickets.filter((t) => {
+      const createdDate = t.created_date ? new Date(t.created_date) : null;
+      return createdDate && createdDate >= weekStart;
+    });
+
+    // CSAT count (positive ratings this week)
+    const csatCount = weekTickets.filter((t) => {
+      const rating = Number(t.custom_fields?.tnt__csatrating);
+      return rating === 2; // Good rating
+    }).length;
+
+    // Open tickets this week
+    const openCount = weekTickets.filter((t) => {
+      const stage = t.stage?.name?.toLowerCase() || "";
+      return !stage.includes("solved") && !stage.includes("closed");
+    }).length;
+
+    // Solved tickets this week
+    const solvedCount = weekTickets.filter((t) => {
+      const closedDate = t.actual_close_date
+        ? new Date(t.actual_close_date)
+        : null;
+      return closedDate && closedDate >= weekStart;
+    }).length;
+
+    return { csat: csatCount, open: openCount, solved: solvedCount };
+  }, [tickets, weekStart]);
+
+  return (
+    <div className="flex items-center gap-4 px-4 py-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+      <span className="text-xs font-medium text-slate-400">This Week</span>
+      <div className="flex items-center gap-6">
+        <div className="text-center">
+          <div className="text-lg font-bold text-emerald-600">
+            {weekStats.csat}
+          </div>
+          <div className="text-[10px] text-slate-400 uppercase">CSAT</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold text-blue-600">
+            {weekStats.open}
+          </div>
+          <div className="text-[10px] text-slate-400 uppercase">Open</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold text-indigo-600">
+            {weekStats.solved}
+          </div>
+          <div className="text-[10px] text-slate-400 uppercase">Solved</div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const PerformanceMetricsCards = ({
   stats,
@@ -343,25 +414,54 @@ const PerformanceMetricsCards = ({
   const daysSinceQ1Start = Math.floor(
     (today - q1Start) / (1000 * 60 * 60 * 24)
   );
-  const currentWeekNum = Math.min(Math.ceil((daysSinceQ1Start + 1) / 7), 13);
+
   const currentMonthNum =
     today.getMonth() >= 0 && today.getMonth() <= 2 ? today.getMonth() + 1 : 1;
 
   // Week definitions for Q1
   const Q1_WEEKS = [
-    { id: 1, label: "W1", range: "Jan 1-7" },
-    { id: 2, label: "W2", range: "Jan 8-14" },
-    { id: 3, label: "W3", range: "Jan 15-21" },
-    { id: 4, label: "W4", range: "Jan 22-28" },
-    { id: 5, label: "W5", range: "Jan 29 - Feb 4" },
-    { id: 6, label: "W6", range: "Feb 5-11" },
-    { id: 7, label: "W7", range: "Feb 12-18" },
-    { id: 8, label: "W8", range: "Feb 19-25" },
-    { id: 9, label: "W9", range: "Feb 26 - Mar 4" },
-    { id: 10, label: "W10", range: "Mar 5-11" },
-    { id: 11, label: "W11", range: "Mar 12-18" },
-    { id: 12, label: "W12", range: "Mar 19-25" },
-    { id: 13, label: "W13", range: "Mar 26-31" },
+    {
+      id: 1,
+      label: "W1",
+      start: "2026-01-06",
+      end: "2026-01-12",
+      range: "Jan 6-12",
+    },
+    {
+      id: 2,
+      label: "W2",
+      start: "2026-01-13",
+      end: "2026-01-19",
+      range: "Jan 13-19",
+    },
+    {
+      id: 3,
+      label: "W3",
+      start: "2026-01-20",
+      end: "2026-01-26",
+      range: "Jan 20-26",
+    },
+    {
+      id: 4,
+      label: "W4",
+      start: "2026-01-27",
+      end: "2026-02-02",
+      range: "Jan 27 - Feb 2",
+    },
+    {
+      id: 5,
+      label: "W5",
+      start: "2026-02-03",
+      end: "2026-02-09",
+      range: "Feb 3-9",
+    },
+    {
+      id: 6,
+      label: "W6",
+      start: "2026-02-10",
+      end: "2026-02-16",
+      range: "Feb 10-16",
+    },
   ];
 
   // Month definitions with week ranges
@@ -370,6 +470,19 @@ const PerformanceMetricsCards = ({
     { id: 2, label: "M2", name: "February", weeks: "W5-W8", range: "Feb 1-28" },
     { id: 3, label: "M3", name: "March", weeks: "W9-W13", range: "Mar 1-31" },
   ];
+
+  // Calculate current week number based on today's date
+  const getCurrentWeekNum = () => {
+    for (const week of Q1_WEEKS) {
+      const weekEnd = new Date(week.end + "T23:59:59");
+      if (today <= weekEnd) {
+        return week.id;
+      }
+    }
+    return Q1_WEEKS.length; // Return last week if past all weeks
+  };
+
+  const currentWeekNum = getCurrentWeekNum();
 
   const handleQuarterChange = (qId) => {
     setSelectedQuarter(qId);
@@ -845,7 +958,11 @@ const SmartInsights = ({
         </h4>
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold text-slate-800 dark:text-white">
-            {myTotal}
+            {typeof myTotal === "number"
+              ? myTotal % 1 === 0
+                ? myTotal
+                : myTotal.toFixed(2)
+              : myTotal}
           </span>
           <span className="text-xs text-slate-500 font-medium">
             {METRICS[metric]?.desc || "Units"}
@@ -1177,6 +1294,12 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
     [resolvedCurrentUser]
   );
 
+  const isSuperAdmin = useMemo(() => {
+    return (
+      currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()
+    );
+  }, [currentUser]);
+
   // Get user's team
   const myTeamName = useMemo(() => {
     const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
@@ -1223,14 +1346,21 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
       forceRefresh: true,
     });
 
-// Chart data from server trends
+  // Chart data - Volume from active tickets, others from server
   const smallChartData = useMemo(() => {
     const serverTrends = analyticsData?.trends || [];
 
+    // Process volume from real-time tickets (using created_date)
+    const volumeData = processChartData(
+      tickets,
+      "volume",
+      30,
+      "All",
+      resolvedCurrentUser
+    );
+
     return {
-      // Volume uses REAL-TIME tickets (created_date)
-      volume: processChartData(tickets, "volume", 30, "All", resolvedCurrentUser),
-      // Rest use MongoDB historical data
+      volume: volumeData,
       solved: serverTrends.map((t) => ({ name: t.date, main: t.solved || 0 })),
       rwt: serverTrends.map((t) => ({ name: t.date, main: t.avgRWT || 0 })),
       backlog: serverTrends.map((t) => ({
@@ -1239,33 +1369,87 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
       })),
     };
   }, [analyticsData, tickets, resolvedCurrentUser]);
-  // Expanded chart data - use server individualTrends
+
+  // Expanded chart data
   const expandedData = useMemo(() => {
     if (!expandedMetric) return [];
 
     const individualTrends = analyticsData?.individualTrends || {};
-    const allDates = new Set();
 
-    // Collect all dates from selected users
+    // For VOLUME - use real-time tickets with created_date
+    if (expandedMetric === "volume") {
+      const end = new Date();
+      const start = subDays(end, 30);
+      const daysInterval = eachDayOfInterval({ start, end });
+
+      return daysInterval.map((day) => {
+        const dateKey = format(day, "yyyy-MM-dd");
+        const dataPoint = { name: format(day, "MMM dd"), date: dateKey };
+
+        selectedUsers.forEach((user) => {
+          const userTickets = tickets.filter((t) => {
+            if (!t.created_date) return false;
+            const ticketDate = format(parseISO(t.created_date), "yyyy-MM-dd");
+            const owner =
+              FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+              t.owned_by?.[0]?.display_name ||
+              "";
+            return ticketDate === dateKey && owner === user;
+          });
+          dataPoint[user] = userTickets.length;
+        });
+
+        // Team & GST totals for volume
+        if (showTeam || showGST) {
+          const dayTickets = tickets.filter((t) => {
+            if (!t.created_date) return false;
+            return format(parseISO(t.created_date), "yyyy-MM-dd") === dateKey;
+          });
+
+          if (showTeam) {
+            const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")]
+              ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")])
+              : [];
+            dataPoint.compare_team = dayTickets.filter((t) => {
+              const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
+              return teamMembers.includes(owner);
+            }).length;
+          }
+
+          if (showGST) {
+            const gstMembers = Object.values(FLAT_TEAM_MAP);
+            dataPoint.compare_gst = dayTickets.filter((t) => {
+              const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
+              return gstMembers.includes(owner);
+            }).length;
+          }
+        }
+
+        return dataPoint;
+      });
+    }
+
+    // For SOLVED, RWT, BACKLOG - use server individualTrends
+    const allDates = new Set();
     selectedUsers.forEach((user) => {
       (individualTrends[user] || []).forEach((d) => allDates.add(d.date));
     });
 
-    const sortedDates = Array.from(allDates).sort();
+    const sortedDates = Array.from(allDates).sort().slice(-30);
 
-    return sortedDates.slice(-timeRange).map((date) => {
+    return sortedDates.map((date) => {
       const dataPoint = { name: format(parseISO(date), "MMM dd"), date };
 
       selectedUsers.forEach((user) => {
         const userDay = (individualTrends[user] || []).find(
           (d) => d.date === date
         );
-        if (expandedMetric === "volume") {
-          dataPoint[user] = userDay?.created || 0;
-        } else if (expandedMetric === "solved") {
+        if (expandedMetric === "solved") {
           dataPoint[user] = userDay?.solved || 0;
         } else if (expandedMetric === "rwt") {
-          dataPoint[user] = userDay?.avgRWT || 0;
+          dataPoint[user] = userDay?.avgRWT
+            ? Number(userDay.avgRWT.toFixed(2))
+            : 0;
         } else if (expandedMetric === "backlog") {
           dataPoint[user] = userDay?.backlogCleared || 0;
         }
@@ -1275,6 +1459,10 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
       if (showTeam || showGST) {
         let teamTotal = 0,
           gstTotal = 0;
+        const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")]
+          ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")])
+          : [];
+
         Object.entries(individualTrends).forEach(([user, days]) => {
           const dayData = days.find((d) => d.date === date);
           if (dayData) {
@@ -1287,14 +1475,12 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
                 ? dayData.backlogCleared
                 : 0;
             gstTotal += val || 0;
-            // Check if user is in current user's team
-            const myTeamMembers =
-              TEAM_GROUPS[myTeamName?.replace("Team ", "")] || {};
-            if (Object.values(myTeamMembers).includes(user)) {
+            if (teamMembers.includes(user)) {
               teamTotal += val || 0;
             }
           }
         });
+
         if (showTeam) dataPoint.compare_team = teamTotal;
         if (showGST) dataPoint.compare_gst = gstTotal;
       }
@@ -1304,12 +1490,13 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   }, [
     analyticsData,
     expandedMetric,
-    timeRange,
     selectedUsers,
     showTeam,
     showGST,
     myTeamName,
+    tickets,
   ]);
+
   const colors = {
     grid: isDark ? "#1e293b" : "#f1f5f9",
     text: isDark ? "#94a3b8" : "#64748b",
@@ -1321,36 +1508,47 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
       {/* TOP CONTROLS */}
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-            <button
-              onClick={() => setViewMode("gst")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                viewMode === "gst"
-                  ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                  : "text-slate-500"
-              }`}
-            >
-              <Users className="w-4 h-4" /> GST View
-            </button>
-            <button
-              onClick={() => setViewMode("global")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                viewMode === "global"
-                  ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                  : "text-slate-500"
-              }`}
-            >
-              <Globe className="w-4 h-4" /> Global View
-            </button>
-          </div>
+          {/* GST/Global Toggle - ONLY FOR SUPER ADMIN */}
+          {isSuperAdmin ? (
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+              <button
+                onClick={() => setViewMode("gst")}
+                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                  viewMode === "gst"
+                    ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                    : "text-slate-500"
+                }`}
+              >
+                <Users className="w-4 h-4" /> GST View
+              </button>
+              <button
+                onClick={() => setViewMode("global")}
+                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                  viewMode === "global"
+                    ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                    : "text-slate-500"
+                }`}
+              >
+                <Globe className="w-4 h-4" /> Global View
+              </button>
+            </div>
+          ) : null}
+
           {resolvedCurrentUser && (
             <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
               👤 {resolvedCurrentUser}{" "}
               {isGSTUser && <span className="text-emerald-500">(GST)</span>}
+              {isSuperAdmin && (
+                <span className="text-amber-500 ml-1">(Admin)</span>
+              )}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* This Week Stats - Real-time from active tickets */}
+        <div className="flex items-center gap-4">
+          {/* <ThisWeekStats tickets={tickets} isGSTUser={isGSTUser} /> */}
+
           <button
             onClick={() => setExcludeZendesk(!excludeZendesk)}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border ${
@@ -1363,7 +1561,7 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
               <Check className="w-3 h-3" />
             ) : (
               <ListFilter className="w-3 h-3" />
-            )}{" "}
+            )}
             Exclude Zendesk
           </button>
           <button
@@ -1378,12 +1576,30 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
         </div>
       </div>
 
-      {/* PERFORMANCE METRICS */}
       <PerformanceMetricsCards
         stats={analyticsData?.stats}
         trends={analyticsData?.trends}
         currentQuarter={currentQuarter}
+        currentGroupBy={groupBy}
         onQuarterChange={handleQuarterChange}
+        onGroupByChange={(newGroupBy) => {
+          setGroupBy(newGroupBy);
+          // If it's a week selection like "Q1_26_W1", set quarter accordingly
+          if (
+            newGroupBy.startsWith("Q1_26_W") ||
+            newGroupBy.startsWith("Q1_26_M")
+          ) {
+            setCurrentQuarter("Q1_26");
+          }
+          fetchAnalyticsData({
+            quarter: newGroupBy.startsWith("Q1_26")
+              ? newGroupBy
+              : currentQuarter,
+            excludeZendesk,
+            owner: filterOwner !== "All" ? filterOwner : null,
+            groupBy: newGroupBy,
+          });
+        }}
         isLoading={analyticsLoading}
       />
 
