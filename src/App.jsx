@@ -763,33 +763,24 @@ ${
                     onChange={(val) => setFilter("dateRange", val)}
                   />
                 )}
-
-                {activeTab !== "vistas" && (
+{activeTab === "analytics" && (
                   <>
-                    <SmartDatePicker
-                      value={currentFilters.dateRange}
-                      onChange={(val) => setFilter("dateRange", val)}
+                    <MultiSelectFilter
+                      icon={Layers}
+                      label="Team"
+                      options={options.teams}
+                      selected={currentFilters.teams}
+                      onChange={(v) => setFilter("teams", v)}
                     />
-
-                    {activeTab === "analytics" && (
-                      <>
-                        <MultiSelectFilter
-                          icon={Layers}
-                          label="Team"
-                          options={options.teams}
-                          selected={currentFilters.teams}
-                          onChange={(v) => setFilter("teams", v)}
-                        />
-                        <MultiSelectFilter
-                          icon={Users}
-                          label="Member"
-                          options={options.owners}
-                          selected={currentFilters.owners}
-                          onChange={(v) => setFilter("owners", v)}
-                        />
-                      </>
-                    )}
-
+                    <MultiSelectFilter
+                      icon={Users}
+                      label="Member"
+                      options={options.owners}
+                      selected={currentFilters.owners}
+                      onChange={(v) => setFilter("owners", v)}
+                    />
+                  </>
+                )}
                     {activeTab !== "analytics" && activeTab !== "vistas" && (
                       <>
                         {visibleFilterKeys.map((key) => {
@@ -858,8 +849,7 @@ ${
                         </div>
                       </>
                     )}
-                  </>
-                )}
+                 
               </div>
 
               {/* SPACER */}
