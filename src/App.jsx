@@ -94,17 +94,13 @@ const App = () => {
     fetchViews,
     saveView,
     deleteView,
-   
   } = useTicketStore();
 
-  
   const [googleClientId, setGoogleClientId] = useState(null);
   const [activeTab, setActiveTab] = useState("tickets");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
-
-  
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
@@ -134,13 +130,11 @@ const App = () => {
 
     if (!matchedName) return null; // Hide if not in roster
 
-    
     // 3. Filter My Tickets (From ALL tickets, ignoring current dashboard filters)
     const myTickets = tickets.filter((t) => {
       // Check both display_id map AND direct display_name
       const ownerIdName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id];
       const ownerDisplayName = t.owned_by?.[0]?.display_name;
-      
 
       const isMatch =
         (ownerIdName && ownerIdName.includes(matchedName)) ||
@@ -150,7 +144,7 @@ const App = () => {
     });
 
     console.log("3. Total Tickets Found for Me:", myTickets.length);
-   
+
     // ----------------------------------------
 
     // 4. Calculate Metrics
@@ -571,8 +565,9 @@ const App = () => {
 bg-white dark:bg-slate-900
 ${filterVal === "Healthy" ? "bg-emerald-50/60 dark:bg-emerald-900/10" : ""}
 ${filterVal === "Needs Attention" ? "bg-amber-50/60 dark:bg-amber-900/10" : ""}
-${filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""}`}
-
+${
+  filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""
+}`}
     >
       <div>
         <p className="text-[10px] font-bold uppercase tracking-wider opacity-70 text-slate-500 dark:text-slate-400 mb-1">
@@ -586,7 +581,6 @@ ${filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""}
       </div>
       <div className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
         <Icon className="w-4 h-4 text-slate-400 dark:text-slate-300 opacity-70" />
-
       </div>
     </button>
   );
@@ -763,6 +757,13 @@ ${filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""}
                   </div>
                 )}
 
+                {activeTab !== "vistas" && activeTab !== "analytics" && (
+                  <SmartDatePicker
+                    value={currentFilters.dateRange}
+                    onChange={(val) => setFilter("dateRange", val)}
+                  />
+                )}
+
                 {activeTab !== "vistas" && (
                   <>
                     <SmartDatePicker
@@ -770,7 +771,7 @@ ${filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""}
                       onChange={(val) => setFilter("dateRange", val)}
                     />
 
-                    {activeTab === "analytics" ? (
+                    {activeTab === "analytics" && (
                       <>
                         <MultiSelectFilter
                           icon={Layers}
@@ -787,7 +788,9 @@ ${filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""}
                           onChange={(v) => setFilter("owners", v)}
                         />
                       </>
-                    ) : (
+                    )}
+
+                    {activeTab !== "analytics" && activeTab !== "vistas" && (
                       <>
                         {visibleFilterKeys.map((key) => {
                           const config = FILTER_CONFIG.find(

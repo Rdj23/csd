@@ -396,6 +396,10 @@ const PerformanceMetricsCards = ({
   currentQuarter,
   currentGroupBy,
   isLoading,
+  excludeZendesk,
+  onExcludeZendeskChange,
+  onRefresh,
+  isRefreshing,
 }) => {
   const [selectedQuarter, setSelectedQuarter] = useState(
     currentQuarter || "Q4_25"
@@ -807,7 +811,7 @@ const PerformanceMetricsCards = ({
         </div>
       )}
 
-      {/* Header with Quarter Selector */}
+{/* Header with Quarter Selector + Controls */}
       <div className="flex flex-wrap justify-between items-center gap-4">
         <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
           <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl">
@@ -820,20 +824,46 @@ const PerformanceMetricsCards = ({
             </span>
           )}
         </h2>
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-          {QUARTERS.map((q) => (
-            <button
-              key={q.id}
-              onClick={() => handleQuarterChange(q.id)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                selectedQuarter === q.id
-                  ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {q.label}
-            </button>
-          ))}
+        
+        <div className="flex items-center gap-3">
+          {/* Exclude Zendesk */}
+          <button
+            onClick={onExcludeZendeskChange}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+              excludeZendesk
+                ? "bg-slate-800 text-white border-slate-800"
+                : "bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
+            }`}
+          >
+            {excludeZendesk ? <Check className="w-3 h-3" /> : <ListFilter className="w-3 h-3" />}
+            Exclude Zendesk
+          </button>
+          
+          {/* Refresh */}
+          <button
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          </button>
+          
+          {/* Quarter Selector */}
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            {QUARTERS.map((q) => (
+              <button
+                key={q.id}
+                onClick={() => handleQuarterChange(q.id)}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  selectedQuarter === q.id
+                    ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1504,86 +1534,49 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   };
 
   return (
-    <div className="space-y-8 p-6 max-w-[1600px] mx-auto">
-      {/* TOP CONTROLS */}
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        {isSuperAdmin && (
-          <div className="flex items-center gap-3">
-            {/* GST/Global Toggle - ONLY FOR SUPER ADMIN */}
-            {isSuperAdmin ? (
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                <button
-                  onClick={() => setViewMode("gst")}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                    viewMode === "gst"
-                      ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                      : "text-slate-500"
-                  }`}
-                >
-                  <Users className="w-4 h-4" /> GST View
-                </button>
-                <button
-                  onClick={() => setViewMode("global")}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                    viewMode === "global"
-                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                      : "text-slate-500"
-                  }`}
-                >
-                  <Globe className="w-4 h-4" /> Global View
-                </button>
-              </div>
-            ) : null}
-
-            {isSuperAdmin && resolvedCurrentUser && (
-              <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
-                👤 {resolvedCurrentUser}{" "}
-                {isGSTUser && <span className="text-emerald-500">(GST)</span>}
-                {isSuperAdmin && (
-                  <span className="text-amber-500 ml-1">(Admin)</span>
-                )}
-              </span>
-            )}
+    <div className="space-y-6 p-6 max-w-[1600px] mx-auto">
+      {/* GST/Global Toggle - ONLY FOR SUPER ADMIN */}
+      {isSuperAdmin && (
+        <div className="flex items-center gap-3">
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <button
+              onClick={() => setViewMode("gst")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                viewMode === "gst"
+                  ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                  : "text-slate-500"
+              }`}
+            >
+              <Users className="w-4 h-4" /> GST View
+            </button>
+            <button
+              onClick={() => setViewMode("global")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                viewMode === "global"
+                  ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                  : "text-slate-500"
+              }`}
+            >
+              <Globe className="w-4 h-4" /> Global View
+            </button>
           </div>
-        )}
-        {/* This Week Stats - Real-time from active tickets */}
-        <div className="flex items-center gap-4">
-          {/* <ThisWeekStats tickets={tickets} isGSTUser={isGSTUser} /> */}
-
-          <button
-            onClick={() => setExcludeZendesk(!excludeZendesk)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border ${
-              excludeZendesk
-                ? "bg-slate-800 text-white border-slate-800"
-                : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200"
-            }`}
-          >
-            {excludeZendesk ? (
-              <Check className="w-3 h-3" />
-            ) : (
-              <ListFilter className="w-3 h-3" />
-            )}
-            Exclude Zendesk
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={analyticsLoading}
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`w-4 h-4 ${analyticsLoading ? "animate-spin" : ""}`}
-            />
-          </button>
+          <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
+            👤 {resolvedCurrentUser} <span className="text-amber-500">(Admin)</span>
+          </span>
         </div>
-      </div>
+      )}
 
       <PerformanceMetricsCards
-        stats={analyticsData?.stats}
-        trends={analyticsData?.trends}
-        currentQuarter={currentQuarter}
-        currentGroupBy={groupBy}
-        onQuarterChange={handleQuarterChange}
-        onGroupByChange={(newGroupBy) => {
+  stats={analyticsData?.stats}
+  trends={analyticsData?.trends}
+  currentQuarter={currentQuarter}
+  currentGroupBy={groupBy}
+  onQuarterChange={handleQuarterChange}
+  excludeZendesk={excludeZendesk}
+  onExcludeZendeskChange={() => setExcludeZendesk(!excludeZendesk)}
+  onRefresh={handleRefresh}
+  isRefreshing={analyticsLoading}
+  onGroupByChange={(newGroupBy) => {
           setGroupBy(newGroupBy);
           // If it's a week selection like "Q1_26_W1", set quarter accordingly
           if (
