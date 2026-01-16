@@ -53,8 +53,17 @@ import {
   Zap,
   Eye,
   EyeOff,
-  Search, Terminal, Table, Download,
-  ChevronLeft, ChevronRight, Edit3, Play, Copy, FileJson, FileSpreadsheet
+  Search,
+  Terminal,
+  Table,
+  Download,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  Play,
+  Copy,
+  FileJson,
+  FileSpreadsheet,
 } from "lucide-react";
 import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
 import { useTicketStore } from "../store";
@@ -162,19 +171,19 @@ const CHART_COLORS = [
   "#8b5cf6",
 ];
 
-
-
 const StatCard = ({ label, value, unit = "", color, isPositive }) => (
   <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
-    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</div>
+    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
+      {label}
+    </div>
     <div className="text-2xl font-bold" style={{ color }}>
-      {value}{unit && <span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>}
+      {value}
+      {unit && (
+        <span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>
+      )}
     </div>
   </div>
 );
-
-
-
 
 // ============================================================================
 // DATA PROCESSING - CLIENT SIDE FOR CHARTS
@@ -463,7 +472,7 @@ const PerformanceMetricsCards = ({
   onExcludeZendeskChange,
   onRefresh,
   isRefreshing,
-  onExpandMetric
+  onExpandMetric,
 }) => {
   const [selectedQuarter, setSelectedQuarter] = useState(
     currentQuarter || "Q4_25"
@@ -662,96 +671,103 @@ const PerformanceMetricsCards = ({
     onExpand,
   }) => {
     const [isHovered, setIsHovered] = useState(false);
-  const insights = getInsights(metricKey, value);
+    const insights = getInsights(metricKey, value);
 
-  return (
-    <div
-      className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg hover:border-indigo-500/50 transition-all h-44 group cursor-pointer"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={() => onExpand && onExpand(metricKey)}
-    >
-      <div className="flex justify-between items-start">
-        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-          {title}
-        </span>
-        <div className="flex items-center gap-2">
-          <button 
-            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
-            onClick={(e) => {
-              e.stopPropagation();
-              onExpand && onExpand(metricKey);
-            }}
-          >
-            <Maximize2 className="w-3.5 h-3.5 text-slate-500 hover:text-indigo-500" />
-          </button>
-          <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800">
-            <Icon className="w-4 h-4 text-slate-500" />
-          </div>
-        </div>
-      </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-4xl font-black text-slate-800 dark:text-white">
-          {isLoading ? "..." : value}
-        </span>
-        <span className="text-sm font-semibold text-slate-400">{unit}</span>
-      </div>
-      <div className="h-12 w-full mt-auto">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={getSparklineData(sparkKey)}>
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke={color}
-              fill={color}
-              fillOpacity={0.2}
-              strokeWidth={2}
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Hover Insight Tooltip */}
-      {isHovered && insights && (
-        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 translate-y-full z-50 w-52 bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-800 rotate-45 border-l border-t border-slate-700"></div>
-          
-          <div className="flex items-center gap-2 mb-2">
-            {insights.isGood ? (
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
-            ) : insights.trendDirection === "stable" ? (
-              <Activity className="w-4 h-4 text-slate-400" />
-            ) : (
-              <TrendingDown className="w-4 h-4 text-rose-400" />
-            )}
-            <span className={`text-xs font-bold ${
-              insights.isGood ? "text-emerald-400" : 
-              insights.trendDirection === "stable" ? "text-slate-400" : "text-rose-400"
-            }`}>
-              {insights.insight}
-            </span>
-          </div>
-          
-          <div className="space-y-1 text-[10px]">
-            <div className="flex justify-between">
-              <span className="text-slate-400">This week avg:</span>
-              <span className="font-bold">{insights.thisWeekAvg}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Last week avg:</span>
-              <span className="font-medium text-slate-300">{insights.lastWeekAvg}</span>
+    return (
+      <div
+        className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg hover:border-indigo-500/50 transition-all h-44 group cursor-pointer"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={() => onExpand && onExpand(metricKey)}
+      >
+        <div className="flex justify-between items-start">
+          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            {title}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+              onClick={(e) => {
+                e.stopPropagation();
+                onExpand && onExpand(metricKey);
+              }}
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-slate-500 hover:text-indigo-500" />
+            </button>
+            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800">
+              <Icon className="w-4 h-4 text-slate-500" />
             </div>
           </div>
-          
-          <div className="mt-2 pt-2 border-t border-slate-700 text-[10px] text-indigo-400 flex items-center gap-1">
-            <Maximize2 className="w-3 h-3" /> Click to expand
-          </div>
         </div>
-      )}
-    </div>
-  );
-};
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-4xl font-black text-slate-800 dark:text-white">
+            {isLoading ? "..." : value}
+          </span>
+          <span className="text-sm font-semibold text-slate-400">{unit}</span>
+        </div>
+        <div className="h-12 w-full mt-auto">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={getSparklineData(sparkKey)}>
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={color}
+                fill={color}
+                fillOpacity={0.2}
+                strokeWidth={2}
+                dot={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Hover Insight Tooltip */}
+        {isHovered && insights && (
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 translate-y-full z-50 w-52 bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-800 rotate-45 border-l border-t border-slate-700"></div>
+
+            <div className="flex items-center gap-2 mb-2">
+              {insights.isGood ? (
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+              ) : insights.trendDirection === "stable" ? (
+                <Activity className="w-4 h-4 text-slate-400" />
+              ) : (
+                <TrendingDown className="w-4 h-4 text-rose-400" />
+              )}
+              <span
+                className={`text-xs font-bold ${
+                  insights.isGood
+                    ? "text-emerald-400"
+                    : insights.trendDirection === "stable"
+                    ? "text-slate-400"
+                    : "text-rose-400"
+                }`}
+              >
+                {insights.insight}
+              </span>
+            </div>
+
+            <div className="space-y-1 text-[10px]">
+              <div className="flex justify-between">
+                <span className="text-slate-400">This week avg:</span>
+                <span className="font-bold">{insights.thisWeekAvg}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Last week avg:</span>
+                <span className="font-medium text-slate-300">
+                  {insights.lastWeekAvg}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-2 pt-2 border-t border-slate-700 text-[10px] text-indigo-400 flex items-center gap-1">
+              <Maximize2 className="w-3 h-3" /> Click to expand
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -885,7 +901,7 @@ const PerformanceMetricsCards = ({
         </div>
       )}
 
-{/* Header with Quarter Selector + Controls */}
+      {/* Header with Quarter Selector + Controls */}
       <div className="flex flex-wrap justify-between items-center gap-4">
         <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
           <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl">
@@ -898,7 +914,7 @@ const PerformanceMetricsCards = ({
             </span>
           )}
         </h2>
-        
+
         <div className="flex items-center gap-3">
           {/* Exclude Zendesk */}
           <button
@@ -909,19 +925,25 @@ const PerformanceMetricsCards = ({
                 : "bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
             }`}
           >
-            {excludeZendesk ? <Check className="w-3 h-3" /> : <ListFilter className="w-3 h-3" />}
+            {excludeZendesk ? (
+              <Check className="w-3 h-3" />
+            ) : (
+              <ListFilter className="w-3 h-3" />
+            )}
             Exclude Zendesk
           </button>
-          
+
           {/* Refresh */}
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
             className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 disabled:opacity-50 transition-colors"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
+            />
           </button>
-          
+
           {/* Quarter Selector */}
           <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
             {QUARTERS.map((q) => (
@@ -1358,13 +1380,10 @@ const DSATAlerts = ({ badTickets = [], isLoading, isGSTUser }) => {
   );
 };
 
-
-
-
 // ============================================================================
 // MAIN DASHBOARD
 // ============================================================================
-const AnalyticsDashboard = ({ tickets = [], filterOwner,dateRange }) => {
+const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
   const {
     theme,
     currentUser,
@@ -1374,10 +1393,9 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner,dateRange }) => {
   } = useTicketStore();
   const [currentQuarter, setCurrentQuarter] = useState("Q1_26");
   const [expandedTimeRange, setExpandedTimeRange] = useState(30);
-const [expandedGroupBy, setExpandedGroupBy] = useState("daily");
-const [expandedAllTrends, setExpandedAllTrends] = useState([]);
-const [expandedLoading, setExpandedLoading] = useState(false);
-
+  const [expandedGroupBy, setExpandedGroupBy] = useState("daily");
+  const [expandedAllTrends, setExpandedAllTrends] = useState([]);
+  const [expandedLoading, setExpandedLoading] = useState(false);
 
   const [excludeZendesk, setExcludeZendesk] = useState(false);
   const [viewMode, setViewMode] = useState("gst");
@@ -1390,471 +1408,573 @@ const [expandedLoading, setExpandedLoading] = useState(false);
 
   const [expandedOverviewMetric, setExpandedOverviewMetric] = useState(null);
 
-
-
   const isDark = theme === "dark";
-const effectiveDateRange = useMemo(() => {
-  if (dateRange?.start && dateRange?.end) {
-    return {
-      start: parseISO(dateRange.start),
-      end: parseISO(dateRange.end),
-      days: differenceInDays(parseISO(dateRange.end), parseISO(dateRange.start)) + 1
-    };
-  }
-  const end = new Date();
-  const start = subDays(end, 29);
-  return { start, end, days: 30 };
-}, [dateRange]);
+  const effectiveDateRange = useMemo(() => {
+    if (dateRange?.start && dateRange?.end) {
+      return {
+        start: parseISO(dateRange.start),
+        end: parseISO(dateRange.end),
+        days:
+          differenceInDays(parseISO(dateRange.end), parseISO(dateRange.start)) +
+          1,
+      };
+    }
+    const end = new Date();
+    const start = subDays(end, 29);
+    return { start, end, days: 30 };
+  }, [dateRange]);
 
-const filteredTickets = useMemo(() => {
-  return tickets.filter(t => {
-    if (!t.created_date) return false;
-    const ticketDate = parseISO(t.created_date);
-    return ticketDate >= effectiveDateRange.start && ticketDate <= effectiveDateRange.end;
-  });
-}, [tickets, effectiveDateRange]);
-
-// Admin Query Console State
-const [showAdminConsole, setShowAdminConsole] = useState(false);
-const [adminQuery, setAdminQuery] = useState("");
-const [adminRawQuery, setAdminRawQuery] = useState("{}");
-const [adminQueryMode, setAdminQueryMode] = useState("natural"); // "natural" | "raw"
-const [adminResults, setAdminResults] = useState(null);
-const [adminLoading, setAdminLoading] = useState(false);
-const [adminPage, setAdminPage] = useState(1);
-const [adminPageSize, setAdminPageSize] = useState(50);
-const [adminTotalCount, setAdminTotalCount] = useState(0);
-
-// Better date parsing function
-const parseDateString = (dateStr) => {
-  if (!dateStr) return null;
-  
-  // Clean up the string
-  const clean = dateStr.trim().toLowerCase();
-  
-  // Try various formats
-  const formats = [
-    // "jan 01 2026", "jan 1 2026"
-    /^(\w{3})\s+(\d{1,2})\s+(\d{4})$/,
-    // "01 jan 2026", "1 jan 2026"
-    /^(\d{1,2})\s+(\w{3})\s+(\d{4})$/,
-    // "2026-01-01"
-    /^(\d{4})-(\d{2})-(\d{2})$/,
-    // "01/01/2026"
-    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-  ];
-  
-  const months = {
-    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
-  };
-  
-  // Try "jan 01 2026" format
-  let match = clean.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);
-  if (match) {
-    const [, mon, day, year] = match;
-    if (months[mon] !== undefined) {
-      return new Date(parseInt(year), months[mon], parseInt(day));
-    }
-  }
-  
-  // Try "01 jan 2026" format
-  match = clean.match(/^(\d{1,2})\s+(\w{3})\s+(\d{4})$/);
-  if (match) {
-    const [, day, mon, year] = match;
-    if (months[mon] !== undefined) {
-      return new Date(parseInt(year), months[mon], parseInt(day));
-    }
-  }
-  
-  // Try "15 jan" (assume current year or 2026)
-  match = clean.match(/^(\d{1,2})\s+(\w{3})$/);
-  if (match) {
-    const [, day, mon] = match;
-    if (months[mon] !== undefined) {
-      return new Date(2026, months[mon], parseInt(day));
-    }
-  }
-  
-  // Try "jan 15" (assume current year or 2026)
-  match = clean.match(/^(\w{3})\s+(\d{1,2})$/);
-  if (match) {
-    const [, mon, day] = match;
-    if (months[mon] !== undefined) {
-      return new Date(2026, months[mon], parseInt(day));
-    }
-  }
-  
-  // Fallback to Date.parse
-  const parsed = new Date(dateStr);
-  return isNaN(parsed.getTime()) ? null : parsed;
-};
-
-// Improved natural language query parser
-const parseNaturalQuery = (query) => {
-  const q = query.toLowerCase().trim();
-  const mongoQuery = {};
-  
-  // Extract owner/member name - more patterns
-  const ownerPatterns = [
-    /(?:tickets?\s+(?:of|for|by|from|owned\s+by|assigned\s+to))\s+(\w+)/i,
-    /^(\w+)\s+tickets?/i,
-    /^(\w+)\s+ticket/i,
-    /(?:owner|member|assignee)[:\s=]+["']?(\w+)["']?/i,
-    /^(\w+)\s+(?:last|from|between)/i,
-  ];
-  
-  for (const pattern of ownerPatterns) {
-    const match = q.match(pattern);
-    if (match && match[1]) {
-      // Check if it's not a keyword
-      const keywords = ["tickets", "ticket", "last", "from", "where", "with", "high", "low", "good", "bad", "exclude"];
-      if (!keywords.includes(match[1].toLowerCase())) {
-        mongoQuery.owner = { $regex: match[1], $options: "i" };
-        break;
-      }
-    }
-  }
-  
-  // Date range patterns
-  // "last X days"
-  const lastDaysMatch = q.match(/last\s+(\d+)\s+days?/i);
-  if (lastDaysMatch) {
-    const days = parseInt(lastDaysMatch[1]);
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    mongoQuery.closed_date = { $gte: startDate.toISOString(), $lte: new Date().toISOString() };
-  }
-  
-  // "from X to Y" or "from X - Y" or "between X and Y"
-  const dateRangePatterns = [
-    /from\s+(.+?)\s+(?:to|-)\s+(.+?)(?:\s|$)/i,
-    /between\s+(.+?)\s+(?:and|-)\s+(.+?)(?:\s|$)/i,
-    /(\w+\s+\d{1,2}(?:\s+\d{4})?)\s*[-–]\s*(\w+\s+\d{1,2}(?:\s+\d{4})?)/i,
-    /(\d{1,2}\s+\w+(?:\s+\d{4})?)\s*[-–]\s*(\d{1,2}\s+\w+(?:\s+\d{4})?)/i,
-  ];
-  
-  for (const pattern of dateRangePatterns) {
-    const match = q.match(pattern);
-    if (match) {
-      const startDate = parseDateString(match[1]);
-      const endDate = parseDateString(match[2]);
-      if (startDate && endDate) {
-        // Set end date to end of day
-        endDate.setHours(23, 59, 59, 999);
-        mongoQuery.closed_date = { 
-          $gte: startDate.toISOString(), 
-          $lte: endDate.toISOString() 
-        };
-        break;
-      }
-    }
-  }
-  
-  // FRR filters
-  if (q.includes("frr met") || q.includes("frr=1") || q.includes("frr = 1") || q.includes("where frr")) {
-    mongoQuery.frr = 1;
-  } else if (q.includes("frr not met") || q.includes("no frr") || q.includes("frr=0") || q.includes("frr = 0")) {
-    mongoQuery.frr = 0;
-  }
-  
-  // CSAT filters
-  if (q.includes("good csat") || q.includes("positive csat") || q.includes("csat=2") || q.includes("csat = 2")) {
-    mongoQuery.csat = 2;
-  } else if (q.includes("bad csat") || q.includes("negative csat") || q.includes("dsat") || q.includes("csat=1") || q.includes("csat = 1")) {
-    mongoQuery.csat = 1;
-  }
-  
-  // RWT filters
-  const rwtMatch = q.match(/rwt\s*[>]=?\s*(\d+)/);
-  if (rwtMatch) {
-    mongoQuery.rwt = { $gte: parseFloat(rwtMatch[1]) };
-  } else if (q.includes("high rwt")) {
-    mongoQuery.rwt = { $gte: 50 };
-  }
-  
-  // FRT filters  
-  const frtMatch = q.match(/frt\s*[>]=?\s*(\d+)/);
-  if (frtMatch) {
-    mongoQuery.frt = { $gte: parseFloat(frtMatch[1]) };
-  }
-  
-  // Iterations filters
-  const iterMatch = q.match(/iterations?\s*[>]=?\s*(\d+)/);
-  if (iterMatch) {
-    mongoQuery.iterations = { $gte: parseInt(iterMatch[1]) };
-  } else if (q.includes("high iteration")) {
-    mongoQuery.iterations = { $gte: 3 };
-  } else if (q.includes("low iteration") || q.includes("single iteration")) {
-    mongoQuery.iterations = 1;
-  }
-  
-  // Zendesk filter
-  if (q.includes("exclude zendesk") || q.includes("no zendesk") || q.includes("devrev only")) {
-    mongoQuery.is_zendesk = { $ne: true };
-  } else if (q.includes("zendesk only") || q.includes("only zendesk")) {
-    mongoQuery.is_zendesk = true;
-  }
-  
-  // Region filter
-  const regionMatch = q.match(/region[:\s=]+["']?(\w+)["']?/i);
-  if (regionMatch) {
-    mongoQuery.region = { $regex: regionMatch[1], $options: "i" };
-  }
-  
-  return mongoQuery;
-};
-
-// Execute search
-const executeAdminSearch = async (page = 1) => {
-  setAdminLoading(true);
-  setAdminPage(page);
-  
-  try {
-    let queryToSend;
-    
-    if (adminQueryMode === "raw") {
-      // Parse the raw JSON query
-      try {
-        queryToSend = JSON.parse(adminRawQuery);
-      } catch (e) {
-        setAdminResults({ error: `Invalid JSON: ${e.message}` });
-        setAdminLoading(false);
-        return;
-      }
-    } else {
-      // Parse natural language
-      queryToSend = parseNaturalQuery(adminQuery);
-      // Update raw query display
-      setAdminRawQuery(JSON.stringify(queryToSend, null, 2));
-    }
-    
-    console.log("🔍 Executing Query:", queryToSend);
-    
-    const res = await fetch(
-      `${import.meta.env.VITE_API_URL || ""}/api/admin/search`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: queryToSend,
-          page,
-          pageSize: adminPageSize,
-        }),
-      }
-    );
-    
-    const data = await res.json();
-    console.log("📊 Results:", data);
-    
-    setAdminResults(data);
-    setAdminTotalCount(data.totalCount || 0);
-  } catch (e) {
-    console.error("Search error:", e);
-    setAdminResults({ error: e.message });
-  } finally {
-    setAdminLoading(false);
-  }
-};
-
-// Download results
-const downloadResults = (fileType) => {
-  if (!adminResults?.tickets?.length) return;
-  
-  const tickets = adminResults.tickets;
-  
-  if (fileType === "json") {
-    const blob = new Blob([JSON.stringify(tickets, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `tickets_export_${format(new Date(), "yyyy-MM-dd")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  } else if (fileType === "csv") {
-    const headers = ["ticket_id", "title", "owner", "closed_date", "rwt", "frt", "frr", "csat", "iterations", "region", "is_zendesk"];
-    const csvRows = [headers.join(",")];
-    
-    tickets.forEach(t => {
-      const row = headers.map(h => {
-        let val = t[h];
-        if (h === "closed_date" && val) val = format(new Date(val), "yyyy-MM-dd");
-        if (h === "title") val = `"${(val || "").replace(/"/g, '""')}"`;
-        return val ?? "";
-      });
-      csvRows.push(row.join(","));
+  const filteredTickets = useMemo(() => {
+    return tickets.filter((t) => {
+      if (!t.created_date) return false;
+      const ticketDate = parseISO(t.created_date);
+      return (
+        ticketDate >= effectiveDateRange.start &&
+        ticketDate <= effectiveDateRange.end
+      );
     });
-    
-    const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `tickets_export_${format(new Date(), "yyyy-MM-dd")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-};
+  }, [tickets, effectiveDateRange]);
 
-// Copy query to clipboard
-const copyQuery = () => {
-  navigator.clipboard.writeText(adminRawQuery);
-};
+  // Admin Query Console State
+  const [showAdminConsole, setShowAdminConsole] = useState(false);
+  const [adminQuery, setAdminQuery] = useState("");
+  const [adminRawQuery, setAdminRawQuery] = useState("{}");
+  const [adminQueryMode, setAdminQueryMode] = useState("natural"); // "natural" | "raw"
+  const [adminResults, setAdminResults] = useState(null);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminPage, setAdminPage] = useState(1);
+  const [adminPageSize, setAdminPageSize] = useState(50);
+  const [adminTotalCount, setAdminTotalCount] = useState(0);
 
+  // Better date parsing function
+  const parseDateString = (dateStr) => {
+    if (!dateStr) return null;
 
-// Add this function to parse natural language query:
-const parseSearchQuery = (query) => {
-  const q = query.toLowerCase();
-  const filters = {};
-  
-  // Owner/Member detection
-  const ownerPatterns = [
-    /(?:tickets?\s+(?:for|by|of|from|owned by|assigned to))\s+(\w+)/i,
-    /(\w+)(?:'s)?\s+tickets?/i,
-    /(?:owner|member|assignee)[:\s]+(\w+)/i,
-  ];
-  
-  for (const pattern of ownerPatterns) {
-    const match = q.match(pattern);
+    // Clean up the string
+    const clean = dateStr.trim().toLowerCase();
+
+    // Try various formats
+    const formats = [
+      // "jan 01 2026", "jan 1 2026"
+      /^(\w{3})\s+(\d{1,2})\s+(\d{4})$/,
+      // "01 jan 2026", "1 jan 2026"
+      /^(\d{1,2})\s+(\w{3})\s+(\d{4})$/,
+      // "2026-01-01"
+      /^(\d{4})-(\d{2})-(\d{2})$/,
+      // "01/01/2026"
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    ];
+
+    const months = {
+      jan: 0,
+      feb: 1,
+      mar: 2,
+      apr: 3,
+      may: 4,
+      jun: 5,
+      jul: 6,
+      aug: 7,
+      sep: 8,
+      oct: 9,
+      nov: 10,
+      dec: 11,
+    };
+
+    // Try "jan 01 2026" format
+    let match = clean.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);
     if (match) {
-      filters.owner = match[1];
-      break;
+      const [, mon, day, year] = match;
+      if (months[mon] !== undefined) {
+        return new Date(parseInt(year), months[mon], parseInt(day));
+      }
     }
-  }
-  
-  // Date range detection
-  if (q.includes("last 7 days") || q.includes("last week")) {
-    filters.dateRange = 7;
-  } else if (q.includes("last 14 days") || q.includes("last 2 weeks")) {
-    filters.dateRange = 14;
-  } else if (q.includes("last 30 days") || q.includes("last month")) {
-    filters.dateRange = 30;
-  } else if (q.includes("last 90 days") || q.includes("last 3 months") || q.includes("last quarter")) {
-    filters.dateRange = 90;
-  } else if (q.includes("this week")) {
-    filters.dateRange = 7;
-  } else if (q.includes("this month")) {
-    filters.dateRange = 30;
-  }
-  
-  // Custom date range: "from jan 1 to jan 15" or "between jan 1 and jan 15"
-  const dateRangeMatch = q.match(/(?:from|between)\s+(\w+\s+\d+)(?:\s+to|\s+and)\s+(\w+\s+\d+)/i);
-  if (dateRangeMatch) {
-    filters.startDate = dateRangeMatch[1];
-    filters.endDate = dateRangeMatch[2];
-  }
-  
-  // Metric filters
-  if (q.includes("frr met") || q.includes("frr = 1") || q.includes("frr is 1") || q.includes("high frr")) {
-    filters.frr = 1;
-  } else if (q.includes("frr not met") || q.includes("frr = 0") || q.includes("frr is 0") || q.includes("low frr") || q.includes("no frr")) {
-    filters.frr = 0;
-  }
-  
-  if (q.includes("good csat") || q.includes("positive csat") || q.includes("csat = 2")) {
-    filters.csat = 2;
-  } else if (q.includes("bad csat") || q.includes("negative csat") || q.includes("csat = 1") || q.includes("dsat")) {
-    filters.csat = 1;
-  }
-  
-  if (q.includes("high rwt") || q.includes("rwt > ")) {
-    const rwtMatch = q.match(/rwt\s*>\s*(\d+)/);
-    filters.rwtGt = rwtMatch ? parseInt(rwtMatch[1]) : 50;
-  }
-  
-  if (q.includes("low iterations") || q.includes("iterations = 1")) {
-    filters.iterations = 1;
-  } else if (q.includes("high iterations") || q.includes("iterations > ")) {
-    const iterMatch = q.match(/iterations\s*>\s*(\d+)/);
-    filters.iterationsGt = iterMatch ? parseInt(iterMatch[1]) : 3;
-  }
-  
-  // Zendesk filter
-  if (q.includes("zendesk") || q.includes("imported")) {
-    filters.isZendesk = true;
-  } else if (q.includes("exclude zendesk") || q.includes("no zendesk") || q.includes("devrev only")) {
-    filters.isZendesk = false;
-  }
-  
-  // Solved/Closed
-  if (q.includes("solved") || q.includes("closed") || q.includes("resolved")) {
-    filters.status = "solved";
-  }
-  
-  return filters;
-};
 
-// Add this function to execute search:
-// const executeAdminSearch = async () => {
-//   if (!adminSearchQuery.trim()) return;
-  
-//   setAdminSearchLoading(true);
-//   const filters = parseSearchQuery(adminSearchQuery);
-  
-//   console.log("🔍 Parsed Query:", filters);
-  
-//   try {
-//     const params = new URLSearchParams();
-//     if (filters.owner) params.set("owner", filters.owner);
-//     if (filters.dateRange) params.set("dateRange", filters.dateRange);
-//     if (filters.startDate) params.set("startDate", filters.startDate);
-//     if (filters.endDate) params.set("endDate", filters.endDate);
-//     if (filters.frr !== undefined) params.set("frr", filters.frr);
-//     if (filters.csat !== undefined) params.set("csat", filters.csat);
-//     if (filters.rwtGt) params.set("rwtGt", filters.rwtGt);
-//     if (filters.iterations) params.set("iterations", filters.iterations);
-//     if (filters.iterationsGt) params.set("iterationsGt", filters.iterationsGt);
-//     if (filters.isZendesk !== undefined) params.set("isZendesk", filters.isZendesk);
-    
-//     const res = await fetch(
-//       `${import.meta.env.VITE_API_URL || ""}/api/admin/search?${params.toString()}`
-//     );
-//     const data = await res.json();
-    
-//     console.log("📊 Search Results:", data);
-//     setAdminSearchResults(data);
-//   } catch (e) {
-//     console.error("Search failed:", e);
-//     setAdminSearchResults({ error: e.message });
-//   } finally {
-//     setAdminSearchLoading(false);
-//   }
-// };
+    // Try "01 jan 2026" format
+    match = clean.match(/^(\d{1,2})\s+(\w{3})\s+(\d{4})$/);
+    if (match) {
+      const [, day, mon, year] = match;
+      if (months[mon] !== undefined) {
+        return new Date(parseInt(year), months[mon], parseInt(day));
+      }
+    }
 
-const filteredTrends = useMemo(() => {
-  const trends = analyticsData?.trends || [];
-  return trends.filter(t => {
-    if (!t.date) return false;
-    const trendDate = parseISO(t.date);
-    return trendDate >= effectiveDateRange.start && trendDate <= effectiveDateRange.end;
-  });
-}, [analyticsData, effectiveDateRange]);
+    // Try "15 jan" (assume current year or 2026)
+    match = clean.match(/^(\d{1,2})\s+(\w{3})$/);
+    if (match) {
+      const [, day, mon] = match;
+      if (months[mon] !== undefined) {
+        return new Date(2026, months[mon], parseInt(day));
+      }
+    }
+
+    // Try "jan 15" (assume current year or 2026)
+    match = clean.match(/^(\w{3})\s+(\d{1,2})$/);
+    if (match) {
+      const [, mon, day] = match;
+      if (months[mon] !== undefined) {
+        return new Date(2026, months[mon], parseInt(day));
+      }
+    }
+
+    // Fallback to Date.parse
+    const parsed = new Date(dateStr);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  // Improved natural language query parser
+  const parseNaturalQuery = (query) => {
+    const q = query.toLowerCase().trim();
+    const mongoQuery = {};
+
+    // Extract owner/member name - more patterns
+    const ownerPatterns = [
+      /(?:tickets?\s+(?:of|for|by|from|owned\s+by|assigned\s+to))\s+(\w+)/i,
+      /^(\w+)\s+tickets?/i,
+      /^(\w+)\s+ticket/i,
+      /(?:owner|member|assignee)[:\s=]+["']?(\w+)["']?/i,
+      /^(\w+)\s+(?:last|from|between)/i,
+    ];
+
+    for (const pattern of ownerPatterns) {
+      const match = q.match(pattern);
+      if (match && match[1]) {
+        // Check if it's not a keyword
+        const keywords = [
+          "tickets",
+          "ticket",
+          "last",
+          "from",
+          "where",
+          "with",
+          "high",
+          "low",
+          "good",
+          "bad",
+          "exclude",
+        ];
+        if (!keywords.includes(match[1].toLowerCase())) {
+          mongoQuery.owner = { $regex: match[1], $options: "i" };
+          break;
+        }
+      }
+    }
+
+    // Date range patterns
+    // "last X days"
+    const lastDaysMatch = q.match(/last\s+(\d+)\s+days?/i);
+    if (lastDaysMatch) {
+      const days = parseInt(lastDaysMatch[1]);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      mongoQuery.closed_date = {
+        $gte: startDate.toISOString(),
+        $lte: new Date().toISOString(),
+      };
+    }
+
+    // "from X to Y" or "from X - Y" or "between X and Y"
+    const dateRangePatterns = [
+      /from\s+(.+?)\s+(?:to|-)\s+(.+?)(?:\s|$)/i,
+      /between\s+(.+?)\s+(?:and|-)\s+(.+?)(?:\s|$)/i,
+      /(\w+\s+\d{1,2}(?:\s+\d{4})?)\s*[-–]\s*(\w+\s+\d{1,2}(?:\s+\d{4})?)/i,
+      /(\d{1,2}\s+\w+(?:\s+\d{4})?)\s*[-–]\s*(\d{1,2}\s+\w+(?:\s+\d{4})?)/i,
+    ];
+
+    for (const pattern of dateRangePatterns) {
+      const match = q.match(pattern);
+      if (match) {
+        const startDate = parseDateString(match[1]);
+        const endDate = parseDateString(match[2]);
+        if (startDate && endDate) {
+          // Set end date to end of day
+          endDate.setHours(23, 59, 59, 999);
+          mongoQuery.closed_date = {
+            $gte: startDate.toISOString(),
+            $lte: endDate.toISOString(),
+          };
+          break;
+        }
+      }
+    }
+
+    // FRR filters
+    if (
+      q.includes("frr met") ||
+      q.includes("frr=1") ||
+      q.includes("frr = 1") ||
+      q.includes("where frr")
+    ) {
+      mongoQuery.frr = 1;
+    } else if (
+      q.includes("frr not met") ||
+      q.includes("no frr") ||
+      q.includes("frr=0") ||
+      q.includes("frr = 0")
+    ) {
+      mongoQuery.frr = 0;
+    }
+
+    // CSAT filters
+    if (
+      q.includes("good csat") ||
+      q.includes("positive csat") ||
+      q.includes("csat=2") ||
+      q.includes("csat = 2")
+    ) {
+      mongoQuery.csat = 2;
+    } else if (
+      q.includes("bad csat") ||
+      q.includes("negative csat") ||
+      q.includes("dsat") ||
+      q.includes("csat=1") ||
+      q.includes("csat = 1")
+    ) {
+      mongoQuery.csat = 1;
+    }
+
+    // RWT filters
+    const rwtMatch = q.match(/rwt\s*[>]=?\s*(\d+)/);
+    if (rwtMatch) {
+      mongoQuery.rwt = { $gte: parseFloat(rwtMatch[1]) };
+    } else if (q.includes("high rwt")) {
+      mongoQuery.rwt = { $gte: 50 };
+    }
+
+    // FRT filters
+    const frtMatch = q.match(/frt\s*[>]=?\s*(\d+)/);
+    if (frtMatch) {
+      mongoQuery.frt = { $gte: parseFloat(frtMatch[1]) };
+    }
+
+    // Iterations filters
+    const iterMatch = q.match(/iterations?\s*[>]=?\s*(\d+)/);
+    if (iterMatch) {
+      mongoQuery.iterations = { $gte: parseInt(iterMatch[1]) };
+    } else if (q.includes("high iteration")) {
+      mongoQuery.iterations = { $gte: 3 };
+    } else if (q.includes("low iteration") || q.includes("single iteration")) {
+      mongoQuery.iterations = 1;
+    }
+
+    // Zendesk filter
+    if (
+      q.includes("exclude zendesk") ||
+      q.includes("no zendesk") ||
+      q.includes("devrev only")
+    ) {
+      mongoQuery.is_zendesk = { $ne: true };
+    } else if (q.includes("zendesk only") || q.includes("only zendesk")) {
+      mongoQuery.is_zendesk = true;
+    }
+
+    // Region filter
+    const regionMatch = q.match(/region[:\s=]+["']?(\w+)["']?/i);
+    if (regionMatch) {
+      mongoQuery.region = { $regex: regionMatch[1], $options: "i" };
+    }
+
+    return mongoQuery;
+  };
+
+  // Execute search
+  const executeAdminSearch = async (page = 1) => {
+    setAdminLoading(true);
+    setAdminPage(page);
+
+    try {
+      let queryToSend;
+
+      if (adminQueryMode === "raw") {
+        // Parse the raw JSON query
+        try {
+          queryToSend = JSON.parse(adminRawQuery);
+        } catch (e) {
+          setAdminResults({ error: `Invalid JSON: ${e.message}` });
+          setAdminLoading(false);
+          return;
+        }
+      } else {
+        // Parse natural language
+        queryToSend = parseNaturalQuery(adminQuery);
+        // Update raw query display
+        setAdminRawQuery(JSON.stringify(queryToSend, null, 2));
+      }
+
+      console.log("🔍 Executing Query:", queryToSend);
+
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL || ""}/api/admin/search`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: queryToSend,
+            page,
+            pageSize: adminPageSize,
+          }),
+        }
+      );
+
+      const data = await res.json();
+      console.log("📊 Results:", data);
+
+      setAdminResults(data);
+      setAdminTotalCount(data.totalCount || 0);
+    } catch (e) {
+      console.error("Search error:", e);
+      setAdminResults({ error: e.message });
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  // Download results
+  const downloadResults = (fileType) => {
+    if (!adminResults?.tickets?.length) return;
+
+    const tickets = adminResults.tickets;
+
+    if (fileType === "json") {
+      const blob = new Blob([JSON.stringify(tickets, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tickets_export_${format(new Date(), "yyyy-MM-dd")}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (fileType === "csv") {
+      const headers = [
+        "ticket_id",
+        "title",
+        "owner",
+        "closed_date",
+        "rwt",
+        "frt",
+        "frr",
+        "csat",
+        "iterations",
+        "region",
+        "is_zendesk",
+      ];
+      const csvRows = [headers.join(",")];
+
+      tickets.forEach((t) => {
+        const row = headers.map((h) => {
+          let val = t[h];
+          if (h === "closed_date" && val)
+            val = format(new Date(val), "yyyy-MM-dd");
+          if (h === "title") val = `"${(val || "").replace(/"/g, '""')}"`;
+          return val ?? "";
+        });
+        csvRows.push(row.join(","));
+      });
+
+      const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tickets_export_${format(new Date(), "yyyy-MM-dd")}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  // Copy query to clipboard
+  const copyQuery = () => {
+    navigator.clipboard.writeText(adminRawQuery);
+  };
+
+  // Add this function to parse natural language query:
+  const parseSearchQuery = (query) => {
+    const q = query.toLowerCase();
+    const filters = {};
+
+    // Owner/Member detection
+    const ownerPatterns = [
+      /(?:tickets?\s+(?:for|by|of|from|owned by|assigned to))\s+(\w+)/i,
+      /(\w+)(?:'s)?\s+tickets?/i,
+      /(?:owner|member|assignee)[:\s]+(\w+)/i,
+    ];
+
+    for (const pattern of ownerPatterns) {
+      const match = q.match(pattern);
+      if (match) {
+        filters.owner = match[1];
+        break;
+      }
+    }
+
+    // Date range detection
+    if (q.includes("last 7 days") || q.includes("last week")) {
+      filters.dateRange = 7;
+    } else if (q.includes("last 14 days") || q.includes("last 2 weeks")) {
+      filters.dateRange = 14;
+    } else if (q.includes("last 30 days") || q.includes("last month")) {
+      filters.dateRange = 30;
+    } else if (
+      q.includes("last 90 days") ||
+      q.includes("last 3 months") ||
+      q.includes("last quarter")
+    ) {
+      filters.dateRange = 90;
+    } else if (q.includes("this week")) {
+      filters.dateRange = 7;
+    } else if (q.includes("this month")) {
+      filters.dateRange = 30;
+    }
+
+    // Custom date range: "from jan 1 to jan 15" or "between jan 1 and jan 15"
+    const dateRangeMatch = q.match(
+      /(?:from|between)\s+(\w+\s+\d+)(?:\s+to|\s+and)\s+(\w+\s+\d+)/i
+    );
+    if (dateRangeMatch) {
+      filters.startDate = dateRangeMatch[1];
+      filters.endDate = dateRangeMatch[2];
+    }
+
+    // Metric filters
+    if (
+      q.includes("frr met") ||
+      q.includes("frr = 1") ||
+      q.includes("frr is 1") ||
+      q.includes("high frr")
+    ) {
+      filters.frr = 1;
+    } else if (
+      q.includes("frr not met") ||
+      q.includes("frr = 0") ||
+      q.includes("frr is 0") ||
+      q.includes("low frr") ||
+      q.includes("no frr")
+    ) {
+      filters.frr = 0;
+    }
+
+    if (
+      q.includes("good csat") ||
+      q.includes("positive csat") ||
+      q.includes("csat = 2")
+    ) {
+      filters.csat = 2;
+    } else if (
+      q.includes("bad csat") ||
+      q.includes("negative csat") ||
+      q.includes("csat = 1") ||
+      q.includes("dsat")
+    ) {
+      filters.csat = 1;
+    }
+
+    if (q.includes("high rwt") || q.includes("rwt > ")) {
+      const rwtMatch = q.match(/rwt\s*>\s*(\d+)/);
+      filters.rwtGt = rwtMatch ? parseInt(rwtMatch[1]) : 50;
+    }
+
+    if (q.includes("low iterations") || q.includes("iterations = 1")) {
+      filters.iterations = 1;
+    } else if (q.includes("high iterations") || q.includes("iterations > ")) {
+      const iterMatch = q.match(/iterations\s*>\s*(\d+)/);
+      filters.iterationsGt = iterMatch ? parseInt(iterMatch[1]) : 3;
+    }
+
+    // Zendesk filter
+    if (q.includes("zendesk") || q.includes("imported")) {
+      filters.isZendesk = true;
+    } else if (
+      q.includes("exclude zendesk") ||
+      q.includes("no zendesk") ||
+      q.includes("devrev only")
+    ) {
+      filters.isZendesk = false;
+    }
+
+    // Solved/Closed
+    if (
+      q.includes("solved") ||
+      q.includes("closed") ||
+      q.includes("resolved")
+    ) {
+      filters.status = "solved";
+    }
+
+    return filters;
+  };
+
+  // Add this function to execute search:
+  // const executeAdminSearch = async () => {
+  //   if (!adminSearchQuery.trim()) return;
+
+  //   setAdminSearchLoading(true);
+  //   const filters = parseSearchQuery(adminSearchQuery);
+
+  //   console.log("🔍 Parsed Query:", filters);
+
+  //   try {
+  //     const params = new URLSearchParams();
+  //     if (filters.owner) params.set("owner", filters.owner);
+  //     if (filters.dateRange) params.set("dateRange", filters.dateRange);
+  //     if (filters.startDate) params.set("startDate", filters.startDate);
+  //     if (filters.endDate) params.set("endDate", filters.endDate);
+  //     if (filters.frr !== undefined) params.set("frr", filters.frr);
+  //     if (filters.csat !== undefined) params.set("csat", filters.csat);
+  //     if (filters.rwtGt) params.set("rwtGt", filters.rwtGt);
+  //     if (filters.iterations) params.set("iterations", filters.iterations);
+  //     if (filters.iterationsGt) params.set("iterationsGt", filters.iterationsGt);
+  //     if (filters.isZendesk !== undefined) params.set("isZendesk", filters.isZendesk);
+
+  //     const res = await fetch(
+  //       `${import.meta.env.VITE_API_URL || ""}/api/admin/search?${params.toString()}`
+  //     );
+  //     const data = await res.json();
+
+  //     console.log("📊 Search Results:", data);
+  //     setAdminSearchResults(data);
+  //   } catch (e) {
+  //     console.error("Search failed:", e);
+  //     setAdminSearchResults({ error: e.message });
+  //   } finally {
+  //     setAdminSearchLoading(false);
+  //   }
+  // };
+
+  const filteredTrends = useMemo(() => {
+    const trends = analyticsData?.trends || [];
+    return trends.filter((t) => {
+      if (!t.date) return false;
+      const trendDate = parseISO(t.date);
+      return (
+        trendDate >= effectiveDateRange.start &&
+        trendDate <= effectiveDateRange.end
+      );
+    });
+  }, [analyticsData, effectiveDateRange]);
 
   const serverTrends = analyticsData?.trends || [];
 
-  
+  const getExpandedOverviewData = useCallback(
+    (metricKey) => {
+      if (!filteredTrends.length) return [];
 
+      const dataKeyMap = {
+        avgRWT: "avgRWT",
+        csat: "positiveCSAT",
+        frrPercent: "frrMet",
+        avgIterations: "avgIterations",
+        avgFRT: "avgFRT",
+      };
 
-  const getExpandedOverviewData = useCallback((metricKey) => {
-  if (!filteredTrends.length) return [];
-  
-  const dataKeyMap = {
-    avgRWT: "avgRWT",
-    csat: "positiveCSAT", 
-    frrPercent: "frrMet",
-    avgIterations: "avgIterations",
-    avgFRT: "avgFRT",
-  };
-  
-  const dataKey = dataKeyMap[metricKey] || "solved";
-  
-  return filteredTrends.map(t => ({
-    name: format(parseISO(t.date), "MMM dd"),
-    date: t.date,
-    value: t[dataKey] || 0,
-  }));
-}, [filteredTrends]);
+      const dataKey = dataKeyMap[metricKey] || "solved";
 
-
+      return filteredTrends.map((t) => ({
+        name: format(parseISO(t.date), "MMM dd"),
+        date: t.date,
+        value: t[dataKey] || 0,
+      }));
+    },
+    [filteredTrends]
+  );
 
   // Resolve current user to GST roster name
   const resolvedCurrentUser = useMemo(() => {
@@ -1894,250 +2014,301 @@ const filteredTrends = useMemo(() => {
   // GST-only user list for dropdowns
   const gstUserNames = useMemo(() => Object.values(FLAT_TEAM_MAP).sort(), []);
 
+  const getExpandedChartData = useCallback(
+    (metricKey) => {
+      // Use expandedAllTrends instead of analyticsData?.trends
+      const trends =
+        expandedAllTrends.length > 0
+          ? expandedAllTrends
+          : analyticsData?.trends || [];
+      if (!trends.length) return [];
 
- const getExpandedChartData = useCallback((metricKey) => {
-  // Use expandedAllTrends instead of analyticsData?.trends
-  const trends = expandedAllTrends.length > 0 ? expandedAllTrends : (analyticsData?.trends || []);
-  if (!trends.length) return [];
-  
-  const end = new Date();
-  const start = subDays(end, expandedTimeRange - 1);
-  
-  // Filter by date range
-  const filteredData = trends.filter(t => {
-    if (!t.date) return false;
-    const d = parseISO(t.date);
-    return d >= start && d <= end;
-  });
-  
-  const dataKeyMap = {
-    avgRWT: "avgRWT",
-    csat: "positiveCSAT",
-    frrPercent: "frrMet",  // This maps to frrMet in the trends data
-    avgIterations: "avgIterations",
-    avgFRT: "avgFRT",
-  };
-  const dataKey = dataKeyMap[metricKey] || "solved";
-  
-  // Group data based on expandedGroupBy
-  if (expandedGroupBy === "daily") {
-    return filteredData.map(t => ({
-      name: format(parseISO(t.date), "MMM dd"),
-      date: t.date,
-      value: t[dataKey] || 0,
-    }));
-  }
-  
-  if (expandedGroupBy === "weekly") {
-    const weeks = {};
-    filteredData.forEach(t => {
-      const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
-      if (!weeks[weekKey]) {
-        weeks[weekKey] = { values: [], date: t.date };
+      const end = new Date();
+      const start = subDays(end, expandedTimeRange - 1);
+
+      // Filter by date range
+      const filteredData = trends.filter((t) => {
+        if (!t.date) return false;
+        const d = parseISO(t.date);
+        return d >= start && d <= end;
+      });
+
+      const dataKeyMap = {
+        avgRWT: "avgRWT",
+        csat: "positiveCSAT",
+        frrPercent: "frrMet", // This maps to frrMet in the trends data
+        avgIterations: "avgIterations",
+        avgFRT: "avgFRT",
+      };
+      const dataKey = dataKeyMap[metricKey] || "solved";
+
+      // Group data based on expandedGroupBy
+      if (expandedGroupBy === "daily") {
+        return filteredData.map((t) => ({
+          name: format(parseISO(t.date), "MMM dd"),
+          date: t.date,
+          value: t[dataKey] || 0,
+        }));
       }
-      weeks[weekKey].values.push(t[dataKey] || 0);
-    });
-    
-    return Object.entries(weeks)
-      .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-      .map(([week, data]) => ({
-        name: `Week ${week.split('W')[1]}`,
-        date: data.date,
-        value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
-      }));
-  }
-  
-  if (expandedGroupBy === "monthly") {
-    const months = {};
-    filteredData.forEach(t => {
-      const monthKey = format(parseISO(t.date), "yyyy-MM");
-      if (!months[monthKey]) {
-        months[monthKey] = { values: [], date: t.date };
+
+      if (expandedGroupBy === "weekly") {
+        const weeks = {};
+        filteredData.forEach((t) => {
+          const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
+          if (!weeks[weekKey]) {
+            weeks[weekKey] = { values: [], date: t.date };
+          }
+          weeks[weekKey].values.push(t[dataKey] || 0);
+        });
+
+        return Object.entries(weeks)
+          .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
+          .map(([week, data]) => ({
+            name: `Week ${week.split("W")[1]}`,
+            date: data.date,
+            value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
+          }));
       }
-      months[monthKey].values.push(t[dataKey] || 0);
-    });
-    
-    return Object.entries(months)
-      .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-      .map(([month, data]) => ({
-        name: format(parseISO(data.date), "MMM yyyy"),
-        date: data.date,
-        value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
-      }));
-  }
-  
-  return [];
-}, [expandedAllTrends, analyticsData, expandedTimeRange, expandedGroupBy]);
-// Get period total
-const getExpandedPeriodTotal = useCallback((metricKey) => {
-  const chartData = getExpandedChartData(metricKey);
-  if (!chartData.length) return "—";
-  
-  const total = chartData.reduce((sum, d) => sum + (d.value || 0), 0);
-  
-  // For averages, return the average not total
-  if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
-    return (total / chartData.length).toFixed(2);
-  }
-  
-  return Math.round(total).toLocaleString();
-}, [getExpandedChartData]);
 
-// Get average
-const getExpandedAverage = useCallback((metricKey) => {
-  const chartData = getExpandedChartData(metricKey);
-  if (!chartData.length) return "—";
-  
-  const avg = chartData.reduce((sum, d) => sum + (d.value || 0), 0) / chartData.length;
-  return avg.toFixed(2);
-}, [getExpandedChartData]);
+      if (expandedGroupBy === "monthly") {
+        const months = {};
+        filteredData.forEach((t) => {
+          const monthKey = format(parseISO(t.date), "yyyy-MM");
+          if (!months[monthKey]) {
+            months[monthKey] = { values: [], date: t.date };
+          }
+          months[monthKey].values.push(t[dataKey] || 0);
+        });
 
-// Get trend (comparing first half vs second half)
-const getExpandedTrend = useCallback((metricKey) => {
-  const chartData = getExpandedChartData(metricKey);
-  if (chartData.length < 2) return { value: "—", isPositive: true };
-  
-  const mid = Math.floor(chartData.length / 2);
-  const firstHalf = chartData.slice(0, mid);
-  const secondHalf = chartData.slice(mid);
-  
-  const firstAvg = firstHalf.reduce((s, d) => s + d.value, 0) / firstHalf.length;
-  const secondAvg = secondHalf.reduce((s, d) => s + d.value, 0) / secondHalf.length;
-  
-  if (firstAvg === 0) return { value: "—", isPositive: true };
-  
-  const change = ((secondAvg - firstAvg) / firstAvg * 100).toFixed(1);
-  
-  // For RWT/FRT, lower is better
-  const lowerIsBetter = ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey);
-  const isPositive = lowerIsBetter ? change < 0 : change > 0;
-  
-  return {
-    value: `${change > 0 ? '+' : ''}${change}%`,
-    isPositive,
-  };
-}, [getExpandedChartData]);
+        return Object.entries(months)
+          .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
+          .map(([month, data]) => ({
+            name: format(parseISO(data.date), "MMM yyyy"),
+            date: data.date,
+            value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
+          }));
+      }
+
+      return [];
+    },
+    [expandedAllTrends, analyticsData, expandedTimeRange, expandedGroupBy]
+  );
+  // Get period total
+  const getExpandedPeriodTotal = useCallback(
+    (metricKey) => {
+      const chartData = getExpandedChartData(metricKey);
+      if (!chartData.length) return "—";
+
+      const total = chartData.reduce((sum, d) => sum + (d.value || 0), 0);
+
+      // For averages, return the average not total
+      if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
+        return (total / chartData.length).toFixed(2);
+      }
+
+      return Math.round(total).toLocaleString();
+    },
+    [getExpandedChartData]
+  );
+
+  // Get average
+  const getExpandedAverage = useCallback(
+    (metricKey) => {
+      const chartData = getExpandedChartData(metricKey);
+      if (!chartData.length) return "—";
+
+      const avg =
+        chartData.reduce((sum, d) => sum + (d.value || 0), 0) /
+        chartData.length;
+      return avg.toFixed(2);
+    },
+    [getExpandedChartData]
+  );
+
+  // Get trend (comparing first half vs second half)
+  const getExpandedTrend = useCallback(
+    (metricKey) => {
+      const chartData = getExpandedChartData(metricKey);
+      if (chartData.length < 2) return { value: "—", isPositive: true };
+
+      const mid = Math.floor(chartData.length / 2);
+      const firstHalf = chartData.slice(0, mid);
+      const secondHalf = chartData.slice(mid);
+
+      const firstAvg =
+        firstHalf.reduce((s, d) => s + d.value, 0) / firstHalf.length;
+      const secondAvg =
+        secondHalf.reduce((s, d) => s + d.value, 0) / secondHalf.length;
+
+      if (firstAvg === 0) return { value: "—", isPositive: true };
+
+      const change = (((secondAvg - firstAvg) / firstAvg) * 100).toFixed(1);
+
+      // For RWT/FRT, lower is better
+      const lowerIsBetter = ["avgRWT", "avgFRT", "avgIterations"].includes(
+        metricKey
+      );
+      const isPositive = lowerIsBetter ? change < 0 : change > 0;
+
+      return {
+        value: `${change > 0 ? "+" : ""}${change}%`,
+        isPositive,
+      };
+    },
+    [getExpandedChartData]
+  );
 
   // Calculate overview metric total for selected users
-const calculateOverviewTotal = useCallback((metricKey) => {
-  if (!analyticsData?.individualTrends || selectedUsers.length === 0) return "—";
-  
-  let total = 0;
-  let count = 0;
-  
-  selectedUsers.forEach(user => {
-    const userTrends = analyticsData.individualTrends[user] || [];
-    userTrends.slice(-timeRange).forEach(day => {
+  const calculateOverviewTotal = useCallback(
+    (metricKey) => {
+      if (!analyticsData?.individualTrends || selectedUsers.length === 0)
+        return "—";
+
+      let total = 0;
+      let count = 0;
+
+      selectedUsers.forEach((user) => {
+        const userTrends = analyticsData.individualTrends[user] || [];
+        userTrends.slice(-timeRange).forEach((day) => {
+          if (metricKey === "avgRWT" || metricKey === "avgFRT") {
+            total += day.avgRWT || day.avgFRT || 0;
+            count++;
+          } else if (metricKey === "csat") {
+            total += day.positiveCSAT || 0;
+          } else {
+            total += day.solved || 0;
+          }
+        });
+      });
+
       if (metricKey === "avgRWT" || metricKey === "avgFRT") {
-        total += day.avgRWT || day.avgFRT || 0;
-        count++;
-      } else if (metricKey === "csat") {
-        total += day.positiveCSAT || 0;
-      } else {
-        total += day.solved || 0;
+        return count > 0 ? (total / count).toFixed(2) : "0";
       }
-    });
-  });
-  
-  if (metricKey === "avgRWT" || metricKey === "avgFRT") {
-    return count > 0 ? (total / count).toFixed(2) : "0";
-  }
-  return total;
-}, [analyticsData, selectedUsers, timeRange]);
+      return total;
+    },
+    [analyticsData, selectedUsers, timeRange]
+  );
 
-// Calculate team average
-const calculateTeamAverage = useCallback((metricKey) => {
-  if (!analyticsData?.individualTrends) return "—";
-  
-  const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")] 
-    ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")]) 
-    : [];
-  
-  let total = 0;
-  let count = 0;
-  
-  teamMembers.forEach(member => {
-    const memberTrends = analyticsData.individualTrends[member] || [];
-    memberTrends.slice(-timeRange).forEach(day => {
-      total += day[OVERVIEW_METRICS[metricKey]?.dataKey] || day.solved || 0;
-      count++;
-    });
-  });
-  
-  return count > 0 ? (total / count).toFixed(2) : "0";
-}, [analyticsData, myTeamName, timeRange]);
+  // Calculate team average
+  const calculateTeamAverage = useCallback(
+    (metricKey) => {
+      if (!analyticsData?.individualTrends) return "—";
 
-// Calculate GST average
-const calculateGSTAverage = useCallback((metricKey) => {
-  if (!analyticsData?.individualTrends) return "—";
-  
-  let total = 0;
-  let count = 0;
-  
-  Object.values(analyticsData.individualTrends).forEach(userTrends => {
-    userTrends.slice(-timeRange).forEach(day => {
-      total += day[OVERVIEW_METRICS[metricKey]?.dataKey] || day.solved || 0;
-      count++;
-    });
-  });
-  
-  return count > 0 ? (total / count).toFixed(2) : "0";
-}, [analyticsData, timeRange]);
-
-// Get chart data for overview metric
-const getOverviewChartData = useCallback((metricKey) => {
-  if (!analyticsData?.individualTrends) return [];
-  
-  const allDates = new Set();
-  Object.values(analyticsData.individualTrends).forEach(userTrends => {
-    userTrends.forEach(day => allDates.add(day.date));
-  });
-  
-  const sortedDates = Array.from(allDates).sort().slice(-timeRange);
-  const dataKey = OVERVIEW_METRICS[metricKey]?.dataKey || "solved";
-  
-  return sortedDates.map(date => {
-    const point = { 
-      name: format(parseISO(date), groupBy === "monthly" ? "MMM" : "MMM dd"),
-      date 
-    };
-    
-    // Add selected users data
-    selectedUsers.forEach(user => {
-      const userDay = (analyticsData.individualTrends[user] || []).find(d => d.date === date);
-      point[user] = userDay?.[dataKey] || userDay?.solved || 0;
-    });
-    
-    // Add team average
-    if (showTeam) {
-      const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")] 
-        ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")]) 
+      const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")]
+        ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")])
         : [];
-      let teamTotal = 0;
-      teamMembers.forEach(member => {
-        const memberDay = (analyticsData.individualTrends[member] || []).find(d => d.date === date);
-        teamTotal += memberDay?.[dataKey] || memberDay?.solved || 0;
+
+      let total = 0;
+      let count = 0;
+
+      teamMembers.forEach((member) => {
+        const memberTrends = analyticsData.individualTrends[member] || [];
+        memberTrends.slice(-timeRange).forEach((day) => {
+          total += day[OVERVIEW_METRICS[metricKey]?.dataKey] || day.solved || 0;
+          count++;
+        });
       });
-      point.team = teamMembers.length > 0 ? teamTotal / teamMembers.length : 0;
-    }
-    
-    // Add GST average
-    if (showGST) {
-      let gstTotal = 0;
-      let gstCount = 0;
-      Object.entries(analyticsData.individualTrends).forEach(([user, days]) => {
-        const dayData = days.find(d => d.date === date);
-        if (dayData) {
-          gstTotal += dayData[dataKey] || dayData.solved || 0;
-          gstCount++;
+
+      return count > 0 ? (total / count).toFixed(2) : "0";
+    },
+    [analyticsData, myTeamName, timeRange]
+  );
+
+  // Calculate GST average
+  const calculateGSTAverage = useCallback(
+    (metricKey) => {
+      if (!analyticsData?.individualTrends) return "—";
+
+      let total = 0;
+      let count = 0;
+
+      Object.values(analyticsData.individualTrends).forEach((userTrends) => {
+        userTrends.slice(-timeRange).forEach((day) => {
+          total += day[OVERVIEW_METRICS[metricKey]?.dataKey] || day.solved || 0;
+          count++;
+        });
+      });
+
+      return count > 0 ? (total / count).toFixed(2) : "0";
+    },
+    [analyticsData, timeRange]
+  );
+
+  // Get chart data for overview metric
+  const getOverviewChartData = useCallback(
+    (metricKey) => {
+      if (!analyticsData?.individualTrends) return [];
+
+      const allDates = new Set();
+      Object.values(analyticsData.individualTrends).forEach((userTrends) => {
+        userTrends.forEach((day) => allDates.add(day.date));
+      });
+
+      const sortedDates = Array.from(allDates).sort().slice(-timeRange);
+      const dataKey = OVERVIEW_METRICS[metricKey]?.dataKey || "solved";
+
+      return sortedDates.map((date) => {
+        const point = {
+          name: format(
+            parseISO(date),
+            groupBy === "monthly" ? "MMM" : "MMM dd"
+          ),
+          date,
+        };
+
+        // Add selected users data
+        selectedUsers.forEach((user) => {
+          const userDay = (analyticsData.individualTrends[user] || []).find(
+            (d) => d.date === date
+          );
+          point[user] = userDay?.[dataKey] || userDay?.solved || 0;
+        });
+
+        // Add team average
+        if (showTeam) {
+          const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")]
+            ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")])
+            : [];
+          let teamTotal = 0;
+          teamMembers.forEach((member) => {
+            const memberDay = (
+              analyticsData.individualTrends[member] || []
+            ).find((d) => d.date === date);
+            teamTotal += memberDay?.[dataKey] || memberDay?.solved || 0;
+          });
+          point.team =
+            teamMembers.length > 0 ? teamTotal / teamMembers.length : 0;
         }
+
+        // Add GST average
+        if (showGST) {
+          let gstTotal = 0;
+          let gstCount = 0;
+          Object.entries(analyticsData.individualTrends).forEach(
+            ([user, days]) => {
+              const dayData = days.find((d) => d.date === date);
+              if (dayData) {
+                gstTotal += dayData[dataKey] || dayData.solved || 0;
+                gstCount++;
+              }
+            }
+          );
+          point.gst = gstCount > 0 ? gstTotal / gstCount : 0;
+        }
+
+        return point;
       });
-      point.gst = gstCount > 0 ? gstTotal / gstCount : 0;
-    }
-    
-    return point;
-  });
-}, [analyticsData, selectedUsers, timeRange, groupBy, showTeam, showGST, myTeamName]);
+    },
+    [
+      analyticsData,
+      selectedUsers,
+      timeRange,
+      groupBy,
+      showTeam,
+      showGST,
+      myTeamName,
+    ]
+  );
 
   // Initialize selected users with current user if GST
   useEffect(() => {
@@ -2163,39 +2334,47 @@ const getOverviewChartData = useCallback((metricKey) => {
   ]);
 
   // Fetch ALL historical data for expanded view (ignores quarter selection)
-useEffect(() => {
-  const fetchAllTrends = async () => {
-    if (!expandedOverviewMetric) return;
-    
-    setExpandedLoading(true);
-    try {
-      // Fetch Q4_25 + Q1_26 data (or use "all" if your API supports it)
-      const [q4Res, q1Res] = await Promise.all([
-        fetch(`${import.meta.env.VITE_API_URL || ''}/api/tickets/analytics?quarter=Q4_25&excludeZendesk=${excludeZendesk}`).then(r => r.json()),
-        fetch(`${import.meta.env.VITE_API_URL || ''}/api/tickets/analytics?quarter=Q1_26&excludeZendesk=${excludeZendesk}`).then(r => r.json()),
-      ]);
-      
-      // Combine trends from both quarters
-      const allTrends = [...(q4Res.trends || []), ...(q1Res.trends || [])];
-      
-      // Sort by date
-      allTrends.sort((a, b) => new Date(a.date) - new Date(b.date));
-      
-      // Remove duplicates (by date)
-      const uniqueTrends = allTrends.filter((t, i, arr) => 
-        i === 0 || t.date !== arr[i - 1].date
-      );
-      
-      setExpandedAllTrends(uniqueTrends);
-    } catch (e) {
-      console.error("Failed to fetch expanded data:", e);
-    } finally {
-      setExpandedLoading(false);
-    }
-  };
-  
-  fetchAllTrends();
-}, [expandedOverviewMetric, excludeZendesk]);
+  useEffect(() => {
+    const fetchAllTrends = async () => {
+      if (!expandedOverviewMetric) return;
+
+      setExpandedLoading(true);
+      try {
+        // Fetch Q4_25 + Q1_26 data (or use "all" if your API supports it)
+        const [q4Res, q1Res] = await Promise.all([
+          fetch(
+            `${
+              import.meta.env.VITE_API_URL || ""
+            }/api/tickets/analytics?quarter=Q4_25&excludeZendesk=${excludeZendesk}`
+          ).then((r) => r.json()),
+          fetch(
+            `${
+              import.meta.env.VITE_API_URL || ""
+            }/api/tickets/analytics?quarter=Q1_26&excludeZendesk=${excludeZendesk}`
+          ).then((r) => r.json()),
+        ]);
+
+        // Combine trends from both quarters
+        const allTrends = [...(q4Res.trends || []), ...(q1Res.trends || [])];
+
+        // Sort by date
+        allTrends.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        // Remove duplicates (by date)
+        const uniqueTrends = allTrends.filter(
+          (t, i, arr) => i === 0 || t.date !== arr[i - 1].date
+        );
+
+        setExpandedAllTrends(uniqueTrends);
+      } catch (e) {
+        console.error("Failed to fetch expanded data:", e);
+      } finally {
+        setExpandedLoading(false);
+      }
+    };
+
+    fetchAllTrends();
+  }, [expandedOverviewMetric, excludeZendesk]);
 
   const handleQuarterChange = useCallback(
     (quarter) => setCurrentQuarter(quarter),
@@ -2208,111 +2387,121 @@ useEffect(() => {
       forceRefresh: true,
     });
 
- const smallChartData = useMemo(() => {
-  // Process volume from filtered tickets
-  const volumeData = (() => {
-    const daysInterval = eachDayOfInterval({ 
-      start: effectiveDateRange.start, 
-      end: effectiveDateRange.end 
-    });
-    
-    return daysInterval.map(day => {
-      const dateKey = format(day, "yyyy-MM-dd");
-      const dayTickets = filteredTickets.filter(t => {
-        const ticketDate = format(parseISO(t.created_date), "yyyy-MM-dd");
-        return ticketDate === dateKey;
+  const smallChartData = useMemo(() => {
+    // Process volume from filtered tickets
+    const volumeData = (() => {
+      const daysInterval = eachDayOfInterval({
+        start: effectiveDateRange.start,
+        end: effectiveDateRange.end,
       });
-      return { 
-        name: format(day, "MMM dd"), 
-        date: dateKey,
-        main: dayTickets.length 
-      };
+
+      return daysInterval.map((day) => {
+        const dateKey = format(day, "yyyy-MM-dd");
+        const dayTickets = filteredTickets.filter((t) => {
+          const ticketDate = format(parseISO(t.created_date), "yyyy-MM-dd");
+          return ticketDate === dateKey;
+        });
+        return {
+          name: format(day, "MMM dd"),
+          date: dateKey,
+          main: dayTickets.length,
+        };
+      });
+    })();
+
+    return {
+      volume: volumeData,
+      solved: filteredTrends.map((t) => ({
+        name: format(parseISO(t.date), "MMM dd"),
+        date: t.date,
+        main: t.solved || 0,
+      })),
+      rwt: filteredTrends.map((t) => ({
+        name: format(parseISO(t.date), "MMM dd"),
+        date: t.date,
+        main: t.avgRWT ? Number(t.avgRWT.toFixed(1)) : 0,
+      })),
+      backlog: filteredTrends.map((t) => ({
+        name: format(parseISO(t.date), "MMM dd"),
+        date: t.date,
+        main: t.backlogCleared || 0,
+      })),
+    };
+  }, [filteredTickets, filteredTrends, effectiveDateRange]);
+
+  // Compute stats from filtered date range
+  const filteredStats = useMemo(() => {
+    // Use server stats directly if available (they're calculated correctly)
+    const serverStats = analyticsData?.stats;
+
+    if (serverStats && !filteredTrends.length) {
+      return serverStats;
+    }
+
+    // If we have filtered trends, recalculate
+    if (!filteredTrends.length && !filteredTickets.length) {
+      return serverStats || {};
+    }
+
+    // Sum up daily values
+    const totalSolved = filteredTrends.reduce(
+      (sum, t) => sum + (t.solved || 0),
+      0
+    );
+
+    // For averages, we need weighted average based on tickets per day
+    let totalRWT = 0,
+      rwtCount = 0;
+    let totalFRT = 0,
+      frtCount = 0;
+    let totalIterations = 0,
+      iterCount = 0;
+
+    filteredTrends.forEach((t) => {
+      if (t.avgRWT && t.solved) {
+        totalRWT += t.avgRWT * t.solved;
+        rwtCount += t.solved;
+      }
+      if (t.avgFRT && t.solved) {
+        totalFRT += t.avgFRT * t.solved;
+        frtCount += t.solved;
+      }
+      if (t.avgIterations && t.solved) {
+        totalIterations += t.avgIterations * t.solved;
+        iterCount += t.solved;
+      }
     });
-  })();
 
-  return {
-    volume: volumeData,
-    solved: filteredTrends.map((t) => ({ 
-      name: format(parseISO(t.date), "MMM dd"), 
-      date: t.date,
-      main: t.solved || 0 
-    })),
-    rwt: filteredTrends.map((t) => ({ 
-      name: format(parseISO(t.date), "MMM dd"), 
-      date: t.date,
-      main: t.avgRWT ? Number(t.avgRWT.toFixed(1)) : 0 
-    })),
-    backlog: filteredTrends.map((t) => ({
-      name: format(parseISO(t.date), "MMM dd"),
-      date: t.date,
-      main: t.backlogCleared || 0,
-    })),
-  };
-}, [filteredTickets, filteredTrends, effectiveDateRange]);
+    const avgRWT = rwtCount > 0 ? totalRWT / rwtCount : 0;
+    const avgFRT = frtCount > 0 ? totalFRT / frtCount : 0;
+    const avgIterations = iterCount > 0 ? totalIterations / iterCount : 0;
 
-// Compute stats from filtered date range
-const filteredStats = useMemo(() => {
-  // Use server stats directly if available (they're calculated correctly)
-  const serverStats = analyticsData?.stats;
-  
-  if (serverStats && !filteredTrends.length) {
-    return serverStats;
-  }
+    // CSAT and FRR are counts, not averages
+    const positiveCSAT = filteredTrends.reduce(
+      (sum, t) => sum + (t.positiveCSAT || 0),
+      0
+    );
+    const frrMet = filteredTrends.reduce((sum, t) => sum + (t.frrMet || 0), 0);
 
-  // If we have filtered trends, recalculate
-  if (!filteredTrends.length && !filteredTickets.length) {
-    return serverStats || {};
-  }
+    // FRR percentage should be frrMet / totalSolved (tickets), not days
+    const frrPercent =
+      totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
 
-  // Sum up daily values
-  const totalSolved = filteredTrends.reduce((sum, t) => sum + (t.solved || 0), 0);
-  
-  // For averages, we need weighted average based on tickets per day
-  let totalRWT = 0, rwtCount = 0;
-  let totalFRT = 0, frtCount = 0;
-  let totalIterations = 0, iterCount = 0;
-  
-  filteredTrends.forEach(t => {
-    if (t.avgRWT && t.solved) {
-      totalRWT += t.avgRWT * t.solved;
-      rwtCount += t.solved;
-    }
-    if (t.avgFRT && t.solved) {
-      totalFRT += t.avgFRT * t.solved;
-      frtCount += t.solved;
-    }
-    if (t.avgIterations && t.solved) {
-      totalIterations += t.avgIterations * t.solved;
-      iterCount += t.solved;
-    }
-  });
-
-  const avgRWT = rwtCount > 0 ? totalRWT / rwtCount : 0;
-  const avgFRT = frtCount > 0 ? totalFRT / frtCount : 0;
-  const avgIterations = iterCount > 0 ? totalIterations / iterCount : 0;
-  
-  // CSAT and FRR are counts, not averages
-  const positiveCSAT = filteredTrends.reduce((sum, t) => sum + (t.positiveCSAT || 0), 0);
-  const frrMet = filteredTrends.reduce((sum, t) => sum + (t.frrMet || 0), 0);
-  
-  // FRR percentage should be frrMet / totalSolved (tickets), not days
-  const frrPercent = totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
-  
-  return {
-    totalTickets: totalSolved || filteredTickets.length,
-    avgRWT: avgRWT.toFixed(2),
-    avgFRT: avgFRT.toFixed(2),
-    avgIterations: avgIterations.toFixed(1),
-    positiveCSAT,
-    frrPercent,
-    // Include raw counts for debugging
-    _debug: {
-      frrMet,
-      totalSolved,
-      daysCount: filteredTrends.length,
-    }
-  };
-}, [filteredTrends, filteredTickets, analyticsData]);
+    return {
+      totalTickets: totalSolved || filteredTickets.length,
+      avgRWT: avgRWT.toFixed(2),
+      avgFRT: avgFRT.toFixed(2),
+      avgIterations: avgIterations.toFixed(1),
+      positiveCSAT,
+      frrPercent,
+      // Include raw counts for debugging
+      _debug: {
+        frrMet,
+        totalSolved,
+        daysCount: filteredTrends.length,
+      },
+    };
+  }, [filteredTrends, filteredTickets, analyticsData]);
 
   // Expanded chart data
   const expandedData = useMemo(() => {
@@ -2473,360 +2662,502 @@ const filteredStats = useMemo(() => {
             >
               <Globe className="w-4 h-4" /> Global View
             </button>
-            
-            <button
-  onClick={() => setShowAdminConsole(true)}
-  className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors"
->
-  <Terminal className="w-4 h-4" />
-  Admin Query Console
-</button>
 
+            <button
+              onClick={() => setShowAdminConsole(true)}
+              className="
+    flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all
+    bg-white text-slate-700 border border-slate-200 hover:border-emerald-400 hover:text-emerald-600
+    dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:border-emerald-500 dark:hover:text-emerald-400
+    shadow-sm hover:shadow-md
+  "
+            >
+              <Search className="w-4 h-4" />
+              Query
+            </button>
           </div>
-       </div>
+        </div>
       )}
-     {/* ADMIN QUERY CONSOLE - FULLSCREEN MODAL */}
+      {/* ADMIN QUERY CONSOLE - FULLSCREEN MODAL */}
       {showAdminConsole && isSuperAdmin && (
-        <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col">
+        <div
+          className="fixed inset-0 z-[200] flex flex-col
+  bg-white text-slate-900
+  dark:bg-slate-950 dark:text-slate-100
+"
+        >
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900">
+          <div
+            className="
+  flex items-center justify-between px-6 py-4 border-b
+  bg-white border-slate-200
+  dark:bg-slate-900 dark:border-slate-800
+"
+          >
             <div className="flex items-center gap-4">
               <Terminal className="w-5 h-5 text-indigo-400" />
-              <h2 className="text-lg font-bold text-white">Admin Query Console</h2>
+              <h2 className="text-lg font-bold text-white">
+                Admin Query Console
+              </h2>
             </div>
-            <button onClick={() => setShowAdminConsole(false)} className="p-2 hover:bg-slate-800 rounded-lg">
+            <button
+              onClick={() => setShowAdminConsole(false)}
+              className="p-2 hover:bg-slate-800 rounded-lg"
+            >
               <X className="w-5 h-5 text-slate-400" />
             </button>
           </div>
-    {/* Query Input Area */}
-    <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-      {adminQueryMode === "natural" ? (
-        <div className="space-y-3">
-          <div className="flex gap-3">
-            <div className="flex-1 relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-              <input
-                type="text"
-                value={adminQuery}
-                onChange={(e) => setAdminQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && executeAdminSearch(1)}
-                placeholder="e.g., 'Rohan tickets from jan 01 2026 - jan 15 2026' or 'tickets where frr met last 30 days'"
-                className="w-full pl-12 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-500"
-              />
-            </div>
-            <button
-              onClick={() => executeAdminSearch(1)}
-              disabled={adminLoading}
-              className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 disabled:opacity-50 flex items-center gap-2 min-w-[120px] justify-center"
-            >
-              {adminLoading ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Play className="w-4 h-4" />
-              )}
-              Execute
-            </button>
+          {/* Query Input Area */}
+          <div
+            className="
+  px-6 py-4 border-b
+  bg-slate-50 border-slate-200
+  dark:bg-slate-900/50 dark:border-slate-800
+"
+          >
+            {adminQueryMode === "natural" ? (
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input
+                      type="text"
+                      value={adminQuery}
+                      onChange={(e) => setAdminQuery(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && executeAdminSearch(1)
+                      }
+                      placeholder="e.g., 'Rohan tickets from jan 01 2026 - jan 15 2026' or 'tickets where frr met last 30 days'"
+                      className="
+  w-full pl-12 pr-4 py-3 rounded-xl text-sm
+  bg-slate-50 dark:bg-slate-900/50
+  border border-slate-200 dark:border-slate-800
+  text-slate-900 dark:text-white
+  placeholder:text-slate-700 dark:placeholder:text-slate-400
+  focus:outline-none focus:ring-2 focus:ring-indigo-500
+"
+                    />
+                  </div>
+                  <button
+                    onClick={() => executeAdminSearch(1)}
+                    disabled={adminLoading}
+                    className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 disabled:opacity-50 flex items-center gap-2 min-w-[120px] justify-center"
+                  >
+                    {adminLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                    Execute
+                  </button>
+                </div>
+
+                {/* Quick Examples */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500">Examples:</span>
+                  {[
+                    "Rohan tickets last 7 days",
+                    "tickets where frr met",
+                    "Adarsh from jan 01 2026 - jan 15 2026",
+                    "good csat last 30 days",
+                    "high rwt > 50",
+                    "exclude zendesk",
+                    "iterations > 3",
+                  ].map((example) => (
+                    <button
+                      key={example}
+                      onClick={() => setAdminQuery(example)}
+                      className="px-2.5 py-1 border-b border-slate-200 dark:border-slate-800 
+  bg-slate-50 dark:bg-slate-900/50 text-slate-400 rounded-lg text-xs hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <textarea
+                      value={adminRawQuery}
+                      onChange={(e) => setAdminRawQuery(e.target.value)}
+                      placeholder='{"owner": {"$regex": "rohan", "$options": "i"}, "closed_date": {"$gte": "2026-01-01"}}'
+                      className="w-full h-32 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-emerald-400 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-600 resize-none"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => executeAdminSearch(1)}
+                      disabled={adminLoading}
+                      className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {adminLoading ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Play className="w-4 h-4" />
+                      )}
+                      Execute
+                    </button>
+                    <button
+                      onClick={copyQuery}
+                      className="px-6 py-3 bg-slate-800 text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-700 flex items-center gap-2"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Copy
+                    </button>
+                  </div>
+                </div>
+
+                {/* Query Templates */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500">Templates:</span>
+                  {[
+                    {
+                      label: "By Owner",
+                      query: '{"owner": {"$regex": "name", "$options": "i"}}',
+                    },
+                    {
+                      label: "Date Range",
+                      query:
+                        '{"closed_date": {"$gte": "2026-01-01", "$lte": "2026-01-15"}}',
+                    },
+                    { label: "FRR Met", query: '{"frr": 1}' },
+                    { label: "Good CSAT", query: '{"csat": 2}' },
+                    { label: "High RWT", query: '{"rwt": {"$gte": 50}}' },
+                    {
+                      label: "No Zendesk",
+                      query: '{"is_zendesk": {"$ne": true}}',
+                    },
+                  ].map((tpl) => (
+                    <button
+                      key={tpl.label}
+                      onClick={() => setAdminRawQuery(tpl.query)}
+                      className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          
-          {/* Quick Examples */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-slate-500">Examples:</span>
-            {[
-              "Rohan tickets last 7 days",
-              "tickets where frr met",
-              "Adarsh from jan 01 2026 - jan 15 2026",
-              "good csat last 30 days",
-              "high rwt > 50",
-              "exclude zendesk",
-              "iterations > 3",
-            ].map((example) => (
-              <button
-                key={example}
-                onClick={() => setAdminQuery(example)}
-                className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <textarea
-                value={adminRawQuery}
-                onChange={(e) => setAdminRawQuery(e.target.value)}
-                placeholder='{"owner": {"$regex": "rohan", "$options": "i"}, "closed_date": {"$gte": "2026-01-01"}}'
-                className="w-full h-32 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-emerald-400 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-600 resize-none"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => executeAdminSearch(1)}
-                disabled={adminLoading}
-                className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 disabled:opacity-50 flex items-center gap-2"
-              >
-                {adminLoading ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+
+          {/* Results Area */}
+          <div className="flex-1 overflow-auto p-6">
+            {adminResults?.error ? (
+              <div className="p-6 bg-rose-900/20 border border-rose-500/30 rounded-xl text-rose-400">
+                <div className="font-bold mb-2">Error</div>
+                <div className="text-sm">{adminResults.error}</div>
+              </div>
+            ) : adminResults ? (
+              <div className="space-y-4">
+                {/* Stats Cards */}
+                <div className="grid grid-cols-7 gap-3">
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div className="text-xs text-slate-500 mb-1">
+                      Total Tickets
+                    </div>
+                    <div className="text-2xl font-bold text-white">
+                      {adminResults.stats?.totalTickets || 0}
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div className="text-xs text-slate-500 mb-1">Avg RWT</div>
+                    <div className="text-2xl font-bold text-purple-400">
+                      {adminResults.stats?.avgRWT?.toFixed(2) || 0}
+                      <span className="text-sm font-normal text-slate-500 ml-1">
+                        hrs
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div className="text-xs text-slate-500 mb-1">Avg FRT</div>
+                    <div className="text-2xl font-bold text-blue-400">
+                      {adminResults.stats?.avgFRT?.toFixed(2) || 0}
+                      <span className="text-sm font-normal text-slate-500 ml-1">
+                        hrs
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div className="text-xs text-slate-500 mb-1">FRR Met</div>
+                    <div className="text-2xl font-bold text-amber-400">
+                      {adminResults.stats?.frrMetCount || 0}
+                      <span className="text-sm font-normal text-slate-500">
+                        /{adminResults.stats?.totalTickets || 0}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div className="text-xs text-slate-500 mb-1">Good CSAT</div>
+                    <div className="text-2xl font-bold text-emerald-400">
+                      {adminResults.stats?.goodCSATCount || 0}
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div className="text-xs text-slate-500 mb-1">Bad CSAT</div>
+                    <div className="text-2xl font-bold text-rose-400">
+                      {adminResults.stats?.badCSATCount || 0}
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div className="text-xs text-slate-500 mb-1">
+                      Avg Iterations
+                    </div>
+                    <div className="text-2xl font-bold text-cyan-400">
+                      {adminResults.stats?.avgIterations?.toFixed(1) || 0}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Query Display & Actions */}
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 p-4 bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="text-xs text-slate-500 mb-2">
+                      MongoDB Query:
+                    </div>
+                    <code className="text-xs text-emerald-400 font-mono whitespace-pre-wrap break-all">
+                      {JSON.stringify(adminResults.query || {}, null, 2)}
+                    </code>
+                  </div>
+
+                  {/* Download Buttons */}
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => downloadResults("csv")}
+                      disabled={!adminResults.tickets?.length}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Download CSV
+                    </button>
+                    <button
+                      onClick={() => downloadResults("json")}
+                      disabled={!adminResults.tickets?.length}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-500 disabled:opacity-50"
+                    >
+                      <FileJson className="w-4 h-4" />
+                      Download JSON
+                    </button>
+                  </div>
+                </div>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-400">
+                    Showing {(adminPage - 1) * adminPageSize + 1} -{" "}
+                    {Math.min(adminPage * adminPageSize, adminTotalCount)} of{" "}
+                    {adminTotalCount} tickets
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={adminPageSize}
+                      onChange={(e) => {
+                        setAdminPageSize(Number(e.target.value));
+                        executeAdminSearch(1);
+                      }}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white"
+                    >
+                      <option value={25}>25 per page</option>
+                      <option value={50}>50 per page</option>
+                      <option value={100}>100 per page</option>
+                      <option value={200}>200 per page</option>
+                    </select>
+                    <button
+                      onClick={() => executeAdminSearch(adminPage - 1)}
+                      disabled={adminPage <= 1 || adminLoading}
+                      className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      <ChevronLeft className="w-4 h-4 text-white" />
+                    </button>
+                    <span className="px-3 py-1.5 bg-slate-800 rounded-lg text-sm text-white">
+                      Page {adminPage} of{" "}
+                      {Math.ceil(adminTotalCount / adminPageSize) || 1}
+                    </span>
+                    <button
+                      onClick={() => executeAdminSearch(adminPage + 1)}
+                      disabled={
+                        adminPage >=
+                          Math.ceil(adminTotalCount / adminPageSize) ||
+                        adminLoading
+                      }
+                      className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      <ChevronRight className="w-4 h-4 text-white" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tickets Table */}
+                {adminResults.tickets?.length > 0 ? (
+                  <div className="rounded-xl border border-slate-800 overflow-hidden">
+                    <div className="overflow-auto max-h-[calc(100vh-500px)]">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-800 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
+                              Ticket ID
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
+                              Title
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
+                              Owner
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
+                              Closed
+                            </th>
+                            <th className="px-4 py-3 text-right text-slate-400 font-medium">
+                              RWT
+                            </th>
+                            <th className="px-4 py-3 text-right text-slate-400 font-medium">
+                              FRT
+                            </th>
+                            <th className="px-4 py-3 text-center text-slate-400 font-medium">
+                              FRR
+                            </th>
+                            <th className="px-4 py-3 text-center text-slate-400 font-medium">
+                              CSAT
+                            </th>
+                            <th className="px-4 py-3 text-right text-slate-400 font-medium">
+                              Iter
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
+                              Region
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                          {adminResults.tickets.map((t, i) => (
+                            <tr
+                              key={t.ticket_id || i}
+                              className="hover:bg-slate-800/50 transition-colors"
+                            >
+                              <td className="px-4 py-3">
+                                <a
+                                  href={`https://app.devrev.ai/clevertap/works/${t.ticket_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-indigo-400 font-mono hover:underline"
+                                >
+                                  {t.ticket_id || t.display_id}
+                                </a>
+                              </td>
+                              <td
+                                className="px-4 py-3 text-white max-w-[300px] truncate"
+                                title={t.title}
+                              >
+                                {t.title}
+                              </td>
+                              <td className="px-4 py-3 text-slate-300">
+                                {t.owner}
+                              </td>
+                              <td className="px-4 py-3 text-slate-400">
+                                {t.closed_date
+                                  ? format(
+                                      new Date(t.closed_date),
+                                      "MMM dd, yyyy"
+                                    )
+                                  : "-"}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span
+                                  className={
+                                    t.rwt > 50
+                                      ? "text-rose-400"
+                                      : t.rwt > 24
+                                      ? "text-amber-400"
+                                      : "text-emerald-400"
+                                  }
+                                >
+                                  {t.rwt?.toFixed(1) || "-"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span
+                                  className={
+                                    t.frt > 4
+                                      ? "text-rose-400"
+                                      : t.frt > 2
+                                      ? "text-amber-400"
+                                      : "text-emerald-400"
+                                  }
+                                >
+                                  {t.frt?.toFixed(1) || "-"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {t.frr === 1 ? (
+                                  <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full">
+                                    ✓
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-center w-6 h-6 bg-rose-500/20 text-rose-400 rounded-full">
+                                    ✗
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {t.csat === 2 ? (
+                                  <span className="text-lg">👍</span>
+                                ) : t.csat === 1 ? (
+                                  <span className="text-lg">👎</span>
+                                ) : (
+                                  <span className="text-slate-500">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right text-cyan-400">
+                                {t.iterations || "-"}
+                              </td>
+                              <td className="px-4 py-3 text-slate-400 text-xs">
+                                {t.region || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 ) : (
-                  <Play className="w-4 h-4" />
+                  <div className="p-12 text-center text-slate-500 bg-slate-900/50 rounded-xl border border-slate-800">
+                    <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <div className="text-lg font-medium">No tickets found</div>
+                    <div className="text-sm mt-1">
+                      Try adjusting your search query
+                    </div>
+                  </div>
                 )}
-                Execute
-              </button>
-              <button
-                onClick={copyQuery}
-                className="px-6 py-3 bg-slate-800 text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-700 flex items-center gap-2"
-              >
-                <Copy className="w-4 h-4" />
-                Copy
-              </button>
-            </div>
-          </div>
-          
-          {/* Query Templates */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-slate-500">Templates:</span>
-            {[
-              { label: "By Owner", query: '{"owner": {"$regex": "name", "$options": "i"}}' },
-              { label: "Date Range", query: '{"closed_date": {"$gte": "2026-01-01", "$lte": "2026-01-15"}}' },
-              { label: "FRR Met", query: '{"frr": 1}' },
-              { label: "Good CSAT", query: '{"csat": 2}' },
-              { label: "High RWT", query: '{"rwt": {"$gte": 50}}' },
-              { label: "No Zendesk", query: '{"is_zendesk": {"$ne": true}}' },
-            ].map((tpl) => (
-              <button
-                key={tpl.label}
-                onClick={() => setAdminRawQuery(tpl.query)}
-                className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
-              >
-                {tpl.label}
-              </button>
-            ))}
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-500">
+                <div className="text-center">
+                  <Terminal className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                  <div className="text-lg font-medium">
+                    Enter a query to search tickets
+                  </div>
+                  <div className="text-sm mt-2">
+                    Use natural language or raw MongoDB queries
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
-    </div>
-    
-    {/* Results Area */}
-    <div className="flex-1 overflow-auto p-6">
-      {adminResults?.error ? (
-        <div className="p-6 bg-rose-900/20 border border-rose-500/30 rounded-xl text-rose-400">
-          <div className="font-bold mb-2">Error</div>
-          <div className="text-sm">{adminResults.error}</div>
-        </div>
-      ) : adminResults ? (
-        <div className="space-y-4">
-          {/* Stats Cards */}
-          <div className="grid grid-cols-7 gap-3">
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="text-xs text-slate-500 mb-1">Total Tickets</div>
-              <div className="text-2xl font-bold text-white">{adminResults.stats?.totalTickets || 0}</div>
-            </div>
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="text-xs text-slate-500 mb-1">Avg RWT</div>
-              <div className="text-2xl font-bold text-purple-400">{adminResults.stats?.avgRWT?.toFixed(2) || 0}<span className="text-sm font-normal text-slate-500 ml-1">hrs</span></div>
-            </div>
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="text-xs text-slate-500 mb-1">Avg FRT</div>
-              <div className="text-2xl font-bold text-blue-400">{adminResults.stats?.avgFRT?.toFixed(2) || 0}<span className="text-sm font-normal text-slate-500 ml-1">hrs</span></div>
-            </div>
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="text-xs text-slate-500 mb-1">FRR Met</div>
-              <div className="text-2xl font-bold text-amber-400">
-                {adminResults.stats?.frrMetCount || 0}
-                <span className="text-sm font-normal text-slate-500">/{adminResults.stats?.totalTickets || 0}</span>
-              </div>
-            </div>
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="text-xs text-slate-500 mb-1">Good CSAT</div>
-              <div className="text-2xl font-bold text-emerald-400">{adminResults.stats?.goodCSATCount || 0}</div>
-            </div>
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="text-xs text-slate-500 mb-1">Bad CSAT</div>
-              <div className="text-2xl font-bold text-rose-400">{adminResults.stats?.badCSATCount || 0}</div>
-            </div>
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="text-xs text-slate-500 mb-1">Avg Iterations</div>
-              <div className="text-2xl font-bold text-cyan-400">{adminResults.stats?.avgIterations?.toFixed(1) || 0}</div>
-            </div>
-          </div>
-          
-          {/* Query Display & Actions */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 p-4 bg-slate-900 rounded-xl border border-slate-800">
-              <div className="text-xs text-slate-500 mb-2">MongoDB Query:</div>
-              <code className="text-xs text-emerald-400 font-mono whitespace-pre-wrap break-all">
-                {JSON.stringify(adminResults.query || {}, null, 2)}
-              </code>
-            </div>
-            
-            {/* Download Buttons */}
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => downloadResults("csv")}
-                disabled={!adminResults.tickets?.length}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-500 disabled:opacity-50"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                Download CSV
-              </button>
-              <button
-                onClick={() => downloadResults("json")}
-                disabled={!adminResults.tickets?.length}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-500 disabled:opacity-50"
-              >
-                <FileJson className="w-4 h-4" />
-                Download JSON
-              </button>
-            </div>
-          </div>
-          
-          {/* Pagination */}
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-400">
-              Showing {((adminPage - 1) * adminPageSize) + 1} - {Math.min(adminPage * adminPageSize, adminTotalCount)} of {adminTotalCount} tickets
-            </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={adminPageSize}
-                onChange={(e) => {
-                  setAdminPageSize(Number(e.target.value));
-                  executeAdminSearch(1);
-                }}
-                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white"
-              >
-                <option value={25}>25 per page</option>
-                <option value={50}>50 per page</option>
-                <option value={100}>100 per page</option>
-                <option value={200}>200 per page</option>
-              </select>
-              <button
-                onClick={() => executeAdminSearch(adminPage - 1)}
-                disabled={adminPage <= 1 || adminLoading}
-                className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50"
-              >
-                <ChevronLeft className="w-4 h-4 text-white" />
-              </button>
-              <span className="px-3 py-1.5 bg-slate-800 rounded-lg text-sm text-white">
-                Page {adminPage} of {Math.ceil(adminTotalCount / adminPageSize) || 1}
-              </span>
-              <button
-                onClick={() => executeAdminSearch(adminPage + 1)}
-                disabled={adminPage >= Math.ceil(adminTotalCount / adminPageSize) || adminLoading}
-                className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50"
-              >
-                <ChevronRight className="w-4 h-4 text-white" />
-              </button>
-            </div>
-          </div>
-          
-          {/* Tickets Table */}
-          {adminResults.tickets?.length > 0 ? (
-            <div className="rounded-xl border border-slate-800 overflow-hidden">
-              <div className="overflow-auto max-h-[calc(100vh-500px)]">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-800 sticky top-0">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-slate-400 font-medium">Ticket ID</th>
-                      <th className="px-4 py-3 text-left text-slate-400 font-medium">Title</th>
-                      <th className="px-4 py-3 text-left text-slate-400 font-medium">Owner</th>
-                      <th className="px-4 py-3 text-left text-slate-400 font-medium">Closed</th>
-                      <th className="px-4 py-3 text-right text-slate-400 font-medium">RWT</th>
-                      <th className="px-4 py-3 text-right text-slate-400 font-medium">FRT</th>
-                      <th className="px-4 py-3 text-center text-slate-400 font-medium">FRR</th>
-                      <th className="px-4 py-3 text-center text-slate-400 font-medium">CSAT</th>
-                      <th className="px-4 py-3 text-right text-slate-400 font-medium">Iter</th>
-                      <th className="px-4 py-3 text-left text-slate-400 font-medium">Region</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {adminResults.tickets.map((t, i) => (
-                      <tr key={t.ticket_id || i} className="hover:bg-slate-800/50 transition-colors">
-                        <td className="px-4 py-3">
-                          <a 
-                            href={`https://app.devrev.ai/clevertap/works/${t.ticket_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-400 font-mono hover:underline"
-                          >
-                            {t.ticket_id || t.display_id}
-                          </a>
-                        </td>
-                        <td className="px-4 py-3 text-white max-w-[300px] truncate" title={t.title}>
-                          {t.title}
-                        </td>
-                        <td className="px-4 py-3 text-slate-300">{t.owner}</td>
-                        <td className="px-4 py-3 text-slate-400">
-                          {t.closed_date ? format(new Date(t.closed_date), "MMM dd, yyyy") : "-"}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={t.rwt > 50 ? "text-rose-400" : t.rwt > 24 ? "text-amber-400" : "text-emerald-400"}>
-                            {t.rwt?.toFixed(1) || "-"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={t.frt > 4 ? "text-rose-400" : t.frt > 2 ? "text-amber-400" : "text-emerald-400"}>
-                            {t.frt?.toFixed(1) || "-"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {t.frr === 1 ? (
-                            <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full">✓</span>
-                          ) : (
-                            <span className="inline-flex items-center justify-center w-6 h-6 bg-rose-500/20 text-rose-400 rounded-full">✗</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {t.csat === 2 ? (
-                            <span className="text-lg">👍</span>
-                          ) : t.csat === 1 ? (
-                            <span className="text-lg">👎</span>
-                          ) : (
-                            <span className="text-slate-500">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right text-cyan-400">{t.iterations || "-"}</td>
-                        <td className="px-4 py-3 text-slate-400 text-xs">{t.region || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <div className="p-12 text-center text-slate-500 bg-slate-900/50 rounded-xl border border-slate-800">
-              <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <div className="text-lg font-medium">No tickets found</div>
-              <div className="text-sm mt-1">Try adjusting your search query</div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="h-full flex items-center justify-center text-slate-500">
-          <div className="text-center">
-            <Terminal className="w-16 h-16 mx-auto mb-4 opacity-30" />
-            <div className="text-lg font-medium">Enter a query to search tickets</div>
-            <div className="text-sm mt-2">Use natural language or raw MongoDB queries</div>
-          </div>
-        </div>
-      )}
-    </div>
-  </div>
-)}
 
       <PerformanceMetricsCards
-  stats={filteredStats}
-  trends={filteredTrends}
-  currentQuarter={currentQuarter}
-  currentGroupBy={groupBy}
-  onQuarterChange={handleQuarterChange}
-  excludeZendesk={excludeZendesk}
-  onExcludeZendeskChange={() => setExcludeZendesk(!excludeZendesk)}
-  onRefresh={handleRefresh}
-  isRefreshing={analyticsLoading}
-   onExpandMetric={(metricKey) => setExpandedOverviewMetric(metricKey)}  // ADD THIS
-  onGroupByChange={(newGroupBy) => {
+        stats={filteredStats}
+        trends={filteredTrends}
+        currentQuarter={currentQuarter}
+        currentGroupBy={groupBy}
+        onQuarterChange={handleQuarterChange}
+        excludeZendesk={excludeZendesk}
+        onExcludeZendeskChange={() => setExcludeZendesk(!excludeZendesk)}
+        onRefresh={handleRefresh}
+        isRefreshing={analyticsLoading}
+        onExpandMetric={(metricKey) => setExpandedOverviewMetric(metricKey)} // ADD THIS
+        onGroupByChange={(newGroupBy) => {
           setGroupBy(newGroupBy);
           // If it's a week selection like "Q1_26_W1", set quarter accordingly
           if (
@@ -2958,199 +3289,277 @@ const filteredStats = useMemo(() => {
         />
       </div>
 
+      {/* EXPANDED OVERVIEW METRIC MODAL - FULL FEATURED */}
+      {expandedOverviewMetric && OVERVIEW_METRICS[expandedOverviewMetric] && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div
+            className="absolute inset-0"
+            onClick={() => setExpandedOverviewMetric(null)}
+          />
 
-{/* EXPANDED OVERVIEW METRIC MODAL - FULL FEATURED */}
-{expandedOverviewMetric && OVERVIEW_METRICS[expandedOverviewMetric] && (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-    <div className="absolute inset-0" onClick={() => setExpandedOverviewMetric(null)} />
-    
-    <div className="bg-white dark:bg-slate-900 w-[95vw] max-w-7xl h-[90vh] rounded-3xl shadow-2xl relative flex flex-col z-10 overflow-hidden border border-slate-200 dark:border-slate-800">
-      {/* Header */}
-      <div className="px-8 py-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
-        <div className="flex items-center gap-4">
-          <div 
-            className="p-4 rounded-2xl" 
-            style={{ backgroundColor: `${OVERVIEW_METRICS[expandedOverviewMetric].color}15` }}
-          >
-            {React.createElement(OVERVIEW_METRICS[expandedOverviewMetric].icon, {
-              className: "w-8 h-8",
-              style: { color: OVERVIEW_METRICS[expandedOverviewMetric].color },
-            })}
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
-              {OVERVIEW_METRICS[expandedOverviewMetric].fullLabel}
-            </h2>
-            <p className="text-sm text-slate-500 mt-1">
-              {OVERVIEW_METRICS[expandedOverviewMetric].desc}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => setExpandedOverviewMetric(null)}
-          className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
-        >
-          <X className="w-6 h-6 text-slate-400" />
-        </button>
-      </div>
+          <div className="bg-white dark:bg-slate-900 w-[95vw] max-w-7xl h-[90vh] rounded-3xl shadow-2xl relative flex flex-col z-10 overflow-hidden border border-slate-200 dark:border-slate-800">
+            {/* Header */}
+            <div className="px-8 py-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+              <div className="flex items-center gap-4">
+                <div
+                  className="p-4 rounded-2xl"
+                  style={{
+                    backgroundColor: `${OVERVIEW_METRICS[expandedOverviewMetric].color}15`,
+                  }}
+                >
+                  {React.createElement(
+                    OVERVIEW_METRICS[expandedOverviewMetric].icon,
+                    {
+                      className: "w-8 h-8",
+                      style: {
+                        color: OVERVIEW_METRICS[expandedOverviewMetric].color,
+                      },
+                    }
+                  )}
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+                    {OVERVIEW_METRICS[expandedOverviewMetric].fullLabel}
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {OVERVIEW_METRICS[expandedOverviewMetric].desc}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setExpandedOverviewMetric(null)}
+                className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+            </div>
 
-      {/* Controls Bar */}
-      <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4">
-        {/* Date Range Selector */}
-        <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <Calendar className="w-4 h-4 text-slate-400" />
-          <select
-            className="bg-transparent text-sm font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer min-w-[140px]"
-            value={expandedTimeRange}
-            onChange={(e) => setExpandedTimeRange(Number(e.target.value))}
-          >
-            <option value={7}>Last 7 Days</option>
-            <option value={14}>Last 14 Days</option>
-            <option value={30}>Last 30 Days</option>
-            <option value={60}>Last 60 Days</option>
-            <option value={90}>Last 90 Days</option>
-          </select>
-        </div>
+            {/* Controls Bar */}
+            <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4">
+              {/* Date Range Selector */}
+              <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <Calendar className="w-4 h-4 text-slate-400" />
+                <select
+                  className="bg-transparent text-sm font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer min-w-[140px]"
+                  value={expandedTimeRange}
+                  onChange={(e) => setExpandedTimeRange(Number(e.target.value))}
+                >
+                  <option value={7}>Last 7 Days</option>
+                  <option value={14}>Last 14 Days</option>
+                  <option value={30}>Last 30 Days</option>
+                  <option value={60}>Last 60 Days</option>
+                  <option value={90}>Last 90 Days</option>
+                </select>
+              </div>
 
-        {/* Grouping Toggle */}
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-          {["daily", "weekly", "monthly"].map((g) => (
-            <button
-              key={g}
-              onClick={() => setExpandedGroupBy(g)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                expandedGroupBy === g
-                  ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {g.charAt(0).toUpperCase() + g.slice(1)}
-            </button>
-          ))}
-        </div>
+              {/* Grouping Toggle */}
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                {["daily", "weekly", "monthly"].map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setExpandedGroupBy(g)}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                      expandedGroupBy === g
+                        ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {g.charAt(0).toUpperCase() + g.slice(1)}
+                  </button>
+                ))}
+              </div>
 
-        {/* Date Range Display */}
-        <div className="ml-auto text-sm text-slate-500 flex items-center gap-2">
-          <span className="font-medium">{expandedTimeRange} days</span>
-          <span>•</span>
-          <span>{format(subDays(new Date(), expandedTimeRange - 1), "MMM dd")} - {format(new Date(), "MMM dd, yyyy")}</span>
-        </div>
-      </div>
+              {/* Date Range Display */}
+              <div className="ml-auto text-sm text-slate-500 flex items-center gap-2">
+                <span className="font-medium">{expandedTimeRange} days</span>
+                <span>•</span>
+                <span>
+                  {format(subDays(new Date(), expandedTimeRange - 1), "MMM dd")}{" "}
+                  - {format(new Date(), "MMM dd, yyyy")}
+                </span>
+              </div>
+            </div>
 
-      {/* Stats Summary Cards */}
-      <div className="px-8 py-5 bg-white dark:bg-slate-900/50">
-        <div className="grid grid-cols-4 gap-5">
-          <div className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-700">
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Current Value</div>
-            <div className="text-4xl font-black" style={{ color: OVERVIEW_METRICS[expandedOverviewMetric].color }}>
-              {filteredStats[OVERVIEW_METRICS[expandedOverviewMetric].dataKey] || "—"}
-              <span className="text-lg font-normal text-slate-400 ml-1">
-                {OVERVIEW_METRICS[expandedOverviewMetric].unit}
-              </span>
+            {/* Stats Summary Cards */}
+            <div className="px-8 py-5 bg-white dark:bg-slate-900/50">
+              <div className="grid grid-cols-4 gap-5">
+                <div className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-700">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Current Value
+                  </div>
+                  <div
+                    className="text-4xl font-black"
+                    style={{
+                      color: OVERVIEW_METRICS[expandedOverviewMetric].color,
+                    }}
+                  >
+                    {filteredStats[
+                      OVERVIEW_METRICS[expandedOverviewMetric].dataKey
+                    ] || "—"}
+                    <span className="text-lg font-normal text-slate-400 ml-1">
+                      {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900 rounded-2xl p-5 border border-blue-100 dark:border-blue-900/50">
+                  <div className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">
+                    Period Total
+                  </div>
+                  <div className="text-4xl font-black text-blue-600">
+                    {getExpandedPeriodTotal(expandedOverviewMetric)}
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 rounded-2xl p-5 border border-emerald-100 dark:border-emerald-900/50">
+                  <div className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">
+                    {expandedGroupBy === "daily"
+                      ? "Daily"
+                      : expandedGroupBy === "weekly"
+                      ? "Weekly"
+                      : "Monthly"}{" "}
+                    Average
+                  </div>
+                  <div className="text-4xl font-black text-emerald-600">
+                    {getExpandedAverage(expandedOverviewMetric)}
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-violet-50 to-white dark:from-violet-900/20 dark:to-slate-900 rounded-2xl p-5 border border-violet-100 dark:border-violet-900/50">
+                  <div className="text-xs font-bold text-violet-600 uppercase tracking-wider mb-2">
+                    Trend
+                  </div>
+                  <div
+                    className={`text-4xl font-black ${
+                      getExpandedTrend(expandedOverviewMetric).isPositive
+                        ? "text-emerald-500"
+                        : "text-rose-500"
+                    }`}
+                  >
+                    {getExpandedTrend(expandedOverviewMetric).value}
+                    {getExpandedTrend(expandedOverviewMetric).isPositive ? (
+                      <TrendingUp className="inline w-6 h-6 ml-2" />
+                    ) : (
+                      <TrendingDown className="inline w-6 h-6 ml-2" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Chart Area */}
+            <div className="flex-1 px-8 py-6 overflow-auto">
+              <div className="h-full min-h-[450px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={getExpandedChartData(expandedOverviewMetric)}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="expandedAreaGrad"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor={
+                            OVERVIEW_METRICS[expandedOverviewMetric].color
+                          }
+                          stopOpacity={0.4}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={
+                            OVERVIEW_METRICS[expandedOverviewMetric].color
+                          }
+                          stopOpacity={0.05}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke={isDark ? "#334155" : "#e2e8f0"}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      tick={{
+                        fill: isDark ? "#94a3b8" : "#64748b",
+                        fontSize: 12,
+                        fontWeight: 500,
+                      }}
+                      axisLine={{ stroke: isDark ? "#334155" : "#e2e8f0" }}
+                      tickLine={false}
+                      dy={15}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{
+                        fill: isDark ? "#94a3b8" : "#64748b",
+                        fontSize: 12,
+                        fontWeight: 500,
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      dx={-10}
+                      tickFormatter={(val) => val.toLocaleString()}
+                    />
+                    <RechartsTooltip
+                      contentStyle={{
+                        backgroundColor: isDark ? "#1e293b" : "#ffffff",
+                        border: "none",
+                        borderRadius: "16px",
+                        boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+                        padding: "16px 20px",
+                      }}
+                      labelStyle={{
+                        fontWeight: "bold",
+                        fontSize: "14px",
+                        marginBottom: "8px",
+                        color: isDark ? "#fff" : "#1e293b",
+                      }}
+                      formatter={(value, name) => [
+                        <span
+                          className="text-lg font-bold"
+                          style={{
+                            color:
+                              OVERVIEW_METRICS[expandedOverviewMetric].color,
+                          }}
+                        >
+                          {typeof value === "number" ? value.toFixed(2) : value}{" "}
+                          {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+                        </span>,
+                        OVERVIEW_METRICS[expandedOverviewMetric].label,
+                      ]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={OVERVIEW_METRICS[expandedOverviewMetric].color}
+                      fill="url(#expandedAreaGrad)"
+                      strokeWidth={3}
+                      dot={{
+                        fill: OVERVIEW_METRICS[expandedOverviewMetric].color,
+                        strokeWidth: 0,
+                        r: 5,
+                      }}
+                      activeDot={{
+                        r: 8,
+                        strokeWidth: 3,
+                        stroke: "#fff",
+                        fill: OVERVIEW_METRICS[expandedOverviewMetric].color,
+                      }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
-          
-          <div className="bg-gradient-to-br from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900 rounded-2xl p-5 border border-blue-100 dark:border-blue-900/50">
-            <div className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Period Total</div>
-            <div className="text-4xl font-black text-blue-600">
-              {getExpandedPeriodTotal(expandedOverviewMetric)}
-            </div>
-          </div>
-          
-          <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 rounded-2xl p-5 border border-emerald-100 dark:border-emerald-900/50">
-            <div className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">
-              {expandedGroupBy === "daily" ? "Daily" : expandedGroupBy === "weekly" ? "Weekly" : "Monthly"} Average
-            </div>
-            <div className="text-4xl font-black text-emerald-600">
-              {getExpandedAverage(expandedOverviewMetric)}
-            </div>
-          </div>
-          
-          <div className="bg-gradient-to-br from-violet-50 to-white dark:from-violet-900/20 dark:to-slate-900 rounded-2xl p-5 border border-violet-100 dark:border-violet-900/50">
-            <div className="text-xs font-bold text-violet-600 uppercase tracking-wider mb-2">Trend</div>
-            <div className={`text-4xl font-black ${getExpandedTrend(expandedOverviewMetric).isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
-              {getExpandedTrend(expandedOverviewMetric).value}
-              {getExpandedTrend(expandedOverviewMetric).isPositive ? (
-                <TrendingUp className="inline w-6 h-6 ml-2" />
-              ) : (
-                <TrendingDown className="inline w-6 h-6 ml-2" />
-              )}
-            </div>
-          </div>
         </div>
-      </div>
-
-      {/* Main Chart Area */}
-      <div className="flex-1 px-8 py-6 overflow-auto">
-        <div className="h-full min-h-[450px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart 
-              data={getExpandedChartData(expandedOverviewMetric)}
-              margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
-            >
-              <defs>
-                <linearGradient id="expandedAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={OVERVIEW_METRICS[expandedOverviewMetric].color} stopOpacity={0.4} />
-                  <stop offset="100%" stopColor={OVERVIEW_METRICS[expandedOverviewMetric].color} stopOpacity={0.05} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#334155" : "#e2e8f0"} />
-              <XAxis 
-                dataKey="name" 
-                tick={{ fill: isDark ? "#94a3b8" : "#64748b", fontSize: 12, fontWeight: 500 }} 
-                axisLine={{ stroke: isDark ? "#334155" : "#e2e8f0" }}
-                tickLine={false}
-                dy={15}
-                interval="preserveStartEnd"
-              />
-              <YAxis 
-                tick={{ fill: isDark ? "#94a3b8" : "#64748b", fontSize: 12, fontWeight: 500 }} 
-                axisLine={false}
-                tickLine={false}
-                dx={-10}
-                tickFormatter={(val) => val.toLocaleString()}
-              />
-              <RechartsTooltip
-                contentStyle={{
-                  backgroundColor: isDark ? "#1e293b" : "#ffffff",
-                  border: "none",
-                  borderRadius: "16px",
-                  boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-                  padding: "16px 20px",
-                }}
-                labelStyle={{ fontWeight: "bold", fontSize: "14px", marginBottom: "8px", color: isDark ? "#fff" : "#1e293b" }}
-                formatter={(value, name) => [
-                  <span className="text-lg font-bold" style={{ color: OVERVIEW_METRICS[expandedOverviewMetric].color }}>
-                    {typeof value === 'number' ? value.toFixed(2) : value} {OVERVIEW_METRICS[expandedOverviewMetric].unit}
-                  </span>,
-                  OVERVIEW_METRICS[expandedOverviewMetric].label
-                ]}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={OVERVIEW_METRICS[expandedOverviewMetric].color}
-                fill="url(#expandedAreaGrad)"
-                strokeWidth={3}
-                dot={{ 
-                  fill: OVERVIEW_METRICS[expandedOverviewMetric].color, 
-                  strokeWidth: 0, 
-                  r: 5,
-                }}
-                activeDot={{ 
-                  r: 8, 
-                  strokeWidth: 3, 
-                  stroke: "#fff",
-                  fill: OVERVIEW_METRICS[expandedOverviewMetric].color 
-                }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+      )}
 
       {/* EXPANDED MODAL */}
       {expandedMetric && (
