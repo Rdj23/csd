@@ -1445,6 +1445,8 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
   const [adminPage, setAdminPage] = useState(1);
   const [adminPageSize, setAdminPageSize] = useState(50);
   const [adminTotalCount, setAdminTotalCount] = useState(0);
+  const [queryCollapsed, setQueryCollapsed] = useState(true);
+  const [editableQuery, setEditableQuery] = useState("");
 
   // Better date parsing function
   const parseDateString = (dateStr) => {
@@ -1683,6 +1685,15 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
 
     try {
       let queryToSend;
+
+      // If editableQuery has content, use it
+      if (editableQuery) {
+        try {
+          queryToSend = JSON.parse(editableQuery);
+        } catch (e) {
+          // Fall back to natural language parsing
+        }
+      }
 
       if (adminQueryMode === "raw") {
         // Parse the raw JSON query
@@ -2913,15 +2924,45 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
 
                 {/* Query Display & Actions */}
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 p-4 bg-slate-900 rounded-xl border border-slate-800">
-                    <div className="text-xs text-slate-500 mb-2">
-                      MongoDB Query:
-                    </div>
-                    <code className="text-xs text-emerald-400 font-mono whitespace-pre-wrap break-all">
-                      {JSON.stringify(adminResults.query || {}, null, 2)}
-                    </code>
+                  <div className="flex-1">
+                    <button
+                      onClick={() => setQueryCollapsed(!queryCollapsed)}
+                      className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 mb-2"
+                    >
+                      <ChevronRight
+                        className={`w-4 h-4 transition-transform ${
+                          !queryCollapsed ? "rotate-90" : ""
+                        }`}
+                      />
+                      MongoDB Query {!queryCollapsed && "(editable)"}
+                    </button>
+                    {!queryCollapsed && (
+                      <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <textarea
+                          value={
+                            editableQuery ||
+                            JSON.stringify(adminResults.query || {}, null, 2)
+                          }
+                          onChange={(e) => setEditableQuery(e.target.value)}
+                          className="w-full h-32 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-emerald-600 dark:text-emerald-400 font-mono resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <button
+                          onClick={() => {
+                            try {
+                              const parsed = JSON.parse(editableQuery);
+                              setAdminRawQuery(editableQuery);
+                              executeAdminSearch(1);
+                            } catch (e) {
+                              alert("Invalid JSON: " + e.message);
+                            }
+                          }}
+                          className="mt-2 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-500"
+                        >
+                          Run Edited Query
+                        </button>
+                      </div>
+                    )}
                   </div>
-
                   {/* Download Buttons */}
                   <div className="flex flex-col gap-2">
                     <button
