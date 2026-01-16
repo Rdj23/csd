@@ -380,11 +380,22 @@ app.get("/api/tickets/analytics", async (req, res) => {
     // Individual trends (last 60 days)
     const sixtyDaysAgo = new Date();
     sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    // Individual trends (last 60 days) - ADD backlogCleared calculation
     const individualTrends = await AnalyticsTicket.aggregate([
       {
         $match: {
           closed_date: { $gte: sixtyDaysAgo },
           owner: { $nin: ["Anmol", "anmol-sawhney"] },
+        },
+      },
+      {
+        $addFields: {
+          ticketAge: {
+            $divide: [
+              { $subtract: ["$closed_date", "$created_date"] },
+              1000 * 60 * 60 * 24, // Convert to days
+            ],
+          },
         },
       },
       {
@@ -397,6 +408,10 @@ app.get("/api/tickets/analytics", async (req, res) => {
           },
           solved: { $sum: 1 },
           avgRWT: { $avg: "$rwt" },
+          avgFRT: { $avg: "$frt" },
+          backlogCleared: {
+            $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] },
+          },
         },
       },
       { $sort: { "_id.date": 1 } },
@@ -456,7 +471,13 @@ app.get("/api/tickets/analytics", async (req, res) => {
       individualTrends: individualTrends.reduce((acc, item) => {
         const { date, owner } = item._id;
         if (!acc[owner]) acc[owner] = [];
-        acc[owner].push({ date, solved: item.solved, avgRWT: item.avgRWT });
+        acc[owner].push({
+          date,
+          solved: item.solved,
+          avgRWT: item.avgRWT ? Number(item.avgRWT.toFixed(2)) : 0,
+          avgFRT: item.avgFRT ? Number(item.avgFRT.toFixed(2)) : 0,
+          backlogCleared: item.backlogCleared || 0,
+        });
         return acc;
       }, {}),
     };
@@ -478,7 +499,6 @@ app.get("/api/tickets/analytics", async (req, res) => {
   }
 });
 
-
 const fetchAndCacheTickets = async (source = "auto") => {
   if (isSyncing) {
     syncQueued = true;
@@ -492,7 +512,10 @@ const fetchAndCacheTickets = async (source = "auto") => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     sevenDaysAgo.setHours(0, 0, 0, 0);
-    console.log("📅 Including solved tickets since:", sevenDaysAgo.toISOString());
+    console.log(
+      "📅 Including solved tickets since:",
+      sevenDaysAgo.toISOString()
+    );
 
     let collected = [],
       cursor = null,
@@ -520,21 +543,27 @@ const fetchAndCacheTickets = async (source = "auto") => {
     const activeTickets = collected
       .filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
-        
+
         // Keep all active/open tickets
-        if (stage.includes("waiting on assignee") || 
-            stage.includes("awaiting customer reply") || 
-            stage.includes("waiting on clevertap")) {
+        if (
+          stage.includes("waiting on assignee") ||
+          stage.includes("awaiting customer reply") ||
+          stage.includes("waiting on clevertap")
+        ) {
           return true;
         }
         // Keep solved/closed ONLY if closed in last 7 days
-        if (stage.includes("solved") || stage.includes("closed") || stage.includes("resolved")) {
+        if (
+          stage.includes("solved") ||
+          stage.includes("closed") ||
+          stage.includes("resolved")
+        ) {
           if (t.actual_close_date) {
             return new Date(t.actual_close_date) >= sevenDaysAgo;
           }
           return false;
         }
-        
+
         return false;
       })
       .map((t) => ({
@@ -554,16 +583,18 @@ const fetchAndCacheTickets = async (source = "auto") => {
         actual_close_date: t.actual_close_date,
       }));
 
-       // Log for debugging
-    const solvedCount = activeTickets.filter(t => {
+    // Log for debugging
+    const solvedCount = activeTickets.filter((t) => {
       const stage = t.stage?.name?.toLowerCase() || "";
       return stage.includes("solved") || stage.includes("closed");
     }).length;
-    
+
     cache.set("tickets_active", activeTickets);
     collected = null;
     if (global.gc) global.gc();
-    console.log(`✅ ${activeTickets.length} tickets cached (${solvedCount} solved in last 7 days)`);
+    console.log(
+      `✅ ${activeTickets.length} tickets cached (${solvedCount} solved in last 7 days)`
+    );
     io.emit("REFRESH_TICKETS", activeTickets);
   } catch (e) {
     console.error("❌ Sync Failed:", e.message);
@@ -575,7 +606,6 @@ const fetchAndCacheTickets = async (source = "auto") => {
     }
   }
 };
-
 
 // ============================================================================
 // ACTIVE TICKETS (Dashboard - Open/Pending only)
@@ -591,40 +621,42 @@ app.get("/api/tickets", async (req, res) => {
 app.post("/api/tickets/links", async (req, res) => {
   try {
     const { ticketId } = req.body; // e.g., "304218"
-    
+
     // Get links for the ticket
     const linksRes = await axios.post(
       `${DEVREV_API}/links.list`,
       {
         object: `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`,
         object_types: ["issue"],
-        limit: 10
+        limit: 10,
       },
       { headers: HEADERS }
     );
-    
+
     const links = linksRes.data.links || [];
-    
+
     if (links.length === 0) {
       return res.json({ hasDependency: false, issues: [] });
     }
-    
+
     // Process linked issues
-    const issues = links.map(link => {
-      const target = link.target;
-      if (!target || target.type !== "issue") return null;
-      
-      return {
-        issueId: target.display_id, // "ISS-125011"
-        title: target.title,
-        owner: target.owned_by?.[0]?.display_name || "Unassigned",
-        ownerEmail: target.owned_by?.[0]?.email,
-        priority: target.priority || target.priority_v2?.label,
-        stage: target.stage?.name,
-        jiraLink: target.sync_metadata?.external_reference,
-      };
-    }).filter(Boolean);
-    
+    const issues = links
+      .map((link) => {
+        const target = link.target;
+        if (!target || target.type !== "issue") return null;
+
+        return {
+          issueId: target.display_id, // "ISS-125011"
+          title: target.title,
+          owner: target.owned_by?.[0]?.display_name || "Unassigned",
+          ownerEmail: target.owned_by?.[0]?.email,
+          priority: target.priority || target.priority_v2?.label,
+          stage: target.stage?.name,
+          jiraLink: target.sync_metadata?.external_reference,
+        };
+      })
+      .filter(Boolean);
+
     res.json({ hasDependency: true, issues });
   } catch (e) {
     console.error("Links fetch error:", e.message);
@@ -636,22 +668,22 @@ app.post("/api/tickets/links", async (req, res) => {
 app.post("/api/issues/get", async (req, res) => {
   try {
     const { issueId } = req.body; // e.g., "ISS-125011"
-    
+
     const issRes = await axios.post(
       `${DEVREV_API}/works.get`,
       { id: issueId },
       { headers: HEADERS }
     );
-    
+
     const issue = issRes.data.work;
     if (!issue) {
       return res.json({ error: "Issue not found" });
     }
-    
+
     // Extract team info from custom fields
     const customFields = issue.custom_fields || {};
     const subtype = issue.subtype || "";
-    
+
     // Determine team based on various fields
     let team = "Unknown";
     if (customFields.ctype__issuetype === "PSN Task") {
@@ -665,7 +697,7 @@ app.post("/api/issues/get", async (req, res) => {
     } else if (subtype.includes("whatsapp")) {
       team = "Whatsapp";
     }
-    
+
     res.json({
       issueId: issue.display_id,
       title: issue.title,
@@ -690,105 +722,113 @@ app.post("/api/issues/get", async (req, res) => {
 app.post("/api/tickets/dependencies", async (req, res) => {
   try {
     const { ticketIds } = req.body; // Array of ticket IDs like ["304218", "305713"]
-    
+
     const results = {};
-    
+
     // Process in parallel with concurrency limit
     const BATCH_SIZE = 5;
     for (let i = 0; i < ticketIds.length; i += BATCH_SIZE) {
       const batch = ticketIds.slice(i, i + BATCH_SIZE);
-      
-      await Promise.all(batch.map(async (ticketId) => {
-        try {
-          // Get links
-          const linksRes = await axios.post(
-            `${DEVREV_API}/links.list`,
-            {
-              object: `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`,
-              object_types: ["issue"],
-              limit: 10
-            },
-            { headers: HEADERS }
-          );
-          
-          const links = linksRes.data.links || [];
-          
-          if (links.length === 0) {
-            results[ticketId] = { hasDependency: false, issues: [] };
-            return;
-          }
-          
-          // Get issue details for each link
-          const issues = await Promise.all(links.map(async (link) => {
-            const target = link.target;
-            if (!target || target.type !== "issue") return null;
-            
-            try {
-              // Fetch full issue details
-              const issRes = await axios.post(
-                `${DEVREV_API}/works.get`,
-                { id: target.display_id },
-                { headers: HEADERS }
-              );
-              
-              const issue = issRes.data.work;
-              if (!issue) return null;
-              
-              const customFields = issue.custom_fields || {};
-              
-              // Determine team
-              let team = "Other";
-              if (customFields.ctype__issuetype === "PSN Task") {
-                team = "NOC";
-              } else if (customFields.ctype__team_involved) {
-                team = customFields.ctype__team_involved;
-              } else if (issue.subtype === "internal_clevertap_slack") {
-                team = "Internal";
-              }
-              
-              return {
-                issueId: issue.display_id,
-                title: issue.title,
-                owner: issue.owned_by?.[0]?.display_name || "Unassigned",
-                team,
-                isNOC: customFields.ctype__issuetype === "PSN Task",
-                jiraKey: customFields.ctype__key,
-                priority: issue.priority_v2?.label,
-                stage: issue.stage?.name,
-              };
-            } catch (e) {
-              // Return basic info from link if full fetch fails
-              return {
-                issueId: target.display_id,
-                title: target.title,
-                owner: target.owned_by?.[0]?.display_name || "Unassigned",
-                team: "Unknown",
-                isNOC: false,
-              };
+
+      await Promise.all(
+        batch.map(async (ticketId) => {
+          try {
+            // Get links
+            const linksRes = await axios.post(
+              `${DEVREV_API}/links.list`,
+              {
+                object: `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`,
+                object_types: ["issue"],
+                limit: 10,
+              },
+              { headers: HEADERS }
+            );
+
+            const links = linksRes.data.links || [];
+
+            if (links.length === 0) {
+              results[ticketId] = { hasDependency: false, issues: [] };
+              return;
             }
-          }));
-          
-          const validIssues = issues.filter(Boolean);
-          
-          // Sort: NOC first, then others
-          validIssues.sort((a, b) => {
-            if (a.isNOC && !b.isNOC) return -1;
-            if (!a.isNOC && b.isNOC) return 1;
-            return 0;
-          });
-          
-          results[ticketId] = {
-            hasDependency: true,
-            issues: validIssues,
-            // Primary issue: NOC if exists, otherwise first issue
-            primary: validIssues.find(i => i.isNOC) || validIssues[0],
-          };
-        } catch (e) {
-          results[ticketId] = { hasDependency: false, issues: [], error: e.message };
-        }
-      }));
+
+            // Get issue details for each link
+            const issues = await Promise.all(
+              links.map(async (link) => {
+                const target = link.target;
+                if (!target || target.type !== "issue") return null;
+
+                try {
+                  // Fetch full issue details
+                  const issRes = await axios.post(
+                    `${DEVREV_API}/works.get`,
+                    { id: target.display_id },
+                    { headers: HEADERS }
+                  );
+
+                  const issue = issRes.data.work;
+                  if (!issue) return null;
+
+                  const customFields = issue.custom_fields || {};
+
+                  // Determine team
+                  let team = "Other";
+                  if (customFields.ctype__issuetype === "PSN Task") {
+                    team = "NOC";
+                  } else if (customFields.ctype__team_involved) {
+                    team = customFields.ctype__team_involved;
+                  } else if (issue.subtype === "internal_clevertap_slack") {
+                    team = "Internal";
+                  }
+
+                  return {
+                    issueId: issue.display_id,
+                    title: issue.title,
+                    owner: issue.owned_by?.[0]?.display_name || "Unassigned",
+                    team,
+                    isNOC: customFields.ctype__issuetype === "PSN Task",
+                    jiraKey: customFields.ctype__key,
+                    priority: issue.priority_v2?.label,
+                    stage: issue.stage?.name,
+                  };
+                } catch (e) {
+                  // Return basic info from link if full fetch fails
+                  return {
+                    issueId: target.display_id,
+                    title: target.title,
+                    owner: target.owned_by?.[0]?.display_name || "Unassigned",
+                    team: "Unknown",
+                    isNOC: false,
+                  };
+                }
+              })
+            );
+
+            const validIssues = issues.filter(Boolean);
+
+            // Sort: NOC first, then others
+            validIssues.sort((a, b) => {
+              if (a.isNOC && !b.isNOC) return -1;
+              if (!a.isNOC && b.isNOC) return 1;
+              return 0;
+            });
+
+            results[ticketId] = {
+              hasDependency: true,
+              issues: validIssues,
+              // Primary issue: NOC if exists, otherwise first issue
+              primary: validIssues.find((i) => i.isNOC) || validIssues[0],
+            };
+          } catch (e) {
+            results[ticketId] = {
+              hasDependency: false,
+              issues: [],
+              error: e.message,
+            };
+          }
+        })
+      );
     }
-    
+
     res.json(results);
   } catch (e) {
     console.error("Dependencies batch fetch error:", e.message);
@@ -803,11 +843,14 @@ app.post("/api/admin/sync-now", async (req, res) => {
     await syncHistoricalToDB(false);
     const count = await AnalyticsTicket.countDocuments();
     const latest = await AnalyticsTicket.findOne().sort({ closed_date: -1 });
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       totalTickets: count,
       latestClosedDate: latest?.closed_date,
-      message: `Synced successfully. Latest ticket: ${format(latest?.closed_date || new Date(), "MMM dd, yyyy")}`
+      message: `Synced successfully. Latest ticket: ${format(
+        latest?.closed_date || new Date(),
+        "MMM dd, yyyy"
+      )}`,
     });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -820,23 +863,26 @@ app.get("/api/admin/sync-status", async (req, res) => {
     const count = await AnalyticsTicket.countDocuments();
     const latest = await AnalyticsTicket.findOne().sort({ closed_date: -1 });
     const oldest = await AnalyticsTicket.findOne().sort({ closed_date: 1 });
-    
+
     // Check if data is stale (latest ticket is > 2 days old)
     const latestDate = latest?.closed_date;
-    const isStale = latestDate ? (Date.now() - new Date(latestDate).getTime()) > 2 * 24 * 60 * 60 * 1000 : true;
-    
+    const isStale = latestDate
+      ? Date.now() - new Date(latestDate).getTime() > 2 * 24 * 60 * 60 * 1000
+      : true;
+
     res.json({
       totalTickets: count,
       latestClosedDate: latestDate,
       oldestClosedDate: oldest?.closed_date,
       isStale,
-      message: isStale ? "⚠️ Data may be stale. Consider running manual sync." : "✅ Data is up to date"
+      message: isStale
+        ? "⚠️ Data may be stale. Consider running manual sync."
+        : "✅ Data is up to date",
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
-
 
 const syncHistoricalToDB = async (fullHistory = false) => {
   console.log("📦 Syncing to MongoDB...");
@@ -953,23 +999,27 @@ app.post("/api/webhooks/devrev", (req, res) => {
 app.post("/api/admin/search", async (req, res) => {
   try {
     const { query = {}, page = 1, pageSize = 50 } = req.body;
-    
+
     console.log("🔍 Admin Search:", JSON.stringify(query, null, 2));
-    
+
     // Process date strings in query
     const processedQuery = { ...query };
     if (processedQuery.closed_date) {
       if (processedQuery.closed_date.$gte) {
-        processedQuery.closed_date.$gte = new Date(processedQuery.closed_date.$gte);
+        processedQuery.closed_date.$gte = new Date(
+          processedQuery.closed_date.$gte
+        );
       }
       if (processedQuery.closed_date.$lte) {
-        processedQuery.closed_date.$lte = new Date(processedQuery.closed_date.$lte);
+        processedQuery.closed_date.$lte = new Date(
+          processedQuery.closed_date.$lte
+        );
       }
     }
-    
+
     // Get total count first
     const totalCount = await AnalyticsTicket.countDocuments(processedQuery);
-    
+
     // Fetch paginated results
     const skip = (page - 1) * pageSize;
     const tickets = await AnalyticsTicket.find(processedQuery)
@@ -977,10 +1027,10 @@ app.post("/api/admin/search", async (req, res) => {
       .skip(skip)
       .limit(pageSize)
       .lean();
-    
+
     // Calculate stats from ALL matching tickets (not just current page)
     const allTickets = await AnalyticsTicket.find(processedQuery).lean();
-    
+
     const stats = {
       totalTickets: allTickets.length,
       totalRWT: 0,
@@ -993,7 +1043,7 @@ app.post("/api/admin/search", async (req, res) => {
       badCSATCount: 0,
       frrMetCount: 0,
     };
-    
+
     allTickets.forEach((t) => {
       if (t.rwt != null && t.rwt > 0) {
         stats.totalRWT += t.rwt;
@@ -1011,11 +1061,16 @@ app.post("/api/admin/search", async (req, res) => {
       if (t.csat === 1) stats.badCSATCount++;
       if (t.frr === 1) stats.frrMetCount++;
     });
-    
-    stats.avgRWT = stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
-    stats.avgFRT = stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
-    stats.avgIterations = stats.iterationsValidCount > 0 ? stats.totalIterations / stats.iterationsValidCount : 0;
-    
+
+    stats.avgRWT =
+      stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
+    stats.avgFRT =
+      stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
+    stats.avgIterations =
+      stats.iterationsValidCount > 0
+        ? stats.totalIterations / stats.iterationsValidCount
+        : 0;
+
     res.json({
       query: processedQuery,
       stats,
@@ -1031,24 +1086,23 @@ app.post("/api/admin/search", async (req, res) => {
   }
 });
 
-
 app.get("/api/admin/debug-stats", async (req, res) => {
   try {
     const { owner, quarter = "Q1_26" } = req.query;
-    
+
     const { start, end } = getQuarterDateRange(quarter);
-    
+
     const query = {
       closed_date: { $gte: start, $lte: end },
       owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
-    
+
     if (owner) {
       query.owner = { $regex: owner, $options: "i" };
     }
-    
+
     const tickets = await AnalyticsTicket.find(query).lean();
-    
+
     // Manual calculation matching your MongoDB script
     const stats = {
       totalTickets: tickets.length,
@@ -1068,7 +1122,7 @@ app.get("/api/admin/debug-stats", async (req, res) => {
       frrFalsyCount: 0,
       owner: owner || "All",
     };
-    
+
     tickets.forEach((t) => {
       // RWT
       if (t.rwt !== null && t.rwt !== undefined && t.rwt > 0) {
@@ -1077,7 +1131,7 @@ app.get("/api/admin/debug-stats", async (req, res) => {
       } else {
         stats.rwtFaultyCount++;
       }
-      
+
       // FRT
       if (t.frt !== null && t.frt !== undefined && t.frt > 0) {
         stats.totalFRT += t.frt;
@@ -1085,7 +1139,7 @@ app.get("/api/admin/debug-stats", async (req, res) => {
       } else {
         stats.frtFaultyCount++;
       }
-      
+
       // Iterations
       if (t.iterations !== null && t.iterations !== undefined) {
         stats.totalIterations += t.iterations;
@@ -1093,7 +1147,7 @@ app.get("/api/admin/debug-stats", async (req, res) => {
       } else {
         stats.iterationsFaultyCount++;
       }
-      
+
       // CSAT
       if (t.csat === 2) {
         stats.goodCSATCount++;
@@ -1103,7 +1157,7 @@ app.get("/api/admin/debug-stats", async (req, res) => {
       } else {
         stats.csatFaultyCount++;
       }
-      
+
       // FRR
       if (t.frr === 1) {
         stats.frrMetCount++;
@@ -1111,19 +1165,23 @@ app.get("/api/admin/debug-stats", async (req, res) => {
         stats.frrFalsyCount++;
       }
     });
-    
-    stats.avgRWT = stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
-    stats.avgFRT = stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
-    stats.avgIterations = stats.iterationsValidCount > 0 ? stats.totalIterations / stats.iterationsValidCount : 0;
-    
+
+    stats.avgRWT =
+      stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
+    stats.avgFRT =
+      stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
+    stats.avgIterations =
+      stats.iterationsValidCount > 0
+        ? stats.totalIterations / stats.iterationsValidCount
+        : 0;
+
     console.log("📊 Debug Stats:", stats);
-    
+
     res.json(stats);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
-
 
 app.post("/api/tickets/sync", (req, res) => {
   fetchAndCacheTickets("manual");

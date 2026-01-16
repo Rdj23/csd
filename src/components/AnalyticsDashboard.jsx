@@ -3094,7 +3094,7 @@ const myTeamName = useMemo(() => {
     <tr key={t.ticket_id || i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
       <td className="px-4 py-3">
         <a 
-          href={`https://app.devrev.ai/clevertap/works/${t.ticket_id}`}
+          href={`https://app.devrev.ai/clevertapsupport/works/${t.ticket_id}`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-indigo-600 dark:text-indigo-400 font-mono hover:underline"

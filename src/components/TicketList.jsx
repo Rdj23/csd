@@ -261,7 +261,7 @@ const TicketList = ({
                           </span>
                           {primary.issueId && (
                             <a
-                              href={`https://app.devrev.ai/clevertap/works/${primary.issueId}`}
+                              href={`https://app.devrev.ai/clevertapsupport/works/${primary.issueId}`}
                               target="_blank"
                               rel="noreferrer"
                               className="text-[10px] text-indigo-500 hover:underline font-mono"
