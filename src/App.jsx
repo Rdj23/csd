@@ -881,10 +881,8 @@ ${
                                       : (
                                           currentFilters.dependency || []
                                         ).filter((v) => v !== opt.value);
-                                    setCurrentFilters((f) => ({
-                                      ...f,
-                                      dependency: newVal,
-                                    }));
+                                   setFilter("dependency", newVal);
+
                                   }}
                                   className="rounded"
                                 />
@@ -921,10 +919,8 @@ ${
                                               currentFilters.dependencyTeams ||
                                               []
                                             ).filter((v) => v !== opt.value);
-                                        setCurrentFilters((f) => ({
-                                          ...f,
-                                          dependencyTeams: newVal,
-                                        }));
+                                        setFilter("dependencyTeams", newVal);
+
                                       }}
                                       className="rounded"
                                     />

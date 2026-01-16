@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { ChevronDown, Search } from "lucide-react";
 
-const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) => {
+const MultiSelectFilter = ({ icon: Icon, label, options = [], selected = [], onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef(null);

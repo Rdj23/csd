@@ -99,10 +99,6 @@ const TicketList = ({
     </button>
   );
 
-  const ticketId = t.display_id?.replace("TKT-", "");
-  const dep = dependencies[ticketId];
-  const primary = dep?.primary;
-  
   return (
     <div className="space-y-6 animate-in fade-in pb-20 relative">
       {/* 2. TABLE */}
@@ -160,6 +156,9 @@ const TicketList = ({
                 const csmName =
                   t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
                 const tamName = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+                const ticketId = t.display_id?.replace("TKT-", "");
+                const dep = dependencies[ticketId];
+                const primary = dep?.primary;
 
                 return (
                   <tr
