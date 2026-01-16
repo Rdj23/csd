@@ -222,7 +222,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
       }).lean();
       if (
         cached &&
-        Date.now() - new Date(cached.computed_at).getTime() < 3600000
+        Date.now() - new Date(cached.computed_at).getTime() < 1800000
       ) {
         console.log(`   ⚡ Serving from cache`);
         return res.json(cached);
@@ -296,7 +296,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
           avgFRT: { $avg: "$frt" },
           avgIterations: { $avg: "$iterations" },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", true] }, 1, 0] } },
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
         },
       },
       { $sort: { _id: 1 } },
@@ -588,6 +588,47 @@ app.get("/api/tickets", async (req, res) => {
 });
 
 
+// 2. ADD MANUAL SYNC ENDPOINT (Add after line 588)
+app.post("/api/admin/sync-now", async (req, res) => {
+  console.log("🔄 Manual sync triggered...");
+  try {
+    await syncHistoricalToDB(false);
+    const count = await AnalyticsTicket.countDocuments();
+    const latest = await AnalyticsTicket.findOne().sort({ closed_date: -1 });
+    res.json({ 
+      success: true, 
+      totalTickets: count,
+      latestClosedDate: latest?.closed_date,
+      message: `Synced successfully. Latest ticket: ${format(latest?.closed_date || new Date(), "MMM dd, yyyy")}`
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 3. ADD SYNC STATUS ENDPOINT
+app.get("/api/admin/sync-status", async (req, res) => {
+  try {
+    const count = await AnalyticsTicket.countDocuments();
+    const latest = await AnalyticsTicket.findOne().sort({ closed_date: -1 });
+    const oldest = await AnalyticsTicket.findOne().sort({ closed_date: 1 });
+    
+    // Check if data is stale (latest ticket is > 2 days old)
+    const latestDate = latest?.closed_date;
+    const isStale = latestDate ? (Date.now() - new Date(latestDate).getTime()) > 2 * 24 * 60 * 60 * 1000 : true;
+    
+    res.json({
+      totalTickets: count,
+      latestClosedDate: latestDate,
+      oldestClosedDate: oldest?.closed_date,
+      isStale,
+      message: isStale ? "⚠️ Data may be stale. Consider running manual sync." : "✅ Data is up to date"
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 const syncHistoricalToDB = async (fullHistory = false) => {
   console.log("📦 Syncing to MongoDB...");
@@ -700,6 +741,230 @@ app.post("/api/webhooks/devrev", (req, res) => {
   }
   res.send("OK");
 });
+
+app.get("/api/admin/search", async (req, res) => {
+  try {
+    const {
+      owner,
+      dateRange,
+      startDate,
+      endDate,
+      frr,
+      csat,
+      rwtGt,
+      iterations,
+      iterationsGt,
+      isZendesk,
+    } = req.query;
+
+    // Build MongoDB query
+    const query = {};
+
+    // Owner filter (case-insensitive partial match)
+    if (owner) {
+      query.owner = { $regex: owner, $options: "i" };
+    }
+
+    // Date range filter
+    if (dateRange) {
+      const days = parseInt(dateRange);
+      query.closed_date = {
+        $gte: subDays(new Date(), days),
+        $lte: new Date(),
+      };
+    } else if (startDate || endDate) {
+      query.closed_date = {};
+      if (startDate) {
+        query.closed_date.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.closed_date.$lte = new Date(endDate);
+      }
+    }
+
+    // FRR filter
+    if (frr !== undefined) {
+      query.frr = parseInt(frr);
+    }
+
+    // CSAT filter
+    if (csat !== undefined) {
+      query.csat = parseInt(csat);
+    }
+
+    // RWT filter
+    if (rwtGt) {
+      query.rwt = { $gt: parseFloat(rwtGt) };
+    }
+
+    // Iterations filter
+    if (iterations) {
+      query.iterations = parseInt(iterations);
+    } else if (iterationsGt) {
+      query.iterations = { $gt: parseInt(iterationsGt) };
+    }
+
+    // Zendesk filter
+    if (isZendesk !== undefined) {
+      query.is_zendesk = isZendesk === "true";
+    }
+
+    console.log("🔍 Admin Search Query:", JSON.stringify(query, null, 2));
+
+    // Fetch tickets
+    const tickets = await AnalyticsTicket.find(query)
+      .sort({ closed_date: -1 })
+      .limit(100)
+      .lean();
+
+    // Calculate stats
+    const stats = {
+      totalTickets: tickets.length,
+      totalRWT: 0,
+      rwtValidCount: 0,
+      totalFRT: 0,
+      frtValidCount: 0,
+      totalIterations: 0,
+      iterationsValidCount: 0,
+      goodCSATCount: 0,
+      badCSATCount: 0,
+      frrMetCount: 0,
+      frrNotMetCount: 0,
+    };
+
+    tickets.forEach((t) => {
+      // RWT
+      if (t.rwt !== null && t.rwt !== undefined && t.rwt > 0) {
+        stats.totalRWT += t.rwt;
+        stats.rwtValidCount++;
+      }
+      // FRT
+      if (t.frt !== null && t.frt !== undefined && t.frt > 0) {
+        stats.totalFRT += t.frt;
+        stats.frtValidCount++;
+      }
+      // Iterations
+      if (t.iterations !== null && t.iterations !== undefined) {
+        stats.totalIterations += t.iterations;
+        stats.iterationsValidCount++;
+      }
+      // CSAT
+      if (t.csat === 2) stats.goodCSATCount++;
+      if (t.csat === 1) stats.badCSATCount++;
+      // FRR
+      if (t.frr === 1) stats.frrMetCount++;
+      else stats.frrNotMetCount++;
+    });
+
+    stats.avgRWT = stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
+    stats.avgFRT = stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
+    stats.avgIterations = stats.iterationsValidCount > 0 ? stats.totalIterations / stats.iterationsValidCount : 0;
+    stats.frrPercent = stats.totalTickets > 0 ? ((stats.frrMetCount / stats.totalTickets) * 100).toFixed(1) : 0;
+
+    res.json({
+      query,
+      stats,
+      tickets,
+      message: `Found ${tickets.length} tickets`,
+    });
+  } catch (e) {
+    console.error("Admin search error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/admin/debug-stats", async (req, res) => {
+  try {
+    const { owner, quarter = "Q1_26" } = req.query;
+    
+    const { start, end } = getQuarterDateRange(quarter);
+    
+    const query = {
+      closed_date: { $gte: start, $lte: end },
+      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
+    };
+    
+    if (owner) {
+      query.owner = { $regex: owner, $options: "i" };
+    }
+    
+    const tickets = await AnalyticsTicket.find(query).lean();
+    
+    // Manual calculation matching your MongoDB script
+    const stats = {
+      totalTickets: tickets.length,
+      totalRWT: 0,
+      rwtValidCount: 0,
+      rwtFaultyCount: 0,
+      totalFRT: 0,
+      frtValidCount: 0,
+      frtFaultyCount: 0,
+      totalIterations: 0,
+      iterationsValidCount: 0,
+      iterationsFaultyCount: 0,
+      goodCSATCount: 0,
+      csatValidCount: 0,
+      csatFaultyCount: 0,
+      frrMetCount: 0,
+      frrFalsyCount: 0,
+      owner: owner || "All",
+    };
+    
+    tickets.forEach((t) => {
+      // RWT
+      if (t.rwt !== null && t.rwt !== undefined && t.rwt > 0) {
+        stats.totalRWT += t.rwt;
+        stats.rwtValidCount++;
+      } else {
+        stats.rwtFaultyCount++;
+      }
+      
+      // FRT
+      if (t.frt !== null && t.frt !== undefined && t.frt > 0) {
+        stats.totalFRT += t.frt;
+        stats.frtValidCount++;
+      } else {
+        stats.frtFaultyCount++;
+      }
+      
+      // Iterations
+      if (t.iterations !== null && t.iterations !== undefined) {
+        stats.totalIterations += t.iterations;
+        stats.iterationsValidCount++;
+      } else {
+        stats.iterationsFaultyCount++;
+      }
+      
+      // CSAT
+      if (t.csat === 2) {
+        stats.goodCSATCount++;
+        stats.csatValidCount++;
+      } else if (t.csat === 1) {
+        stats.csatValidCount++;
+      } else {
+        stats.csatFaultyCount++;
+      }
+      
+      // FRR
+      if (t.frr === 1) {
+        stats.frrMetCount++;
+      } else {
+        stats.frrFalsyCount++;
+      }
+    });
+    
+    stats.avgRWT = stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
+    stats.avgFRT = stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
+    stats.avgIterations = stats.iterationsValidCount > 0 ? stats.totalIterations / stats.iterationsValidCount : 0;
+    
+    console.log("📊 Debug Stats:", stats);
+    
+    res.json(stats);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 app.post("/api/tickets/sync", (req, res) => {
   fetchAndCacheTickets("manual");
@@ -845,9 +1110,13 @@ server.listen(PORT, async () => {
   );
   await syncRoster();
 });
-
-setInterval(syncRoster, 15 * 60 * 1000);
 setInterval(() => {
-  console.log("⏰ Daily sync...");
+  console.log("⏰ Scheduled sync (every 6 hours)...");
   syncHistoricalToDB(false);
-}, 24 * 60 * 60 * 1000);
+}, 6 * 60 * 60 * 1000);
+
+// Also run on startup after 1 minute delay
+setTimeout(() => {
+  console.log("🚀 Initial sync on startup...");
+  syncHistoricalToDB(false);
+}, 60 * 1000);

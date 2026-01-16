@@ -102,6 +102,11 @@ const App = () => {
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  const showDatePicker = useMemo(() => {
+  return activeTab !== "vistas";
+}, [activeTab]);
+
+
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
     if (!currentUser?.name || !tickets.length) return null;
@@ -199,6 +204,8 @@ const App = () => {
 
   const [visibleFilterKeys, setVisibleFilterKeys] = useState([]);
   const hasAutoAppliedRole = useRef(false);
+  const prevTabRef = useRef(activeTab);
+
 
   // Add this helper function
   const showToast = (msg) => {
@@ -323,6 +330,27 @@ const App = () => {
       [activeTab]: { ...prev[activeTab], [key]: value },
     }));
   };
+
+ useEffect(() => {
+  const prevTab = prevTabRef.current;
+
+  // When ENTERING csd or analytics from a different tab
+  if (
+    (activeTab === "csd" || activeTab === "analytics") &&
+    prevTab !== activeTab
+  ) {
+    setTabFilters((prev) => ({
+      ...prev,
+      [activeTab]: {
+        ...EMPTY_FILTERS,
+      },
+    }));
+  }
+
+  prevTabRef.current = activeTab;
+}, [activeTab]);
+
+
 
   // ✅ AUTO-SELECT FIRST VIEW (Prevents blank screen)
   useEffect(() => {
@@ -757,30 +785,37 @@ ${
                   </div>
                 )}
 
-                {activeTab !== "vistas" && activeTab !== "analytics" && (
-                  <SmartDatePicker
-                    value={currentFilters.dateRange}
-                    onChange={(val) => setFilter("dateRange", val)}
-                  />
-                )}
-{activeTab === "analytics" && (
+               
+
+                {activeTab !== "vistas" && (
                   <>
-                    <MultiSelectFilter
-                      icon={Layers}
-                      label="Team"
-                      options={options.teams}
-                      selected={currentFilters.teams}
-                      onChange={(v) => setFilter("teams", v)}
-                    />
-                    <MultiSelectFilter
-                      icon={Users}
-                      label="Member"
-                      options={options.owners}
-                      selected={currentFilters.owners}
-                      onChange={(v) => setFilter("owners", v)}
-                    />
-                  </>
-                )}
+                    {showDatePicker && (
+  <SmartDatePicker
+    value={currentFilters.dateRange}
+    onChange={(val) => setFilter("dateRange", val)}
+  />
+)}
+
+
+                    {activeTab === "analytics" && (
+                      <>
+                        <MultiSelectFilter
+                          icon={Layers}
+                          label="Team"
+                          options={options.teams}
+                          selected={currentFilters.teams}
+                          onChange={(v) => setFilter("teams", v)}
+                        />
+                        <MultiSelectFilter
+                          icon={Users}
+                          label="Member"
+                          options={options.owners}
+                          selected={currentFilters.owners}
+                          onChange={(v) => setFilter("owners", v)}
+                        />
+                      </>
+                    )}
+
                     {activeTab !== "analytics" && activeTab !== "vistas" && (
                       <>
                         {visibleFilterKeys.map((key) => {
@@ -849,7 +884,8 @@ ${
                         </div>
                       </>
                     )}
-                 
+                  </>
+                )}
               </div>
 
               {/* SPACER */}

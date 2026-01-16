@@ -53,6 +53,7 @@ import {
   Zap,
   Eye,
   EyeOff,
+  Search, Terminal, Table, Download
 } from "lucide-react";
 import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
 import { useTicketStore } from "../store";
@@ -98,6 +99,53 @@ const METRICS = {
     desc: "Solved (Age > 15 Days)",
   },
 };
+const OVERVIEW_METRICS = {
+  avgRWT: {
+    label: "Avg RWT",
+    fullLabel: "Average Resolution Wait Time",
+    icon: Clock,
+    color: "#8b5cf6",
+    unit: "Hrs",
+    desc: "Average time to resolve tickets",
+    dataKey: "avgRWT",
+  },
+  csat: {
+    label: "Positive CSAT",
+    fullLabel: "Customer Satisfaction",
+    icon: Smile,
+    color: "#10b981",
+    unit: "",
+    desc: "Positive customer feedback count",
+    dataKey: "positiveCSAT",
+  },
+  frrPercent: {
+    label: "FRR Met",
+    fullLabel: "First Response Rate",
+    icon: Zap,
+    color: "#f59e0b",
+    unit: "%",
+    desc: "First response within SLA",
+    dataKey: "frrPercent",
+  },
+  avgIterations: {
+    label: "Avg Iterations",
+    fullLabel: "Average Iterations per Ticket",
+    icon: Layers,
+    color: "#3b82f6",
+    unit: "",
+    desc: "Back-and-forth exchanges",
+    dataKey: "avgIterations",
+  },
+  avgFRT: {
+    label: "Avg FRT",
+    fullLabel: "Average First Response Time",
+    icon: TrendingUp,
+    color: "#f43f5e",
+    unit: "Hrs",
+    desc: "Time to first response",
+    dataKey: "avgFRT",
+  },
+};
 
 const QUARTERS = [
   { id: "Q4_25", label: "Q4 '25" },
@@ -112,6 +160,20 @@ const CHART_COLORS = [
   "#06b6d4",
   "#8b5cf6",
 ];
+
+
+
+const StatCard = ({ label, value, unit = "", color, isPositive }) => (
+  <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
+    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</div>
+    <div className="text-2xl font-bold" style={{ color }}>
+      {value}{unit && <span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>}
+    </div>
+  </div>
+);
+
+
+
 
 // ============================================================================
 // DATA PROCESSING - CLIENT SIDE FOR CHARTS
@@ -400,6 +462,7 @@ const PerformanceMetricsCards = ({
   onExcludeZendeskChange,
   onRefresh,
   isRefreshing,
+  onExpandMetric
 }) => {
   const [selectedQuarter, setSelectedQuarter] = useState(
     currentQuarter || "Q4_25"
@@ -595,89 +658,99 @@ const PerformanceMetricsCards = ({
     sparkKey,
     icon: Icon,
     metricKey,
+    onExpand,
   }) => {
     const [isHovered, setIsHovered] = useState(false);
-    const insights = getInsights(metricKey, value);
+  const insights = getInsights(metricKey, value);
 
-    return (
-      <div
-        className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg transition-all h-44 group"
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        <div className="flex justify-between items-start">
-          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            {title}
-          </span>
+  return (
+    <div
+      className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg hover:border-indigo-500/50 transition-all h-44 group cursor-pointer"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={() => onExpand && onExpand(metricKey)}
+    >
+      <div className="flex justify-between items-start">
+        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+          {title}
+        </span>
+        <div className="flex items-center gap-2">
+          <button 
+            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExpand && onExpand(metricKey);
+            }}
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-slate-500 hover:text-indigo-500" />
+          </button>
           <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800">
             <Icon className="w-4 h-4 text-slate-500" />
           </div>
         </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-4xl font-black text-slate-800 dark:text-white">
-            {isLoading ? "..." : value}
-          </span>
-          <span className="text-sm font-semibold text-slate-400">{unit}</span>
-        </div>
-        <div className="h-12 w-full mt-auto">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={getSparklineData(sparkKey)}>
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={color}
-                fill={color}
-                fillOpacity={0.2}
-                strokeWidth={2}
-                dot={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-4xl font-black text-slate-800 dark:text-white">
+          {isLoading ? "..." : value}
+        </span>
+        <span className="text-sm font-semibold text-slate-400">{unit}</span>
+      </div>
+      <div className="h-12 w-full mt-auto">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={getSparklineData(sparkKey)}>
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke={color}
+              fill={color}
+              fillOpacity={0.2}
+              strokeWidth={2}
+              dot={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
 
-        {/* Hover Insight Tooltip - Positioned smartly */}
-        {isHovered && insights && (
-          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 translate-y-full z-50 w-48 bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-800 rotate-45 border-l border-t border-slate-700"></div>
-
-            <div className="flex items-center gap-2 mb-2">
-              {insights.isGood ? (
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
-              ) : insights.trendDirection === "stable" ? (
-                <Activity className="w-4 h-4 text-slate-400" />
-              ) : (
-                <TrendingDown className="w-4 h-4 text-rose-400" />
-              )}
-              <span
-                className={`text-xs font-bold ${
-                  insights.isGood
-                    ? "text-emerald-400"
-                    : insights.trendDirection === "stable"
-                    ? "text-slate-400"
-                    : "text-rose-400"
-                }`}
-              >
-                {insights.insight}
-              </span>
+      {/* Hover Insight Tooltip */}
+      {isHovered && insights && (
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 translate-y-full z-50 w-52 bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-800 rotate-45 border-l border-t border-slate-700"></div>
+          
+          <div className="flex items-center gap-2 mb-2">
+            {insights.isGood ? (
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+            ) : insights.trendDirection === "stable" ? (
+              <Activity className="w-4 h-4 text-slate-400" />
+            ) : (
+              <TrendingDown className="w-4 h-4 text-rose-400" />
+            )}
+            <span className={`text-xs font-bold ${
+              insights.isGood ? "text-emerald-400" : 
+              insights.trendDirection === "stable" ? "text-slate-400" : "text-rose-400"
+            }`}>
+              {insights.insight}
+            </span>
+          </div>
+          
+          <div className="space-y-1 text-[10px]">
+            <div className="flex justify-between">
+              <span className="text-slate-400">This week avg:</span>
+              <span className="font-bold">{insights.thisWeekAvg}</span>
             </div>
-
-            <div className="space-y-1 text-[10px]">
-              <div className="flex justify-between">
-                <span className="text-slate-400">This week avg:</span>
-                <span className="font-bold">{insights.thisWeekAvg}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Last week avg:</span>
-                <span className="font-medium text-slate-300">
-                  {insights.lastWeekAvg}
-                </span>
-              </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Last week avg:</span>
+              <span className="font-medium text-slate-300">{insights.lastWeekAvg}</span>
             </div>
           </div>
-        )}
-      </div>
-    );
-  };
+          
+          <div className="mt-2 pt-2 border-t border-slate-700 text-[10px] text-indigo-400 flex items-center gap-1">
+            <Maximize2 className="w-3 h-3" /> Click to expand
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
   return (
     <div className="space-y-4">
@@ -877,6 +950,7 @@ const PerformanceMetricsCards = ({
           sparkKey="avgRWT"
           icon={Clock}
           metricKey="avgRWT"
+          onExpand={onExpandMetric}
         />
         <MetricCard
           title="Positive CSAT"
@@ -886,6 +960,7 @@ const PerformanceMetricsCards = ({
           sparkKey="csat"
           icon={Smile}
           metricKey="csat"
+          onExpand={onExpandMetric}
         />
         <MetricCard
           title="FRR Met"
@@ -895,6 +970,7 @@ const PerformanceMetricsCards = ({
           sparkKey="frrPercent"
           icon={Zap}
           metricKey="frrPercent"
+          onExpand={onExpandMetric}
         />
         <MetricCard
           title="Avg Iterations"
@@ -904,6 +980,7 @@ const PerformanceMetricsCards = ({
           sparkKey="avgIterations"
           icon={Layers}
           metricKey="avgIterations"
+          onExpand={onExpandMetric}
         />
         <MetricCard
           title="Avg FRT"
@@ -913,6 +990,7 @@ const PerformanceMetricsCards = ({
           sparkKey="avgFRT"
           icon={TrendingUp}
           metricKey="avgFRT"
+          onExpand={onExpandMetric}
         />
       </div>
     </div>
@@ -1279,10 +1357,13 @@ const DSATAlerts = ({ badTickets = [], isLoading, isGSTUser }) => {
   );
 };
 
+
+
+
 // ============================================================================
 // MAIN DASHBOARD
 // ============================================================================
-const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
+const AnalyticsDashboard = ({ tickets = [], filterOwner,dateRange }) => {
   const {
     theme,
     currentUser,
@@ -1290,7 +1371,13 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
     analyticsLoading,
     fetchAnalyticsData,
   } = useTicketStore();
-  const [currentQuarter, setCurrentQuarter] = useState("Q4_25");
+  const [currentQuarter, setCurrentQuarter] = useState("Q1_26");
+  const [expandedTimeRange, setExpandedTimeRange] = useState(30);
+const [expandedGroupBy, setExpandedGroupBy] = useState("daily");
+const [expandedAllTrends, setExpandedAllTrends] = useState([]);
+const [expandedLoading, setExpandedLoading] = useState(false);
+
+
   const [excludeZendesk, setExcludeZendesk] = useState(false);
   const [viewMode, setViewMode] = useState("gst");
   const [expandedMetric, setExpandedMetric] = useState(null);
@@ -1300,9 +1387,191 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   const [timeRange, setTimeRange] = useState(30);
   const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
 
+  const [expandedOverviewMetric, setExpandedOverviewMetric] = useState(null);
+
+
+
   const isDark = theme === "dark";
+const effectiveDateRange = useMemo(() => {
+  if (dateRange?.start && dateRange?.end) {
+    return {
+      start: parseISO(dateRange.start),
+      end: parseISO(dateRange.end),
+      days: differenceInDays(parseISO(dateRange.end), parseISO(dateRange.start)) + 1
+    };
+  }
+  const end = new Date();
+  const start = subDays(end, 29);
+  return { start, end, days: 30 };
+}, [dateRange]);
+
+const filteredTickets = useMemo(() => {
+  return tickets.filter(t => {
+    if (!t.created_date) return false;
+    const ticketDate = parseISO(t.created_date);
+    return ticketDate >= effectiveDateRange.start && ticketDate <= effectiveDateRange.end;
+  });
+}, [tickets, effectiveDateRange]);
+
+const [adminSearchQuery, setAdminSearchQuery] = useState("");
+const [adminSearchResults, setAdminSearchResults] = useState(null);
+const [adminSearchLoading, setAdminSearchLoading] = useState(false);
+const [showAdminSearch, setShowAdminSearch] = useState(false);
+
+// Add this function to parse natural language query:
+const parseSearchQuery = (query) => {
+  const q = query.toLowerCase();
+  const filters = {};
+  
+  // Owner/Member detection
+  const ownerPatterns = [
+    /(?:tickets?\s+(?:for|by|of|from|owned by|assigned to))\s+(\w+)/i,
+    /(\w+)(?:'s)?\s+tickets?/i,
+    /(?:owner|member|assignee)[:\s]+(\w+)/i,
+  ];
+  
+  for (const pattern of ownerPatterns) {
+    const match = q.match(pattern);
+    if (match) {
+      filters.owner = match[1];
+      break;
+    }
+  }
+  
+  // Date range detection
+  if (q.includes("last 7 days") || q.includes("last week")) {
+    filters.dateRange = 7;
+  } else if (q.includes("last 14 days") || q.includes("last 2 weeks")) {
+    filters.dateRange = 14;
+  } else if (q.includes("last 30 days") || q.includes("last month")) {
+    filters.dateRange = 30;
+  } else if (q.includes("last 90 days") || q.includes("last 3 months") || q.includes("last quarter")) {
+    filters.dateRange = 90;
+  } else if (q.includes("this week")) {
+    filters.dateRange = 7;
+  } else if (q.includes("this month")) {
+    filters.dateRange = 30;
+  }
+  
+  // Custom date range: "from jan 1 to jan 15" or "between jan 1 and jan 15"
+  const dateRangeMatch = q.match(/(?:from|between)\s+(\w+\s+\d+)(?:\s+to|\s+and)\s+(\w+\s+\d+)/i);
+  if (dateRangeMatch) {
+    filters.startDate = dateRangeMatch[1];
+    filters.endDate = dateRangeMatch[2];
+  }
+  
+  // Metric filters
+  if (q.includes("frr met") || q.includes("frr = 1") || q.includes("frr is 1") || q.includes("high frr")) {
+    filters.frr = 1;
+  } else if (q.includes("frr not met") || q.includes("frr = 0") || q.includes("frr is 0") || q.includes("low frr") || q.includes("no frr")) {
+    filters.frr = 0;
+  }
+  
+  if (q.includes("good csat") || q.includes("positive csat") || q.includes("csat = 2")) {
+    filters.csat = 2;
+  } else if (q.includes("bad csat") || q.includes("negative csat") || q.includes("csat = 1") || q.includes("dsat")) {
+    filters.csat = 1;
+  }
+  
+  if (q.includes("high rwt") || q.includes("rwt > ")) {
+    const rwtMatch = q.match(/rwt\s*>\s*(\d+)/);
+    filters.rwtGt = rwtMatch ? parseInt(rwtMatch[1]) : 50;
+  }
+  
+  if (q.includes("low iterations") || q.includes("iterations = 1")) {
+    filters.iterations = 1;
+  } else if (q.includes("high iterations") || q.includes("iterations > ")) {
+    const iterMatch = q.match(/iterations\s*>\s*(\d+)/);
+    filters.iterationsGt = iterMatch ? parseInt(iterMatch[1]) : 3;
+  }
+  
+  // Zendesk filter
+  if (q.includes("zendesk") || q.includes("imported")) {
+    filters.isZendesk = true;
+  } else if (q.includes("exclude zendesk") || q.includes("no zendesk") || q.includes("devrev only")) {
+    filters.isZendesk = false;
+  }
+  
+  // Solved/Closed
+  if (q.includes("solved") || q.includes("closed") || q.includes("resolved")) {
+    filters.status = "solved";
+  }
+  
+  return filters;
+};
+
+// Add this function to execute search:
+const executeAdminSearch = async () => {
+  if (!adminSearchQuery.trim()) return;
+  
+  setAdminSearchLoading(true);
+  const filters = parseSearchQuery(adminSearchQuery);
+  
+  console.log("🔍 Parsed Query:", filters);
+  
+  try {
+    const params = new URLSearchParams();
+    if (filters.owner) params.set("owner", filters.owner);
+    if (filters.dateRange) params.set("dateRange", filters.dateRange);
+    if (filters.startDate) params.set("startDate", filters.startDate);
+    if (filters.endDate) params.set("endDate", filters.endDate);
+    if (filters.frr !== undefined) params.set("frr", filters.frr);
+    if (filters.csat !== undefined) params.set("csat", filters.csat);
+    if (filters.rwtGt) params.set("rwtGt", filters.rwtGt);
+    if (filters.iterations) params.set("iterations", filters.iterations);
+    if (filters.iterationsGt) params.set("iterationsGt", filters.iterationsGt);
+    if (filters.isZendesk !== undefined) params.set("isZendesk", filters.isZendesk);
+    
+    const res = await fetch(
+      `${import.meta.env.VITE_API_URL || ""}/api/admin/search?${params.toString()}`
+    );
+    const data = await res.json();
+    
+    console.log("📊 Search Results:", data);
+    setAdminSearchResults(data);
+  } catch (e) {
+    console.error("Search failed:", e);
+    setAdminSearchResults({ error: e.message });
+  } finally {
+    setAdminSearchLoading(false);
+  }
+};
+
+const filteredTrends = useMemo(() => {
+  const trends = analyticsData?.trends || [];
+  return trends.filter(t => {
+    if (!t.date) return false;
+    const trendDate = parseISO(t.date);
+    return trendDate >= effectiveDateRange.start && trendDate <= effectiveDateRange.end;
+  });
+}, [analyticsData, effectiveDateRange]);
 
   const serverTrends = analyticsData?.trends || [];
+
+  
+
+
+  const getExpandedOverviewData = useCallback((metricKey) => {
+  if (!filteredTrends.length) return [];
+  
+  const dataKeyMap = {
+    avgRWT: "avgRWT",
+    csat: "positiveCSAT", 
+    frrPercent: "frrMet",
+    avgIterations: "avgIterations",
+    avgFRT: "avgFRT",
+  };
+  
+  const dataKey = dataKeyMap[metricKey] || "solved";
+  
+  return filteredTrends.map(t => ({
+    name: format(parseISO(t.date), "MMM dd"),
+    date: t.date,
+    value: t[dataKey] || 0,
+  }));
+}, [filteredTrends]);
+
+
 
   // Resolve current user to GST roster name
   const resolvedCurrentUser = useMemo(() => {
@@ -1342,6 +1611,251 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   // GST-only user list for dropdowns
   const gstUserNames = useMemo(() => Object.values(FLAT_TEAM_MAP).sort(), []);
 
+
+ const getExpandedChartData = useCallback((metricKey) => {
+  // Use expandedAllTrends instead of analyticsData?.trends
+  const trends = expandedAllTrends.length > 0 ? expandedAllTrends : (analyticsData?.trends || []);
+  if (!trends.length) return [];
+  
+  const end = new Date();
+  const start = subDays(end, expandedTimeRange - 1);
+  
+  // Filter by date range
+  const filteredData = trends.filter(t => {
+    if (!t.date) return false;
+    const d = parseISO(t.date);
+    return d >= start && d <= end;
+  });
+  
+  const dataKeyMap = {
+    avgRWT: "avgRWT",
+    csat: "positiveCSAT",
+    frrPercent: "frrMet",  // This maps to frrMet in the trends data
+    avgIterations: "avgIterations",
+    avgFRT: "avgFRT",
+  };
+  const dataKey = dataKeyMap[metricKey] || "solved";
+  
+  // Group data based on expandedGroupBy
+  if (expandedGroupBy === "daily") {
+    return filteredData.map(t => ({
+      name: format(parseISO(t.date), "MMM dd"),
+      date: t.date,
+      value: t[dataKey] || 0,
+    }));
+  }
+  
+  if (expandedGroupBy === "weekly") {
+    const weeks = {};
+    filteredData.forEach(t => {
+      const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
+      if (!weeks[weekKey]) {
+        weeks[weekKey] = { values: [], date: t.date };
+      }
+      weeks[weekKey].values.push(t[dataKey] || 0);
+    });
+    
+    return Object.entries(weeks)
+      .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
+      .map(([week, data]) => ({
+        name: `Week ${week.split('W')[1]}`,
+        date: data.date,
+        value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
+      }));
+  }
+  
+  if (expandedGroupBy === "monthly") {
+    const months = {};
+    filteredData.forEach(t => {
+      const monthKey = format(parseISO(t.date), "yyyy-MM");
+      if (!months[monthKey]) {
+        months[monthKey] = { values: [], date: t.date };
+      }
+      months[monthKey].values.push(t[dataKey] || 0);
+    });
+    
+    return Object.entries(months)
+      .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
+      .map(([month, data]) => ({
+        name: format(parseISO(data.date), "MMM yyyy"),
+        date: data.date,
+        value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
+      }));
+  }
+  
+  return [];
+}, [expandedAllTrends, analyticsData, expandedTimeRange, expandedGroupBy]);
+// Get period total
+const getExpandedPeriodTotal = useCallback((metricKey) => {
+  const chartData = getExpandedChartData(metricKey);
+  if (!chartData.length) return "—";
+  
+  const total = chartData.reduce((sum, d) => sum + (d.value || 0), 0);
+  
+  // For averages, return the average not total
+  if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
+    return (total / chartData.length).toFixed(2);
+  }
+  
+  return Math.round(total).toLocaleString();
+}, [getExpandedChartData]);
+
+// Get average
+const getExpandedAverage = useCallback((metricKey) => {
+  const chartData = getExpandedChartData(metricKey);
+  if (!chartData.length) return "—";
+  
+  const avg = chartData.reduce((sum, d) => sum + (d.value || 0), 0) / chartData.length;
+  return avg.toFixed(2);
+}, [getExpandedChartData]);
+
+// Get trend (comparing first half vs second half)
+const getExpandedTrend = useCallback((metricKey) => {
+  const chartData = getExpandedChartData(metricKey);
+  if (chartData.length < 2) return { value: "—", isPositive: true };
+  
+  const mid = Math.floor(chartData.length / 2);
+  const firstHalf = chartData.slice(0, mid);
+  const secondHalf = chartData.slice(mid);
+  
+  const firstAvg = firstHalf.reduce((s, d) => s + d.value, 0) / firstHalf.length;
+  const secondAvg = secondHalf.reduce((s, d) => s + d.value, 0) / secondHalf.length;
+  
+  if (firstAvg === 0) return { value: "—", isPositive: true };
+  
+  const change = ((secondAvg - firstAvg) / firstAvg * 100).toFixed(1);
+  
+  // For RWT/FRT, lower is better
+  const lowerIsBetter = ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey);
+  const isPositive = lowerIsBetter ? change < 0 : change > 0;
+  
+  return {
+    value: `${change > 0 ? '+' : ''}${change}%`,
+    isPositive,
+  };
+}, [getExpandedChartData]);
+
+  // Calculate overview metric total for selected users
+const calculateOverviewTotal = useCallback((metricKey) => {
+  if (!analyticsData?.individualTrends || selectedUsers.length === 0) return "—";
+  
+  let total = 0;
+  let count = 0;
+  
+  selectedUsers.forEach(user => {
+    const userTrends = analyticsData.individualTrends[user] || [];
+    userTrends.slice(-timeRange).forEach(day => {
+      if (metricKey === "avgRWT" || metricKey === "avgFRT") {
+        total += day.avgRWT || day.avgFRT || 0;
+        count++;
+      } else if (metricKey === "csat") {
+        total += day.positiveCSAT || 0;
+      } else {
+        total += day.solved || 0;
+      }
+    });
+  });
+  
+  if (metricKey === "avgRWT" || metricKey === "avgFRT") {
+    return count > 0 ? (total / count).toFixed(2) : "0";
+  }
+  return total;
+}, [analyticsData, selectedUsers, timeRange]);
+
+// Calculate team average
+const calculateTeamAverage = useCallback((metricKey) => {
+  if (!analyticsData?.individualTrends) return "—";
+  
+  const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")] 
+    ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")]) 
+    : [];
+  
+  let total = 0;
+  let count = 0;
+  
+  teamMembers.forEach(member => {
+    const memberTrends = analyticsData.individualTrends[member] || [];
+    memberTrends.slice(-timeRange).forEach(day => {
+      total += day[OVERVIEW_METRICS[metricKey]?.dataKey] || day.solved || 0;
+      count++;
+    });
+  });
+  
+  return count > 0 ? (total / count).toFixed(2) : "0";
+}, [analyticsData, myTeamName, timeRange]);
+
+// Calculate GST average
+const calculateGSTAverage = useCallback((metricKey) => {
+  if (!analyticsData?.individualTrends) return "—";
+  
+  let total = 0;
+  let count = 0;
+  
+  Object.values(analyticsData.individualTrends).forEach(userTrends => {
+    userTrends.slice(-timeRange).forEach(day => {
+      total += day[OVERVIEW_METRICS[metricKey]?.dataKey] || day.solved || 0;
+      count++;
+    });
+  });
+  
+  return count > 0 ? (total / count).toFixed(2) : "0";
+}, [analyticsData, timeRange]);
+
+// Get chart data for overview metric
+const getOverviewChartData = useCallback((metricKey) => {
+  if (!analyticsData?.individualTrends) return [];
+  
+  const allDates = new Set();
+  Object.values(analyticsData.individualTrends).forEach(userTrends => {
+    userTrends.forEach(day => allDates.add(day.date));
+  });
+  
+  const sortedDates = Array.from(allDates).sort().slice(-timeRange);
+  const dataKey = OVERVIEW_METRICS[metricKey]?.dataKey || "solved";
+  
+  return sortedDates.map(date => {
+    const point = { 
+      name: format(parseISO(date), groupBy === "monthly" ? "MMM" : "MMM dd"),
+      date 
+    };
+    
+    // Add selected users data
+    selectedUsers.forEach(user => {
+      const userDay = (analyticsData.individualTrends[user] || []).find(d => d.date === date);
+      point[user] = userDay?.[dataKey] || userDay?.solved || 0;
+    });
+    
+    // Add team average
+    if (showTeam) {
+      const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")] 
+        ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")]) 
+        : [];
+      let teamTotal = 0;
+      teamMembers.forEach(member => {
+        const memberDay = (analyticsData.individualTrends[member] || []).find(d => d.date === date);
+        teamTotal += memberDay?.[dataKey] || memberDay?.solved || 0;
+      });
+      point.team = teamMembers.length > 0 ? teamTotal / teamMembers.length : 0;
+    }
+    
+    // Add GST average
+    if (showGST) {
+      let gstTotal = 0;
+      let gstCount = 0;
+      Object.entries(analyticsData.individualTrends).forEach(([user, days]) => {
+        const dayData = days.find(d => d.date === date);
+        if (dayData) {
+          gstTotal += dayData[dataKey] || dayData.solved || 0;
+          gstCount++;
+        }
+      });
+      point.gst = gstCount > 0 ? gstTotal / gstCount : 0;
+    }
+    
+    return point;
+  });
+}, [analyticsData, selectedUsers, timeRange, groupBy, showTeam, showGST, myTeamName]);
+
   // Initialize selected users with current user if GST
   useEffect(() => {
     if (isGSTUser && resolvedCurrentUser && selectedUsers.length === 0) {
@@ -1365,6 +1879,41 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
     groupBy,
   ]);
 
+  // Fetch ALL historical data for expanded view (ignores quarter selection)
+useEffect(() => {
+  const fetchAllTrends = async () => {
+    if (!expandedOverviewMetric) return;
+    
+    setExpandedLoading(true);
+    try {
+      // Fetch Q4_25 + Q1_26 data (or use "all" if your API supports it)
+      const [q4Res, q1Res] = await Promise.all([
+        fetch(`${import.meta.env.VITE_API_URL || ''}/api/tickets/analytics?quarter=Q4_25&excludeZendesk=${excludeZendesk}`).then(r => r.json()),
+        fetch(`${import.meta.env.VITE_API_URL || ''}/api/tickets/analytics?quarter=Q1_26&excludeZendesk=${excludeZendesk}`).then(r => r.json()),
+      ]);
+      
+      // Combine trends from both quarters
+      const allTrends = [...(q4Res.trends || []), ...(q1Res.trends || [])];
+      
+      // Sort by date
+      allTrends.sort((a, b) => new Date(a.date) - new Date(b.date));
+      
+      // Remove duplicates (by date)
+      const uniqueTrends = allTrends.filter((t, i, arr) => 
+        i === 0 || t.date !== arr[i - 1].date
+      );
+      
+      setExpandedAllTrends(uniqueTrends);
+    } catch (e) {
+      console.error("Failed to fetch expanded data:", e);
+    } finally {
+      setExpandedLoading(false);
+    }
+  };
+  
+  fetchAllTrends();
+}, [expandedOverviewMetric, excludeZendesk]);
+
   const handleQuarterChange = useCallback(
     (quarter) => setCurrentQuarter(quarter),
     []
@@ -1376,29 +1925,111 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
       forceRefresh: true,
     });
 
-  // Chart data - Volume from active tickets, others from server
-  const smallChartData = useMemo(() => {
-    const serverTrends = analyticsData?.trends || [];
+ const smallChartData = useMemo(() => {
+  // Process volume from filtered tickets
+  const volumeData = (() => {
+    const daysInterval = eachDayOfInterval({ 
+      start: effectiveDateRange.start, 
+      end: effectiveDateRange.end 
+    });
+    
+    return daysInterval.map(day => {
+      const dateKey = format(day, "yyyy-MM-dd");
+      const dayTickets = filteredTickets.filter(t => {
+        const ticketDate = format(parseISO(t.created_date), "yyyy-MM-dd");
+        return ticketDate === dateKey;
+      });
+      return { 
+        name: format(day, "MMM dd"), 
+        date: dateKey,
+        main: dayTickets.length 
+      };
+    });
+  })();
 
-    // Process volume from real-time tickets (using created_date)
-    const volumeData = processChartData(
-      tickets,
-      "volume",
-      30,
-      "All",
-      resolvedCurrentUser
-    );
+  return {
+    volume: volumeData,
+    solved: filteredTrends.map((t) => ({ 
+      name: format(parseISO(t.date), "MMM dd"), 
+      date: t.date,
+      main: t.solved || 0 
+    })),
+    rwt: filteredTrends.map((t) => ({ 
+      name: format(parseISO(t.date), "MMM dd"), 
+      date: t.date,
+      main: t.avgRWT ? Number(t.avgRWT.toFixed(1)) : 0 
+    })),
+    backlog: filteredTrends.map((t) => ({
+      name: format(parseISO(t.date), "MMM dd"),
+      date: t.date,
+      main: t.backlogCleared || 0,
+    })),
+  };
+}, [filteredTickets, filteredTrends, effectiveDateRange]);
 
-    return {
-      volume: volumeData,
-      solved: serverTrends.map((t) => ({ name: t.date, main: t.solved || 0 })),
-      rwt: serverTrends.map((t) => ({ name: t.date, main: t.avgRWT || 0 })),
-      backlog: serverTrends.map((t) => ({
-        name: t.date,
-        main: t.backlogCleared || 0,
-      })),
-    };
-  }, [analyticsData, tickets, resolvedCurrentUser]);
+// Compute stats from filtered date range
+const filteredStats = useMemo(() => {
+  // Use server stats directly if available (they're calculated correctly)
+  const serverStats = analyticsData?.stats;
+  
+  if (serverStats && !filteredTrends.length) {
+    return serverStats;
+  }
+
+  // If we have filtered trends, recalculate
+  if (!filteredTrends.length && !filteredTickets.length) {
+    return serverStats || {};
+  }
+
+  // Sum up daily values
+  const totalSolved = filteredTrends.reduce((sum, t) => sum + (t.solved || 0), 0);
+  
+  // For averages, we need weighted average based on tickets per day
+  let totalRWT = 0, rwtCount = 0;
+  let totalFRT = 0, frtCount = 0;
+  let totalIterations = 0, iterCount = 0;
+  
+  filteredTrends.forEach(t => {
+    if (t.avgRWT && t.solved) {
+      totalRWT += t.avgRWT * t.solved;
+      rwtCount += t.solved;
+    }
+    if (t.avgFRT && t.solved) {
+      totalFRT += t.avgFRT * t.solved;
+      frtCount += t.solved;
+    }
+    if (t.avgIterations && t.solved) {
+      totalIterations += t.avgIterations * t.solved;
+      iterCount += t.solved;
+    }
+  });
+
+  const avgRWT = rwtCount > 0 ? totalRWT / rwtCount : 0;
+  const avgFRT = frtCount > 0 ? totalFRT / frtCount : 0;
+  const avgIterations = iterCount > 0 ? totalIterations / iterCount : 0;
+  
+  // CSAT and FRR are counts, not averages
+  const positiveCSAT = filteredTrends.reduce((sum, t) => sum + (t.positiveCSAT || 0), 0);
+  const frrMet = filteredTrends.reduce((sum, t) => sum + (t.frrMet || 0), 0);
+  
+  // FRR percentage should be frrMet / totalSolved (tickets), not days
+  const frrPercent = totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
+  
+  return {
+    totalTickets: totalSolved || filteredTickets.length,
+    avgRWT: avgRWT.toFixed(2),
+    avgFRT: avgFRT.toFixed(2),
+    avgIterations: avgIterations.toFixed(1),
+    positiveCSAT,
+    frrPercent,
+    // Include raw counts for debugging
+    _debug: {
+      frrMet,
+      totalSolved,
+      daysCount: filteredTrends.length,
+    }
+  };
+}, [filteredTrends, filteredTickets, analyticsData]);
 
   // Expanded chart data
   const expandedData = useMemo(() => {
@@ -1563,12 +2194,167 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
           <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full">
             👤 {resolvedCurrentUser} <span className="text-amber-500">(Admin)</span>
           </span>
+           <button
+      onClick={() => setShowAdminSearch(!showAdminSearch)}
+      className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors"
+    >
+      <Terminal className="w-4 h-4" />
+      Admin Query Console
+      <ChevronDown className={`w-4 h-4 transition-transform ${showAdminSearch ? 'rotate-180' : ''}`} />
+    </button>
+    
+    {/* Search Panel */}
+    {showAdminSearch && (
+      <div className="mt-4 p-6 bg-slate-900 rounded-2xl border border-slate-800">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+            <input
+              type="text"
+              value={adminSearchQuery}
+              onChange={(e) => setAdminSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && executeAdminSearch()}
+              placeholder="e.g., 'Rohan tickets last 30 days where frr met' or 'Adarsh solved tickets with good csat'"
+              className="w-full pl-12 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-500"
+            />
+          </div>
+          <button
+            onClick={executeAdminSearch}
+            disabled={adminSearchLoading}
+            className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 disabled:opacity-50 flex items-center gap-2"
+          >
+            {adminSearchLoading ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <Search className="w-4 h-4" />
+            )}
+            Search
+          </button>
+        </div>
+        
+        {/* Query Examples */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <span className="text-xs text-slate-500">Try:</span>
+          {[
+            "Rohan tickets last 7 days",
+            "tickets where frr met",
+            "Adarsh good csat last 30 days",
+            "high rwt > 50",
+            "exclude zendesk",
+          ].map((example) => (
+            <button
+              key={example}
+              onClick={() => setAdminSearchQuery(example)}
+              className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs hover:bg-slate-700 hover:text-white transition-colors"
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+        
+        {/* Results */}
+        {adminSearchResults && (
+          <div className="mt-4">
+            {adminSearchResults.error ? (
+              <div className="p-4 bg-rose-900/30 border border-rose-500/30 rounded-xl text-rose-400 text-sm">
+                Error: {adminSearchResults.error}
+              </div>
+            ) : (
+              <>
+                {/* Stats Summary */}
+                <div className="grid grid-cols-6 gap-3 mb-4">
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <div className="text-xs text-slate-500">Total Tickets</div>
+                    <div className="text-xl font-bold text-white">{adminSearchResults.stats?.totalTickets || 0}</div>
+                  </div>
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <div className="text-xs text-slate-500">Avg RWT</div>
+                    <div className="text-xl font-bold text-purple-400">{adminSearchResults.stats?.avgRWT?.toFixed(2) || 0} hrs</div>
+                  </div>
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <div className="text-xs text-slate-500">Avg FRT</div>
+                    <div className="text-xl font-bold text-blue-400">{adminSearchResults.stats?.avgFRT?.toFixed(2) || 0} hrs</div>
+                  </div>
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <div className="text-xs text-slate-500">FRR Met</div>
+                    <div className="text-xl font-bold text-amber-400">{adminSearchResults.stats?.frrMetCount || 0} / {adminSearchResults.stats?.totalTickets || 0}</div>
+                  </div>
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <div className="text-xs text-slate-500">Good CSAT</div>
+                    <div className="text-xl font-bold text-emerald-400">{adminSearchResults.stats?.goodCSATCount || 0}</div>
+                  </div>
+                  <div className="bg-slate-800 rounded-xl p-3">
+                    <div className="text-xs text-slate-500">Avg Iterations</div>
+                    <div className="text-xl font-bold text-cyan-400">{adminSearchResults.stats?.avgIterations?.toFixed(1) || 0}</div>
+                  </div>
+                </div>
+                
+                {/* MongoDB Query Display */}
+                <div className="mb-4 p-3 bg-slate-950 rounded-xl border border-slate-800">
+                  <div className="text-xs text-slate-500 mb-1">MongoDB Query:</div>
+                  <code className="text-xs text-emerald-400 font-mono break-all">
+                    {JSON.stringify(adminSearchResults.query || {}, null, 2)}
+                  </code>
+                </div>
+                
+                {/* Tickets Table */}
+                {adminSearchResults.tickets?.length > 0 && (
+                  <div className="overflow-auto max-h-[400px] rounded-xl border border-slate-800">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-800 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-slate-400">Ticket ID</th>
+                          <th className="px-3 py-2 text-left text-slate-400">Title</th>
+                          <th className="px-3 py-2 text-left text-slate-400">Owner</th>
+                          <th className="px-3 py-2 text-left text-slate-400">Closed</th>
+                          <th className="px-3 py-2 text-left text-slate-400">RWT</th>
+                          <th className="px-3 py-2 text-left text-slate-400">FRT</th>
+                          <th className="px-3 py-2 text-left text-slate-400">FRR</th>
+                          <th className="px-3 py-2 text-left text-slate-400">CSAT</th>
+                          <th className="px-3 py-2 text-left text-slate-400">Iter</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminSearchResults.tickets.map((t, i) => (
+                          <tr key={t.ticket_id || i} className="border-t border-slate-800 hover:bg-slate-800/50">
+                            <td className="px-3 py-2 text-indigo-400 font-mono">{t.ticket_id || t.display_id}</td>
+                            <td className="px-3 py-2 text-white truncate max-w-[200px]">{t.title}</td>
+                            <td className="px-3 py-2 text-slate-300">{t.owner}</td>
+                            <td className="px-3 py-2 text-slate-400">{t.closed_date ? format(new Date(t.closed_date), "MMM dd") : "-"}</td>
+                            <td className="px-3 py-2 text-purple-400">{t.rwt?.toFixed(1) || "-"}</td>
+                            <td className="px-3 py-2 text-blue-400">{t.frt?.toFixed(1) || "-"}</td>
+                            <td className={`px-3 py-2 font-bold ${t.frr === 1 ? "text-emerald-400" : "text-rose-400"}`}>
+                              {t.frr === 1 ? "✓" : "✗"}
+                            </td>
+                            <td className={`px-3 py-2 font-bold ${t.csat === 2 ? "text-emerald-400" : t.csat === 1 ? "text-rose-400" : "text-slate-500"}`}>
+                              {t.csat === 2 ? "👍" : t.csat === 1 ? "👎" : "-"}
+                            </td>
+                            <td className="px-3 py-2 text-cyan-400">{t.iterations || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                
+                {/* No Results */}
+                {adminSearchResults.tickets?.length === 0 && (
+                  <div className="p-8 text-center text-slate-500">
+                    No tickets found matching your query
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    )}
         </div>
       )}
 
       <PerformanceMetricsCards
-  stats={analyticsData?.stats}
-  trends={analyticsData?.trends}
+  stats={filteredStats}
+  trends={filteredTrends}
   currentQuarter={currentQuarter}
   currentGroupBy={groupBy}
   onQuarterChange={handleQuarterChange}
@@ -1576,6 +2362,7 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
   onExcludeZendeskChange={() => setExcludeZendesk(!excludeZendesk)}
   onRefresh={handleRefresh}
   isRefreshing={analyticsLoading}
+   onExpandMetric={(metricKey) => setExpandedOverviewMetric(metricKey)}  // ADD THIS
   onGroupByChange={(newGroupBy) => {
           setGroupBy(newGroupBy);
           // If it's a week selection like "Q1_26_W1", set quarter accordingly
@@ -1707,6 +2494,200 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner }) => {
           isGSTUser={isGSTUser && viewMode === "gst"}
         />
       </div>
+
+
+{/* EXPANDED OVERVIEW METRIC MODAL - FULL FEATURED */}
+{expandedOverviewMetric && OVERVIEW_METRICS[expandedOverviewMetric] && (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+    <div className="absolute inset-0" onClick={() => setExpandedOverviewMetric(null)} />
+    
+    <div className="bg-white dark:bg-slate-900 w-[95vw] max-w-7xl h-[90vh] rounded-3xl shadow-2xl relative flex flex-col z-10 overflow-hidden border border-slate-200 dark:border-slate-800">
+      {/* Header */}
+      <div className="px-8 py-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+        <div className="flex items-center gap-4">
+          <div 
+            className="p-4 rounded-2xl" 
+            style={{ backgroundColor: `${OVERVIEW_METRICS[expandedOverviewMetric].color}15` }}
+          >
+            {React.createElement(OVERVIEW_METRICS[expandedOverviewMetric].icon, {
+              className: "w-8 h-8",
+              style: { color: OVERVIEW_METRICS[expandedOverviewMetric].color },
+            })}
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+              {OVERVIEW_METRICS[expandedOverviewMetric].fullLabel}
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">
+              {OVERVIEW_METRICS[expandedOverviewMetric].desc}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setExpandedOverviewMetric(null)}
+          className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+        >
+          <X className="w-6 h-6 text-slate-400" />
+        </button>
+      </div>
+
+      {/* Controls Bar */}
+      <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4">
+        {/* Date Range Selector */}
+        <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <Calendar className="w-4 h-4 text-slate-400" />
+          <select
+            className="bg-transparent text-sm font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer min-w-[140px]"
+            value={expandedTimeRange}
+            onChange={(e) => setExpandedTimeRange(Number(e.target.value))}
+          >
+            <option value={7}>Last 7 Days</option>
+            <option value={14}>Last 14 Days</option>
+            <option value={30}>Last 30 Days</option>
+            <option value={60}>Last 60 Days</option>
+            <option value={90}>Last 90 Days</option>
+          </select>
+        </div>
+
+        {/* Grouping Toggle */}
+        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          {["daily", "weekly", "monthly"].map((g) => (
+            <button
+              key={g}
+              onClick={() => setExpandedGroupBy(g)}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                expandedGroupBy === g
+                  ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {g.charAt(0).toUpperCase() + g.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Date Range Display */}
+        <div className="ml-auto text-sm text-slate-500 flex items-center gap-2">
+          <span className="font-medium">{expandedTimeRange} days</span>
+          <span>•</span>
+          <span>{format(subDays(new Date(), expandedTimeRange - 1), "MMM dd")} - {format(new Date(), "MMM dd, yyyy")}</span>
+        </div>
+      </div>
+
+      {/* Stats Summary Cards */}
+      <div className="px-8 py-5 bg-white dark:bg-slate-900/50">
+        <div className="grid grid-cols-4 gap-5">
+          <div className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-700">
+            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Current Value</div>
+            <div className="text-4xl font-black" style={{ color: OVERVIEW_METRICS[expandedOverviewMetric].color }}>
+              {filteredStats[OVERVIEW_METRICS[expandedOverviewMetric].dataKey] || "—"}
+              <span className="text-lg font-normal text-slate-400 ml-1">
+                {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+              </span>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900 rounded-2xl p-5 border border-blue-100 dark:border-blue-900/50">
+            <div className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Period Total</div>
+            <div className="text-4xl font-black text-blue-600">
+              {getExpandedPeriodTotal(expandedOverviewMetric)}
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 rounded-2xl p-5 border border-emerald-100 dark:border-emerald-900/50">
+            <div className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">
+              {expandedGroupBy === "daily" ? "Daily" : expandedGroupBy === "weekly" ? "Weekly" : "Monthly"} Average
+            </div>
+            <div className="text-4xl font-black text-emerald-600">
+              {getExpandedAverage(expandedOverviewMetric)}
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-violet-50 to-white dark:from-violet-900/20 dark:to-slate-900 rounded-2xl p-5 border border-violet-100 dark:border-violet-900/50">
+            <div className="text-xs font-bold text-violet-600 uppercase tracking-wider mb-2">Trend</div>
+            <div className={`text-4xl font-black ${getExpandedTrend(expandedOverviewMetric).isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {getExpandedTrend(expandedOverviewMetric).value}
+              {getExpandedTrend(expandedOverviewMetric).isPositive ? (
+                <TrendingUp className="inline w-6 h-6 ml-2" />
+              ) : (
+                <TrendingDown className="inline w-6 h-6 ml-2" />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Chart Area */}
+      <div className="flex-1 px-8 py-6 overflow-auto">
+        <div className="h-full min-h-[450px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart 
+              data={getExpandedChartData(expandedOverviewMetric)}
+              margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
+            >
+              <defs>
+                <linearGradient id="expandedAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={OVERVIEW_METRICS[expandedOverviewMetric].color} stopOpacity={0.4} />
+                  <stop offset="100%" stopColor={OVERVIEW_METRICS[expandedOverviewMetric].color} stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#334155" : "#e2e8f0"} />
+              <XAxis 
+                dataKey="name" 
+                tick={{ fill: isDark ? "#94a3b8" : "#64748b", fontSize: 12, fontWeight: 500 }} 
+                axisLine={{ stroke: isDark ? "#334155" : "#e2e8f0" }}
+                tickLine={false}
+                dy={15}
+                interval="preserveStartEnd"
+              />
+              <YAxis 
+                tick={{ fill: isDark ? "#94a3b8" : "#64748b", fontSize: 12, fontWeight: 500 }} 
+                axisLine={false}
+                tickLine={false}
+                dx={-10}
+                tickFormatter={(val) => val.toLocaleString()}
+              />
+              <RechartsTooltip
+                contentStyle={{
+                  backgroundColor: isDark ? "#1e293b" : "#ffffff",
+                  border: "none",
+                  borderRadius: "16px",
+                  boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+                  padding: "16px 20px",
+                }}
+                labelStyle={{ fontWeight: "bold", fontSize: "14px", marginBottom: "8px", color: isDark ? "#fff" : "#1e293b" }}
+                formatter={(value, name) => [
+                  <span className="text-lg font-bold" style={{ color: OVERVIEW_METRICS[expandedOverviewMetric].color }}>
+                    {typeof value === 'number' ? value.toFixed(2) : value} {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+                  </span>,
+                  OVERVIEW_METRICS[expandedOverviewMetric].label
+                ]}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={OVERVIEW_METRICS[expandedOverviewMetric].color}
+                fill="url(#expandedAreaGrad)"
+                strokeWidth={3}
+                dot={{ 
+                  fill: OVERVIEW_METRICS[expandedOverviewMetric].color, 
+                  strokeWidth: 0, 
+                  r: 5,
+                }}
+                activeDot={{ 
+                  r: 8, 
+                  strokeWidth: 3, 
+                  stroke: "#fff",
+                  fill: OVERVIEW_METRICS[expandedOverviewMetric].color 
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* EXPANDED MODAL */}
       {expandedMetric && (
