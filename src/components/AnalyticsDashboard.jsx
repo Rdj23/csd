@@ -79,7 +79,7 @@ const HIDDEN_USERS = [
   "Anmol",
   "anmol-sawhney",
 ];
-const SUPER_ADMIN_EMAIL = "rohan.jadhav@clevertap.com";
+const SUPER_ADMIN_EMAIL = ["rohan.jadhav@clevertap.com","anmol.sawhney@clevertap.com","shreyas.naikwadi@clevertap.com"]
 // ============================================================================
 // METRICS CONFIG
 // ============================================================================
@@ -2009,11 +2009,13 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
     [resolvedCurrentUser]
   );
 
-  const isSuperAdmin = useMemo(() => {
-    return (
-      currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()
-    );
-  }, [currentUser]);
+const isSuperAdmin = useMemo(() => {
+  const email = currentUser?.email?.toLowerCase();
+  return email
+    ? SUPER_ADMIN_EMAILS.map(e => e.toLowerCase()).includes(email)
+    : false;
+}, [currentUser]);
+
 
   // Get user's team
   const myTeamName = useMemo(() => {
