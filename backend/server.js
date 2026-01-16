@@ -587,6 +587,214 @@ app.get("/api/tickets", async (req, res) => {
   res.json({ tickets: cache.get("tickets_active") || [] });
 });
 
+// Fetch linked issues for a ticket
+app.post("/api/tickets/links", async (req, res) => {
+  try {
+    const { ticketId } = req.body; // e.g., "304218"
+    
+    // Get links for the ticket
+    const linksRes = await axios.post(
+      `${DEVREV_API}/links.list`,
+      {
+        object: `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`,
+        object_types: ["issue"],
+        limit: 10
+      },
+      { headers: HEADERS }
+    );
+    
+    const links = linksRes.data.links || [];
+    
+    if (links.length === 0) {
+      return res.json({ hasDependency: false, issues: [] });
+    }
+    
+    // Process linked issues
+    const issues = links.map(link => {
+      const target = link.target;
+      if (!target || target.type !== "issue") return null;
+      
+      return {
+        issueId: target.display_id, // "ISS-125011"
+        title: target.title,
+        owner: target.owned_by?.[0]?.display_name || "Unassigned",
+        ownerEmail: target.owned_by?.[0]?.email,
+        priority: target.priority || target.priority_v2?.label,
+        stage: target.stage?.name,
+        jiraLink: target.sync_metadata?.external_reference,
+      };
+    }).filter(Boolean);
+    
+    res.json({ hasDependency: true, issues });
+  } catch (e) {
+    console.error("Links fetch error:", e.message);
+    res.json({ hasDependency: false, issues: [], error: e.message });
+  }
+});
+
+// Fetch full issue details
+app.post("/api/issues/get", async (req, res) => {
+  try {
+    const { issueId } = req.body; // e.g., "ISS-125011"
+    
+    const issRes = await axios.post(
+      `${DEVREV_API}/works.get`,
+      { id: issueId },
+      { headers: HEADERS }
+    );
+    
+    const issue = issRes.data.work;
+    if (!issue) {
+      return res.json({ error: "Issue not found" });
+    }
+    
+    // Extract team info from custom fields
+    const customFields = issue.custom_fields || {};
+    const subtype = issue.subtype || "";
+    
+    // Determine team based on various fields
+    let team = "Unknown";
+    if (customFields.ctype__issuetype === "PSN Task") {
+      team = "NOC";
+    } else if (customFields.ctype__team_involved) {
+      team = customFields.ctype__team_involved; // "Whatsapp", "Billing", etc.
+    } else if (subtype === "internal_clevertap_slack") {
+      team = customFields.ctype__team_involved || "Internal";
+    } else if (subtype.includes("email")) {
+      team = "Email";
+    } else if (subtype.includes("whatsapp")) {
+      team = "Whatsapp";
+    }
+    
+    res.json({
+      issueId: issue.display_id,
+      title: issue.title,
+      owner: issue.owned_by?.[0]?.display_name || "Unassigned",
+      ownerEmail: issue.owned_by?.[0]?.email,
+      team,
+      subtype,
+      jiraKey: customFields.ctype__key, // "SUC-129121"
+      jiraLink: issue.sync_metadata?.external_reference,
+      rca: customFields.ctype__customfield_10169,
+      priority: issue.priority_v2?.label || issue.priority,
+      stage: issue.stage?.name,
+      isNOC: customFields.ctype__issuetype === "PSN Task",
+    });
+  } catch (e) {
+    console.error("Issue fetch error:", e.message);
+    res.json({ error: e.message });
+  }
+});
+
+// Batch fetch dependencies for multiple tickets (optimized)
+app.post("/api/tickets/dependencies", async (req, res) => {
+  try {
+    const { ticketIds } = req.body; // Array of ticket IDs like ["304218", "305713"]
+    
+    const results = {};
+    
+    // Process in parallel with concurrency limit
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < ticketIds.length; i += BATCH_SIZE) {
+      const batch = ticketIds.slice(i, i + BATCH_SIZE);
+      
+      await Promise.all(batch.map(async (ticketId) => {
+        try {
+          // Get links
+          const linksRes = await axios.post(
+            `${DEVREV_API}/links.list`,
+            {
+              object: `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`,
+              object_types: ["issue"],
+              limit: 10
+            },
+            { headers: HEADERS }
+          );
+          
+          const links = linksRes.data.links || [];
+          
+          if (links.length === 0) {
+            results[ticketId] = { hasDependency: false, issues: [] };
+            return;
+          }
+          
+          // Get issue details for each link
+          const issues = await Promise.all(links.map(async (link) => {
+            const target = link.target;
+            if (!target || target.type !== "issue") return null;
+            
+            try {
+              // Fetch full issue details
+              const issRes = await axios.post(
+                `${DEVREV_API}/works.get`,
+                { id: target.display_id },
+                { headers: HEADERS }
+              );
+              
+              const issue = issRes.data.work;
+              if (!issue) return null;
+              
+              const customFields = issue.custom_fields || {};
+              
+              // Determine team
+              let team = "Other";
+              if (customFields.ctype__issuetype === "PSN Task") {
+                team = "NOC";
+              } else if (customFields.ctype__team_involved) {
+                team = customFields.ctype__team_involved;
+              } else if (issue.subtype === "internal_clevertap_slack") {
+                team = "Internal";
+              }
+              
+              return {
+                issueId: issue.display_id,
+                title: issue.title,
+                owner: issue.owned_by?.[0]?.display_name || "Unassigned",
+                team,
+                isNOC: customFields.ctype__issuetype === "PSN Task",
+                jiraKey: customFields.ctype__key,
+                priority: issue.priority_v2?.label,
+                stage: issue.stage?.name,
+              };
+            } catch (e) {
+              // Return basic info from link if full fetch fails
+              return {
+                issueId: target.display_id,
+                title: target.title,
+                owner: target.owned_by?.[0]?.display_name || "Unassigned",
+                team: "Unknown",
+                isNOC: false,
+              };
+            }
+          }));
+          
+          const validIssues = issues.filter(Boolean);
+          
+          // Sort: NOC first, then others
+          validIssues.sort((a, b) => {
+            if (a.isNOC && !b.isNOC) return -1;
+            if (!a.isNOC && b.isNOC) return 1;
+            return 0;
+          });
+          
+          results[ticketId] = {
+            hasDependency: true,
+            issues: validIssues,
+            // Primary issue: NOC if exists, otherwise first issue
+            primary: validIssues.find(i => i.isNOC) || validIssues[0],
+          };
+        } catch (e) {
+          results[ticketId] = { hasDependency: false, issues: [], error: e.message };
+        }
+      }));
+    }
+    
+    res.json(results);
+  } catch (e) {
+    console.error("Dependencies batch fetch error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // 2. ADD MANUAL SYNC ENDPOINT (Add after line 588)
 app.post("/api/admin/sync-now", async (req, res) => {

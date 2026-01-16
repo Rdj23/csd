@@ -30,6 +30,7 @@ import {
   Smile, // Add this
   Inbox, // Add this
   AlertCircle,
+  Link2,
 } from "lucide-react";
 import {
   parseISO,
@@ -66,6 +67,8 @@ const EMPTY_FILTERS = {
   csms: [],
   tams: [],
   dateRange: { start: "", end: "" },
+  dependency: [],
+  dependencyTeams: [],
 };
 
 const FILTER_CONFIG = [
@@ -77,6 +80,22 @@ const FILTER_CONFIG = [
   { key: "tams", label: "TAM", icon: UserCircle },
   { key: "stages", label: "Stage", icon: Filter },
   { key: "health", label: "Health", icon: Activity },
+  { key: "dependency", label: "Dependency", icon: Link2 },
+];
+
+// Add dependency options for the filter dropdown (add near other filter options):
+const DEPENDENCY_OPTIONS = [
+  { value: "with_dependency", label: "Has Dependency" },
+  { value: "no_dependency", label: "No Dependency" },
+];
+
+const DEPENDENCY_TEAM_OPTIONS = [
+  { value: "NOC", label: "NOC" },
+  { value: "Whatsapp", label: "Whatsapp" },
+  { value: "Billing", label: "Billing" },
+  { value: "Email", label: "Email" },
+  { value: "Internal", label: "Internal" },
+  { value: "Other", label: "Other" },
 ];
 
 const App = () => {
@@ -94,6 +113,9 @@ const App = () => {
     fetchViews,
     saveView,
     deleteView,
+    dependencies,
+    fetchDependencies,
+    dependenciesLoading,
   } = useTicketStore();
 
   const [googleClientId, setGoogleClientId] = useState(null);
@@ -103,9 +125,32 @@ const App = () => {
   const [isSyncing, setIsSyncing] = useState(false);
 
   const showDatePicker = useMemo(() => {
-  return activeTab !== "vistas";
-}, [activeTab]);
+    return activeTab !== "vistas";
+  }, [activeTab]);
 
+  // Add useEffect to fetch dependencies:
+  useEffect(() => {
+    if (tickets.length > 0 && activeTab === "tickets") {
+      // Extract ticket IDs (remove "TKT-" prefix)
+      const ticketIds = tickets
+        .map((t) => t.display_id?.replace("TKT-", ""))
+        .filter(Boolean);
+
+      // Fetch dependencies for tickets not already fetched
+      const unfetchedIds = ticketIds.filter((id) => !dependencies[id]);
+
+      if (unfetchedIds.length > 0) {
+        // Fetch in batches to avoid overwhelming the API
+        const BATCH = 20;
+        const fetchBatch = async () => {
+          for (let i = 0; i < unfetchedIds.length; i += BATCH) {
+            await fetchDependencies(unfetchedIds.slice(i, i + BATCH));
+          }
+        };
+        fetchBatch();
+      }
+    }
+  }, [tickets, activeTab]);
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
@@ -205,7 +250,6 @@ const App = () => {
   const [visibleFilterKeys, setVisibleFilterKeys] = useState([]);
   const hasAutoAppliedRole = useRef(false);
   const prevTabRef = useRef(activeTab);
-
 
   // Add this helper function
   const showToast = (msg) => {
@@ -331,26 +375,24 @@ const App = () => {
     }));
   };
 
- useEffect(() => {
-  const prevTab = prevTabRef.current;
+  useEffect(() => {
+    const prevTab = prevTabRef.current;
 
-  // When ENTERING csd or analytics from a different tab
-  if (
-    (activeTab === "csd" || activeTab === "analytics") &&
-    prevTab !== activeTab
-  ) {
-    setTabFilters((prev) => ({
-      ...prev,
-      [activeTab]: {
-        ...EMPTY_FILTERS,
-      },
-    }));
-  }
+    // When ENTERING csd or analytics from a different tab
+    if (
+      (activeTab === "csd" || activeTab === "analytics") &&
+      prevTab !== activeTab
+    ) {
+      setTabFilters((prev) => ({
+        ...prev,
+        [activeTab]: {
+          ...EMPTY_FILTERS,
+        },
+      }));
+    }
 
-  prevTabRef.current = activeTab;
-}, [activeTab]);
-
-
+    prevTabRef.current = activeTab;
+  }, [activeTab]);
 
   // ✅ AUTO-SELECT FIRST VIEW (Prevents blank screen)
   useEffect(() => {
@@ -785,17 +827,14 @@ ${
                   </div>
                 )}
 
-               
-
                 {activeTab !== "vistas" && (
                   <>
                     {showDatePicker && (
-  <SmartDatePicker
-    value={currentFilters.dateRange}
-    onChange={(val) => setFilter("dateRange", val)}
-  />
-)}
-
+                      <SmartDatePicker
+                        value={currentFilters.dateRange}
+                        onChange={(val) => setFilter("dateRange", val)}
+                      />
+                    )}
 
                     {activeTab === "analytics" && (
                       <>
@@ -818,6 +857,98 @@ ${
 
                     {activeTab !== "analytics" && activeTab !== "vistas" && (
                       <>
+                        {visibleFilterKeys.includes("dependency") && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-bold text-slate-500 uppercase mb-2">
+                              Status
+                            </div>
+                            {DEPENDENCY_OPTIONS.map((opt) => (
+                              <label
+                                key={opt.value}
+                                className="flex items-center gap-2 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={currentFilters.dependency?.includes(
+                                    opt.value
+                                  )}
+                                  onChange={(e) => {
+                                    const newVal = e.target.checked
+                                      ? [
+                                          ...(currentFilters.dependency || []),
+                                          opt.value,
+                                        ]
+                                      : (
+                                          currentFilters.dependency || []
+                                        ).filter((v) => v !== opt.value);
+                                    setCurrentFilters((f) => ({
+                                      ...f,
+                                      dependency: newVal,
+                                    }));
+                                  }}
+                                  className="rounded"
+                                />
+                                <span className="text-sm">{opt.label}</span>
+                              </label>
+                            ))}
+
+                            {/* Team sub-filter (only show when "Has Dependency" is selected) */}
+                            {currentFilters.dependency?.includes(
+                              "with_dependency"
+                            ) && (
+                              <>
+                                <div className="text-xs font-bold text-slate-500 uppercase mt-4 mb-2">
+                                  Team
+                                </div>
+                                {DEPENDENCY_TEAM_OPTIONS.map((opt) => (
+                                  <label
+                                    key={opt.value}
+                                    className="flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={currentFilters.dependencyTeams?.includes(
+                                        opt.value
+                                      )}
+                                      onChange={(e) => {
+                                        const newVal = e.target.checked
+                                          ? [
+                                              ...(currentFilters.dependencyTeams ||
+                                                []),
+                                              opt.value,
+                                            ]
+                                          : (
+                                              currentFilters.dependencyTeams ||
+                                              []
+                                            ).filter((v) => v !== opt.value);
+                                        setCurrentFilters((f) => ({
+                                          ...f,
+                                          dependencyTeams: newVal,
+                                        }));
+                                      }}
+                                      className="rounded"
+                                    />
+                                    <span
+                                      className={`text-sm px-2 py-0.5 rounded ${
+                                        opt.value === "NOC"
+                                          ? "bg-rose-100 text-rose-700"
+                                          : opt.value === "Whatsapp"
+                                          ? "bg-emerald-100 text-emerald-700"
+                                          : opt.value === "Billing"
+                                          ? "bg-amber-100 text-amber-700"
+                                          : opt.value === "Email"
+                                          ? "bg-blue-100 text-blue-700"
+                                          : "bg-slate-100 text-slate-700"
+                                      }`}
+                                    >
+                                      {opt.label}
+                                    </span>
+                                  </label>
+                                ))}
+                              </>
+                            )}
+                          </div>
+                        )}
                         {visibleFilterKeys.map((key) => {
                           const config = FILTER_CONFIG.find(
                             (f) => f.key === key
@@ -996,6 +1127,7 @@ ${
                       isCSDView={activeTab === "csd"}
                       onCardClick={handleKPIFilter}
                       onProfileClick={setSelectedUserProfile}
+                      dependencies={dependencies}
                     />
                   )}
                 </>

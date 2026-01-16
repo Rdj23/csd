@@ -5,6 +5,7 @@ import { trackEvent } from "./utils/clevertap";
 
 const getApiUrl = () => import.meta.env.VITE_API_URL;
 
+
 export const useTicketStore = create(
   persist(
     (set, get) => ({
@@ -23,6 +24,8 @@ export const useTicketStore = create(
       isAuthenticated: false,
       token: null,
       theme: "dark",
+      dependencies: {},
+      dependenciesLoading: false,
 
       // Socket connection
       connectSocket: () => {
@@ -147,6 +150,33 @@ export const useTicketStore = create(
 
 // In fetchAnalyticsData function (around line 130-150), update to include groupBy:
 
+// Add this function to store.js:
+fetchDependencies: async (ticketIds) => {
+  if (!ticketIds.length) return;
+  
+  set({ dependenciesLoading: true });
+  try {
+    const API_URL = getApiUrl();
+    const res = await fetch(`${API_URL}/api/tickets/dependencies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticketIds }),
+    });
+    const data = await res.json();
+    
+    set((state) => ({
+      dependencies: { ...state.dependencies, ...data },
+      dependenciesLoading: false,
+    }));
+    
+    return data;
+  } catch (e) {
+    console.error("Dependencies fetch failed:", e);
+    set({ dependenciesLoading: false });
+    return {};
+  }
+},
+
 fetchAnalyticsData: async (filters = {}) => {
   set({ analyticsLoading: true });
   try {
@@ -240,6 +270,7 @@ fetchAnalyticsData: async (filters = {}) => {
         theme: s.theme,
         isAuthenticated: s.isAuthenticated,
         token: s.token,
+        dependencies: s.dependencies, 
       }),
     }
   )

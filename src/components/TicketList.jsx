@@ -16,7 +16,13 @@ import RemarkPopover from "./RemarkPopover";
 const ITEMS_PER_PAGE = 20;
 
 // ✅ NEW: Added 'onProfileClick' prop
-const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
+const TicketList = ({
+  tickets,
+  isCSDView,
+  onCardClick,
+  onProfileClick,
+  dependencies,
+}) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState({
     key: "priority",
@@ -33,12 +39,10 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
   const sortedTickets = [...tickets].sort((a, b) => {
     if (sortConfig.key === "days")
       return sortConfig.direction === "asc" ? a.days - b.days : b.days - a.days;
-   if (sortConfig.key === "rwt") {
+    if (sortConfig.key === "rwt") {
       const valA = a.rwt || 0;
       const valB = b.rwt || 0;
-      return sortConfig.direction === "asc" 
-        ? valA - valB 
-        : valB - valA;
+      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
 
     return b.priority - a.priority || a.days - b.days;
@@ -95,7 +99,11 @@ const TicketList = ({ tickets, isCSDView, onCardClick, onProfileClick }) => {
     </button>
   );
 
-return (
+  const ticketId = t.display_id?.replace("TKT-", "");
+  const dep = dependencies[ticketId];
+  const primary = dep?.primary;
+  
+  return (
     <div className="space-y-6 animate-in fade-in pb-20 relative">
       {/* 2. TABLE */}
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col transition-colors relative">
@@ -115,20 +123,19 @@ return (
                 <th className="p-4 w-[180px] align-middle">CSM</th>
                 {/* 5. TAM */}
                 <th className="p-4 w-[180px] align-middle">TAM</th>
-                {/* 6. RWT */}
-                <th 
-                  className="p-3 font-medium text-center w-[100px] cursor-pointer hover:text-slate-800"
-                  onClick={() => handleSort("rwt")}
-                >
-                   <div className="flex items-center justify-center gap-1">
-                    RWT <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                <th className="p-3 font-medium text-center w-[120px]">
+                  <div className="flex items-center justify-center gap-1">
+                    Team
                   </div>
                 </th>
-                {/* 7. Iteration */}
-                <th className="p-3 font-medium text-center w-[80px]">Iter.</th>
+                <th className="p-3 font-medium text-center w-[140px]">
+                  <div className="flex items-center justify-center gap-1">
+                    Assignee
+                  </div>
+                </th>
                 {/* 8. Stage */}
                 <th className="p-4 w-[120px] align-middle">Stage</th>
-                
+
                 {/* 9. Age (Sticky Right 1) */}
                 <th
                   className="p-4 w-[100px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] cursor-pointer"
@@ -138,14 +145,14 @@ return (
                     Age <ArrowUpDown className="w-3 h-3 text-slate-300" />
                   </div>
                 </th>
-                
+
                 {/* 10. Status (Sticky Right 2) */}
                 <th className="p-4 w-[180px] min-w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-5px_0_5px_-5px_rgba(0,0,0,0.1)]">
                   Status
                 </th>
               </tr>
             </thead>
-            
+
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
               {paginatedTickets.map((t) => {
                 const ownerName =
@@ -189,7 +196,6 @@ return (
 
                     {/* 2. Region */}
                     <td className="px-4 py-3 align-middle">
-
                       <span className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
                         {t.region}
                       </span>
@@ -197,7 +203,6 @@ return (
 
                     {/* 3. Owner (Clickable) */}
                     <td className="px-4 py-3 align-middle">
-
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
                           {ownerName[0]}
@@ -218,25 +223,62 @@ return (
                     <td className="p-4 align-middle text-slate-600 dark:text-slate-400 text-xs">
                       {csmName}
                     </td>
-                    
+
                     {/* 5. TAM */}
                     <td className="p-4 align-middle text-slate-600 dark:text-slate-400 text-xs">
                       {tamName}
                     </td>
-                    
-                    {/* 6. RWT */}
-                   <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-300">
-                     {t.rwt !== null && t.rwt !== undefined ? `${t.rwt}h` : "-"}
-                   </td>
 
-                   {/* 7. Iterations */}
-                   <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-300">
-                      {t.iterations}
-                   </td>
-                    
+                    {/* 6. RWT */}
+                    <td className="p-3 text-center">
+                      {dep?.hasDependency ? (
+                        <span
+                          className={`px-2 py-1 rounded-full text-[10px] font-bold ${
+                            primary?.team === "NOC"
+                              ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                              : primary?.team === "Whatsapp"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : primary?.team === "Billing"
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              : primary?.team === "Email"
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                          }`}
+                        >
+                          {primary?.team || "Unknown"}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">-</span>
+                      )}
+                    </td>
+
+                    {/* Dependency Assignee */}
+                    <td className="p-3 text-center">
+                      {dep?.hasDependency && primary ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                            {primary.owner}
+                          </span>
+                          {primary.issueId && (
+                            <a
+                              href={`https://app.devrev.ai/clevertap/works/${primary.issueId}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10px] text-indigo-500 hover:underline font-mono"
+                            >
+                              {primary.issueId}
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">-</span>
+                      )}
+                    </td>
+
+                    {/* 7. Iterations */}
+
                     {/* 8. Stage */}
                     <td className="px-4 py-3 align-middle">
-
                       <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800">
                         {STAGE_MAP[t.stage?.name]?.label || t.stage?.name}
                       </span>
@@ -246,7 +288,7 @@ return (
                     <td className="px-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-sm font-medium">{t.days} Days</span>
                     </td>
-                    
+
                     {/* 10. Status (Sticky Right 2) */}
                     <td className="p-4 align-middle min-w-[180px] w-[180px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent">
                       <div className="flex items-center gap-2 relative">
