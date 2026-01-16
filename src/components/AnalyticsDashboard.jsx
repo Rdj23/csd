@@ -1658,12 +1658,12 @@ const executeAdminSearch = async (page = 1) => {
 };
 
 // Download results
-const downloadResults = (format) => {
+const downloadResults = (fileType) => {
   if (!adminResults?.tickets?.length) return;
   
   const tickets = adminResults.tickets;
   
-  if (format === "json") {
+  if (fileType === "json") {
     const blob = new Blob([JSON.stringify(tickets, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1671,7 +1671,7 @@ const downloadResults = (format) => {
     a.download = `tickets_export_${format(new Date(), "yyyy-MM-dd")}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  } else if (format === "csv") {
+  } else if (fileType === "csv") {
     const headers = ["ticket_id", "title", "owner", "closed_date", "rwt", "frt", "frr", "csat", "iterations", "region", "is_zendesk"];
     const csvRows = [headers.join(",")];
     
