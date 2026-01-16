@@ -1990,17 +1990,29 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
   );
 
   // Resolve current user to GST roster name
-  const resolvedCurrentUser = useMemo(() => {
-    if (!currentUser?.name) return null;
-    const cleanName = currentUser.name.toLowerCase().trim();
-    return (
-      Object.values(FLAT_TEAM_MAP).find(
-        (name) =>
-          cleanName.includes(name.toLowerCase()) ||
-          name.toLowerCase().includes(cleanName)
-      ) || currentUser.name
-    );
-  }, [currentUser]);
+ // Resolve current user to GST roster name
+const resolvedCurrentUser = useMemo(() => {
+  if (!currentUser?.name) return null;
+  const cleanName = currentUser.name.toLowerCase().trim().split(' ')[0]; // Get first name only
+  
+  // First try exact match
+  const exactMatch = Object.values(FLAT_TEAM_MAP).find(
+    (name) => name.toLowerCase() === cleanName
+  );
+  if (exactMatch) return exactMatch;
+  
+  // Then try partial match, but prefer longer matches to avoid Shreya matching Shreyas
+  const matches = Object.values(FLAT_TEAM_MAP).filter(
+    (name) =>
+      cleanName.includes(name.toLowerCase()) ||
+      name.toLowerCase().includes(cleanName)
+  );
+  
+  // Sort by length descending - longer name = more specific match
+  matches.sort((a, b) => b.length - a.length);
+  
+  return matches[0] || currentUser.name;
+}, [currentUser]);
 
   const isGSTUser = useMemo(
     () =>
@@ -2018,13 +2030,14 @@ const isSuperAdmin = useMemo(() => {
 
 
   // Get user's team
-  const myTeamName = useMemo(() => {
-    const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
-      const groupMembers = Object.values(TEAM_GROUPS[groupKey]);
-      return groupMembers.includes(resolvedCurrentUser);
-    });
-    return foundTeamKey ? `Team ${foundTeamKey}` : "Team Mashnu";
-  }, [resolvedCurrentUser]);
+// Get user's team
+const myTeamName = useMemo(() => {
+  const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
+    const groupMembers = Object.values(TEAM_GROUPS[groupKey]);
+    return groupMembers.includes(resolvedCurrentUser);
+  });
+  return foundTeamKey ? `Team ${foundTeamKey}` : null; // Return null instead of hardcoded team
+}, [resolvedCurrentUser]);
 
   // GST-only user list for dropdowns
   const gstUserNames = useMemo(() => Object.values(FLAT_TEAM_MAP).sort(), []);
