@@ -46,6 +46,41 @@ mongoose
   .then(() => console.log("🍃 MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 
+// Map DevRev display_name to GST roster name
+const GST_NAME_MAP = {
+  Rohan: "Rohan",
+  "Rohan Jadhav": "Rohan",
+  Archie: "Archie",
+  "Neha Yadav": "Neha",
+  Neha: "Neha",
+  "Shreya Khale": "Shreya",
+  "Vaibhav Agarwal": "Vaibhav",
+
+  Adarsh: "Adarsh",
+  "Abhishek Vishwakarma": "Abhishek",
+  Shubhankar: "Shubhankar",
+  "Musaveer Manekia": "Musaveer",
+  "Debashish Muni": "Debashish",
+  "Shweta.M": "Shweta",
+
+  "Anurag Ghatge": "Anurag",
+  "nikita-narwani": "Nikita",
+  "Aditya Mishra": "Aditya",
+
+  "Taha Khans": "Tuaha Khan",
+
+  "Harsh Singh": "Harsh",
+  "Tamanna Khan": "Tamanna",
+  Tamanna: "Tamanna",
+  Shreyas: "Shreyas",
+  "Shreyas Naikwadi": "Shreyas",
+};
+
+const resolveOwnerName = (displayName) => {
+  if (!displayName) return "Unassigned";
+  return GST_NAME_MAP[displayName] || displayName;
+};
+
 // --- SCHEMAS ---
 const RemarkSchema = new mongoose.Schema({
   ticketId: String,
@@ -948,7 +983,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                     title: t.title,
                     created_date: new Date(t.created_date),
                     closed_date: new Date(t.actual_close_date),
-                    owner: t.owned_by?.[0]?.display_name || "Unassigned",
+                    owner: resolveOwnerName(t.owned_by?.[0]?.display_name),
                     region:
                       t.custom_fields?.tnt__region_salesforce || "Unknown",
                     priority: t.priority,
