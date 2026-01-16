@@ -742,84 +742,39 @@ app.post("/api/webhooks/devrev", (req, res) => {
   res.send("OK");
 });
 
-app.get("/api/admin/search", async (req, res) => {
+app.post("/api/admin/search", async (req, res) => {
   try {
-    const {
-      owner,
-      dateRange,
-      startDate,
-      endDate,
-      frr,
-      csat,
-      rwtGt,
-      iterations,
-      iterationsGt,
-      isZendesk,
-    } = req.query;
-
-    // Build MongoDB query
-    const query = {};
-
-    // Owner filter (case-insensitive partial match)
-    if (owner) {
-      query.owner = { $regex: owner, $options: "i" };
-    }
-
-    // Date range filter
-    if (dateRange) {
-      const days = parseInt(dateRange);
-      query.closed_date = {
-        $gte: subDays(new Date(), days),
-        $lte: new Date(),
-      };
-    } else if (startDate || endDate) {
-      query.closed_date = {};
-      if (startDate) {
-        query.closed_date.$gte = new Date(startDate);
+    const { query = {}, page = 1, pageSize = 50 } = req.body;
+    
+    console.log("🔍 Admin Search:", JSON.stringify(query, null, 2));
+    
+    // Process date strings in query
+    const processedQuery = { ...query };
+    if (processedQuery.closed_date) {
+      if (processedQuery.closed_date.$gte) {
+        processedQuery.closed_date.$gte = new Date(processedQuery.closed_date.$gte);
       }
-      if (endDate) {
-        query.closed_date.$lte = new Date(endDate);
+      if (processedQuery.closed_date.$lte) {
+        processedQuery.closed_date.$lte = new Date(processedQuery.closed_date.$lte);
       }
     }
-
-    // FRR filter
-    if (frr !== undefined) {
-      query.frr = parseInt(frr);
-    }
-
-    // CSAT filter
-    if (csat !== undefined) {
-      query.csat = parseInt(csat);
-    }
-
-    // RWT filter
-    if (rwtGt) {
-      query.rwt = { $gt: parseFloat(rwtGt) };
-    }
-
-    // Iterations filter
-    if (iterations) {
-      query.iterations = parseInt(iterations);
-    } else if (iterationsGt) {
-      query.iterations = { $gt: parseInt(iterationsGt) };
-    }
-
-    // Zendesk filter
-    if (isZendesk !== undefined) {
-      query.is_zendesk = isZendesk === "true";
-    }
-
-    console.log("🔍 Admin Search Query:", JSON.stringify(query, null, 2));
-
-    // Fetch tickets
-    const tickets = await AnalyticsTicket.find(query)
+    
+    // Get total count first
+    const totalCount = await AnalyticsTicket.countDocuments(processedQuery);
+    
+    // Fetch paginated results
+    const skip = (page - 1) * pageSize;
+    const tickets = await AnalyticsTicket.find(processedQuery)
       .sort({ closed_date: -1 })
-      .limit(100)
+      .skip(skip)
+      .limit(pageSize)
       .lean();
-
-    // Calculate stats
+    
+    // Calculate stats from ALL matching tickets (not just current page)
+    const allTickets = await AnalyticsTicket.find(processedQuery).lean();
+    
     const stats = {
-      totalTickets: tickets.length,
+      totalTickets: allTickets.length,
       totalRWT: 0,
       rwtValidCount: 0,
       totalFRT: 0,
@@ -829,49 +784,45 @@ app.get("/api/admin/search", async (req, res) => {
       goodCSATCount: 0,
       badCSATCount: 0,
       frrMetCount: 0,
-      frrNotMetCount: 0,
     };
-
-    tickets.forEach((t) => {
-      // RWT
-      if (t.rwt !== null && t.rwt !== undefined && t.rwt > 0) {
+    
+    allTickets.forEach((t) => {
+      if (t.rwt != null && t.rwt > 0) {
         stats.totalRWT += t.rwt;
         stats.rwtValidCount++;
       }
-      // FRT
-      if (t.frt !== null && t.frt !== undefined && t.frt > 0) {
+      if (t.frt != null && t.frt > 0) {
         stats.totalFRT += t.frt;
         stats.frtValidCount++;
       }
-      // Iterations
-      if (t.iterations !== null && t.iterations !== undefined) {
+      if (t.iterations != null) {
         stats.totalIterations += t.iterations;
         stats.iterationsValidCount++;
       }
-      // CSAT
       if (t.csat === 2) stats.goodCSATCount++;
       if (t.csat === 1) stats.badCSATCount++;
-      // FRR
       if (t.frr === 1) stats.frrMetCount++;
-      else stats.frrNotMetCount++;
     });
-
+    
     stats.avgRWT = stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
     stats.avgFRT = stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
     stats.avgIterations = stats.iterationsValidCount > 0 ? stats.totalIterations / stats.iterationsValidCount : 0;
-    stats.frrPercent = stats.totalTickets > 0 ? ((stats.frrMetCount / stats.totalTickets) * 100).toFixed(1) : 0;
-
+    
     res.json({
-      query,
+      query: processedQuery,
       stats,
       tickets,
-      message: `Found ${tickets.length} tickets`,
+      totalCount,
+      page,
+      pageSize,
+      totalPages: Math.ceil(totalCount / pageSize),
     });
   } catch (e) {
     console.error("Admin search error:", e);
     res.status(500).json({ error: e.message });
   }
 });
+
 
 app.get("/api/admin/debug-stats", async (req, res) => {
   try {
