@@ -1686,16 +1686,18 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
     try {
       let queryToSend;
 
-      // If editableQuery has content, use it
-      if (editableQuery) {
-        try {
-          queryToSend = JSON.parse(editableQuery);
-        } catch (e) {
-          // Fall back to natural language parsing
-        }
-      }
+      // PRIORITY 1: If editableQuery has content, use it
+  if (editableQuery && editableQuery.trim()) {
+    try {
+      queryToSend = JSON.parse(editableQuery);
+    } catch (e) {
+      setAdminResults({ error: `Invalid JSON: ${e.message}` });
+      setAdminLoading(false);
+      return;
+    }
+  }
 
-      if (adminQueryMode === "raw") {
+     else if (adminQueryMode === "raw"){
         // Parse the raw JSON query
         try {
           queryToSend = JSON.parse(adminRawQuery);
@@ -2863,60 +2865,61 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
               </div>
             ) : adminResults ? (
               <div className="space-y-4">
+               
                 {/* Stats Cards */}
                 <div className="grid grid-cols-7 gap-3">
-                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                    <div className="text-xs text-slate-500 mb-1">
+                  <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
+                    <div className="text-xs text-slate-500 dark:text-slate-500 mb-1">
                       Total Tickets
                     </div>
-                    <div className="text-2xl font-bold text-white">
+                    <div className="text-2xl font-bold text-slate-800 dark:text-white">
                       {adminResults.stats?.totalTickets || 0}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                  <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
                     <div className="text-xs text-slate-500 mb-1">Avg RWT</div>
-                    <div className="text-2xl font-bold text-purple-400">
+                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
                       {adminResults.stats?.avgRWT?.toFixed(2) || 0}
                       <span className="text-sm font-normal text-slate-500 ml-1">
                         hrs
                       </span>
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                  <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
                     <div className="text-xs text-slate-500 mb-1">Avg FRT</div>
-                    <div className="text-2xl font-bold text-blue-400">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                       {adminResults.stats?.avgFRT?.toFixed(2) || 0}
                       <span className="text-sm font-normal text-slate-500 ml-1">
                         hrs
                       </span>
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                  <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
                     <div className="text-xs text-slate-500 mb-1">FRR Met</div>
-                    <div className="text-2xl font-bold text-amber-400">
+                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
                       {adminResults.stats?.frrMetCount || 0}
                       <span className="text-sm font-normal text-slate-500">
                         /{adminResults.stats?.totalTickets || 0}
                       </span>
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                  <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
                     <div className="text-xs text-slate-500 mb-1">Good CSAT</div>
-                    <div className="text-2xl font-bold text-emerald-400">
+                    <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                       {adminResults.stats?.goodCSATCount || 0}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                  <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
                     <div className="text-xs text-slate-500 mb-1">Bad CSAT</div>
-                    <div className="text-2xl font-bold text-rose-400">
+                    <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
                       {adminResults.stats?.badCSATCount || 0}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                  <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
                     <div className="text-xs text-slate-500 mb-1">
                       Avg Iterations
                     </div>
-                    <div className="text-2xl font-bold text-cyan-400">
+                    <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
                       {adminResults.stats?.avgIterations?.toFixed(1) || 0}
                     </div>
                   </div>
@@ -2984,9 +2987,10 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
                   </div>
                 </div>
 
+               
                 {/* Pagination */}
                 <div className="flex items-center justify-between">
-                  <div className="text-sm text-slate-400">
+                  <div className="text-sm text-slate-600 dark:text-slate-400">
                     Showing {(adminPage - 1) * adminPageSize + 1} -{" "}
                     {Math.min(adminPage * adminPageSize, adminTotalCount)} of{" "}
                     {adminTotalCount} tickets
@@ -2998,7 +3002,7 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
                         setAdminPageSize(Number(e.target.value));
                         executeAdminSearch(1);
                       }}
-                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white"
+                      className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-700 dark:text-white"
                     >
                       <option value={25}>25 per page</option>
                       <option value={50}>50 per page</option>
@@ -3008,11 +3012,11 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
                     <button
                       onClick={() => executeAdminSearch(adminPage - 1)}
                       disabled={adminPage <= 1 || adminLoading}
-                      className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50"
+                      className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 border border-slate-200 dark:border-transparent"
                     >
-                      <ChevronLeft className="w-4 h-4 text-white" />
+                      <ChevronLeft className="w-4 h-4 text-slate-600 dark:text-white" />
                     </button>
-                    <span className="px-3 py-1.5 bg-slate-800 rounded-lg text-sm text-white">
+                    <span className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-sm text-slate-700 dark:text-white border border-slate-200 dark:border-transparent">
                       Page {adminPage} of{" "}
                       {Math.ceil(adminTotalCount / adminPageSize) || 1}
                     </span>
@@ -3023,140 +3027,105 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
                           Math.ceil(adminTotalCount / adminPageSize) ||
                         adminLoading
                       }
-                      className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 disabled:opacity-50"
+                      className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 border border-slate-200 dark:border-transparent"
                     >
-                      <ChevronRight className="w-4 h-4 text-white" />
+                      <ChevronRight className="w-4 h-4 text-slate-600 dark:text-white" />
                     </button>
                   </div>
                 </div>
 
                 {/* Tickets Table */}
                 {adminResults.tickets?.length > 0 ? (
-                  <div className="rounded-xl border border-slate-800 overflow-hidden">
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                     <div className="overflow-auto max-h-[calc(100vh-500px)]">
                       <table className="w-full text-sm">
-                        <thead className="bg-slate-800 sticky top-0">
-                          <tr>
-                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
-                              Ticket ID
-                            </th>
-                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
-                              Title
-                            </th>
-                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
-                              Owner
-                            </th>
-                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
-                              Closed
-                            </th>
-                            <th className="px-4 py-3 text-right text-slate-400 font-medium">
-                              RWT
-                            </th>
-                            <th className="px-4 py-3 text-right text-slate-400 font-medium">
-                              FRT
-                            </th>
-                            <th className="px-4 py-3 text-center text-slate-400 font-medium">
-                              FRR
-                            </th>
-                            <th className="px-4 py-3 text-center text-slate-400 font-medium">
-                              CSAT
-                            </th>
-                            <th className="px-4 py-3 text-right text-slate-400 font-medium">
-                              Iter
-                            </th>
-                            <th className="px-4 py-3 text-left text-slate-400 font-medium">
-                              Region
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800">
-                          {adminResults.tickets.map((t, i) => (
-                            <tr
-                              key={t.ticket_id || i}
-                              className="hover:bg-slate-800/50 transition-colors"
-                            >
-                              <td className="px-4 py-3">
-                                <a
-                                  href={`https://app.devrev.ai/clevertap/works/${t.ticket_id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-indigo-400 font-mono hover:underline"
-                                >
-                                  {t.ticket_id || t.display_id}
-                                </a>
-                              </td>
-                              <td
-                                className="px-4 py-3 text-white max-w-[300px] truncate"
-                                title={t.title}
-                              >
-                                {t.title}
-                              </td>
-                              <td className="px-4 py-3 text-slate-300">
-                                {t.owner}
-                              </td>
-                              <td className="px-4 py-3 text-slate-400">
-                                {t.closed_date
-                                  ? format(
-                                      new Date(t.closed_date),
-                                      "MMM dd, yyyy"
-                                    )
-                                  : "-"}
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <span
-                                  className={
-                                    t.rwt > 50
-                                      ? "text-rose-400"
-                                      : t.rwt > 24
-                                      ? "text-amber-400"
-                                      : "text-emerald-400"
-                                  }
-                                >
-                                  {t.rwt?.toFixed(1) || "-"}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <span
-                                  className={
-                                    t.frt > 4
-                                      ? "text-rose-400"
-                                      : t.frt > 2
-                                      ? "text-amber-400"
-                                      : "text-emerald-400"
-                                  }
-                                >
-                                  {t.frt?.toFixed(1) || "-"}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {t.frr === 1 ? (
-                                  <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full">
-                                    ✓
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center justify-center w-6 h-6 bg-rose-500/20 text-rose-400 rounded-full">
-                                    ✗
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {t.csat === 2 ? (
-                                  <span className="text-lg">👍</span>
-                                ) : t.csat === 1 ? (
-                                  <span className="text-lg">👎</span>
-                                ) : (
-                                  <span className="text-slate-500">-</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-right text-cyan-400">
-                                {t.iterations || "-"}
-                              </td>
-                              <td className="px-4 py-3 text-slate-400 text-xs">
-                                {t.region || "-"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
+                        <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
+  <tr>
+    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+      Ticket ID
+    </th>
+    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+      Title
+    </th>
+    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+      Owner
+    </th>
+    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+      Closed
+    </th>
+    <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
+      RWT
+    </th>
+    <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
+      FRT
+    </th>
+    <th className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 font-medium">
+      FRR
+    </th>
+    <th className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 font-medium">
+      CSAT
+    </th>
+    <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
+      Iter
+    </th>
+    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+      Region
+    </th>
+  </tr>
+</thead>
+
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+  {adminResults.tickets.map((t, i) => (
+    <tr key={t.ticket_id || i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+      <td className="px-4 py-3">
+        <a 
+          href={`https://app.devrev.ai/clevertap/works/${t.ticket_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-indigo-600 dark:text-indigo-400 font-mono hover:underline"
+        >
+          {t.ticket_id || t.display_id}
+        </a>
+      </td>
+      <td className="px-4 py-3 text-slate-800 dark:text-white max-w-[300px] truncate" title={t.title}>
+        {t.title}
+      </td>
+      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{t.owner}</td>
+      <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+        {t.closed_date ? format(new Date(t.closed_date), "MMM dd, yyyy") : "-"}
+      </td>
+      <td className="px-4 py-3 text-right">
+        <span className={t.rwt > 50 ? "text-rose-600 dark:text-rose-400" : t.rwt > 24 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
+          {t.rwt?.toFixed(1) || "-"}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-right">
+        <span className={t.frt > 4 ? "text-rose-600 dark:text-rose-400" : t.frt > 2 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
+          {t.frt?.toFixed(1) || "-"}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-center">
+        {t.frr === 1 ? (
+          <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-full">✓</span>
+        ) : (
+          <span className="inline-flex items-center justify-center w-6 h-6 bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-full">✗</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-center">
+        {t.csat === 2 ? (
+          <span className="text-lg">👍</span>
+        ) : t.csat === 1 ? (
+          <span className="text-lg">👎</span>
+        ) : (
+          <span className="text-slate-400">-</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right text-cyan-600 dark:text-cyan-400">{t.iterations || "-"}</td>
+      <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{t.region || "-"}</td>
+    </tr>
+  ))}
+</tbody>
+
                       </table>
                     </div>
                   </div>
