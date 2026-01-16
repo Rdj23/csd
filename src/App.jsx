@@ -31,6 +31,7 @@ import {
   Inbox, // Add this
   AlertCircle,
   Link2,
+  ChevronDown,
 } from "lucide-react";
 import {
   parseISO,
@@ -67,8 +68,8 @@ const EMPTY_FILTERS = {
   csms: [],
   tams: [],
   dateRange: { start: "", end: "" },
-  dependency: [],
-  dependencyTeams: [],
+  dependency: ["with_dependency", "no_dependency"], // Both selected by default
+  dependencyTeams: ["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"], // All teams selected by default
 };
 
 const FILTER_CONFIG = [
@@ -597,6 +598,51 @@ const App = () => {
             return false;
         }
 
+        // Dependency filter
+        if (
+          currentFilters.dependency?.length > 0 &&
+          currentFilters.dependency.length < 2
+        ) {
+          // Only filter if NOT both options are selected (if both selected, show all)
+          const ticketId = t.display_id?.replace("TKT-", "");
+          const dep = dependencies[ticketId];
+          const hasDep = dep?.hasDependency === true;
+
+          if (
+            currentFilters.dependency.includes("with_dependency") &&
+            !currentFilters.dependency.includes("no_dependency")
+          ) {
+            // Only "Has Dependency" selected - hide tickets without dependency
+            if (!hasDep) return false;
+          }
+          if (
+            currentFilters.dependency.includes("no_dependency") &&
+            !currentFilters.dependency.includes("with_dependency")
+          ) {
+            // Only "No Dependency" selected - hide tickets with dependency
+            if (hasDep) return false;
+          }
+        }
+
+        // Dependency team filter (only applies when filtering for dependency tickets)
+        if (
+          currentFilters.dependency?.includes("with_dependency") &&
+          currentFilters.dependencyTeams?.length > 0 &&
+          currentFilters.dependencyTeams.length < 6
+        ) {
+          // Only filter if NOT all teams are selected
+          const ticketId = t.display_id?.replace("TKT-", "");
+          const dep = dependencies[ticketId];
+
+          if (dep?.hasDependency) {
+            const ticketTeams = dep.issues?.map((i) => i.team) || [];
+            const hasMatchingTeam = currentFilters.dependencyTeams.some(
+              (team) => ticketTeams.includes(team)
+            );
+            if (!hasMatchingTeam) return false;
+          }
+        }
+
         return true;
       });
   }, [
@@ -606,6 +652,7 @@ const App = () => {
     dateRange,
     currentFilters,
     selectedViewId,
+    dependencies, // ADD THIS
   ]);
 
   // ✅ KPI STATS LOGIC (Moved here to stay fixed)
@@ -858,121 +905,187 @@ ${
                     {activeTab !== "analytics" && activeTab !== "vistas" && (
                       <>
                         {visibleFilterKeys.includes("dependency") && (
-                          <div className="space-y-2">
-                            <div className="text-xs font-bold text-slate-500 uppercase mb-2">
-                              Status
-                            </div>
-                            {DEPENDENCY_OPTIONS.map((opt) => (
-                              <label
-                                key={opt.value}
-                                className="flex items-center gap-2 cursor-pointer"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={currentFilters.dependency?.includes(
-                                    opt.value
-                                  )}
-                                  onChange={(e) => {
-                                    const newVal = e.target.checked
-                                      ? [
-                                          ...(currentFilters.dependency || []),
-                                          opt.value,
-                                        ]
-                                      : (
-                                          currentFilters.dependency || []
-                                        ).filter((v) => v !== opt.value);
-                                   setFilter("dependency", newVal);
+                          <div className="flex items-center gap-1">
+                            <div className="relative group">
+                              <button className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                                <Link2 className="w-3.5 h-3.5" />
+                                {currentFilters.dependency?.length === 2
+                                  ? "All"
+                                  : currentFilters.dependency?.length === 1
+                                  ? currentFilters.dependency[0] ===
+                                    "with_dependency"
+                                    ? "Has Dep."
+                                    : "No Dep."
+                                  : "Dependency"}
+                                <ChevronDown className="w-3 h-3" />
+                              </button>
 
-                                  }}
-                                  className="rounded"
-                                />
-                                <span className="text-sm">{opt.label}</span>
-                              </label>
-                            ))}
-
-                            {/* Team sub-filter (only show when "Has Dependency" is selected) */}
-                            {currentFilters.dependency?.includes(
-                              "with_dependency"
-                            ) && (
-                              <>
-                                <div className="text-xs font-bold text-slate-500 uppercase mt-4 mb-2">
-                                  Team
+                              {/* Dropdown */}
+                              <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-3 hidden group-hover:block">
+                                <div className="text-xs font-bold text-slate-500 uppercase mb-2">
+                                  Status
                                 </div>
-                                {DEPENDENCY_TEAM_OPTIONS.map((opt) => (
+                                {DEPENDENCY_OPTIONS.map((opt) => (
                                   <label
                                     key={opt.value}
-                                    className="flex items-center gap-2 cursor-pointer"
+                                    className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded"
                                   >
                                     <input
                                       type="checkbox"
-                                      checked={currentFilters.dependencyTeams?.includes(
+                                      checked={currentFilters.dependency?.includes(
                                         opt.value
                                       )}
                                       onChange={(e) => {
                                         const newVal = e.target.checked
                                           ? [
-                                              ...(currentFilters.dependencyTeams ||
+                                              ...(currentFilters.dependency ||
                                                 []),
                                               opt.value,
                                             ]
                                           : (
-                                              currentFilters.dependencyTeams ||
-                                              []
+                                              currentFilters.dependency || []
                                             ).filter((v) => v !== opt.value);
-                                        setFilter("dependencyTeams", newVal);
+                                        setFilter("dependency", newVal);
 
+                                        if (
+                                          opt.value === "with_dependency" &&
+                                          e.target.checked
+                                        ) {
+                                          setFilter(
+                                            "dependencyTeams",
+                                            DEPENDENCY_TEAM_OPTIONS.map(
+                                              (o) => o.value
+                                            )
+                                          );
+                                        }
+                                        if (
+                                          opt.value === "with_dependency" &&
+                                          !e.target.checked
+                                        ) {
+                                          setFilter("dependencyTeams", []);
+                                        }
                                       }}
-                                      className="rounded"
+                                      className="rounded border-slate-300 text-indigo-600"
                                     />
-                                    <span
-                                      className={`text-sm px-2 py-0.5 rounded ${
-                                        opt.value === "NOC"
-                                          ? "bg-rose-100 text-rose-700"
-                                          : opt.value === "Whatsapp"
-                                          ? "bg-emerald-100 text-emerald-700"
-                                          : opt.value === "Billing"
-                                          ? "bg-amber-100 text-amber-700"
-                                          : opt.value === "Email"
-                                          ? "bg-blue-100 text-blue-700"
-                                          : "bg-slate-100 text-slate-700"
-                                      }`}
-                                    >
+                                    <span className="text-sm text-slate-700 dark:text-slate-300">
                                       {opt.label}
                                     </span>
                                   </label>
                                 ))}
-                              </>
-                            )}
+
+                                {currentFilters.dependency?.includes(
+                                  "with_dependency"
+                                ) && (
+                                  <>
+                                    <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                      Team
+                                    </div>
+                                    {DEPENDENCY_TEAM_OPTIONS.map((opt) => (
+                                      <label
+                                        key={opt.value}
+                                        className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={currentFilters.dependencyTeams?.includes(
+                                            opt.value
+                                          )}
+                                          onChange={(e) => {
+                                            const newVal = e.target.checked
+                                              ? [
+                                                  ...(currentFilters.dependencyTeams ||
+                                                    []),
+                                                  opt.value,
+                                                ]
+                                              : (
+                                                  currentFilters.dependencyTeams ||
+                                                  []
+                                                ).filter(
+                                                  (v) => v !== opt.value
+                                                );
+                                            setFilter(
+                                              "dependencyTeams",
+                                              newVal
+                                            );
+                                          }}
+                                          className="rounded border-slate-300 text-indigo-600"
+                                        />
+                                        <span
+                                          className={`text-xs px-2 py-0.5 rounded font-medium ${
+                                            opt.value === "NOC"
+                                              ? "bg-rose-100 text-rose-700"
+                                              : opt.value === "Whatsapp"
+                                              ? "bg-emerald-100 text-emerald-700"
+                                              : opt.value === "Billing"
+                                              ? "bg-amber-100 text-amber-700"
+                                              : opt.value === "Email"
+                                              ? "bg-blue-100 text-blue-700"
+                                              : "bg-slate-100 text-slate-700"
+                                          }`}
+                                        >
+                                          {opt.label}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Remove button */}
+                            <button
+                              onClick={() => {
+                                setVisibleFilterKeys((prev) =>
+                                  prev.filter((k) => k !== "dependency")
+                                );
+                                setFilter("dependency", [
+                                  "with_dependency",
+                                  "no_dependency",
+                                ]);
+                                setFilter(
+                                  "dependencyTeams",
+                                  DEPENDENCY_TEAM_OPTIONS.map((o) => o.value)
+                                );
+                              }}
+                              className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
                           </div>
                         )}
-                        {visibleFilterKeys.map((key) => {
-                          const config = FILTER_CONFIG.find(
-                            (f) => f.key === key
-                          );
-                          return config ? (
-                            <div key={key} className="flex items-center gap-1">
-                              <MultiSelectFilter
-                                icon={config.icon}
-                                label={config.label}
-                                options={options[key]}
-                                selected={currentFilters[key]}
-                                onChange={(v) => setFilter(key, v)}
-                              />
-                              <button
-                                onClick={() => {
-                                  setVisibleFilterKeys((prev) =>
-                                    prev.filter((k) => k !== key)
-                                  );
-                                  setFilter(key, []);
-                                }}
-                                className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
-                                title={`Remove ${config.label} filter`}
+                        {visibleFilterKeys
+                          .filter((k) => k !== "dependency")
+                          .map((key) => {
+                            const config = FILTER_CONFIG.find(
+                              (f) => f.key === key
+                            );
+                            return config ? (
+                              <div
+                                key={key}
+                                className="flex items-center gap-1"
                               >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : null;
-                        })}
+                                <MultiSelectFilter
+                                  icon={config.icon}
+                                  label={config.label}
+                                  options={options[key]}
+                                  selected={currentFilters[key]}
+                                  onChange={(v) => setFilter(key, v)}
+                                />
+                                <button
+                                  onClick={() => {
+                                    setVisibleFilterKeys((prev) =>
+                                      prev.filter((k) => k !== key)
+                                    );
+                                    setFilter(key, []);
+                                  }}
+                                  className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
+                                  title={`Remove ${config.label} filter`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : null;
+                          })}
 
                         <div className="relative group" tabIndex={-1}>
                           <button
