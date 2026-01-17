@@ -2029,16 +2029,29 @@ const isSuperAdmin = useMemo(() => {
 }, [currentUser]);
 
 
-  // Get user's team
-// Get user's team
-const myTeamName = useMemo(() => {
+ const myTeamName = useMemo(() => {
+  if (!resolvedCurrentUser) return null;
+
   const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
-    const groupMembers = Object.values(TEAM_GROUPS[groupKey]);
-    return groupMembers.includes(resolvedCurrentUser);
+    const members = Object.values(TEAM_GROUPS[groupKey]);
+    return members.includes(resolvedCurrentUser);
   });
-  return foundTeamKey ? `Team ${foundTeamKey}` : null; // Return null instead of hardcoded team
+
+  // IMPORTANT: return null if no team found
+  return foundTeamKey ? `Team ${foundTeamKey}` : null;
 }, [resolvedCurrentUser]);
 
+const selectedUserTeamName = useMemo(() => {
+  if (selectedUsers.length === 0) return myTeamName;
+  
+  const firstUser = selectedUsers[0];
+  const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
+    const members = Object.values(TEAM_GROUPS[groupKey]);
+    return members.includes(firstUser);
+  });
+  
+  return foundTeamKey ? `Team ${foundTeamKey}` : myTeamName;
+}, [selectedUsers, myTeamName]);
   // GST-only user list for dropdowns
   const gstUserNames = useMemo(() => Object.values(FLAT_TEAM_MAP).sort(), []);
 
@@ -2568,8 +2581,8 @@ const myTeamName = useMemo(() => {
           });
 
           if (showTeam) {
-            const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")]
-              ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")])
+            const teamMembers = TEAM_GROUPS[selectedUserTeamName?.replace("Team ", "")]
+              ? Object.values(TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")])
               : [];
             dataPoint.compare_team = dayTickets.filter((t) => {
               const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
@@ -2620,8 +2633,8 @@ const myTeamName = useMemo(() => {
       if (showTeam || showGST) {
         let teamTotal = 0,
           gstTotal = 0;
-        const teamMembers = TEAM_GROUPS[myTeamName?.replace("Team ", "")]
-          ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")])
+        const teamMembers = TEAM_GROUPS[selectedUserTeamName?.replace("Team ", "")]
+          ? Object.values(TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")])
           : [];
 
         Object.entries(individualTrends).forEach(([user, days]) => {
@@ -2654,7 +2667,7 @@ const myTeamName = useMemo(() => {
     selectedUsers,
     showTeam,
     showGST,
-    myTeamName,
+    selectedUserTeamName,
     tickets,
   ]);
 
@@ -3724,7 +3737,7 @@ const myTeamName = useMemo(() => {
                 showTeam={showTeam}
                 showGST={showGST}
                 selectedUsers={selectedUsers}
-                myTeamName={myTeamName}
+                myTeamName={selectedUserTeamName}
               />
             </div>
 

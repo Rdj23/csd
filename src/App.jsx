@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
-
+import GroupedTicketList from "./components/GroupedTicketList";
 import {
   Users,
   Filter,
@@ -56,6 +56,7 @@ import {
   STAGE_MAP,
   getTicketStatus,
   formatRWT,
+  TEAM_REGION_MAP,
 } from "./utils";
 
 const EMPTY_FILTERS = {
@@ -124,6 +125,7 @@ const App = () => {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectedTeamLead, setSelectedTeamLead] = useState(null);
 
   const showDatePicker = useMemo(() => {
     return activeTab !== "vistas";
@@ -160,14 +162,14 @@ const App = () => {
     // 1. Identify GST Roster Members
     const allowedGroups = ["Mashnu", "Tuaha", "Debashish", "Shweta"];
     const allRosterNames = allowedGroups.flatMap((g) =>
-      Object.values(TEAM_GROUPS[g] || {})
+      Object.values(TEAM_GROUPS[g] || {}),
     );
 
     // 2. Smart Match Current User to Roster
     const matchedName = allRosterNames.find(
       (rName) =>
         currentUser.name.toLowerCase().includes(rName.toLowerCase()) ||
-        rName.toLowerCase().includes(currentUser.name.toLowerCase())
+        rName.toLowerCase().includes(currentUser.name.toLowerCase()),
     );
 
     // --- DEBUGGING LOGS (Check Console) ---
@@ -176,7 +178,7 @@ const App = () => {
     console.log(
       "2. Is GST Member?",
       !!matchedName,
-      matchedName ? `(Matched: ${matchedName})` : "(No Match)"
+      matchedName ? `(Matched: ${matchedName})` : "(No Match)",
     );
 
     if (!matchedName) return null; // Hide if not in roster
@@ -200,7 +202,7 @@ const App = () => {
 
     // 4. Calculate Metrics
     const open = myTickets.filter(
-      (t) => t.stage?.name === "Waiting on Assignee"
+      (t) => t.stage?.name === "Waiting on Assignee",
     ).length;
 
     const now = new Date();
@@ -210,7 +212,7 @@ const App = () => {
         isWithinInterval(parseISO(t.actual_close_date), {
           start: startOfWeek(now, { weekStartsOn: 1 }),
           end: endOfWeek(now, { weekStartsOn: 1 }),
-        })
+        }),
     ).length;
 
     const goodCsat = myTickets.filter((t) => {
@@ -290,6 +292,14 @@ const App = () => {
     }
   }, [isAuthenticated]);
 
+  //   useEffect(() => {
+  //   if (selectedTeamLead && TEAM_LEADS[selectedTeamLead]) {
+  //     const leadRegions = TEAM_LEADS[selectedTeamLead].regions;
+  //     setFilter("regions", leadRegions);
+  //     setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "regions"])));
+  //   }
+  // }, [selectedTeamLead]);
+
   // ✅ MERGED SYNC: Updates both Tickets and Roster
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -357,7 +367,7 @@ const App = () => {
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `tickets_export_${new Date().toISOString().slice(0, 10)}.csv`
+      `tickets_export_${new Date().toISOString().slice(0, 10)}.csv`,
     );
 
     // ✅ FIX: Filename format "epoch_export"
@@ -470,6 +480,14 @@ const App = () => {
     setFilter("health", [statusValue]);
   };
 
+  useEffect(() => {
+    if (currentFilters.teams?.includes("Adish")) {
+      const adishRegions = TEAM_REGION_MAP["Adish"] || [];
+      setFilter("regions", adishRegions);
+      setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "regions"])));
+    }
+  }, [currentFilters.teams]);
+
   // ✅ 4. FILTERED TICKETS (Depends on currentFilters)
   const filteredTickets = useMemo(() => {
     if (activeTab === "vistas" && !selectedViewId && myViews.length > 0)
@@ -478,12 +496,12 @@ const App = () => {
     return tickets
       .map((t) => {
         const isCSD = t.tags?.some(
-          (tagObj) => tagObj.tag?.name === "csd-highlighted"
+          (tagObj) => tagObj.tag?.name === "csd-highlighted",
         );
         const { status, color, icon, days, priority } = getTicketStatus(
           t.created_date,
           t.stage?.name,
-          isCSD
+          isCSD,
         );
         const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
         const accountName =
@@ -546,17 +564,27 @@ const App = () => {
           FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "Unassigned";
 
         if (currentFilters.teams?.length > 0) {
-          const ticketOwnerTeams = Object.entries(TEAM_GROUPS)
-            .filter(([team, members]) =>
-              Object.values(members).includes(ownerName)
-            )
-            .map(([team]) => team);
+          // Special case: Adish = region-based filter only, not owner-based
           if (
-            !ticketOwnerTeams.some((team) =>
-              currentFilters.teams.includes(team)
+            currentFilters.teams.length === 1 &&
+            currentFilters.teams.includes("Adish")
+          ) {
+            // Skip team/owner filter - let region filter handle it
+            // (regions are already auto-selected via useEffect)
+          } else {
+            // Normal team filter - filter by team members
+            const ticketOwnerTeams = Object.entries(TEAM_GROUPS)
+              .filter(([team, members]) =>
+                Object.values(members).includes(ownerName),
+              )
+              .map(([team]) => team);
+            if (
+              !ticketOwnerTeams.some((team) =>
+                currentFilters.teams.includes(team),
+              )
             )
-          )
-            return false;
+              return false;
+          }
         }
         if (
           currentFilters.owners?.length > 0 &&
@@ -637,7 +665,7 @@ const App = () => {
           if (dep?.hasDependency) {
             const ticketTeams = dep.issues?.map((i) => i.team) || [];
             const hasMatchingTeam = currentFilters.dependencyTeams.some(
-              (team) => ticketTeams.includes(team)
+              (team) => ticketTeams.includes(team),
             );
             if (!hasMatchingTeam) return false;
           }
@@ -883,6 +911,27 @@ ${
                       />
                     )}
 
+                    {activeTab !== "analytics" && (
+                      <MultiSelectFilter
+                        icon={Layers}
+                        label="Team"
+                        options={options.teams}
+                        selected={currentFilters.teams}
+                        onChange={(v) => {
+                          setFilter("teams", v);
+                          // Auto-select regions for Adish
+                          if (v.includes("Adish")) {
+                            setFilter("regions", [
+                              "South America",
+                              "North America",
+                            ]);
+                            setVisibleFilterKeys((prev) =>
+                              Array.from(new Set([...prev, "regions"])),
+                            );
+                          }
+                        }}
+                      />
+                    )}
                     {activeTab === "analytics" && (
                       <>
                         <MultiSelectFilter
@@ -901,7 +950,6 @@ ${
                         />
                       </>
                     )}
-
                     {activeTab !== "analytics" && activeTab !== "vistas" && (
                       <>
                         {visibleFilterKeys.includes("dependency") && (
@@ -912,11 +960,11 @@ ${
                                 {currentFilters.dependency?.length === 2
                                   ? "All"
                                   : currentFilters.dependency?.length === 1
-                                  ? currentFilters.dependency[0] ===
-                                    "with_dependency"
-                                    ? "Has Dep."
-                                    : "No Dep."
-                                  : "Dependency"}
+                                    ? currentFilters.dependency[0] ===
+                                      "with_dependency"
+                                      ? "Has Dep."
+                                      : "No Dep."
+                                    : "Dependency"}
                                 <ChevronDown className="w-3 h-3" />
                               </button>
 
@@ -933,7 +981,7 @@ ${
                                     <input
                                       type="checkbox"
                                       checked={currentFilters.dependency?.includes(
-                                        opt.value
+                                        opt.value,
                                       )}
                                       onChange={(e) => {
                                         const newVal = e.target.checked
@@ -954,8 +1002,8 @@ ${
                                           setFilter(
                                             "dependencyTeams",
                                             DEPENDENCY_TEAM_OPTIONS.map(
-                                              (o) => o.value
-                                            )
+                                              (o) => o.value,
+                                            ),
                                           );
                                         }
                                         if (
@@ -974,7 +1022,7 @@ ${
                                 ))}
 
                                 {currentFilters.dependency?.includes(
-                                  "with_dependency"
+                                  "with_dependency",
                                 ) && (
                                   <>
                                     <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -988,7 +1036,7 @@ ${
                                         <input
                                           type="checkbox"
                                           checked={currentFilters.dependencyTeams?.includes(
-                                            opt.value
+                                            opt.value,
                                           )}
                                           onChange={(e) => {
                                             const newVal = e.target.checked
@@ -1001,11 +1049,11 @@ ${
                                                   currentFilters.dependencyTeams ||
                                                   []
                                                 ).filter(
-                                                  (v) => v !== opt.value
+                                                  (v) => v !== opt.value,
                                                 );
                                             setFilter(
                                               "dependencyTeams",
-                                              newVal
+                                              newVal,
                                             );
                                           }}
                                           className="rounded border-slate-300 text-indigo-600"
@@ -1015,12 +1063,12 @@ ${
                                             opt.value === "NOC"
                                               ? "bg-rose-100 text-rose-700"
                                               : opt.value === "Whatsapp"
-                                              ? "bg-emerald-100 text-emerald-700"
-                                              : opt.value === "Billing"
-                                              ? "bg-amber-100 text-amber-700"
-                                              : opt.value === "Email"
-                                              ? "bg-blue-100 text-blue-700"
-                                              : "bg-slate-100 text-slate-700"
+                                                ? "bg-emerald-100 text-emerald-700"
+                                                : opt.value === "Billing"
+                                                  ? "bg-amber-100 text-amber-700"
+                                                  : opt.value === "Email"
+                                                    ? "bg-blue-100 text-blue-700"
+                                                    : "bg-slate-100 text-slate-700"
                                           }`}
                                         >
                                           {opt.label}
@@ -1036,7 +1084,7 @@ ${
                             <button
                               onClick={() => {
                                 setVisibleFilterKeys((prev) =>
-                                  prev.filter((k) => k !== "dependency")
+                                  prev.filter((k) => k !== "dependency"),
                                 );
                                 setFilter("dependency", [
                                   "with_dependency",
@@ -1044,7 +1092,7 @@ ${
                                 ]);
                                 setFilter(
                                   "dependencyTeams",
-                                  DEPENDENCY_TEAM_OPTIONS.map((o) => o.value)
+                                  DEPENDENCY_TEAM_OPTIONS.map((o) => o.value),
                                 );
                               }}
                               className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
@@ -1057,7 +1105,7 @@ ${
                           .filter((k) => k !== "dependency")
                           .map((key) => {
                             const config = FILTER_CONFIG.find(
-                              (f) => f.key === key
+                              (f) => f.key === key,
                             );
                             return config ? (
                               <div
@@ -1074,7 +1122,7 @@ ${
                                 <button
                                   onClick={() => {
                                     setVisibleFilterKeys((prev) =>
-                                      prev.filter((k) => k !== key)
+                                      prev.filter((k) => k !== key),
                                     );
                                     setFilter(key, []);
                                   }}
@@ -1104,7 +1152,7 @@ ${
 
                           <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-1 hidden group-focus-within:block">
                             {FILTER_CONFIG.filter(
-                              (f) => !visibleFilterKeys.includes(f.key)
+                              (f) => !visibleFilterKeys.includes(f.key),
                             ).map((f) => (
                               <button
                                 key={f.key}
@@ -1225,20 +1273,26 @@ ${
                 />
               ) : (
                 <>
-                  {activeTab === "vistas" && !selectedViewId ? (
-                    <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                      <Layout className="w-10 h-10 mb-2 opacity-50" />
-                      <p className="text-sm">Select a view from the sidebar</p>
-                    </div>
-                  ) : (
-                    <TicketList
-                      tickets={filteredTickets}
-                      isCSDView={activeTab === "csd"}
-                      onCardClick={handleKPIFilter}
-                      onProfileClick={setSelectedUserProfile}
-                      dependencies={dependencies}
-                    />
-                  )}
+                 {activeTab === "vistas" && !selectedViewId ? (
+  <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+    <Layout className="w-10 h-10 mb-2 opacity-50" />
+    <p className="text-sm">Select a view from the sidebar</p>
+  </div>
+) : activeTab === "vistas" ? (
+  <GroupedTicketList
+    tickets={filteredTickets}
+    onProfileClick={setSelectedUserProfile}
+  />
+) : (
+  <TicketList
+    tickets={filteredTickets}
+    isCSDView={activeTab === "csd"}
+    onCardClick={handleKPIFilter}
+    onProfileClick={setSelectedUserProfile}
+    dependencies={dependencies}
+  />
+)}
+
                 </>
               )}
             </div>
@@ -1295,15 +1349,15 @@ ${
           const userTickets = tickets.filter(
             (t) =>
               (FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "") ===
-              selectedUserProfile.name
+              selectedUserProfile.name,
           );
 
           const activeForUser = userTickets.filter(
-            (t) => !["Solved", "Closed", "Cancelled"].includes(t.stage?.name)
+            (t) => !["Solved", "Closed", "Cancelled"].includes(t.stage?.name),
           );
 
           const solvedForUser = userTickets.filter((t) =>
-            ["Solved", "Closed", "Resolved"].includes(t.stage?.name)
+            ["Solved", "Closed", "Resolved"].includes(t.stage?.name),
           );
 
           return (
