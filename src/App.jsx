@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import GroupedTicketList from "./components/GroupedTicketList";
+import AllTicketsView from "./components/Allticketsview";
 import {
   Users,
   Filter,
@@ -32,6 +33,7 @@ import {
   AlertCircle,
   Link2,
   ChevronDown,
+  LayoutGrid,
 } from "lucide-react";
 import {
   parseISO,
@@ -45,7 +47,7 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 
 import TicketList from "./components/TicketList";
 import AnalyticsDashboard from "./components/AnalyticsDashboard";
-import SmartDatePicker from "./components/SmartDatePicker";
+import SmartDatePicker from "./components/SmartDateRangePicker";
 import MultiSelectFilter from "./components/MultiSelectFilter";
 import LoginScreen from "./components/LoginScreen";
 import { useTicketStore } from "./store";
@@ -126,7 +128,7 @@ const App = () => {
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedTeamLead, setSelectedTeamLead] = useState(null);
-
+  const shouldShowKPIs = activeTab === "tickets" || activeTab === "csd";
   const showDatePicker = useMemo(() => {
     return activeTab !== "vistas";
   }, [activeTab]);
@@ -245,11 +247,11 @@ const App = () => {
 
   const [tabFilters, setTabFilters] = useState({
     tickets: { ...EMPTY_FILTERS },
+    alltickets: { ...EMPTY_FILTERS, dateRange: { start: "", end: "" } },
     csd: { ...EMPTY_FILTERS },
-    analytics: { ...EMPTY_FILTERS },
     vistas: { ...EMPTY_FILTERS },
+    analytics: { ...EMPTY_FILTERS }, // ADD THIS LINE
   });
-
   const [visibleFilterKeys, setVisibleFilterKeys] = useState([]);
   const hasAutoAppliedRole = useRef(false);
   const prevTabRef = useRef(activeTab);
@@ -418,7 +420,7 @@ const App = () => {
       const view = myViews.find((v) => v._id === selectedViewId);
       return view ? view.filters : EMPTY_FILTERS;
     }
-    return tabFilters[activeTab];
+    return tabFilters[activeTab] || EMPTY_FILTERS;
   }, [activeTab, selectedViewId, myViews, tabFilters]);
 
   // ✅ 2. OPTIONS (Depends on tickets)
@@ -430,7 +432,7 @@ const App = () => {
       accounts: new Set(),
       csms: new Set(),
       tams: new Set(),
-      stages: ["Open", "Pending", "On Hold"],
+      stages: ["Open", "Pending", "On Hold", "Solved"],
       health: ["Healthy", "Needs Attention", "Action Immediately"],
     };
     tickets.forEach((t) => {
@@ -683,6 +685,179 @@ const App = () => {
     dependencies, // ADD THIS
   ]);
 
+  const shouldShowFilter = useMemo(() => {
+    return activeTab !== "vistas" && activeTab !== "analytics";
+  }, [activeTab]);
+
+  // All Tickets filters are rendered inline in the main content area below
+  // This is just a placeholder to indicate the filter location
+
+  // All Tickets View - includes solved/closed tickets
+  const allTicketsFiltered = useMemo(() => {
+    if (activeTab !== "alltickets") return [];
+
+    const allTicketsFilters = tabFilters.alltickets || EMPTY_FILTERS;
+
+    return tickets
+      .map((t) => {
+        const { status, color, icon, priority, days } = getTicketStatus(
+          t.created_date,
+          t.stage?.name,
+          false,
+        );
+        return {
+          ...t,
+          uiStatus: status,
+          uiColor: color,
+          uiIcon: icon,
+          priority,
+          days,
+
+          region: (() => {
+            const r = t.custom_fields?.tnt__region_salesforce || "Unknown";
+            // Normalize IN1 to India
+            if (r === "IN1" || r === "In1" || r === "in1") return "India";
+            return r;
+          })(),
+          accountName:
+            t.custom_fields?.tnt__instance_account_name ||
+            t.rev_org?.display_name ||
+            t.account?.display_name ||
+            "Unknown",
+          csm:
+            t.custom_fields?.tnt__csm_email_id ||
+            t.custom_fields?.tnt__csm ||
+            "Unknown",
+          tam: t.custom_fields?.tnt__tam || "Unknown",
+        };
+      })
+      .filter((t) => {
+        // Get owner name
+        const ownerName =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "";
+
+        // Exclude anmol-sawhney
+        if (ownerName.toLowerCase().includes("anmol")) return false;
+
+        // Date Range filter
+        if (
+          allTicketsFilters.dateRange?.start &&
+          allTicketsFilters.dateRange?.end
+        ) {
+          try {
+            const ticketDate = parseISO(t.created_date);
+            const start = startOfDay(
+              parseISO(allTicketsFilters.dateRange.start),
+            );
+            const end = endOfDay(parseISO(allTicketsFilters.dateRange.end));
+            if (!isWithinInterval(ticketDate, { start, end })) return false;
+          } catch (e) {
+            // Skip invalid dates
+          }
+        }
+
+        // Region filter
+        if (allTicketsFilters.regions?.length > 0) {
+          if (!allTicketsFilters.regions.includes(t.region)) return false;
+        }
+
+        // Team filter - special handling for Adish (region-based)
+        if (allTicketsFilters.teams?.length > 0) {
+          // If only Adish is selected, filter by regions instead of owner
+          if (allTicketsFilters.teams.length === 1 && allTicketsFilters.teams.includes("Adish")) {
+            // Adish = South America + North America regions
+            const adishRegions = ["South America", "North America"];
+            if (!adishRegions.includes(t.region)) return false;
+          } else if (allTicketsFilters.teams.includes("Adish") && allTicketsFilters.teams.length > 1) {
+            // Adish + other teams: include SA/NA regions OR matching team members
+            const adishRegions = ["South America", "North America"];
+            const otherTeams = allTicketsFilters.teams.filter(team => team !== "Adish");
+            
+            const ownerTeams = Object.entries(TEAM_GROUPS)
+              .filter(([team, members]) => Object.values(members).includes(ownerName))
+              .map(([team]) => team);
+            
+            const matchesOtherTeam = ownerTeams.some(team => otherTeams.includes(team));
+            const matchesAdishRegion = adishRegions.includes(t.region);
+            
+            if (!matchesOtherTeam && !matchesAdishRegion) return false;
+          } else {
+            // Normal team filter - filter by team members
+            const ownerTeams = Object.entries(TEAM_GROUPS)
+              .filter(([team, members]) => Object.values(members).includes(ownerName))
+              .map(([team]) => team);
+            
+            if (!ownerTeams.some(team => allTicketsFilters.teams.includes(team))) {
+              return false;
+            }
+          }
+        }
+
+        // Owner/Member filter
+        if (allTicketsFilters.owners?.length > 0) {
+          if (!allTicketsFilters.owners.includes(ownerName)) return false;
+        }
+
+        // Account filter
+        if (allTicketsFilters.accounts?.length > 0) {
+          if (!allTicketsFilters.accounts.includes(t.accountName)) return false;
+        }
+
+        // CSM filter - scope to accounts
+        if (allTicketsFilters.csms?.length > 0) {
+          if (!allTicketsFilters.csms.includes(t.csm)) return false;
+        }
+
+        // TAM filter - scope to accounts
+        if (allTicketsFilters.tams?.length > 0) {
+          if (!allTicketsFilters.tams.includes(t.tam)) return false;
+        }
+
+        // Stage filter - map stage names to filter values
+        if (allTicketsFilters.stages?.length > 0) {
+          const stageName = (t.stage?.name || "").toLowerCase();
+          
+          // Map actual stage names to filter categories
+          let stageCategory = "";
+          if (stageName.includes("waiting on assignee") || stageName === "open") {
+            stageCategory = "Open";
+          } else if (stageName.includes("awaiting customer") || stageName.includes("pending")) {
+            stageCategory = "Pending";
+          } else if (stageName.includes("waiting on clevertap") || stageName.includes("on hold")) {
+            stageCategory = "On Hold";
+          } else if (stageName.includes("solved") || stageName.includes("closed") || stageName.includes("resolved")) {
+            stageCategory = "Solved";
+          }
+          
+          if (stageCategory && !allTicketsFilters.stages.includes(stageCategory)) {
+            return false;
+          }
+        }
+
+        // Health filter
+        if (allTicketsFilters.health?.length > 0) {
+          if (!allTicketsFilters.health.includes(t.uiStatus)) return false;
+        }
+
+        // Dependency filter
+        if (allTicketsFilters.dependency?.length > 0 && allTicketsFilters.dependency?.length < 2) {
+          const ticketId = t.display_id || t.id;
+          const hasDependency = dependencies[ticketId]?.links?.length > 0;
+          
+          if (allTicketsFilters.dependency.includes("with_dependency") && !hasDependency) {
+            return false;
+          }
+          if (allTicketsFilters.dependency.includes("no_dependency") && hasDependency) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+  }, [tickets, tabFilters.alltickets, activeTab,dependencies]);
+
   // ✅ KPI STATS LOGIC (Moved here to stay fixed)
   const stats = {
     red: filteredTickets.filter((t) => t.priority === 1).length,
@@ -809,6 +984,7 @@ ${
           <div className="flex gap-8 border-b border-slate-200 dark:border-slate-800">
             {[
               { id: "tickets", icon: Users, label: "Ticket View" },
+              { id: "alltickets", icon: LayoutGrid, label: "All Tickets" },
               { id: "csd", icon: Star, label: "CSD Highlighted" },
               { id: "vistas", icon: Layout, label: "My Vistas" },
               { id: "analytics", icon: BarChart3, label: "Analytics" },
@@ -902,7 +1078,124 @@ ${
                   </div>
                 )}
 
-                {activeTab !== "vistas" && (
+                {/* All Tickets Tab Filters */}
+                {activeTab === "alltickets" && (
+                  <>
+                    <SmartDatePicker
+                      value={tabFilters.alltickets?.dateRange}
+                      onChange={(val) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, dateRange: val },
+                      }))}
+                      allowAllTime={true}
+                    />
+                    <MultiSelectFilter
+                      icon={Layers}
+                      label="Team"
+                      options={options.teams}
+                      selected={tabFilters.alltickets?.teams || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, teams: v },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={Users}
+                      label="Member"
+                      options={options.owners}
+                      selected={tabFilters.alltickets?.owners || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, owners: v },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={Globe}
+                      label="Region"
+                      options={options.regions}
+                      selected={tabFilters.alltickets?.regions || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, regions: v },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={Building2}
+                      label="Account"
+                      options={options.accounts}
+                      selected={tabFilters.alltickets?.accounts || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, accounts: v },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={Briefcase}
+                      label="CSM"
+                      options={options.csms}
+                      selected={tabFilters.alltickets?.csms || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, csms: v },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={UserCircle}
+                      label="TAM"
+                      options={options.tams}
+                      selected={tabFilters.alltickets?.tams || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, tams: v },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={Activity}
+                      label="Stage"
+                      options={options.stages}
+                      selected={tabFilters.alltickets?.stages || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, stages: v },
+                      }))}
+                    />
+                  </>
+                )}
+
+                {/* Analytics Tab Filters - MUST be outside other conditions */}
+                {activeTab === "analytics" && (
+                  <>
+                    <SmartDatePicker
+                      value={tabFilters.analytics?.dateRange}
+                      onChange={(val) => setTabFilters((prev) => ({
+                        ...prev,
+                        analytics: { ...prev.analytics, dateRange: val },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={Layers}
+                      label="Team"
+                      options={options.teams}
+                      selected={tabFilters.analytics?.teams || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        analytics: { ...prev.analytics, teams: v },
+                      }))}
+                    />
+                    <MultiSelectFilter
+                      icon={Users}
+                      label="Member"
+                      options={options.owners}
+                      selected={tabFilters.analytics?.owners || []}
+                      onChange={(v) => setTabFilters((prev) => ({
+                        ...prev,
+                        analytics: { ...prev.analytics, owners: v },
+                      }))}
+                    />
+                  </>
+                )}
+
+                {activeTab !== "vistas" && activeTab !== "analytics" && activeTab !== "alltickets" && (
                   <>
                     {showDatePicker && (
                       <SmartDatePicker
@@ -932,24 +1225,7 @@ ${
                         }}
                       />
                     )}
-                    {activeTab === "analytics" && (
-                      <>
-                        <MultiSelectFilter
-                          icon={Layers}
-                          label="Team"
-                          options={options.teams}
-                          selected={currentFilters.teams}
-                          onChange={(v) => setFilter("teams", v)}
-                        />
-                        <MultiSelectFilter
-                          icon={Users}
-                          label="Member"
-                          options={options.owners}
-                          selected={currentFilters.owners}
-                          onChange={(v) => setFilter("owners", v)}
-                        />
-                      </>
-                    )}
+                    
                     {activeTab !== "analytics" && activeTab !== "vistas" && (
                       <>
                         {visibleFilterKeys.includes("dependency") && (
@@ -1227,7 +1503,8 @@ ${
             </div>
 
             {/* KPI CARDS */}
-            {activeTab !== "analytics" && (
+            {/* {activeTab !== "analytics" && activeTab !== "vistas" && ( */}
+            {shouldShowKPIs && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-2 shrink-0">
                 <KPICard
                   count={stats.green}
@@ -1264,35 +1541,44 @@ ${
               {activeTab === "analytics" ? (
                 <AnalyticsDashboard
                   tickets={filteredTickets}
-                  dateRange={currentFilters.dateRange}
-                  filterOwner={
-                    currentFilters.owners.length > 0
-                      ? currentFilters.owners[0]
-                      : "All"
-                  }
+                  currentUser={Users}
+                  isDark={theme === "dark"}
+                />
+              ) : activeTab === "alltickets" ? (
+                <AllTicketsView
+                  tickets={allTicketsFiltered}
+                  filters={tabFilters.alltickets}
+                  onFilterChange={(key, value) => {
+                    setTabFilters((prev) => ({
+                      ...prev,
+                      alltickets: { ...prev.alltickets, [key]: value },
+                    }));
+                  }}
+                  filterOptions={options}
+                  dependencies={dependencies}
                 />
               ) : (
                 <>
-                 {activeTab === "vistas" && !selectedViewId ? (
-  <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-    <Layout className="w-10 h-10 mb-2 opacity-50" />
-    <p className="text-sm">Select a view from the sidebar</p>
-  </div>
-) : activeTab === "vistas" ? (
-  <GroupedTicketList
-    tickets={filteredTickets}
-    onProfileClick={setSelectedUserProfile}
-  />
-) : (
-  <TicketList
-    tickets={filteredTickets}
-    isCSDView={activeTab === "csd"}
-    onCardClick={handleKPIFilter}
-    onProfileClick={setSelectedUserProfile}
-    dependencies={dependencies}
-  />
-)}
-
+                  {activeTab === "vistas" && !selectedViewId ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                      <Layout className="w-10 h-10 mb-2 opacity-50" />
+                      <p className="text-sm">Select a view from the sidebar</p>
+                    </div>
+                  ) : activeTab === "vistas" ? (
+                    <GroupedTicketList
+                      tickets={filteredTickets}
+                      onProfileClick={setSelectedUserProfile}
+                      dependencies={dependencies}
+                    />
+                  ) : (
+                    <TicketList
+                      tickets={filteredTickets}
+                      isCSDView={activeTab === "csd"}
+                      onCardClick={handleKPIFilter}
+                      onProfileClick={setSelectedUserProfile}
+                      dependencies={dependencies}
+                    />
+                  )}
                 </>
               )}
             </div>
