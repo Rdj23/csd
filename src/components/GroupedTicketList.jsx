@@ -117,12 +117,18 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
         <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
           <span className="flex items-center gap-1.5">
             <User className="w-3.5 h-3.5" />
-            <span className="font-semibold text-slate-700 dark:text-slate-300">{totalOwners}</span> owners
+            <span className="font-semibold text-slate-700 dark:text-slate-300">
+              {totalOwners}
+            </span>{" "}
+            owners
           </span>
           <span className="text-slate-300 dark:text-slate-600">•</span>
           <span className="flex items-center gap-1.5">
             <Ticket className="w-3.5 h-3.5" />
-            <span className="font-semibold text-slate-700 dark:text-slate-300">{totalTickets}</span> tickets
+            <span className="font-semibold text-slate-700 dark:text-slate-300">
+              {totalTickets}
+            </span>{" "}
+            tickets
           </span>
         </div>
 
@@ -196,9 +202,12 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                     )}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400">
-                    {group.tickets.length} ticket{group.tickets.length !== 1 ? "s" : ""}
+                    {group.tickets.length} ticket
+                    {group.tickets.length !== 1 ? "s" : ""}
                     {group.urgent > 0 && (
-                      <span className="text-rose-500 ml-2">• {group.urgent} urgent</span>
+                      <span className="text-rose-500 ml-2">
+                        • {group.urgent} urgent
+                      </span>
                     )}
                   </div>
                 </div>
@@ -217,11 +226,21 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        <th className="py-2 px-4 text-left font-semibold">Ticket</th>
-                        <th className="py-2 px-3 text-left font-semibold">Dep Team</th>
-                        <th className="py-2 px-3 text-left font-semibold">Dep Assignee</th>
-                        <th className="py-2 px-3 text-left font-semibold">Stage</th>
-                        <th className="py-2 px-3 text-right font-semibold">Age</th>
+                        <th className="py-2 px-4 text-left font-semibold">
+                          Ticket
+                        </th>
+                        <th className="py-2 px-3 text-left font-semibold">
+                          Dep Team
+                        </th>
+                        <th className="py-2 px-3 text-left font-semibold">
+                          Dep Assignee
+                        </th>
+                        <th className="py-2 px-3 text-left font-semibold">
+                          Stage
+                        </th>
+                        <th className="py-2 px-3 text-right font-semibold">
+                          Age
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
@@ -244,8 +263,8 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                                     t.priority === 1
                                       ? "bg-rose-500"
                                       : t.priority === 2
-                                      ? "bg-amber-500"
-                                      : "bg-emerald-500"
+                                        ? "bg-amber-500"
+                                        : "bg-emerald-500"
                                   }`}
                                 />
                                 <div className="min-w-0 flex-1">
@@ -259,10 +278,18 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                                       {t.display_id}
                                     </a>
                                     <ExternalLink className="w-3 h-3 text-slate-400" />
-                                    {t.accountName && t.accountName !== "Unknown" && (
-                                      <span className="flex items-center gap-0.5 text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-1">
-                                        <Building2 className="w-2.5 h-2.5" />
-                                        <span className="max-w-[100px] truncate">{t.accountName}</span>
+                                    {t.accountName &&
+                                      t.accountName !== "Unknown" && (
+                                        <span className="flex items-center gap-0.5 text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded ml-1">
+                                          <Building2 className="w-2.5 h-2.5" />
+                                          <span className="max-w-[100px] truncate">
+                                            {t.accountName}
+                                          </span>
+                                        </span>
+                                      )}
+                                    {t.priority === 1 && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 ml-1">
+                                        Urgent
                                       </span>
                                     )}
                                   </div>
@@ -284,18 +311,20 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                                     primary?.team === "NOC"
                                       ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
                                       : primary?.team === "Whatsapp"
-                                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                      : primary?.team === "Billing"
-                                      ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                      : primary?.team === "Email"
-                                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                        : primary?.team === "Billing"
+                                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                          : primary?.team === "Email"
+                                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
                                   }`}
                                 >
                                   {primary?.team || "Other"}
                                 </span>
                               ) : (
-                                <span className="text-slate-300 dark:text-slate-600">—</span>
+                                <span className="text-slate-300 dark:text-slate-600">
+                                  —
+                                </span>
                               )}
                             </td>
 
@@ -318,14 +347,18 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-slate-300 dark:text-slate-600">—</span>
+                                <span className="text-slate-300 dark:text-slate-600">
+                                  —
+                                </span>
                               )}
                             </td>
 
                             {/* Stage */}
                             <td className="py-2.5 px-3">
                               <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                                {STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "—"}
+                                {STAGE_MAP[t.stage?.name]?.label ||
+                                  t.stage?.name ||
+                                  "—"}
                               </span>
                             </td>
 
@@ -336,8 +369,8 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                                   t.days > 15
                                     ? "text-rose-600 dark:text-rose-400"
                                     : t.days > 10
-                                    ? "text-amber-600 dark:text-amber-400"
-                                    : "text-slate-600 dark:text-slate-400"
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : "text-slate-600 dark:text-slate-400"
                                 }`}
                               >
                                 {t.days}d

@@ -95,7 +95,7 @@ const TICKET_STATES = {
   },
   solved: {
     key: "solved",
-    label: "Solved (Q1'26)",
+    label: "Solved",
     icon: CheckCircle2,
     color: "#10b981",
     bgLight: "bg-emerald-50",
@@ -512,7 +512,7 @@ const DrillDownModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
+     <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[95vw] max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
@@ -723,6 +723,8 @@ const DrillDownModal = ({
                 >
                   Iter<SortIndicator column="iterations" />
                 </th>
+                 <th className="py-3 px-3 text-right font-semibold">CSAT</th>
+                <th className="py-3 px-3 text-right font-semibold">FRR</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -782,6 +784,12 @@ const DrillDownModal = ({
                     </td>
                     <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
                       {t.iterations || "-"}
+                    </td>
+                     <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
+                      {t.csat || "-"}
+                    </td>
+                    <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
+                      {t.frr || "-"}
                     </td>
                   </tr>
                 );
@@ -1048,7 +1056,7 @@ const AllTicketsView = ({
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
 
-  // Categorize tickets by state
+ // Categorize tickets by state
   const categorizedTickets = useMemo(() => {
     const result = {
       open: [],
@@ -1057,24 +1065,29 @@ const AllTicketsView = ({
       solved: [],
     };
 
-    // Q1'26 date range for solved tickets
-    const q1Start = new Date(2026, 0, 1); // Jan 1, 2026
-    const q1End = new Date(2026, 2, 31, 23, 59, 59); // Mar 31, 2026
+    // Use filters.dateRange for solved tickets (solved date, not created date)
+    const hasDateFilter = filters?.dateRange?.start && filters?.dateRange?.end;
+    const filterStart = hasDateFilter ? new Date(filters.dateRange.start) : null;
+    const filterEnd = hasDateFilter ? new Date(filters.dateRange.end + "T23:59:59") : null;
 
     tickets.forEach((t) => {
       const stageName = t.stage?.name?.toLowerCase() || "";
       const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
 
       if (stageName.includes("solved") || stageName.includes("closed") || stageName.includes("resolved")) {
-        // For solved: only Q1'26 and exclude Unassigned
+        // For solved: filter by SOLVED DATE (not created date), exclude Unassigned
         if (owner !== "Unassigned") {
-          try {
-            const closedDate = t.closed_date ? new Date(t.closed_date) : (t.modified_date ? new Date(t.modified_date) : new Date());
-            if (closedDate >= q1Start && closedDate <= q1End) {
+          // Get solved/closed date
+          const solvedDate = t.closed_date ? new Date(t.closed_date) : (t.resolved_at ? new Date(t.resolved_at) : (t.modified_date ? new Date(t.modified_date) : null));
+          
+          if (hasDateFilter && solvedDate) {
+            // Only include if solved within date range
+            if (solvedDate >= filterStart && solvedDate <= filterEnd) {
               result.solved.push(t);
             }
-          } catch (e) {
-            // If date parsing fails, skip ticket
+          } else if (!hasDateFilter) {
+            // No date filter = include all solved
+            result.solved.push(t);
           }
         }
       } else if (stageName.includes("awaiting customer") || stageName.includes("pending")) {
@@ -1087,7 +1100,7 @@ const AllTicketsView = ({
     });
 
     return result;
-  }, [tickets]);
+  }, [tickets, filters?.dateRange]);
 
   // Account distribution data
   const accountDistribution = useMemo(() => {
@@ -1172,9 +1185,86 @@ const AllTicketsView = ({
     });
   }, [tickets]);
 
+
+    // Outer download function - professional report
+  const downloadFullReport = useCallback(() => {
+    const allTickets = [...categorizedTickets.open, ...categorizedTickets.pending, ...categorizedTickets.onhold, ...categorizedTickets.solved];
+    
+    let csvContent = "";
+    csvContent += "TICKET REPORT - ALL TICKETS VIEW\n";
+    csvContent += `Generated:,${format(new Date(), "MMMM dd yyyy HH:mm")}\n`;
+    csvContent += `Total Tickets:,${allTickets.length}\n`;
+    csvContent += "\n";
+    csvContent += "SUMMARY BY STATUS\n";
+    csvContent += `Open:,${categorizedTickets.open.length}\n`;
+    csvContent += `Pending:,${categorizedTickets.pending.length}\n`;
+    csvContent += `On Hold:,${categorizedTickets.onhold.length}\n`;
+    csvContent += `Solved:,${categorizedTickets.solved.length}\n`;
+    csvContent += "\n";
+    
+    const headers = ["Ticket ID", "Title", "Account", "Region", "CSM", "TAM", "Assignee", "Stage", "Age (Days)", "RWT (hrs)", "FRT (hrs)", "Iterations", "CSAT", "FRR"];
+    
+    ["open", "pending", "onhold", "solved"].forEach((state) => {
+      const stateTickets = categorizedTickets[state];
+      const stateLabel = state === "onhold" ? "ON HOLD" : state.toUpperCase();
+      
+      csvContent += "\n";
+      csvContent += `${"=".repeat(20)}\n`;
+      csvContent += `${stateLabel} TICKETS (${stateTickets.length})\n`;
+      csvContent += `${"=".repeat(20)}\n`;
+      
+      if (stateTickets.length === 0) {
+        csvContent += "No tickets in this category\n";
+      } else {
+        csvContent += headers.join(",") + "\n";
+        stateTickets.forEach((t) => {
+          const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
+          const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
+          const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+          const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
+          
+          csvContent += [
+            t.display_id,
+            `"${(t.title || "").replace(/"/g, '""')}"`,
+            `"${(t.accountName || "").replace(/"/g, '""')}"`,
+            t.region || "-",
+            csm,
+            tam,
+            owner,
+            stage,
+            t.days || 0,
+            t.rwt || "-",
+            t.frt || "-",
+            t.iterations || "-",
+            t.csat || "-",
+            t.frr || "-"
+          ].join(",") + "\n";
+        });
+      }
+    });
+    
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `All_Tickets_Report_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [categorizedTickets]);
+
   return (
     <div className="space-y-6">
-      {/* State Cards Grid */}
+      {/* Header with Download */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-white">All Tickets Overview</h2>
+        <button
+          onClick={downloadFullReport}
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-medium text-sm"
+        >
+          <Download className="w-4 h-4" />
+          Download Report
+        </button>
+      </div>
       <div className="grid grid-cols-4 gap-4">
         {Object.keys(TICKET_STATES).map((state) => (
           <StateCard

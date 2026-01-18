@@ -65,10 +65,10 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
         end: "2025-12-31" 
       }},
       // Q3'25: Jul 1 - Sep 30, 2025
-      { label: "Q3'25", value: { 
-        start: "2025-07-01", 
-        end: "2025-09-30" 
-      }}
+      // { label: "Q3'25", value: { 
+      //   start: "2025-07-01", 
+      //   end: "2025-09-30" 
+      // }}
     );
 
     return presetList;
