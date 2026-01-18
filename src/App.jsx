@@ -983,10 +983,10 @@ ${
           {/* TABS */}
           <div className="flex gap-8 border-b border-slate-200 dark:border-slate-800">
             {[
-              { id: "tickets", icon: Users, label: "Ticket View" },
+              { id: "tickets", icon: Users, label: "Ongoing Tickets" },
               { id: "alltickets", icon: LayoutGrid, label: "All Tickets" },
               { id: "csd", icon: Star, label: "CSD Highlighted" },
-              { id: "vistas", icon: Layout, label: "My Vistas" },
+              { id: "vistas", icon: Layout, label: "My Views" },
               { id: "analytics", icon: BarChart3, label: "Analytics" },
             ].map((t) => (
               <button
