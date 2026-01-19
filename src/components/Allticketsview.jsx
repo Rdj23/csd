@@ -433,13 +433,13 @@ const DrillDownModal = ({
       }
       
       // Dependency team filter
-      if (selectedDepTeams.length > 0) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        const ticketTeams = dep?.issues?.map(i => i.team) || [];
-        const hasMatchingTeam = selectedDepTeams.some(team => ticketTeams.includes(team));
-        if (!hasMatchingTeam) return false;
-      }
+      // if (selectedDepTeams.length > 0) {
+      //   const ticketId = t.display_id?.replace("TKT-", "");
+      //   const dep = dependencies[ticketId];
+      //   const ticketTeams = dep?.issues?.map(i => i.team) || [];
+      //   const hasMatchingTeam = selectedDepTeams.some(team => ticketTeams.includes(team));
+      //   if (!hasMatchingTeam) return false;
+      // }
       
       // Dependency filter
       if (selectedDependency.length > 0 && selectedDependency.length < 2) {
@@ -1338,7 +1338,8 @@ const AllTicketsView = ({
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
 
-  // Categorize tickets by state
+
+// Categorize tickets by state (with dependency filtering)
   const categorizedTickets = useMemo(() => {
     const result = {
       open: [],
@@ -1356,7 +1357,38 @@ const AllTicketsView = ({
       ? new Date(filters.dateRange.end + "T23:59:59")
       : null;
 
+    // Dependency filter settings
+    const depFilter = filters?.dependency || [];
+    const depTeamsFilter = filters?.dependencyTeams || [];
+    const hasDepFilter = depFilter.length > 0 && depFilter.length < 2;
+    const hasDepTeamsFilter = depFilter.includes("with_dependency") && depTeamsFilter.length > 0 && depTeamsFilter.length < 6;
+
     tickets.forEach((t) => {
+      // Apply dependency filter first
+      if (hasDepFilter) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        const hasDep = dep?.hasDependency === true;
+        
+        if (depFilter.includes("with_dependency") && !depFilter.includes("no_dependency") && !hasDep) {
+          return; // Skip - want dependency but ticket has none
+        }
+        if (depFilter.includes("no_dependency") && !depFilter.includes("with_dependency") && hasDep) {
+          return; // Skip - want no dependency but ticket has one
+        }
+      }
+
+      // Apply dependency team filter
+      if (hasDepTeamsFilter) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        if (dep?.hasDependency) {
+          const ticketTeams = dep.issues?.map((i) => i.team) || [];
+          const hasMatchingTeam = depTeamsFilter.some((team) => ticketTeams.includes(team));
+          if (!hasMatchingTeam) return; // Skip - no matching team
+        }
+      }
+
       const stageName = t.stage?.name?.toLowerCase() || "";
       const owner =
         FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
@@ -1405,7 +1437,7 @@ const AllTicketsView = ({
     });
 
     return result;
-  }, [tickets, filters?.dateRange]);
+  }, [tickets, filters?.dateRange, filters?.dependency, filters?.dependencyTeams, dependencies]);
 
   // Account distribution data
   const accountDistribution = useMemo(() => {
