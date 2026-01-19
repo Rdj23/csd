@@ -5,8 +5,10 @@ import {
   ExternalLink,
   Building2,
   Search,
+  
   RefreshCw,
   ChevronLeft,
+  ChevronDown,
   ChevronRight,
   Filter,
   Clock,
@@ -35,7 +37,14 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { format, parseISO, isWithinInterval, startOfDay, endOfDay, subDays } from "date-fns";
+import {
+  format,
+  parseISO,
+  isWithinInterval,
+  startOfDay,
+  endOfDay,
+  subDays,
+} from "date-fns";
 import { FLAT_TEAM_MAP, TEAM_GROUPS, STAGE_MAP } from "../utils";
 
 // GST Users list (for filtering)
@@ -49,13 +58,26 @@ const MODAL_FILTER_OPTIONS = [
   { key: "csm", label: "CSM", icon: Briefcase },
   { key: "tam", label: "TAM", icon: UserCircle },
   { key: "stage", label: "Stage", icon: Activity },
+  { key: "dependency", label: "Dependency", icon: Link2 },
 ];
 
 // Color palette for pie chart slices
 const COLORS = [
-  "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899",
-  "#f43f5e", "#f97316", "#eab308", "#84cc16", "#22c55e",
-  "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1",
+  "#6366f1",
+  "#8b5cf6",
+  "#a855f7",
+  "#d946ef",
+  "#ec4899",
+  "#f43f5e",
+  "#f97316",
+  "#eab308",
+  "#84cc16",
+  "#22c55e",
+  "#14b8a6",
+  "#06b6d4",
+  "#0ea5e9",
+  "#3b82f6",
+  "#6366f1",
 ];
 
 // Ticket states configuration
@@ -116,7 +138,10 @@ const FilterDropdown = ({ icon: Icon, label, options, selected, onChange }) => {
 
   React.useEffect(() => {
     const handleClickOutside = (event) => {
-      if (containerRef.current && !containerRef.current.contains(event.target)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target)
+      ) {
         setIsOpen(false);
       }
     };
@@ -126,7 +151,7 @@ const FilterDropdown = ({ icon: Icon, label, options, selected, onChange }) => {
 
   const filteredOptions = useMemo(() => {
     return options
-      .filter(opt => opt && opt.toLowerCase().includes(query.toLowerCase()))
+      .filter((opt) => opt && opt.toLowerCase().includes(query.toLowerCase()))
       .sort((a, b) => {
         const aSelected = selected.includes(a);
         const bSelected = selected.includes(b);
@@ -136,11 +161,13 @@ const FilterDropdown = ({ icon: Icon, label, options, selected, onChange }) => {
       });
   }, [options, query, selected]);
 
-  const allSelected = filteredOptions.length > 0 && filteredOptions.every(opt => selected.includes(opt));
+  const allSelected =
+    filteredOptions.length > 0 &&
+    filteredOptions.every((opt) => selected.includes(opt));
 
   const toggleAll = () => {
     if (allSelected) {
-      onChange(selected.filter(s => !filteredOptions.includes(s)));
+      onChange(selected.filter((s) => !filteredOptions.includes(s)));
     } else {
       onChange([...new Set([...selected, ...filteredOptions])]);
     }
@@ -157,8 +184,12 @@ const FilterDropdown = ({ icon: Icon, label, options, selected, onChange }) => {
         }`}
       >
         <Icon className="w-3.5 h-3.5" />
-        <span>{selected.length > 0 ? `${selected.length} ${label}` : label}</span>
-        <ChevronLeft className={`w-3 h-3 transition-transform ${isOpen ? "-rotate-90" : ""}`} />
+        <span>
+          {selected.length > 0 ? `${selected.length} ${label}` : label}
+        </span>
+        <ChevronLeft
+          className={`w-3 h-3 transition-transform ${isOpen ? "-rotate-90" : ""}`}
+        />
       </button>
 
       {isOpen && (
@@ -188,15 +219,19 @@ const FilterDropdown = ({ icon: Icon, label, options, selected, onChange }) => {
                   onChange={toggleAll}
                   className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600"
                 />
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Select All</span>
-                <span className="text-slate-400 ml-auto">({filteredOptions.length})</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  Select All
+                </span>
+                <span className="text-slate-400 ml-auto">
+                  ({filteredOptions.length})
+                </span>
               </label>
             </div>
           )}
 
           {/* Options */}
           <div className="max-h-48 overflow-y-auto p-1">
-            {filteredOptions.map(opt => (
+            {filteredOptions.map((opt) => (
               <label
                 key={opt}
                 className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs ${
@@ -210,7 +245,7 @@ const FilterDropdown = ({ icon: Icon, label, options, selected, onChange }) => {
                   checked={selected.includes(opt)}
                   onChange={() => {
                     if (selected.includes(opt)) {
-                      onChange(selected.filter(s => s !== opt));
+                      onChange(selected.filter((s) => s !== opt));
                     } else {
                       onChange([...selected, opt]);
                     }
@@ -257,17 +292,24 @@ const DrillDownModal = ({
 }) => {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortConfig, setSortConfig] = useState({ key: "days", direction: "desc" });
+  const [sortConfig, setSortConfig] = useState({
+    key: "days",
+    direction: "desc",
+  });
   const pageSize = 25;
-  
+
   // Multi-select filter states
   const [selectedRegions, setSelectedRegions] = useState([]);
   const [selectedAssignees, setSelectedAssignees] = useState([]);
   const [selectedAccounts, setSelectedAccounts] = useState([]);
   const [selectedCSMs, setSelectedCSMs] = useState([]);
   const [selectedTAMs, setSelectedTAMs] = useState([]);
-  const [selectedStages, setSelectedStages] = useState([]);
+    const [selectedStages, setSelectedStages] = useState([]);
+  const [selectedDependency, setSelectedDependency] = useState(["with_dependency", "no_dependency"]);
+  const [selectedDepTeams, setSelectedDepTeams] = useState(["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"]);
   
+ 
+
   // Visible filters and menu
   const [visibleFilters, setVisibleFilters] = useState(["region", "assignee"]);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -282,6 +324,8 @@ const DrillDownModal = ({
     setSelectedCSMs([]);
     setSelectedTAMs([]);
     setSelectedStages([]);
+     setSelectedDependency(["with_dependency", "no_dependency"]);
+    setSelectedDepTeams(["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"]);
   }, [tickets]);
 
   // Get unique values for filters
@@ -290,14 +334,15 @@ const DrillDownModal = ({
     const accounts = new Set();
     const csms = new Set();
     const tams = new Set();
-    
+
     tickets.forEach((t) => {
       if (t.region) regions.add(t.region);
-      if (t.accountName && t.accountName !== "Unknown") accounts.add(t.accountName);
+      if (t.accountName && t.accountName !== "Unknown")
+        accounts.add(t.accountName);
       if (t.csm && t.csm !== "Unknown") csms.add(t.csm.split("@")[0]);
       if (t.tam && t.tam !== "Unknown") tams.add(t.tam);
     });
-    
+
     return {
       regions: Array.from(regions).sort(),
       assignees: GST_USERS,
@@ -328,12 +373,17 @@ const DrillDownModal = ({
 
       // Assignee filter (multi-select)
       if (selectedAssignees.length > 0) {
-        const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name;
+        const owner =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name;
         if (!selectedAssignees.includes(owner)) return false;
       }
 
       // Account filter
-      if (selectedAccounts.length > 0 && !selectedAccounts.includes(t.accountName)) {
+      if (
+        selectedAccounts.length > 0 &&
+        !selectedAccounts.includes(t.accountName)
+      ) {
         return false;
       }
 
@@ -353,17 +403,70 @@ const DrillDownModal = ({
       if (selectedStages.length > 0) {
         const stageLower = (t.stage?.name || "").toLowerCase();
         let stageCategory = "Open";
-        if (stageLower.includes("awaiting customer") || stageLower.includes("pending")) stageCategory = "Pending";
-        else if (stageLower.includes("waiting on clevertap") || stageLower.includes("on hold")) stageCategory = "On Hold";
-        else if (stageLower.includes("solved") || stageLower.includes("closed") || stageLower.includes("resolved")) stageCategory = "Solved";
-        
+        if (
+          stageLower.includes("awaiting customer") ||
+          stageLower.includes("pending")
+        )
+          stageCategory = "Pending";
+        else if (
+          stageLower.includes("waiting on clevertap") ||
+          stageLower.includes("on hold")
+        )
+          stageCategory = "On Hold";
+        else if (
+          stageLower.includes("solved") ||
+          stageLower.includes("closed") ||
+          stageLower.includes("resolved")
+        )
+          stageCategory = "Solved";
+
         if (!selectedStages.includes(stageCategory)) return false;
       }
 
-      return true;
-    });
-  }, [tickets, search, selectedRegions, selectedAssignees, selectedAccounts, selectedCSMs, selectedTAMs, selectedStages]);
+      // Dependency filter
+      if (selectedDependency.length > 0 && selectedDependency.length < 2) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        const hasDep = dep?.hasDependency === true;
+        if (selectedDependency.includes("with_dependency") && !hasDep) return false;
+        if (selectedDependency.includes("no_dependency") && hasDep) return false;
+      }
+      
+      // Dependency team filter
+      if (selectedDepTeams.length > 0) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        const ticketTeams = dep?.issues?.map(i => i.team) || [];
+        const hasMatchingTeam = selectedDepTeams.some(team => ticketTeams.includes(team));
+        if (!hasMatchingTeam) return false;
+      }
+      
+      // Dependency filter
+      if (selectedDependency.length > 0 && selectedDependency.length < 2) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        const hasDep = dep?.hasDependency === true;
+        if (selectedDependency.includes("with_dependency") && !hasDep) return false;
+        if (selectedDependency.includes("no_dependency") && hasDep) return false;
+      }
+      
+      // Dependency team filter
+      if (selectedDependency.includes("with_dependency") && selectedDepTeams.length > 0 && selectedDepTeams.length < 6) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        if (dep?.hasDependency) {
+          const ticketTeams = dep.issues?.map(i => i.team) || [];
+          const hasMatchingTeam = selectedDepTeams.some(team => ticketTeams.includes(team));
+          if (!hasMatchingTeam) return false;
+        }
+      }
 
+      return true;
+
+      
+    });
+  }, 
+    [tickets, search, selectedRegions, selectedAssignees, selectedAccounts, selectedCSMs, selectedTAMs, selectedStages, selectedDependency, selectedDepTeams, dependencies]);
 
   // Download CSV function - Professional sectioned report
   const downloadCSV = useCallback(() => {
@@ -372,21 +475,34 @@ const DrillDownModal = ({
       Open: [],
       Pending: [],
       "On Hold": [],
-      Solved: []
+      Solved: [],
     };
-    
+
     filteredTickets.forEach((t) => {
       const stageLower = (t.stage?.name || "").toLowerCase();
       let state = "Open";
-      if (stageLower.includes("awaiting customer") || stageLower.includes("pending")) state = "Pending";
-      else if (stageLower.includes("waiting on clevertap") || stageLower.includes("on hold")) state = "On Hold";
-      else if (stageLower.includes("solved") || stageLower.includes("closed") || stageLower.includes("resolved")) state = "Solved";
+      if (
+        stageLower.includes("awaiting customer") ||
+        stageLower.includes("pending")
+      )
+        state = "Pending";
+      else if (
+        stageLower.includes("waiting on clevertap") ||
+        stageLower.includes("on hold")
+      )
+        state = "On Hold";
+      else if (
+        stageLower.includes("solved") ||
+        stageLower.includes("closed") ||
+        stageLower.includes("resolved")
+      )
+        state = "Solved";
       ticketsByState[state].push(t);
     });
-    
+
     // Build CSV with sections
     let csvContent = "";
-    
+
     // Summary section
     csvContent += "TICKET REPORT\n";
     csvContent += `Generated:,${format(new Date(), "MMMM dd yyyy HH:mm")}\n`;
@@ -399,28 +515,45 @@ const DrillDownModal = ({
     csvContent += `On Hold:,${ticketsByState["On Hold"].length}\n`;
     csvContent += `Solved:,${ticketsByState.Solved.length}\n`;
     csvContent += "\n";
-    
-    const headers = ["Ticket ID", "Title", "Account", "Region", "CSM", "TAM", "Assignee", "Age (Days)", "RWT (hrs)", "FRT (hrs)", "Iterations", "CSAT", "FRR"];
-    
+
+    const headers = [
+      "Ticket ID",
+      "Title",
+      "Account",
+      "Region",
+      "CSM",
+      "TAM",
+      "Assignee",
+      "Age (Days)",
+      "RWT (hrs)",
+      "FRT (hrs)",
+      "Iterations",
+      "CSAT",
+      "FRR",
+    ];
+
     // Process each state section
     ["Open", "Pending", "On Hold", "Solved"].forEach((state) => {
       const stateTickets = ticketsByState[state];
-      
+
       csvContent += "\n";
       csvContent += `${"=".repeat(20)}\n`;
       csvContent += `${state.toUpperCase()} TICKETS (${stateTickets.length})\n`;
       csvContent += `${"=".repeat(20)}\n`;
-      
+
       if (stateTickets.length === 0) {
         csvContent += "No tickets in this category\n";
       } else {
         csvContent += headers.join(",") + "\n";
-        
+
         stateTickets.forEach((t) => {
-          const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
+          const owner =
+            FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+            t.owned_by?.[0]?.display_name ||
+            "Unassigned";
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
-          
+
           const row = [
             t.display_id,
             `"${(t.title || "").replace(/"/g, '""')}"`,
@@ -434,13 +567,13 @@ const DrillDownModal = ({
             t.frt || "-",
             t.iterations || "-",
             t.csat || "-",
-            t.frr || "-"
+            t.frr || "-",
           ];
           csvContent += row.join(",") + "\n";
         });
       }
     });
-    
+
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -453,10 +586,10 @@ const DrillDownModal = ({
   // Sort tickets
   const sortedTickets = useMemo(() => {
     const sorted = [...filteredTickets];
-    
+
     sorted.sort((a, b) => {
       let aVal, bVal;
-      
+
       switch (sortConfig.key) {
         case "days":
           aVal = a.days || 0;
@@ -477,18 +610,18 @@ const DrillDownModal = ({
         default:
           return 0;
       }
-      
+
       return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
     });
-    
+
     return sorted;
   }, [filteredTickets, sortConfig]);
 
   // Handle sort click
   const handleSort = (key) => {
-    setSortConfig(prev => ({
+    setSortConfig((prev) => ({
       key,
-      direction: prev.key === key && prev.direction === "desc" ? "asc" : "desc"
+      direction: prev.key === key && prev.direction === "desc" ? "asc" : "desc",
     }));
     setCurrentPage(1);
   };
@@ -497,7 +630,7 @@ const DrillDownModal = ({
   const totalPages = Math.ceil(sortedTickets.length / pageSize);
   const paginatedTickets = sortedTickets.slice(
     (currentPage - 1) * pageSize,
-    currentPage * pageSize
+    currentPage * pageSize,
   );
 
   // Sort indicator component
@@ -505,14 +638,18 @@ const DrillDownModal = ({
     if (sortConfig.key !== column) {
       return <span className="text-slate-300 ml-1">↕</span>;
     }
-    return <span className="text-indigo-500 ml-1">{sortConfig.direction === "asc" ? "↑" : "↓"}</span>;
+    return (
+      <span className="text-indigo-500 ml-1">
+        {sortConfig.direction === "asc" ? "↑" : "↓"}
+      </span>
+    );
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-     <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[95vw] max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[95vw] max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
@@ -560,7 +697,10 @@ const DrillDownModal = ({
                 label="Region"
                 options={filterOptions.regions}
                 selected={selectedRegions}
-                onChange={(v) => { setSelectedRegions(v); setCurrentPage(1); }}
+                onChange={(v) => {
+                  setSelectedRegions(v);
+                  setCurrentPage(1);
+                }}
               />
             )}
 
@@ -571,7 +711,10 @@ const DrillDownModal = ({
                 label="Assignee"
                 options={filterOptions.assignees}
                 selected={selectedAssignees}
-                onChange={(v) => { setSelectedAssignees(v); setCurrentPage(1); }}
+                onChange={(v) => {
+                  setSelectedAssignees(v);
+                  setCurrentPage(1);
+                }}
               />
             )}
 
@@ -582,7 +725,10 @@ const DrillDownModal = ({
                 label="Account"
                 options={filterOptions.accounts}
                 selected={selectedAccounts}
-                onChange={(v) => { setSelectedAccounts(v); setCurrentPage(1); }}
+                onChange={(v) => {
+                  setSelectedAccounts(v);
+                  setCurrentPage(1);
+                }}
               />
             )}
 
@@ -593,7 +739,10 @@ const DrillDownModal = ({
                 label="CSM"
                 options={filterOptions.csms}
                 selected={selectedCSMs}
-                onChange={(v) => { setSelectedCSMs(v); setCurrentPage(1); }}
+                onChange={(v) => {
+                  setSelectedCSMs(v);
+                  setCurrentPage(1);
+                }}
               />
             )}
 
@@ -604,7 +753,10 @@ const DrillDownModal = ({
                 label="TAM"
                 options={filterOptions.tams}
                 selected={selectedTAMs}
-                onChange={(v) => { setSelectedTAMs(v); setCurrentPage(1); }}
+                onChange={(v) => {
+                  setSelectedTAMs(v);
+                  setCurrentPage(1);
+                }}
               />
             )}
 
@@ -619,6 +771,52 @@ const DrillDownModal = ({
               />
             )}
 
+            {/* Dependency Filter */}
+            {visibleFilters.includes("dependency") && (
+              <div className="relative group">
+                <button className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                  <Link2 className="w-3.5 h-3.5" />
+                  Dependency
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-3 hidden group-hover:block">
+                  <div className="text-xs font-bold text-slate-500 uppercase mb-2">Status</div>
+                  {[{value:"with_dependency",label:"Has Dependency"},{value:"no_dependency",label:"No Dependency"}].map((opt) => (
+                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
+                      <input type="checkbox" checked={selectedDependency.includes(opt.value)} onChange={(e) => {
+                        const newVal = e.target.checked ? [...selectedDependency, opt.value] : selectedDependency.filter(v => v !== opt.value);
+                        setSelectedDependency(newVal);
+                        setCurrentPage(1);
+                      }} className="rounded border-slate-300 text-indigo-600" />
+                      <span className="text-sm text-slate-700 dark:text-slate-300">{opt.label}</span>
+                    </label>
+                  ))}
+                  {selectedDependency.includes("with_dependency") && (
+                    <>
+                      <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">Team</div>
+                      {["NOC","Whatsapp","Billing","Email","Internal","Other"].map((team) => (
+                        <label key={team} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
+                          <input type="checkbox" checked={selectedDepTeams.includes(team)} onChange={(e) => {
+                            const newVal = e.target.checked ? [...selectedDepTeams, team] : selectedDepTeams.filter(v => v !== team);
+                            setSelectedDepTeams(newVal);
+                            setCurrentPage(1);
+                          }} className="rounded border-slate-300 text-indigo-600" />
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                            team === "NOC" ? "bg-rose-100 text-rose-700" :
+                            team === "Whatsapp" ? "bg-emerald-100 text-emerald-700" :
+                            team === "Billing" ? "bg-amber-100 text-amber-700" :
+                            team === "Email" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700"
+                          }`}>{team}</span>
+                        </label>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* + Filter Button */}
+
             {/* + Filter Button */}
             <div className="relative">
               <button
@@ -628,7 +826,7 @@ const DrillDownModal = ({
                 <Plus className="w-3.5 h-3.5" />
                 Filter
               </button>
-              
+
               {showFilterMenu && (
                 <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-50 p-2">
                   {MODAL_FILTER_OPTIONS.map((opt) => {
@@ -643,7 +841,9 @@ const DrillDownModal = ({
                           checked={isVisible}
                           onChange={() => {
                             if (isVisible) {
-                              setVisibleFilters(visibleFilters.filter(k => k !== opt.key));
+                              setVisibleFilters(
+                                visibleFilters.filter((k) => k !== opt.key),
+                              );
                             } else {
                               setVisibleFilters([...visibleFilters, opt.key]);
                             }
@@ -651,7 +851,9 @@ const DrillDownModal = ({
                           className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600"
                         />
                         <opt.icon className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="text-slate-600 dark:text-slate-400">{opt.label}</span>
+                        <span className="text-slate-600 dark:text-slate-400">
+                          {opt.label}
+                        </span>
                       </label>
                     );
                   })}
@@ -688,49 +890,63 @@ const DrillDownModal = ({
         </div>
 
         {/* Table */}
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-sm">
+         <div className="flex-1 overflow-auto">
+          <table className="w-full text-sm min-w-[1400px]">
             <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
               <tr className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <th className="py-3 px-4 text-left font-semibold">ID / Title</th>
+                <th className="py-3 px-4 text-left font-semibold">
+                  ID / Title
+                </th>
                 <th className="py-3 px-3 text-left font-semibold">Account</th>
                 <th className="py-3 px-3 text-left font-semibold">Region</th>
                 <th className="py-3 px-3 text-left font-semibold">CSM</th>
                 <th className="py-3 px-3 text-left font-semibold">TAM</th>
                 <th className="py-3 px-3 text-left font-semibold">Assignee</th>
+                <th className="py-3 px-3 text-left font-semibold">Dep Team</th>
+                <th className="py-3 px-3 text-left font-semibold">
+                  Dep Assignee
+                </th>
                 <th className="py-3 px-3 text-left font-semibold">Stage</th>
-                <th 
+                <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
                   onClick={() => handleSort("days")}
                 >
-                  Age<SortIndicator column="days" />
+                  Age
+                  <SortIndicator column="days" />
                 </th>
-                <th 
+                <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
                   onClick={() => handleSort("rwt")}
                 >
-                  RWT<SortIndicator column="rwt" />
+                  RWT
+                  <SortIndicator column="rwt" />
                 </th>
-                <th 
+                <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
                   onClick={() => handleSort("frt")}
                 >
-                  FRT<SortIndicator column="frt" />
+                  FRT
+                  <SortIndicator column="frt" />
                 </th>
-                <th 
+                <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
                   onClick={() => handleSort("iterations")}
                 >
-                  Iter<SortIndicator column="iterations" />
+                  Iter
+                  <SortIndicator column="iterations" />
                 </th>
-                 <th className="py-3 px-3 text-right font-semibold">CSAT</th>
+                <th className="py-3 px-3 text-right font-semibold">CSAT</th>
                 <th className="py-3 px-3 text-right font-semibold">FRR</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {paginatedTickets.map((t, idx) => {
-                const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
-                const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
+                const owner =
+                  FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+                  t.owned_by?.[0]?.display_name ||
+                  "Unassigned";
+                const csm =
+                  t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
                 const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
 
                 return (
@@ -749,7 +965,10 @@ const DrillDownModal = ({
                           {t.display_id}
                         </a>
                       </div>
-                      <div className="text-sm text-slate-700 dark:text-slate-300 truncate max-w-[250px]" title={t.title}>
+                      <div
+                        className="text-sm text-slate-700 dark:text-slate-300 truncate max-w-[250px]"
+                        title={t.title}
+                      >
                         {t.title}
                       </div>
                     </td>
@@ -761,18 +980,49 @@ const DrillDownModal = ({
                         {t.region || "-"}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-slate-600 dark:text-slate-400 text-xs">{csm}</td>
-                    <td className="py-3 px-3 text-slate-600 dark:text-slate-400 text-xs">{tam}</td>
+                    <td className="py-3 px-3 text-slate-600 dark:text-slate-400 text-xs">
+                      {csm}
+                    </td>
+                    <td className="py-3 px-3 text-slate-600 dark:text-slate-400 text-xs">
+                      {tam}
+                    </td>
                     <td className="py-3 px-3 text-slate-700 dark:text-slate-300 text-xs font-medium">{owner}</td>
+                    <td className="py-3 px-3">
+                      {(() => {
+                         const ticketId = t.display_id?.replace("TKT-", "");
+                        const dep = dependencies[ticketId];
+                        const team = dep?.primary?.team || null;
+                        if (!team) return <span className="text-slate-400">-</span>;
+                        const colors = {
+                          NOC: "bg-rose-100 text-rose-700",
+                          Whatsapp: "bg-emerald-100 text-emerald-700",
+                          Billing: "bg-amber-100 text-amber-700",
+                          Email: "bg-blue-100 text-blue-700",
+                        };
+                        return <span className={`text-xs px-2 py-0.5 rounded font-medium ${colors[team] || "bg-slate-100 text-slate-700"}`}>{team}</span>;
+                      })()}
+                    </td>
+                    <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-400">
+                      {(() => {
+                        const ticketId = t.display_id?.replace("TKT-", "");
+                        return dependencies[ticketId]?.primary?.owner || "-";
+                      })()}
+                    </td>
                     <td className="py-3 px-3">
                       <span className="text-xs px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-medium">
                         {STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-"}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-right">
-                      <span className={`text-sm font-medium ${
-                        t.days > 15 ? "text-rose-600" : t.days > 10 ? "text-amber-600" : "text-slate-600"
-                      }`}>
+                      <span
+                        className={`text-sm font-medium ${
+                          t.days > 15
+                            ? "text-rose-600"
+                            : t.days > 10
+                              ? "text-amber-600"
+                              : "text-slate-600"
+                        }`}
+                      >
                         {t.days}d
                       </span>
                     </td>
@@ -785,7 +1035,7 @@ const DrillDownModal = ({
                     <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
                       {t.iterations || "-"}
                     </td>
-                     <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
+                    <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
                       {t.csat || "-"}
                     </td>
                     <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
@@ -808,7 +1058,9 @@ const DrillDownModal = ({
         {/* Pagination */}
         <div className="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30">
           <span className="text-sm text-slate-500">
-            {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, sortedTickets.length)} of {sortedTickets.length} {title.toLowerCase()}
+            {(currentPage - 1) * pageSize + 1}-
+            {Math.min(currentPage * pageSize, sortedTickets.length)} of{" "}
+            {sortedTickets.length} {title.toLowerCase()}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -846,7 +1098,10 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
   const chartData = useMemo(() => {
     const groups = {};
     tickets.forEach((t) => {
-      const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
+      const owner =
+        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+        t.owned_by?.[0]?.display_name ||
+        "Unassigned";
       // Exclude anmol-sawhney
       if (owner.toLowerCase().includes("anmol")) return;
       groups[owner] = (groups[owner] || 0) + 1;
@@ -868,7 +1123,9 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
       const data = payload[0].payload;
       return (
         <div className="bg-white dark:bg-slate-800 px-3 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
-          <p className="text-sm font-medium text-slate-800 dark:text-white">{data.name}</p>
+          <p className="text-sm font-medium text-slate-800 dark:text-white">
+            {data.name}
+          </p>
           <p className="text-xs text-slate-500">
             {data.value} tickets ({data.percentage}%)
           </p>
@@ -887,11 +1144,17 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
       >
         <div className="flex items-center gap-3">
           <div className={`p-2 rounded-lg ${config.bgLight} ${config.bgDark}`}>
-            <Icon className={`w-5 h-5 ${config.textLight} ${config.textDark}`} />
+            <Icon
+              className={`w-5 h-5 ${config.textLight} ${config.textDark}`}
+            />
           </div>
-          <span className="font-semibold text-slate-800 dark:text-white">{config.label}</span>
+          <span className="font-semibold text-slate-800 dark:text-white">
+            {config.label}
+          </span>
         </div>
-        <span className="text-2xl font-bold text-slate-800 dark:text-white">{tickets.length}</span>
+        <span className="text-2xl font-bold text-slate-800 dark:text-white">
+          {tickets.length}
+        </span>
       </button>
 
       {/* Pie Chart */}
@@ -947,7 +1210,9 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
                     {item.name}
                   </span>
                 </div>
-                <span className="text-slate-500 font-medium">{item.percentage}%</span>
+                <span className="text-slate-500 font-medium">
+                  {item.percentage}%
+                </span>
               </button>
             ))}
           </div>
@@ -978,8 +1243,12 @@ const DistributionChart = ({ title, subtitle, data, onItemClick }) => {
       const d = payload[0].payload;
       return (
         <div className="bg-white dark:bg-slate-800 px-3 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
-          <p className="text-sm font-medium text-slate-800 dark:text-white">{d.name}</p>
-          <p className="text-xs text-slate-500">{d.value} tickets ({d.percentage}%)</p>
+          <p className="text-sm font-medium text-slate-800 dark:text-white">
+            {d.name}
+          </p>
+          <p className="text-xs text-slate-500">
+            {d.value} tickets ({d.percentage}%)
+          </p>
         </div>
       );
     }
@@ -989,7 +1258,9 @@ const DistributionChart = ({ title, subtitle, data, onItemClick }) => {
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
       <div className="mb-4">
-        <h3 className="font-semibold text-slate-800 dark:text-white">{title}</h3>
+        <h3 className="font-semibold text-slate-800 dark:text-white">
+          {title}
+        </h3>
         <p className="text-xs text-slate-500">{subtitle}</p>
       </div>
 
@@ -1010,7 +1281,11 @@ const DistributionChart = ({ title, subtitle, data, onItemClick }) => {
                 className="cursor-pointer"
               >
                 {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} stroke="transparent" />
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={entry.color}
+                    stroke="transparent"
+                  />
                 ))}
               </Pie>
               <Tooltip content={<CustomTooltip />} />
@@ -1027,16 +1302,23 @@ const DistributionChart = ({ title, subtitle, data, onItemClick }) => {
               className="w-full flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 px-2 py-1 rounded transition-colors"
             >
               <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
                 <span className="text-slate-600 dark:text-slate-400 truncate max-w-[120px]">
                   {item.name}
                 </span>
               </div>
-              <span className="text-slate-500 font-medium">{item.percentage}%</span>
+              <span className="text-slate-500 font-medium">
+                {item.percentage}%
+              </span>
             </button>
           ))}
           {data.length > 8 && (
-            <p className="text-[10px] text-slate-400 pl-2">+{data.length - 8} more</p>
+            <p className="text-[10px] text-slate-400 pl-2">
+              +{data.length - 8} more
+            </p>
           )}
         </div>
       </div>
@@ -1056,7 +1338,7 @@ const AllTicketsView = ({
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
 
- // Categorize tickets by state
+  // Categorize tickets by state
   const categorizedTickets = useMemo(() => {
     const result = {
       open: [],
@@ -1067,19 +1349,36 @@ const AllTicketsView = ({
 
     // Use filters.dateRange for solved tickets (solved date, not created date)
     const hasDateFilter = filters?.dateRange?.start && filters?.dateRange?.end;
-    const filterStart = hasDateFilter ? new Date(filters.dateRange.start) : null;
-    const filterEnd = hasDateFilter ? new Date(filters.dateRange.end + "T23:59:59") : null;
+    const filterStart = hasDateFilter
+      ? new Date(filters.dateRange.start)
+      : null;
+    const filterEnd = hasDateFilter
+      ? new Date(filters.dateRange.end + "T23:59:59")
+      : null;
 
     tickets.forEach((t) => {
       const stageName = t.stage?.name?.toLowerCase() || "";
-      const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
+      const owner =
+        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+        t.owned_by?.[0]?.display_name ||
+        "Unassigned";
 
-      if (stageName.includes("solved") || stageName.includes("closed") || stageName.includes("resolved")) {
+      if (
+        stageName.includes("solved") ||
+        stageName.includes("closed") ||
+        stageName.includes("resolved")
+      ) {
         // For solved: filter by SOLVED DATE (not created date), exclude Unassigned
         if (owner !== "Unassigned") {
           // Get solved/closed date
-          const solvedDate = t.closed_date ? new Date(t.closed_date) : (t.resolved_at ? new Date(t.resolved_at) : (t.modified_date ? new Date(t.modified_date) : null));
-          
+          const solvedDate = t.closed_date
+            ? new Date(t.closed_date)
+            : t.resolved_at
+              ? new Date(t.resolved_at)
+              : t.modified_date
+                ? new Date(t.modified_date)
+                : null;
+
           if (hasDateFilter && solvedDate) {
             // Only include if solved within date range
             if (solvedDate >= filterStart && solvedDate <= filterEnd) {
@@ -1090,9 +1389,15 @@ const AllTicketsView = ({
             result.solved.push(t);
           }
         }
-      } else if (stageName.includes("awaiting customer") || stageName.includes("pending")) {
+      } else if (
+        stageName.includes("awaiting customer") ||
+        stageName.includes("pending")
+      ) {
         result.pending.push(t);
-      } else if (stageName.includes("waiting on clevertap") || stageName.includes("on hold")) {
+      } else if (
+        stageName.includes("waiting on clevertap") ||
+        stageName.includes("on hold")
+      ) {
         result.onhold.push(t);
       } else {
         result.open.push(t);
@@ -1143,53 +1448,72 @@ const AllTicketsView = ({
   }, [tickets]);
 
   // Handle card click - open drill down for entire state
-  const handleCardClick = useCallback((state) => {
-    const config = TICKET_STATES[state];
-    setDrillDown({
-      state,
-      title: `${config.label} Tickets`,
-      tickets: categorizedTickets[state],
-    });
-  }, [categorizedTickets]);
+  const handleCardClick = useCallback(
+    (state) => {
+      const config = TICKET_STATES[state];
+      setDrillDown({
+        state,
+        title: `${config.label} Tickets`,
+        tickets: categorizedTickets[state],
+      });
+    },
+    [categorizedTickets],
+  );
 
   // Handle slice click - open drill down for specific assignee
-  const handleSliceClick = useCallback((state, assignee) => {
-    const config = TICKET_STATES[state];
-    const filtered = categorizedTickets[state].filter((t) => {
-      const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
-      return owner === assignee;
-    });
+  const handleSliceClick = useCallback(
+    (state, assignee) => {
+      const config = TICKET_STATES[state];
+      const filtered = categorizedTickets[state].filter((t) => {
+        const owner =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "Unassigned";
+        return owner === assignee;
+      });
 
-    setDrillDown({
-      state,
-      assignee,
-      title: `${config.label} Tickets - ${assignee}`,
-      tickets: filtered,
-    });
-  }, [categorizedTickets]);
+      setDrillDown({
+        state,
+        assignee,
+        title: `${config.label} Tickets - ${assignee}`,
+        tickets: filtered,
+      });
+    },
+    [categorizedTickets],
+  );
 
   // Handle distribution click
-  const handleAccountClick = useCallback((account) => {
-    const filtered = tickets.filter((t) => t.accountName === account);
-    setDrillDown({
-      title: `Tickets for ${account}`,
-      tickets: filtered,
-    });
-  }, [tickets]);
+  const handleAccountClick = useCallback(
+    (account) => {
+      const filtered = tickets.filter((t) => t.accountName === account);
+      setDrillDown({
+        title: `Tickets for ${account}`,
+        tickets: filtered,
+      });
+    },
+    [tickets],
+  );
 
-  const handleRegionClick = useCallback((region) => {
-    const filtered = tickets.filter((t) => t.region === region);
-    setDrillDown({
-      title: `Tickets in ${region}`,
-      tickets: filtered,
-    });
-  }, [tickets]);
+  const handleRegionClick = useCallback(
+    (region) => {
+      const filtered = tickets.filter((t) => t.region === region);
+      setDrillDown({
+        title: `Tickets in ${region}`,
+        tickets: filtered,
+      });
+    },
+    [tickets],
+  );
 
-
-    // Outer download function - professional report
+  // Outer download function - professional report
   const downloadFullReport = useCallback(() => {
-    const allTickets = [...categorizedTickets.open, ...categorizedTickets.pending, ...categorizedTickets.onhold, ...categorizedTickets.solved];
-    
+    const allTickets = [
+      ...categorizedTickets.open,
+      ...categorizedTickets.pending,
+      ...categorizedTickets.onhold,
+      ...categorizedTickets.solved,
+    ];
+
     let csvContent = "";
     csvContent += "TICKET REPORT - ALL TICKETS VIEW\n";
     csvContent += `Generated:,${format(new Date(), "MMMM dd yyyy HH:mm")}\n`;
@@ -1201,48 +1525,67 @@ const AllTicketsView = ({
     csvContent += `On Hold:,${categorizedTickets.onhold.length}\n`;
     csvContent += `Solved:,${categorizedTickets.solved.length}\n`;
     csvContent += "\n";
-    
-    const headers = ["Ticket ID", "Title", "Account", "Region", "CSM", "TAM", "Assignee", "Stage", "Age (Days)", "RWT (hrs)", "FRT (hrs)", "Iterations", "CSAT", "FRR"];
-    
+
+    const headers = [
+      "Ticket ID",
+      "Title",
+      "Account",
+      "Region",
+      "CSM",
+      "TAM",
+      "Assignee",
+      "Stage",
+      "Age (Days)",
+      "RWT (hrs)",
+      "FRT (hrs)",
+      "Iterations",
+      "CSAT",
+      "FRR",
+    ];
+
     ["open", "pending", "onhold", "solved"].forEach((state) => {
       const stateTickets = categorizedTickets[state];
       const stateLabel = state === "onhold" ? "ON HOLD" : state.toUpperCase();
-      
+
       csvContent += "\n";
       csvContent += `${"=".repeat(20)}\n`;
       csvContent += `${stateLabel} TICKETS (${stateTickets.length})\n`;
       csvContent += `${"=".repeat(20)}\n`;
-      
+
       if (stateTickets.length === 0) {
         csvContent += "No tickets in this category\n";
       } else {
         csvContent += headers.join(",") + "\n";
         stateTickets.forEach((t) => {
-          const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
+          const owner =
+            FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+            t.owned_by?.[0]?.display_name ||
+            "Unassigned";
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
           const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
-          
-          csvContent += [
-            t.display_id,
-            `"${(t.title || "").replace(/"/g, '""')}"`,
-            `"${(t.accountName || "").replace(/"/g, '""')}"`,
-            t.region || "-",
-            csm,
-            tam,
-            owner,
-            stage,
-            t.days || 0,
-            t.rwt || "-",
-            t.frt || "-",
-            t.iterations || "-",
-            t.csat || "-",
-            t.frr || "-"
-          ].join(",") + "\n";
+
+          csvContent +=
+            [
+              t.display_id,
+              `"${(t.title || "").replace(/"/g, '""')}"`,
+              `"${(t.accountName || "").replace(/"/g, '""')}"`,
+              t.region || "-",
+              csm,
+              tam,
+              owner,
+              stage,
+              t.days || 0,
+              t.rwt || "-",
+              t.frt || "-",
+              t.iterations || "-",
+              t.csat || "-",
+              t.frr || "-",
+            ].join(",") + "\n";
         });
       }
     });
-    
+
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1256,14 +1599,16 @@ const AllTicketsView = ({
     <div className="space-y-6">
       {/* Header with Download */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-slate-800 dark:text-white">All Tickets Overview</h2>
-        <button
+        <h2 className="text-lg font-bold text-slate-800 dark:text-white">
+          All Tickets Overview
+        </h2>
+        {/* <button
           onClick={downloadFullReport}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-medium text-sm"
         >
           <Download className="w-4 h-4" />
           Download Report
-        </button>
+        </button> */}
       </div>
       <div className="grid grid-cols-4 gap-4">
         {Object.keys(TICKET_STATES).map((state) => (

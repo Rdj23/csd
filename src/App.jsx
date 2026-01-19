@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef,useCallback } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import GroupedTicketList from "./components/GroupedTicketList";
 import AllTicketsView from "./components/Allticketsview";
+
 import {
   Users,
   Filter,
@@ -34,6 +35,7 @@ import {
   Link2,
   ChevronDown,
   LayoutGrid,
+  Import,
 } from "lucide-react";
 import {
   parseISO,
@@ -156,6 +158,10 @@ const App = () => {
       }
     }
   }, [tickets, activeTab]);
+
+
+
+
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
@@ -334,50 +340,101 @@ const App = () => {
 
   // ✅ EXPORT TO CSV FUNCTION
   const handleExportCSV = () => {
-    if (!filteredTickets.length) return showToast("❌ No tickets to export");
 
-    // ✅ TRACK EVENT
+    const ticketsToExport = activeTab === "alltickets" ? allTicketsFiltered : filteredTickets;
+
+    if (!ticketsToExport.length) return showToast("❌ No tickets to export");
+
+     // ✅ TRACK EVENT
     trackEvent("Report Downloaded", {
-      "Ticket Count": filteredTickets.length,
-      Workspace: filteredTickets[0]?.account?.display_name || "Mixed",
+      "Ticket Count": ticketsToExport.length,
+      Workspace: ticketsToExport[0]?.account?.display_name || "Mixed",
       Date: new Date().toISOString(),
     });
 
-    const headers = [
-      "Ticket ID,Requester,Assignee,Subject,Created Date,Workspace,RWT,Iterations",
-    ];
+    // Group tickets by state
+    const ticketsByState = {
+      Open: [],
+      Pending: [],
+      "On Hold": [],
+      Solved: [],
+    };
 
-    const rows = filteredTickets.map((t) => {
-      const requester =
-        t.custom_fields?.tnt__created_by ||
-        t.reported_by?.[0]?.email ||
-        "Unknown";
-      const assignee = t.owned_by?.[0]?.email || "Unassigned";
-      const subject = `"${(t.title || "").replace(/"/g, '""')}"`; // Escape commas/quotes
-      const date = t.created_date
-        ? new Date(t.created_date).toLocaleDateString()
-        : "";
-      const workspace = t.account?.display_name || "Unknown";
-
-      return `${t.display_id},${requester},${assignee},${subject},${date},${workspace},,`; // Blank cols for RWT/Iterations
+    ticketsToExport.forEach((t) => {
+      const stageLower = (t.stage?.name || "").toLowerCase();
+      let state = "Open";
+      if (stageLower.includes("awaiting customer") || stageLower.includes("pending")) state = "Pending";
+      else if (stageLower.includes("waiting on clevertap") || stageLower.includes("on hold")) state = "On Hold";
+      else if (stageLower.includes("solved") || stageLower.includes("closed") || stageLower.includes("resolved")) state = "Solved";
+      ticketsByState[state].push(t);
     });
 
-    const csvContent =
-      "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `tickets_export_${new Date().toISOString().slice(0, 10)}.csv`,
-    );
+    // Build CSV with sections
+    let csvContent = "";
+    const reportTitle = activeTab === "csd" ? "CSD Highlighted Tickets" : activeTab === "vistas" ? "My Vistas" : "Ticket View";
+    const currentDate = new Date();
+    const formattedDate = `${currentDate.toLocaleString("default", { month: "long" })} ${currentDate.getDate()} ${currentDate.getFullYear()} ${currentDate.getHours()}:${String(currentDate.getMinutes()).padStart(2, "0")}`;
 
-    // ✅ FIX: Filename format "epoch_export"
-    link.setAttribute("download", `${Date.now()}_export.csv`);
+    csvContent += "TICKET REPORT\n";
+    csvContent += `Generated:,${formattedDate}\n`;
+    csvContent += `Report:,${reportTitle}\n`;
+    csvContent += `Total Tickets:,${ticketsToExport.length}\n`;
+    csvContent += "\n";
+    csvContent += "SUMMARY BY STATUS\n";
+    csvContent += `Open:,${ticketsByState.Open.length}\n`;
+    csvContent += `Pending:,${ticketsByState.Pending.length}\n`;
+    csvContent += `On Hold:,${ticketsByState["On Hold"].length}\n`;
+    csvContent += `Solved:,${ticketsByState.Solved.length}\n`;
+    csvContent += "\n";
 
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const headers = ["Ticket ID", "Title", "Account", "Region", "CSM", "TAM", "Assignee", "Age (Days)", "RWT (hrs)", "FRT (hrs)", "Iterations", "CSAT", "FRR"];
+
+    // Process each state section
+    ["Open", "Pending", "On Hold", "Solved"].forEach((state) => {
+      const stateTickets = ticketsByState[state];
+
+      csvContent += "\n";
+      csvContent += `${"=".repeat(20)}\n`;
+      csvContent += `${state.toUpperCase()} TICKETS (${stateTickets.length})\n`;
+      csvContent += `${"=".repeat(20)}\n`;
+
+      if (stateTickets.length === 0) {
+        csvContent += "No tickets in this category\n";
+      } else {
+        csvContent += headers.join(",") + "\n";
+
+        stateTickets.forEach((t) => {
+          const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
+          const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
+          const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+
+          const row = [
+            t.display_id,
+            `"${(t.title || "").replace(/"/g, '""')}"`,
+            `"${(t.accountName || "").replace(/"/g, '""')}"`,
+            t.region || "-",
+            csm,
+            tam,
+            owner,
+            t.days || 0,
+            t.rwt || "-",
+            t.frt || "-",
+            t.iterations || "-",
+            t.csat || "-",
+            t.frr || "-",
+          ];
+          csvContent += row.join(",") + "\n";
+        });
+      }
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Ticket_Report_${reportTitle.replace(/\s+/g, "_")}_${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}_${String(currentDate.getHours()).padStart(2, "0")}${String(currentDate.getMinutes()).padStart(2, "0")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
     showToast("✅ CSV Downloaded!");
   };
 
@@ -532,6 +589,12 @@ const App = () => {
           accountName,
           csm,
           tam,
+          // Metrics for CSV export
+          rwt: t.custom_fields?.tnt__rwt_business_hours || null,
+          frt: t.custom_fields?.tnt__frt_hours || null,
+          iterations: t.custom_fields?.tnt__iteration_count || null,
+          csat: t.custom_fields?.tnt__csatrating || null,
+          frr: t.custom_fields?.tnt__frr === true ? "Yes" : (t.custom_fields?.tnt__iteration_count === 1 ? "Yes" : null),
         };
       })
       .filter((t) => {
@@ -685,9 +748,12 @@ const App = () => {
     dependencies, // ADD THIS
   ]);
 
+  
   const shouldShowFilter = useMemo(() => {
     return activeTab !== "vistas" && activeTab !== "analytics";
   }, [activeTab]);
+
+ 
 
   // All Tickets filters are rendered inline in the main content area below
   // This is just a placeholder to indicate the filter location
@@ -879,18 +945,14 @@ const App = () => {
           }
         }
 
-        // Health filter
-        if (allTicketsFilters.health?.length > 0) {
-          if (!allTicketsFilters.health.includes(t.uiStatus)) return false;
-        }
-
         // Dependency filter
         if (
           allTicketsFilters.dependency?.length > 0 &&
           allTicketsFilters.dependency?.length < 2
         ) {
-          const ticketId = t.display_id || t.id;
-          const hasDependency = dependencies[ticketId]?.links?.length > 0;
+          const ticketId = t.display_id?.replace("TKT-", "");
+          const dep = dependencies[ticketId];
+          const hasDependency = dep?.hasDependency === true;
 
           if (
             allTicketsFilters.dependency.includes("with_dependency") &&
@@ -903,6 +965,23 @@ const App = () => {
             hasDependency
           ) {
             return false;
+          }
+        }
+
+        // Dependency team filter
+        if (
+          allTicketsFilters.dependency?.includes("with_dependency") &&
+          allTicketsFilters.dependencyTeams?.length > 0 &&
+          allTicketsFilters.dependencyTeams?.length < 6
+        ) {
+          const ticketId = t.display_id?.replace("TKT-", "");
+          const dep = dependencies[ticketId];
+          if (dep?.hasDependency) {
+            const ticketTeams = dep.issues?.map((i) => i.team) || [];
+            const hasMatchingTeam = allTicketsFilters.dependencyTeams.some(
+              (team) => ticketTeams.includes(team)
+            );
+            if (!hasMatchingTeam) return false;
           }
         }
 
@@ -1227,74 +1306,69 @@ ${
                         }))
                       }
                     />
-                    {/* Dependency Filter */}
-                    <div className="relative group">
-                      <button className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400">
-                        <Link2 className="w-3.5 h-3.5" />
-                        {tabFilters.alltickets?.dependency?.length === 2
-                          ? "All"
-                          : tabFilters.alltickets?.dependency?.includes(
-                                "with_dependency",
-                              )
-                            ? "Has Dep."
-                            : tabFilters.alltickets?.dependency?.includes(
-                                  "no_dependency",
-                                )
-                              ? "No Dep."
-                              : "Dependency"}
-                        <ChevronDown className="w-3 h-3" />
-                      </button>
-                      <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-50 p-2 hidden group-hover:block">
-                        <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer text-xs">
-                          <input
-                            type="checkbox"
-                            checked={tabFilters.alltickets?.dependency?.includes(
-                              "with_dependency",
-                            )}
-                            onChange={(e) => {
-                              const current =
-                                tabFilters.alltickets?.dependency || [];
-                              const newVal = e.target.checked
-                                ? [...current, "with_dependency"]
-                                : current.filter(
-                                    (v) => v !== "with_dependency",
-                                  );
-                              setTabFilters((prev) => ({
-                                ...prev,
-                                alltickets: {
-                                  ...prev.alltickets,
-                                  dependency: newVal,
-                                },
-                              }));
-                            }}
-                            className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600"
-                          />
-                          <span>With Dependency</span>
-                        </label>
-                        <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer text-xs">
-                          <input
-                            type="checkbox"
-                            checked={tabFilters.alltickets?.dependency?.includes(
-                              "no_dependency",
-                            )}
-                            onChange={(e) => {
-                              const current =
-                                tabFilters.alltickets?.dependency || [];
-                              const newVal = e.target.checked
-                                ? [...current, "no_dependency"]
-                                : current.filter((v) => v !== "no_dependency");
-                              setTabFilters((prev) => ({
-                                ...prev,
-                                alltickets: {
-                                  ...prev.alltickets,
-                                  dependency: newVal,
-                                },
-                              }));
-                            }}
-                            className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600"
-                          />
-                          <span>No Dependency</span>
-                        </label>
+                {/* Dependency Filter - Same as Ticket View */}
+                    <div className="flex items-center gap-1">
+                      <div className="relative group">
+                        <button className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                          <Link2 className="w-3.5 h-3.5" />
+                          {tabFilters.alltickets?.dependency?.length === 2 ? "All" :
+                           tabFilters.alltickets?.dependency?.length === 1 ?
+                             (tabFilters.alltickets?.dependency[0] === "with_dependency" ? "Has Dep." : "No Dep.") : "Dependency"}
+                          <ChevronDown className="w-3 h-3" />
+                        </button>
+
+                        <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-3 hidden group-hover:block">
+                          <div className="text-xs font-bold text-slate-500 uppercase mb-2">Status</div>
+                          {DEPENDENCY_OPTIONS.map((opt) => (
+                            <label key={opt.value} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
+                              <input
+                                type="checkbox"
+                                checked={tabFilters.alltickets?.dependency?.includes(opt.value)}
+                                onChange={(e) => {
+                                  const newVal = e.target.checked
+                                    ? [...(tabFilters.alltickets?.dependency || []), opt.value]
+                                    : (tabFilters.alltickets?.dependency || []).filter(v => v !== opt.value);
+                                  setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependency: newVal } }));
+                                  if (opt.value === "with_dependency" && e.target.checked) {
+                                    setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependencyTeams: DEPENDENCY_TEAM_OPTIONS.map(o => o.value) } }));
+                                  }
+                                  if (opt.value === "with_dependency" && !e.target.checked) {
+                                    setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependencyTeams: [] } }));
+                                  }
+                                }}
+                                className="rounded border-slate-300 text-indigo-600"
+                              />
+                              <span className="text-sm text-slate-700 dark:text-slate-300">{opt.label}</span>
+                            </label>
+                          ))}
+
+                          {tabFilters.alltickets?.dependency?.includes("with_dependency") && (
+                            <>
+                              <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">Team</div>
+                              {DEPENDENCY_TEAM_OPTIONS.map((opt) => (
+                                <label key={opt.value} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
+                                  <input
+                                    type="checkbox"
+                                    checked={tabFilters.alltickets?.dependencyTeams?.includes(opt.value)}
+                                    onChange={(e) => {
+                                      const newVal = e.target.checked
+                                        ? [...(tabFilters.alltickets?.dependencyTeams || []), opt.value]
+                                        : (tabFilters.alltickets?.dependencyTeams || []).filter(v => v !== opt.value);
+                                      setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependencyTeams: newVal } }));
+                                    }}
+                                    className="rounded border-slate-300 text-indigo-600"
+                                  />
+                                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                                    opt.value === "NOC" ? "bg-rose-100 text-rose-700" :
+                                    opt.value === "Whatsapp" ? "bg-emerald-100 text-emerald-700" :
+                                    opt.value === "Billing" ? "bg-amber-100 text-amber-700" :
+                                    opt.value === "Email" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700"
+                                  }`}>{opt.label}</span>
+                                </label>
+                              ))}
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </>
