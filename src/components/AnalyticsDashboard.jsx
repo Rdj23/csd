@@ -79,7 +79,10 @@ const HIDDEN_USERS = [
   "Anmol",
   "anmol-sawhney",
 ];
-const SUPER_ADMIN_EMAILS = ["rohan.jadhav@clevertap.com","anmol.sawhney@clevertap.com"]
+const SUPER_ADMIN_EMAILS = [
+  "rohan.jadhav@clevertap.com",
+  "anmol.sawhney@clevertap.com",
+];
 // ============================================================================
 // METRICS CONFIG
 // ============================================================================
@@ -157,6 +160,372 @@ const OVERVIEW_METRICS = {
   },
 };
 
+// ============================================================================
+// DRILL DOWN MODAL - Shows tickets for a specific data point
+// ============================================================================
+// ============================================================================
+// DRILL DOWN MODAL - Shows tickets for a specific data point
+// REPLACE lines ~166-350 in AnalyticsDashboard.jsx
+// ============================================================================
+const DrillDownModal = ({
+  isOpen,
+  onClose,
+  title,
+  tickets,
+  metricKey,
+  summary,
+}) => {
+  const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState({
+    key: "created_date",
+    direction: "desc",
+  });
+  const pageSize = 25;
+
+  // Reset state when modal opens with new data
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentPage(1);
+      setSearch("");
+    }
+  }, [isOpen, tickets]);
+
+  if (!isOpen) return null;
+
+  const getMetricValue = (t) => {
+    switch (metricKey) {
+      case "avgRWT":
+      case "rwt":
+        return t.custom_fields?.tnt__rwt_business_hours || 0;
+      case "avgFRT":
+        return t.custom_fields?.tnt__frt_hours || 0;
+      case "frrPercent":
+        return t.custom_fields?.tnt__frr === true ||
+          t.custom_fields?.tnt__iteration_count === 1
+          ? 1
+          : 0;
+      case "csat":
+        return t.custom_fields?.tnt__csatrating || 0;
+      case "avgIterations":
+        return t.custom_fields?.tnt__iteration_count || 0;
+      default:
+        return 0;
+    }
+  };
+
+  const getMetricDisplay = (t) => {
+    switch (metricKey) {
+      case "avgRWT":
+      case "rwt":
+        const rwt = t.custom_fields?.tnt__rwt_business_hours;
+        return rwt ? `${Number(rwt).toFixed(1)} hrs` : "-";
+      case "avgFRT":
+        const frt = t.custom_fields?.tnt__frt_hours;
+        return frt ? `${Number(frt).toFixed(1)} hrs` : "-";
+      case "frrPercent":
+        return t.custom_fields?.tnt__frr === true ||
+          t.custom_fields?.tnt__iteration_count === 1 ? (
+          <span className="text-emerald-600">✓ Yes</span>
+        ) : (
+          <span className="text-rose-500">✗ No</span>
+        );
+      case "csat":
+        const rating = t.custom_fields?.tnt__csatrating;
+        return rating === 2 ? (
+          <span className="text-emerald-600">👍 Good</span>
+        ) : rating === 1 ? (
+          <span className="text-rose-500">👎 Bad</span>
+        ) : (
+          "-"
+        );
+      case "avgIterations":
+        return t.custom_fields?.tnt__iteration_count || "-";
+      default:
+        return "-";
+    }
+  };
+
+  // Filter tickets
+  const searchedTickets = (tickets || []).filter((t) => {
+    if (!search) return true;
+    const searchLower = search.toLowerCase();
+    const owner =
+      FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+      t.owned_by?.[0]?.display_name ||
+      "";
+    return (
+      t.display_id?.toLowerCase().includes(searchLower) ||
+      t.title?.toLowerCase().includes(searchLower) ||
+      t.custom_fields?.tnt__instance_account_name
+        ?.toLowerCase()
+        .includes(searchLower) ||
+      owner.toLowerCase().includes(searchLower)
+    );
+  });
+
+  // Sort tickets
+  const sortedTickets = [...searchedTickets].sort((a, b) => {
+    let aVal, bVal;
+
+    switch (sortConfig.key) {
+      case "created_date":
+        aVal = new Date(a.created_date || 0).getTime();
+        bVal = new Date(b.created_date || 0).getTime();
+        break;
+      case "metric":
+        aVal = getMetricValue(a);
+        bVal = getMetricValue(b);
+        break;
+      case "owner":
+        aVal =
+          FLAT_TEAM_MAP[a.owned_by?.[0]?.display_id] ||
+          a.owned_by?.[0]?.display_name ||
+          "";
+        bVal =
+          FLAT_TEAM_MAP[b.owned_by?.[0]?.display_id] ||
+          b.owned_by?.[0]?.display_name ||
+          "";
+        break;
+      default:
+        aVal = a[sortConfig.key] || "";
+        bVal = b[sortConfig.key] || "";
+    }
+
+    if (sortConfig.direction === "asc") {
+      return aVal > bVal ? 1 : -1;
+    }
+    return aVal < bVal ? 1 : -1;
+  });
+
+  const totalPages = Math.ceil(sortedTickets.length / pageSize);
+  const paginatedTickets = sortedTickets.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+
+  const handleSort = (key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "desc" ? "asc" : "desc",
+    }));
+  };
+
+  const SortIcon = ({ column }) => {
+    if (sortConfig.key !== column)
+      return <span className="text-slate-300 ml-1">↕</span>;
+    return (
+      <span className="text-indigo-500 ml-1">
+        {sortConfig.direction === "asc" ? "↑" : "↓"}
+      </span>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
+        {/* Header with Back Button */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50 to-white dark:from-slate-800 dark:to-slate-900">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-400"
+            >
+              <ChevronLeft className="w-5 h-5" />
+              Back
+            </button>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">
+                {title}
+              </h2>
+              {summary && (
+                <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                  {summary}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+              {sortedTickets.length} tickets
+            </span>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+            >
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search by ticket ID, title, account, or assignee..."
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
+              <tr className="text-xs uppercase tracking-wider text-slate-500">
+                <th className="py-3 px-4 text-left font-semibold">Ticket</th>
+                <th className="py-3 px-3 text-left font-semibold">Account</th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("owner")}
+                >
+                  Assignee <SortIcon column="owner" />
+                </th>
+                <th className="py-3 px-3 text-left font-semibold">Stage</th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("created_date")}
+                >
+                  Created <SortIcon column="created_date" />
+                </th>
+                <th
+                  className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("metric")}
+                >
+                  {metricKey === "avgRWT" || metricKey === "rwt"
+                    ? "RWT"
+                    : metricKey === "avgFRT"
+                      ? "FRT"
+                      : metricKey === "frrPercent"
+                        ? "FRR"
+                        : metricKey === "csat"
+                          ? "CSAT"
+                          : metricKey === "avgIterations"
+                            ? "Iterations"
+                            : "Value"}
+                  <SortIcon column="metric" />
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {paginatedTickets.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="w-8 h-8 opacity-50" />
+                      <span>No tickets found for this selection</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                paginatedTickets.map((t, idx) => {
+                  const owner =
+                    FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+                    t.owned_by?.[0]?.display_name ||
+                    "Unassigned";
+                  return (
+                    <tr
+                      key={t.id || t.display_id || idx}
+                      className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
+                    >
+                      <td className="py-3 px-4">
+                        <a
+                          href={`https://app.devrev.ai/clevertapsupport/works/${t.display_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-xs font-semibold text-indigo-600 hover:underline flex items-center gap-1"
+                        >
+                          {t.display_id}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        <div className="text-xs text-slate-500 truncate max-w-[280px] mt-0.5">
+                          {t.title}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-400 max-w-[150px] truncate">
+                        {t.custom_fields?.tnt__instance_account_name || "-"}
+                      </td>
+                      <td className="py-3 px-3 text-xs font-medium text-slate-700 dark:text-slate-300">
+                        {owner}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded">
+                          {t.stage?.name || "-"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-xs text-slate-500">
+                        {t.created_date
+                          ? format(parseISO(t.created_date), "MMM dd, yyyy")
+                          : "-"}
+                      </td>
+                      <td className="py-3 px-3 text-right text-xs font-semibold">
+                        {getMetricDisplay(t)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <span className="text-xs text-slate-500">
+              Showing {(currentPage - 1) * pageSize + 1} -{" "}
+              {Math.min(currentPage * pageSize, sortedTickets.length)} of{" "}
+              {sortedTickets.length}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 disabled:opacity-50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                First
+              </button>
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 disabled:opacity-50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 disabled:opacity-50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                Next
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 disabled:opacity-50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                Last
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const QUARTERS = [
   { id: "Q4_25", label: "Q4 '25" },
   { id: "Q1_26", label: "Q1 '26" },
@@ -231,7 +600,7 @@ const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
       if (!t.created_date || !t.actual_close_date) return null;
       const diff = differenceInHours(
         parseISO(t.actual_close_date),
-        parseISO(t.created_date)
+        parseISO(t.created_date),
       );
       return diff > 0 ? diff : 0;
     }
@@ -239,7 +608,7 @@ const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
       if (!t.actual_close_date || !t.created_date) return 0;
       const ageInDays = differenceInDays(
         parseISO(t.actual_close_date),
-        parseISO(t.created_date)
+        parseISO(t.created_date),
       );
       return ageInDays > 15 ? 1 : 0;
     }
@@ -257,7 +626,7 @@ const processChartData = (tickets, metric, timeRange, subject, currentUser) => {
     if (metric === "rwt") {
       mainVal = subjectValues.length
         ? Math.round(
-            subjectValues.reduce((a, b) => a + b, 0) / subjectValues.length
+            subjectValues.reduce((a, b) => a + b, 0) / subjectValues.length,
           )
         : 0;
     } else {
@@ -276,7 +645,7 @@ const processMultiUserData = (
   selectedUsers,
   showTeam,
   showGST,
-  currentUserTeamName
+  currentUserTeamName,
 ) => {
   const end = new Date();
   const start = subDays(end, timeRange);
@@ -292,15 +661,15 @@ const processMultiUserData = (
         0,
         differenceInHours(
           parseISO(t.actual_close_date),
-          parseISO(t.created_date)
-        )
+          parseISO(t.created_date),
+        ),
       );
     }
     if (metric === "backlog") {
       if (!t.actual_close_date || !t.created_date) return 0;
       return differenceInDays(
         parseISO(t.actual_close_date),
-        parseISO(t.created_date)
+        parseISO(t.created_date),
       ) > 15
         ? 1
         : 0;
@@ -470,12 +839,14 @@ const PerformanceMetricsCards = ({
   isLoading,
   excludeZendesk,
   onExcludeZendeskChange,
+  excludeNOC,
+  onExcludeNOCChange,
   onRefresh,
   isRefreshing,
   onExpandMetric,
 }) => {
   const [selectedQuarter, setSelectedQuarter] = useState(
-    currentQuarter || "Q4_25"
+    currentQuarter || "Q4_25",
   );
   const [groupBy, setGroupBy] = useState(currentGroupBy || "daily");
   const [selectedWeek, setSelectedWeek] = useState(null);
@@ -489,7 +860,7 @@ const PerformanceMetricsCards = ({
   const today = new Date();
   const q1Start = new Date("2026-01-01");
   const daysSinceQ1Start = Math.floor(
-    (today - q1Start) / (1000 * 60 * 60 * 24)
+    (today - q1Start) / (1000 * 60 * 60 * 24),
   );
 
   const currentMonthNum =
@@ -597,8 +968,8 @@ const PerformanceMetricsCards = ({
         key === "csat"
           ? t.positiveCSAT
           : key === "solved"
-          ? t.solved
-          : t[key] || 0,
+            ? t.solved
+            : t[key] || 0,
     }));
   };
 
@@ -630,15 +1001,15 @@ const PerformanceMetricsCards = ({
 
     const isPositiveGood = ["csat", "frrPercent"].includes(metricKey);
     const isLowerBetter = ["avgRWT", "avgFRT", "avgIterations"].includes(
-      metricKey
+      metricKey,
     );
 
     const trendDirection =
       thisWeekAvg > lastWeekAvg
         ? "up"
         : thisWeekAvg < lastWeekAvg
-        ? "down"
-        : "stable";
+          ? "down"
+          : "stable";
     const isGood = isLowerBetter
       ? trendDirection === "down"
       : trendDirection === "up";
@@ -652,10 +1023,10 @@ const PerformanceMetricsCards = ({
       insight: isGood
         ? `Improved ${Math.abs(change)}% vs last week`
         : trendDirection === "stable"
-        ? "Stable performance"
-        : `${Math.abs(change)}% ${
-            isLowerBetter ? "higher" : "lower"
-          } than last week`,
+          ? "Stable performance"
+          : `${Math.abs(change)}% ${
+              isLowerBetter ? "higher" : "lower"
+            } than last week`,
     };
   };
 
@@ -739,8 +1110,8 @@ const PerformanceMetricsCards = ({
                   insights.isGood
                     ? "text-emerald-400"
                     : insights.trendDirection === "stable"
-                    ? "text-slate-400"
-                    : "text-rose-400"
+                      ? "text-slate-400"
+                      : "text-rose-400"
                 }`}
               >
                 {insights.insight}
@@ -772,8 +1143,8 @@ const PerformanceMetricsCards = ({
   return (
     <div className="space-y-4">
       {/* Time Controls Row */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Daily/Weekly/Monthly - Only for Current Quarter */}
+      {/* <div className="flex flex-wrap items-center gap-3">
+       
         <div
           className={`flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl ${
             !isCurrentQuarter ? "opacity-50" : ""
@@ -803,7 +1174,7 @@ const PerformanceMetricsCards = ({
             (Drill-down available for current quarter only)
           </span>
         )}
-      </div>
+      </div> */}
 
       {/* Week Selector - Only when Weekly is selected for Q1_26 */}
       {isCurrentQuarter && groupBy === "weekly" && (
@@ -823,8 +1194,8 @@ const PerformanceMetricsCards = ({
                     isSelected
                       ? "bg-indigo-600 text-white shadow-md"
                       : isFuture
-                      ? "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed opacity-50"
-                      : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 border border-slate-200 dark:border-slate-700"
+                        ? "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed opacity-50"
+                        : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 border border-slate-200 dark:border-slate-700"
                   }`}
                 >
                   {week.label}
@@ -869,8 +1240,8 @@ const PerformanceMetricsCards = ({
                     isSelected
                       ? "bg-indigo-600 text-white shadow-md"
                       : isFuture
-                      ? "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed opacity-50"
-                      : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 border border-slate-200 dark:border-slate-700"
+                        ? "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed opacity-50"
+                        : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 border border-slate-200 dark:border-slate-700"
                   }`}
                 >
                   {month.label}
@@ -932,6 +1303,22 @@ const PerformanceMetricsCards = ({
             )}
             Exclude Zendesk
           </button>
+          {/* Exclude NOC */}
+          <button
+            onClick={onExcludeNOCChange}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+              excludeNOC
+                ? "bg-rose-600 text-white border-rose-600"
+                : "bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
+            }`}
+          >
+            {excludeNOC ? (
+              <Check className="w-3 h-3" />
+            ) : (
+              <ListFilter className="w-3 h-3" />
+            )}
+            Exclude NOC
+          </button>
 
           {/* Refresh */}
           <button
@@ -945,7 +1332,7 @@ const PerformanceMetricsCards = ({
           </button>
 
           {/* Quarter Selector */}
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          {/* <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
             {QUARTERS.map((q) => (
               <button
                 key={q.id}
@@ -959,7 +1346,7 @@ const PerformanceMetricsCards = ({
                 {q.label}
               </button>
             ))}
-          </div>
+          </div> */}
         </div>
       </div>
 
@@ -1245,8 +1632,8 @@ const CSATLeaderboard = ({ leaderboard = [], isLoading }) => {
                       style.rank === 1
                         ? "bg-amber-500 text-white"
                         : style.rank === 2
-                        ? "bg-slate-400 text-white"
-                        : "bg-orange-400 text-white"
+                          ? "bg-slate-400 text-white"
+                          : "bg-orange-400 text-white"
                     }`}
                   >
                     {style.rank}
@@ -1383,7 +1770,15 @@ const DSATAlerts = ({ badTickets = [], isLoading, isGSTUser }) => {
 // ============================================================================
 // MAIN DASHBOARD
 // ============================================================================
-const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
+const AnalyticsDashboard = ({
+  tickets = [],
+  filters = {},
+  filterOptions = {},
+  onFilterChange,
+  dependencies = {},
+  filterOwner,
+  isDark: propIsDark,
+}) => {
   const {
     theme,
     currentUser,
@@ -1398,6 +1793,251 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
   const [expandedLoading, setExpandedLoading] = useState(false);
 
   const [excludeZendesk, setExcludeZendesk] = useState(false);
+  const [excludeNOC, setExcludeNOC] = useState(false);
+
+  // Drill-down state
+  const [drillDownData, setDrillDownData] = useState(null);
+
+  // Use filters from props (passed from App.jsx)
+  const effectiveDateRange = useMemo(() => {
+    const dateRange = filters?.dateRange;
+    if (dateRange?.start && dateRange?.end) {
+      return {
+        start: parseISO(dateRange.start),
+        end: parseISO(dateRange.end),
+        days:
+          differenceInDays(parseISO(dateRange.end), parseISO(dateRange.start)) +
+          1,
+      };
+    }
+    // Default to last 30 days
+    const end = new Date();
+    const start = subDays(end, 29);
+    return { start, end, days: 30 };
+  }, [filters?.dateRange]);
+
+  // const filteredTickets = useMemo(() => {
+  //   return tickets.filter((t) => {
+  //     if (!t.created_date) return false;
+  //     const ticketDate = parseISO(t.created_date);
+
+  //     // Date filter
+  //     if (
+  //       ticketDate < effectiveDateRange.start ||
+  //       ticketDate > effectiveDateRange.end
+  //     ) {
+  //       return false;
+  //     }
+
+  //     // Team filter
+  //     if (filters?.teams?.length > 0) {
+  //       const owner =
+  //         FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+  //         t.owned_by?.[0]?.display_name ||
+  //         "";
+  //       const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+  //         Object.values(TEAM_GROUPS[teamKey]).includes(owner),
+  //       );
+  //       if (!filters.teams.some((team) => ownerTeams.includes(team))) {
+  //         return false;
+  //       }
+  //     }
+
+  //     // Member/Owner filter
+  //     if (filters?.owners?.length > 0) {
+  //       const owner =
+  //         FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+  //         t.owned_by?.[0]?.display_name ||
+  //         "";
+  //       if (!filters.owners.includes(owner)) {
+  //         return false;
+  //       }
+  //     }
+
+  //     // Region filter
+  //     if (filters?.regions?.length > 0) {
+  //       const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
+  //       if (!filters.regions.includes(region)) {
+  //         return false;
+  //       }
+  //     }
+
+  //     // Exclude Zendesk
+  //     if (excludeZendesk) {
+  //       const isZendesk =
+  //         t.custom_fields?.tnt__zendesk_id ||
+  //         t.custom_fields?.tnt__record_source === "Zendesk" ||
+  //         t.source === "Zendesk";
+  //       if (isZendesk) return false;
+  //     }
+
+  //     // Exclude NOC tickets
+  //     if (excludeNOC) {
+  //       const ticketId = t.display_id?.replace("TKT-", "");
+  //       const dep = dependencies[ticketId];
+  //       if (dep?.hasDependency && dep?.issues?.some((i) => i.team === "NOC")) {
+  //         return false;
+  //       }
+  //     }
+
+  //     return true;
+  //   });
+  // }, [
+  //   tickets,
+  //   effectiveDateRange,
+  //   filters,
+  //   excludeZendesk,
+  //   excludeNOC,
+  //   dependencies,
+  // ]);
+
+  // 1. Common Filters (Team, Owner, Region, etc.) - applied to ALL tickets first
+  const baseFilteredTickets = useMemo(() => {
+    return tickets.filter((t) => {
+      // Exclude Zendesk if toggle is on
+      // Inside AnalyticsDashboard.jsx -> baseFilteredTickets
+      if (excludeZendesk) {
+        const isZendesk = t.tags?.some(
+          (tagObj) => tagObj.tag?.name === "Zendesk import",
+        );
+        if (isZendesk) return false;
+      }
+
+      // Team Filter
+      if (filters?.teams?.length > 0) {
+        const owner =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "";
+        const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+          Object.values(TEAM_GROUPS[teamKey]).includes(owner),
+        );
+        if (!filters.teams.some((team) => ownerTeams.includes(team)))
+          return false;
+      }
+
+      // Owner Filter
+      if (filters?.owners?.length > 0) {
+        const owner =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "";
+        if (!filters.owners.includes(owner)) return false;
+      }
+
+      return true;
+    });
+  }, [tickets, filters, excludeZendesk]);
+
+  // 2. Volume Tickets: Strictly CREATED in the date range
+  const volumeTickets = useMemo(() => {
+    return baseFilteredTickets.filter((t) => {
+      if (!t.created_date) return false;
+      const created = parseISO(t.created_date);
+      return (
+        created >= effectiveDateRange.start && created <= effectiveDateRange.end
+      );
+    });
+  }, [baseFilteredTickets, effectiveDateRange]);
+
+  // 3. Solved Tickets: Strictly SOLVED in the date range (ignores created date)
+  const solvedTickets = useMemo(() => {
+    return baseFilteredTickets.filter((t) => {
+      const closedDate = t.actual_close_date || t.closed_date;
+      if (!closedDate) return false;
+      const closed = parseISO(closedDate);
+
+      // Must be solved in range
+      if (closed < effectiveDateRange.start || closed > effectiveDateRange.end)
+        return false;
+
+      // Must actually be solved/closed status
+      const stage = t.stage?.name?.toLowerCase() || "";
+      return (
+        stage.includes("solved") ||
+        stage.includes("closed") ||
+        stage.includes("resolved")
+      );
+    });
+  }, [baseFilteredTickets, effectiveDateRange]);
+
+  const handleDrillDown = useCallback(
+    (metricKey, dateKey, dataPointName, chartData) => {
+      // 1. Try to get tickets from the chart payload first (Fastest)
+      let ticketsForDate = chartData?.tickets;
+
+      // 2. Fallback: If chart payload is empty, find them manually using the correct list
+      if (!ticketsForDate || ticketsForDate.length === 0) {
+        if (metricKey === "volume") {
+          // Case A: Incoming Volume -> Look in volumeTickets (Created Date)
+          ticketsForDate = volumeTickets.filter((t) => {
+            if (!t.created_date) return false;
+            return format(parseISO(t.created_date), "yyyy-MM-dd") === dateKey;
+          });
+        } else {
+          // Case B: Performance Metrics -> Look in solvedTickets (Closed Date)
+          // (Includes: solved, rwt, backlog, csat, frrPercent, avgFRT, etc.)
+          ticketsForDate = solvedTickets.filter((t) => {
+            const closedDate = t.actual_close_date || t.closed_date;
+            if (!closedDate) return false;
+            return format(parseISO(closedDate), "yyyy-MM-dd") === dateKey;
+          });
+        }
+      }
+
+      const metricLabels = {
+        volume: "Incoming Volume",
+        solved: "Solved Tickets",
+        rwt: "Avg Resolution Time",
+        avgRWT: "Avg RWT",
+        backlog: "Backlog Cleared (>15 days)",
+        csat: "CSAT Tickets",
+        frrPercent: "FRR Tickets",
+        avgFRT: "Avg FRT",
+        avgIterations: "Iterations",
+      };
+
+      // Build summary string
+      let summary = `${ticketsForDate.length} tickets`;
+
+      if (metricKey === "frrPercent") {
+        const frrMetCount = ticketsForDate.filter(
+          (t) =>
+            t.custom_fields?.tnt__frr === true ||
+            t.custom_fields?.tnt__iteration_count === 1,
+        ).length;
+        summary = `FRR Met: ${frrMetCount} out of ${ticketsForDate.length} tickets (${ticketsForDate.length > 0 ? Math.round((frrMetCount / ticketsForDate.length) * 100) : 0}%)`;
+      } else if (metricKey === "csat") {
+        const good = ticketsForDate.filter(
+          (t) => t.custom_fields?.tnt__csatrating === 2,
+        ).length;
+        const bad = ticketsForDate.filter(
+          (t) => t.custom_fields?.tnt__csatrating === 1,
+        ).length;
+        summary = `Good: ${good} 👍 | Bad: ${bad} 👎 | Total: ${ticketsForDate.length} tickets`;
+      } else if (metricKey === "rwt" || metricKey === "avgRWT") {
+        const rwtValues = ticketsForDate
+          .map((t) => t.custom_fields?.tnt__rwt_business_hours)
+          .filter((v) => v !== null && v !== undefined && !isNaN(v));
+        const avg =
+          rwtValues.length > 0
+            ? (rwtValues.reduce((a, b) => a + b, 0) / rwtValues.length).toFixed(
+                1,
+              )
+            : 0;
+        summary = `Avg RWT: ${avg} hrs | ${ticketsForDate.length} tickets`;
+      }
+
+      setDrillDownData({
+        title: `${metricLabels[metricKey] || metricKey} - ${dataPointName}`,
+        tickets: ticketsForDate,
+        metricKey,
+        summary,
+      });
+    },
+    [volumeTickets, solvedTickets],
+  ); // ✅ Correct Dependencies
+
   const [viewMode, setViewMode] = useState("gst");
   const [expandedMetric, setExpandedMetric] = useState(null);
   const [selectedUsers, setSelectedUsers] = useState([]);
@@ -1408,32 +2048,7 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
 
   const [expandedOverviewMetric, setExpandedOverviewMetric] = useState(null);
 
-  const isDark = theme === "dark";
-  const effectiveDateRange = useMemo(() => {
-    if (dateRange?.start && dateRange?.end) {
-      return {
-        start: parseISO(dateRange.start),
-        end: parseISO(dateRange.end),
-        days:
-          differenceInDays(parseISO(dateRange.end), parseISO(dateRange.start)) +
-          1,
-      };
-    }
-    const end = new Date();
-    const start = subDays(end, 29);
-    return { start, end, days: 30 };
-  }, [dateRange]);
-
-  const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
-      if (!t.created_date) return false;
-      const ticketDate = parseISO(t.created_date);
-      return (
-        ticketDate >= effectiveDateRange.start &&
-        ticketDate <= effectiveDateRange.end
-      );
-    });
-  }, [tickets, effectiveDateRange]);
+  const isDark = propIsDark !== undefined ? propIsDark : theme === "dark";
 
   // Admin Query Console State
   const [showAdminConsole, setShowAdminConsole] = useState(false);
@@ -1687,17 +2302,15 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
       let queryToSend;
 
       // PRIORITY 1: If editableQuery has content, use it
-  if (editableQuery && editableQuery.trim()) {
-    try {
-      queryToSend = JSON.parse(editableQuery);
-    } catch (e) {
-      setAdminResults({ error: `Invalid JSON: ${e.message}` });
-      setAdminLoading(false);
-      return;
-    }
-  }
-
-     else if (adminQueryMode === "raw"){
+      if (editableQuery && editableQuery.trim()) {
+        try {
+          queryToSend = JSON.parse(editableQuery);
+        } catch (e) {
+          setAdminResults({ error: `Invalid JSON: ${e.message}` });
+          setAdminLoading(false);
+          return;
+        }
+      } else if (adminQueryMode === "raw") {
         // Parse the raw JSON query
         try {
           queryToSend = JSON.parse(adminRawQuery);
@@ -1725,7 +2338,7 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
             page,
             pageSize: adminPageSize,
           }),
-        }
+        },
       );
 
       const data = await res.json();
@@ -1840,7 +2453,7 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
 
     // Custom date range: "from jan 1 to jan 15" or "between jan 1 and jan 15"
     const dateRangeMatch = q.match(
-      /(?:from|between)\s+(\w+\s+\d+)(?:\s+to|\s+and)\s+(\w+\s+\d+)/i
+      /(?:from|between)\s+(\w+\s+\d+)(?:\s+to|\s+and)\s+(\w+\s+\d+)/i,
     );
     if (dateRangeMatch) {
       filters.startDate = dateRangeMatch[1];
@@ -1986,72 +2599,71 @@ const AnalyticsDashboard = ({ tickets = [], filterOwner, dateRange }) => {
         value: t[dataKey] || 0,
       }));
     },
-    [filteredTrends]
+    [filteredTrends],
   );
 
   // Resolve current user to GST roster name
- // Resolve current user to GST roster name
-const resolvedCurrentUser = useMemo(() => {
-  if (!currentUser?.name) return null;
-  const cleanName = currentUser.name.toLowerCase().trim().split(' ')[0]; // Get first name only
-  
-  // First try exact match
-  const exactMatch = Object.values(FLAT_TEAM_MAP).find(
-    (name) => name.toLowerCase() === cleanName
-  );
-  if (exactMatch) return exactMatch;
-  
-  // Then try partial match, but prefer longer matches to avoid Shreya matching Shreyas
-  const matches = Object.values(FLAT_TEAM_MAP).filter(
-    (name) =>
-      cleanName.includes(name.toLowerCase()) ||
-      name.toLowerCase().includes(cleanName)
-  );
-  
-  // Sort by length descending - longer name = more specific match
-  matches.sort((a, b) => b.length - a.length);
-  
-  return matches[0] || currentUser.name;
-}, [currentUser]);
+  // Resolve current user to GST roster name
+  const resolvedCurrentUser = useMemo(() => {
+    if (!currentUser?.name) return null;
+    const cleanName = currentUser.name.toLowerCase().trim().split(" ")[0]; // Get first name only
+
+    // First try exact match
+    const exactMatch = Object.values(FLAT_TEAM_MAP).find(
+      (name) => name.toLowerCase() === cleanName,
+    );
+    if (exactMatch) return exactMatch;
+
+    // Then try partial match, but prefer longer matches to avoid Shreya matching Shreyas
+    const matches = Object.values(FLAT_TEAM_MAP).filter(
+      (name) =>
+        cleanName.includes(name.toLowerCase()) ||
+        name.toLowerCase().includes(cleanName),
+    );
+
+    // Sort by length descending - longer name = more specific match
+    matches.sort((a, b) => b.length - a.length);
+
+    return matches[0] || currentUser.name;
+  }, [currentUser]);
 
   const isGSTUser = useMemo(
     () =>
       resolvedCurrentUser &&
       Object.values(FLAT_TEAM_MAP).includes(resolvedCurrentUser),
-    [resolvedCurrentUser]
+    [resolvedCurrentUser],
   );
 
-const isSuperAdmin = useMemo(() => {
-  const email = currentUser?.email?.toLowerCase();
-  return email
-    ? SUPER_ADMIN_EMAILS.map(e => e.toLowerCase()).includes(email)
-    : false;
-}, [currentUser]);
+  const isSuperAdmin = useMemo(() => {
+    const email = currentUser?.email?.toLowerCase();
+    return email
+      ? SUPER_ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(email)
+      : false;
+  }, [currentUser]);
 
+  const myTeamName = useMemo(() => {
+    if (!resolvedCurrentUser) return null;
 
- const myTeamName = useMemo(() => {
-  if (!resolvedCurrentUser) return null;
+    const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
+      const members = Object.values(TEAM_GROUPS[groupKey]);
+      return members.includes(resolvedCurrentUser);
+    });
 
-  const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
-    const members = Object.values(TEAM_GROUPS[groupKey]);
-    return members.includes(resolvedCurrentUser);
-  });
+    // IMPORTANT: return null if no team found
+    return foundTeamKey ? `Team ${foundTeamKey}` : null;
+  }, [resolvedCurrentUser]);
 
-  // IMPORTANT: return null if no team found
-  return foundTeamKey ? `Team ${foundTeamKey}` : null;
-}, [resolvedCurrentUser]);
+  const selectedUserTeamName = useMemo(() => {
+    if (selectedUsers.length === 0) return myTeamName;
 
-const selectedUserTeamName = useMemo(() => {
-  if (selectedUsers.length === 0) return myTeamName;
-  
-  const firstUser = selectedUsers[0];
-  const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
-    const members = Object.values(TEAM_GROUPS[groupKey]);
-    return members.includes(firstUser);
-  });
-  
-  return foundTeamKey ? `Team ${foundTeamKey}` : myTeamName;
-}, [selectedUsers, myTeamName]);
+    const firstUser = selectedUsers[0];
+    const foundTeamKey = Object.keys(TEAM_GROUPS).find((groupKey) => {
+      const members = Object.values(TEAM_GROUPS[groupKey]);
+      return members.includes(firstUser);
+    });
+
+    return foundTeamKey ? `Team ${foundTeamKey}` : myTeamName;
+  }, [selectedUsers, myTeamName]);
   // GST-only user list for dropdowns
   const gstUserNames = useMemo(() => Object.values(FLAT_TEAM_MAP).sort(), []);
 
@@ -2132,7 +2744,7 @@ const selectedUserTeamName = useMemo(() => {
 
       return [];
     },
-    [expandedAllTrends, analyticsData, expandedTimeRange, expandedGroupBy]
+    [expandedAllTrends, analyticsData, expandedTimeRange, expandedGroupBy],
   );
   // Get period total
   const getExpandedPeriodTotal = useCallback(
@@ -2149,7 +2761,7 @@ const selectedUserTeamName = useMemo(() => {
 
       return Math.round(total).toLocaleString();
     },
-    [getExpandedChartData]
+    [getExpandedChartData],
   );
 
   // Get average
@@ -2163,7 +2775,7 @@ const selectedUserTeamName = useMemo(() => {
         chartData.length;
       return avg.toFixed(2);
     },
-    [getExpandedChartData]
+    [getExpandedChartData],
   );
 
   // Get trend (comparing first half vs second half)
@@ -2187,7 +2799,7 @@ const selectedUserTeamName = useMemo(() => {
 
       // For RWT/FRT, lower is better
       const lowerIsBetter = ["avgRWT", "avgFRT", "avgIterations"].includes(
-        metricKey
+        metricKey,
       );
       const isPositive = lowerIsBetter ? change < 0 : change > 0;
 
@@ -2196,7 +2808,7 @@ const selectedUserTeamName = useMemo(() => {
         isPositive,
       };
     },
-    [getExpandedChartData]
+    [getExpandedChartData],
   );
 
   // Calculate overview metric total for selected users
@@ -2227,7 +2839,7 @@ const selectedUserTeamName = useMemo(() => {
       }
       return total;
     },
-    [analyticsData, selectedUsers, timeRange]
+    [analyticsData, selectedUsers, timeRange],
   );
 
   // Calculate team average
@@ -2252,7 +2864,7 @@ const selectedUserTeamName = useMemo(() => {
 
       return count > 0 ? (total / count).toFixed(2) : "0";
     },
-    [analyticsData, myTeamName, timeRange]
+    [analyticsData, myTeamName, timeRange],
   );
 
   // Calculate GST average
@@ -2272,7 +2884,7 @@ const selectedUserTeamName = useMemo(() => {
 
       return count > 0 ? (total / count).toFixed(2) : "0";
     },
-    [analyticsData, timeRange]
+    [analyticsData, timeRange],
   );
 
   // Get chart data for overview metric
@@ -2292,7 +2904,7 @@ const selectedUserTeamName = useMemo(() => {
         const point = {
           name: format(
             parseISO(date),
-            groupBy === "monthly" ? "MMM" : "MMM dd"
+            groupBy === "monthly" ? "MMM" : "MMM dd",
           ),
           date,
         };
@@ -2300,7 +2912,7 @@ const selectedUserTeamName = useMemo(() => {
         // Add selected users data
         selectedUsers.forEach((user) => {
           const userDay = (analyticsData.individualTrends[user] || []).find(
-            (d) => d.date === date
+            (d) => d.date === date,
           );
           point[user] = userDay?.[dataKey] || userDay?.solved || 0;
         });
@@ -2332,7 +2944,7 @@ const selectedUserTeamName = useMemo(() => {
                 gstTotal += dayData[dataKey] || dayData.solved || 0;
                 gstCount++;
               }
-            }
+            },
           );
           point.gst = gstCount > 0 ? gstTotal / gstCount : 0;
         }
@@ -2348,7 +2960,7 @@ const selectedUserTeamName = useMemo(() => {
       showTeam,
       showGST,
       myTeamName,
-    ]
+    ],
   );
 
   // Initialize selected users with current user if GST
@@ -2386,12 +2998,12 @@ const selectedUserTeamName = useMemo(() => {
           fetch(
             `${
               import.meta.env.VITE_API_URL || ""
-            }/api/tickets/analytics?quarter=Q4_25&excludeZendesk=${excludeZendesk}`
+            }/api/tickets/analytics?quarter=Q4_25&excludeZendesk=${excludeZendesk}`,
           ).then((r) => r.json()),
           fetch(
             `${
               import.meta.env.VITE_API_URL || ""
-            }/api/tickets/analytics?quarter=Q1_26&excludeZendesk=${excludeZendesk}`
+            }/api/tickets/analytics?quarter=Q1_26&excludeZendesk=${excludeZendesk}`,
           ).then((r) => r.json()),
         ]);
 
@@ -2403,7 +3015,7 @@ const selectedUserTeamName = useMemo(() => {
 
         // Remove duplicates (by date)
         const uniqueTrends = allTrends.filter(
-          (t, i, arr) => i === 0 || t.date !== arr[i - 1].date
+          (t, i, arr) => i === 0 || t.date !== arr[i - 1].date,
         );
 
         setExpandedAllTrends(uniqueTrends);
@@ -2419,7 +3031,7 @@ const selectedUserTeamName = useMemo(() => {
 
   const handleQuarterChange = useCallback(
     (quarter) => setCurrentQuarter(quarter),
-    []
+    [],
   );
   const handleRefresh = () =>
     fetchAnalyticsData({
@@ -2429,120 +3041,194 @@ const selectedUserTeamName = useMemo(() => {
     });
 
   const smallChartData = useMemo(() => {
-    // Process volume from filtered tickets
-    const volumeData = (() => {
-      const daysInterval = eachDayOfInterval({
-        start: effectiveDateRange.start,
-        end: effectiveDateRange.end,
+    const daysInterval = eachDayOfInterval({
+      start: effectiveDateRange.start,
+      end: effectiveDateRange.end,
+    });
+
+    // Volume: tickets created per day
+    const volumeData = daysInterval.map((day) => {
+      const dateKey = format(day, "yyyy-MM-dd");
+      const dayTickets = volumeTickets.filter((t) => {
+        if (!t.created_date) return false;
+        return format(parseISO(t.created_date), "yyyy-MM-dd") === dateKey;
+      });
+      return {
+        name: format(day, "MMM dd"),
+        date: dateKey,
+        main: dayTickets.length,
+        tickets: dayTickets,
+      };
+    });
+
+    // Solved: tickets closed per day
+    const solvedData = daysInterval.map((day) => {
+      const dateKey = format(day, "yyyy-MM-dd");
+      const dayTickets = solvedTickets.filter((t) => {
+        const closedDate = t.actual_close_date || t.closed_date;
+        if (!closedDate) return false;
+        const stageName = t.stage?.name?.toLowerCase() || "";
+        if (
+          !stageName.includes("solved") &&
+          !stageName.includes("closed") &&
+          !stageName.includes("resolved")
+        ) {
+          return false;
+        }
+        return format(parseISO(closedDate), "yyyy-MM-dd") === dateKey;
+      });
+      return {
+        name: format(day, "MMM dd"),
+        date: dateKey,
+        main: dayTickets.length,
+        tickets: dayTickets,
+      };
+    });
+
+    // RWT: average RWT of tickets closed per day
+    const rwtData = daysInterval.map((day) => {
+      const dateKey = format(day, "yyyy-MM-dd");
+      const dayTickets = solvedTickets.filter((t) => {
+        const closedDate = t.actual_close_date || t.closed_date;
+        if (!closedDate) return false;
+        const stageName = t.stage?.name?.toLowerCase() || "";
+        if (
+          !stageName.includes("solved") &&
+          !stageName.includes("closed") &&
+          !stageName.includes("resolved")
+        ) {
+          return false;
+        }
+        return format(parseISO(closedDate), "yyyy-MM-dd") === dateKey;
       });
 
-      return daysInterval.map((day) => {
-        const dateKey = format(day, "yyyy-MM-dd");
-        const dayTickets = filteredTickets.filter((t) => {
-          const ticketDate = format(parseISO(t.created_date), "yyyy-MM-dd");
-          return ticketDate === dateKey;
-        });
-        return {
-          name: format(day, "MMM dd"),
-          date: dateKey,
-          main: dayTickets.length,
-        };
+      const rwtValues = dayTickets
+        .map((t) => t.custom_fields?.tnt__rwt_business_hours)
+        .filter((v) => v !== null && v !== undefined && !isNaN(v));
+
+      const avgRWT =
+        rwtValues.length > 0
+          ? rwtValues.reduce((a, b) => a + b, 0) / rwtValues.length
+          : 0;
+
+      return {
+        name: format(day, "MMM dd"),
+        date: dateKey,
+        main: Number(avgRWT.toFixed(1)),
+        tickets: dayTickets,
+      };
+    });
+
+    // Backlog: tickets closed that were > 15 days old
+    const backlogData = daysInterval.map((day) => {
+      const dateKey = format(day, "yyyy-MM-dd");
+      const dayTickets = solvedTickets.filter((t) => {
+        const closedDate = t.actual_close_date || t.closed_date;
+        if (!closedDate || !t.created_date) return false;
+        const stageName = t.stage?.name?.toLowerCase() || "";
+        if (
+          !stageName.includes("solved") &&
+          !stageName.includes("closed") &&
+          !stageName.includes("resolved")
+        ) {
+          return false;
+        }
+        if (format(parseISO(closedDate), "yyyy-MM-dd") !== dateKey)
+          return false;
+
+        const age = differenceInDays(
+          parseISO(closedDate),
+          parseISO(t.created_date),
+        );
+        return age > 15;
       });
-    })();
+
+      return {
+        name: format(day, "MMM dd"),
+        date: dateKey,
+        main: dayTickets.length,
+        tickets: dayTickets,
+      };
+    });
 
     return {
       volume: volumeData,
-      solved: filteredTrends.map((t) => ({
-        name: format(parseISO(t.date), "MMM dd"),
-        date: t.date,
-        main: t.solved || 0,
-      })),
-      rwt: filteredTrends.map((t) => ({
-        name: format(parseISO(t.date), "MMM dd"),
-        date: t.date,
-        main: t.avgRWT ? Number(t.avgRWT.toFixed(1)) : 0,
-      })),
-      backlog: filteredTrends.map((t) => ({
-        name: format(parseISO(t.date), "MMM dd"),
-        date: t.date,
-        main: t.backlogCleared || 0,
-      })),
+      solved: solvedData,
+      rwt: rwtData,
+      backlog: backlogData,
     };
-  }, [filteredTickets, filteredTrends, effectiveDateRange]);
+  }, [volumeTickets, effectiveDateRange, solvedTickets]);
 
-  // Compute stats from filtered date range
   const filteredStats = useMemo(() => {
-    // Use server stats directly if available (they're calculated correctly)
-    const serverStats = analyticsData?.stats;
+    // 1. Incoming Volume (Use volumeTickets count)
+    const totalTickets = volumeTickets.length;
 
-    if (serverStats && !filteredTrends.length) {
-      return serverStats;
-    }
+    // 2. Solved Metrics (Use solvedTickets array directly)
+    // Note: solvedTickets is already filtered by Date Range & "Solved" status in the step above
+    const totalSolved = solvedTickets.length;
 
-    // If we have filtered trends, recalculate
-    if (!filteredTrends.length && !filteredTickets.length) {
-      return serverStats || {};
-    }
+    // RWT average
+    const rwtValues = solvedTickets
+      .map((t) => t.custom_fields?.tnt__rwt_business_hours)
+      .filter((v) => v !== null && v !== undefined && !isNaN(Number(v)));
+    const avgRWT =
+      rwtValues.length > 0
+        ? (
+            rwtValues.reduce((a, b) => Number(a) + Number(b), 0) /
+            rwtValues.length
+          ).toFixed(2)
+        : "0.00";
 
-    // Sum up daily values
-    const totalSolved = filteredTrends.reduce(
-      (sum, t) => sum + (t.solved || 0),
-      0
-    );
+    // FRT average
+    const frtValues = solvedTickets
+      .map((t) => t.custom_fields?.tnt__frt_hours)
+      .filter((v) => v !== null && v !== undefined && !isNaN(Number(v)));
+    const avgFRT =
+      frtValues.length > 0
+        ? (
+            frtValues.reduce((a, b) => Number(a) + Number(b), 0) /
+            frtValues.length
+          ).toFixed(2)
+        : "0.00";
 
-    // For averages, we need weighted average based on tickets per day
-    let totalRWT = 0,
-      rwtCount = 0;
-    let totalFRT = 0,
-      frtCount = 0;
-    let totalIterations = 0,
-      iterCount = 0;
+    // Iterations average
+    const iterValues = solvedTickets
+      .map((t) => t.custom_fields?.tnt__iteration_count)
+      .filter((v) => v !== null && v !== undefined && !isNaN(Number(v)));
+    const avgIterations =
+      iterValues.length > 0
+        ? (
+            iterValues.reduce((a, b) => Number(a) + Number(b), 0) /
+            iterValues.length
+          ).toFixed(1)
+        : "0.0";
 
-    filteredTrends.forEach((t) => {
-      if (t.avgRWT && t.solved) {
-        totalRWT += t.avgRWT * t.solved;
-        rwtCount += t.solved;
-      }
-      if (t.avgFRT && t.solved) {
-        totalFRT += t.avgFRT * t.solved;
-        frtCount += t.solved;
-      }
-      if (t.avgIterations && t.solved) {
-        totalIterations += t.avgIterations * t.solved;
-        iterCount += t.solved;
-      }
-    });
+    // Positive CSAT count
+    const positiveCSAT = solvedTickets.filter(
+      (t) => t.custom_fields?.tnt__csatrating === 2,
+    ).length;
 
-    const avgRWT = rwtCount > 0 ? totalRWT / rwtCount : 0;
-    const avgFRT = frtCount > 0 ? totalFRT / frtCount : 0;
-    const avgIterations = iterCount > 0 ? totalIterations / iterCount : 0;
-
-    // CSAT and FRR are counts, not averages
-    const positiveCSAT = filteredTrends.reduce(
-      (sum, t) => sum + (t.positiveCSAT || 0),
-      0
-    );
-    const frrMet = filteredTrends.reduce((sum, t) => sum + (t.frrMet || 0), 0);
-
-    // FRR percentage should be frrMet / totalSolved (tickets), not days
+    // FRR: tickets where frr is true OR iteration count is 1
+    const frrMet = solvedTickets.filter(
+      (t) =>
+        t.custom_fields?.tnt__frr === true ||
+        t.custom_fields?.tnt__iteration_count === 1,
+    ).length;
     const frrPercent =
       totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
 
     return {
-      totalTickets: totalSolved || filteredTickets.length,
-      avgRWT: avgRWT.toFixed(2),
-      avgFRT: avgFRT.toFixed(2),
-      avgIterations: avgIterations.toFixed(1),
+      totalTickets,
+      totalSolved,
+      avgRWT,
+      avgFRT,
+      avgIterations,
       positiveCSAT,
       frrPercent,
-      // Include raw counts for debugging
-      _debug: {
-        frrMet,
-        totalSolved,
-        daysCount: filteredTrends.length,
-      },
+      frrMet,
+      _solvedTickets: solvedTickets,
     };
-  }, [filteredTrends, filteredTickets, analyticsData]);
+  }, [volumeTickets, solvedTickets]); // ✅ Correct Dependencies
 
   // Expanded chart data
   const expandedData = useMemo(() => {
@@ -2581,8 +3267,12 @@ const selectedUserTeamName = useMemo(() => {
           });
 
           if (showTeam) {
-            const teamMembers = TEAM_GROUPS[selectedUserTeamName?.replace("Team ", "")]
-              ? Object.values(TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")])
+            const teamMembers = TEAM_GROUPS[
+              selectedUserTeamName?.replace("Team ", "")
+            ]
+              ? Object.values(
+                  TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")],
+                )
               : [];
             dataPoint.compare_team = dayTickets.filter((t) => {
               const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
@@ -2616,7 +3306,7 @@ const selectedUserTeamName = useMemo(() => {
 
       selectedUsers.forEach((user) => {
         const userDay = (individualTrends[user] || []).find(
-          (d) => d.date === date
+          (d) => d.date === date,
         );
         if (expandedMetric === "solved") {
           dataPoint[user] = userDay?.solved || 0;
@@ -2633,8 +3323,12 @@ const selectedUserTeamName = useMemo(() => {
       if (showTeam || showGST) {
         let teamTotal = 0,
           gstTotal = 0;
-        const teamMembers = TEAM_GROUPS[selectedUserTeamName?.replace("Team ", "")]
-          ? Object.values(TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")])
+        const teamMembers = TEAM_GROUPS[
+          selectedUserTeamName?.replace("Team ", "")
+        ]
+          ? Object.values(
+              TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")],
+            )
           : [];
 
         Object.entries(individualTrends).forEach(([user, days]) => {
@@ -2644,10 +3338,10 @@ const selectedUserTeamName = useMemo(() => {
               expandedMetric === "solved"
                 ? dayData.solved
                 : expandedMetric === "rwt"
-                ? dayData.avgRWT
-                : expandedMetric === "backlog"
-                ? dayData.backlogCleared
-                : 0;
+                  ? dayData.avgRWT
+                  : expandedMetric === "backlog"
+                    ? dayData.backlogCleared
+                    : 0;
             gstTotal += val || 0;
             if (teamMembers.includes(user)) {
               teamTotal += val || 0;
@@ -2893,7 +3587,6 @@ const selectedUserTeamName = useMemo(() => {
               </div>
             ) : adminResults ? (
               <div className="space-y-4">
-               
                 {/* Stats Cards */}
                 <div className="grid grid-cols-7 gap-3">
                   <div className="bg-slate-100 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
@@ -3015,7 +3708,6 @@ const selectedUserTeamName = useMemo(() => {
                   </div>
                 </div>
 
-               
                 {/* Pagination */}
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-slate-600 dark:text-slate-400">
@@ -3068,92 +3760,128 @@ const selectedUserTeamName = useMemo(() => {
                     <div className="overflow-auto max-h-[calc(100vh-500px)]">
                       <table className="w-full text-sm">
                         <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
-  <tr>
-    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
-      Ticket ID
-    </th>
-    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
-      Title
-    </th>
-    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
-      Owner
-    </th>
-    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
-      Closed
-    </th>
-    <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
-      RWT
-    </th>
-    <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
-      FRT
-    </th>
-    <th className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 font-medium">
-      FRR
-    </th>
-    <th className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 font-medium">
-      CSAT
-    </th>
-    <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
-      Iter
-    </th>
-    <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
-      Region
-    </th>
-  </tr>
-</thead>
+                          <tr>
+                            <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+                              Ticket ID
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+                              Title
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+                              Owner
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+                              Closed
+                            </th>
+                            <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
+                              RWT
+                            </th>
+                            <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
+                              FRT
+                            </th>
+                            <th className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 font-medium">
+                              FRR
+                            </th>
+                            <th className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 font-medium">
+                              CSAT
+                            </th>
+                            <th className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
+                              Iter
+                            </th>
+                            <th className="px-4 py-3 text-left text-slate-600 dark:text-slate-400 font-medium">
+                              Region
+                            </th>
+                          </tr>
+                        </thead>
 
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-  {adminResults.tickets.map((t, i) => (
-    <tr key={t.ticket_id || i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-      <td className="px-4 py-3">
-        <a 
-          href={`https://app.devrev.ai/clevertapsupport/works/${t.ticket_id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-indigo-600 dark:text-indigo-400 font-mono hover:underline"
-        >
-          {t.ticket_id || t.display_id}
-        </a>
-      </td>
-      <td className="px-4 py-3 text-slate-800 dark:text-white max-w-[300px] truncate" title={t.title}>
-        {t.title}
-      </td>
-      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{t.owner}</td>
-      <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-        {t.closed_date ? format(new Date(t.closed_date), "MMM dd, yyyy") : "-"}
-      </td>
-      <td className="px-4 py-3 text-right">
-        <span className={t.rwt > 50 ? "text-rose-600 dark:text-rose-400" : t.rwt > 24 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
-          {t.rwt?.toFixed(1) || "-"}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-right">
-        <span className={t.frt > 4 ? "text-rose-600 dark:text-rose-400" : t.frt > 2 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
-          {t.frt?.toFixed(1) || "-"}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-center">
-        {t.frr === 1 ? (
-          <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-full">✓</span>
-        ) : (
-          <span className="inline-flex items-center justify-center w-6 h-6 bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-full">✗</span>
-        )}
-      </td>
-      <td className="px-4 py-3 text-center">
-        {t.csat === 2 ? (
-          <span className="text-lg">👍</span>
-        ) : t.csat === 1 ? (
-          <span className="text-lg">👎</span>
-        ) : (
-          <span className="text-slate-400">-</span>
-        )}
-      </td>
-      <td className="px-4 py-3 text-right text-cyan-600 dark:text-cyan-400">{t.iterations || "-"}</td>
-      <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{t.region || "-"}</td>
-    </tr>
-  ))}
-</tbody>
-
+                          {adminResults.tickets.map((t, i) => (
+                            <tr
+                              key={t.ticket_id || i}
+                              className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                            >
+                              <td className="px-4 py-3">
+                                <a
+                                  href={`https://app.devrev.ai/clevertapsupport/works/${t.ticket_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-indigo-600 dark:text-indigo-400 font-mono hover:underline"
+                                >
+                                  {t.ticket_id || t.display_id}
+                                </a>
+                              </td>
+                              <td
+                                className="px-4 py-3 text-slate-800 dark:text-white max-w-[300px] truncate"
+                                title={t.title}
+                              >
+                                {t.title}
+                              </td>
+                              <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                                {t.owner}
+                              </td>
+                              <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                                {t.closed_date
+                                  ? format(
+                                      new Date(t.closed_date),
+                                      "MMM dd, yyyy",
+                                    )
+                                  : "-"}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span
+                                  className={
+                                    t.rwt > 50
+                                      ? "text-rose-600 dark:text-rose-400"
+                                      : t.rwt > 24
+                                        ? "text-amber-600 dark:text-amber-400"
+                                        : "text-emerald-600 dark:text-emerald-400"
+                                  }
+                                >
+                                  {t.rwt?.toFixed(1) || "-"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span
+                                  className={
+                                    t.frt > 4
+                                      ? "text-rose-600 dark:text-rose-400"
+                                      : t.frt > 2
+                                        ? "text-amber-600 dark:text-amber-400"
+                                        : "text-emerald-600 dark:text-emerald-400"
+                                  }
+                                >
+                                  {t.frt?.toFixed(1) || "-"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {t.frr === 1 ? (
+                                  <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-full">
+                                    ✓
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-center w-6 h-6 bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-full">
+                                    ✗
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {t.csat === 2 ? (
+                                  <span className="text-lg">👍</span>
+                                ) : t.csat === 1 ? (
+                                  <span className="text-lg">👎</span>
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right text-cyan-600 dark:text-cyan-400">
+                                {t.iterations || "-"}
+                              </td>
+                              <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">
+                                {t.region || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
                       </table>
                     </div>
                   </div>
@@ -3192,9 +3920,11 @@ const selectedUserTeamName = useMemo(() => {
         onQuarterChange={handleQuarterChange}
         excludeZendesk={excludeZendesk}
         onExcludeZendeskChange={() => setExcludeZendesk(!excludeZendesk)}
+        excludeNOC={excludeNOC}
+        onExcludeNOCChange={() => setExcludeNOC(!excludeNOC)}
         onRefresh={handleRefresh}
         isRefreshing={analyticsLoading}
-        onExpandMetric={(metricKey) => setExpandedOverviewMetric(metricKey)} // ADD THIS
+        onExpandMetric={(metricKey) => setExpandedOverviewMetric(metricKey)}
         onGroupByChange={(newGroupBy) => {
           setGroupBy(newGroupBy);
           // If it's a week selection like "Q1_26_W1", set quarter accordingly
@@ -3304,6 +4034,20 @@ const selectedUserTeamName = useMemo(() => {
                     stroke={config.color}
                     fill={`url(#grad-${key})`}
                     strokeWidth={2}
+                    activeDot={{
+                      r: 6,
+                      cursor: "pointer",
+                      onClick: (e, payload) => {
+                        if (payload?.payload?.date) {
+                          handleDrillDown(
+                            key,
+                            payload.payload.date,
+                            payload.payload.name,
+                            payload.payload,
+                          );
+                        }
+                      },
+                    }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -3352,7 +4096,7 @@ const selectedUserTeamName = useMemo(() => {
                       style: {
                         color: OVERVIEW_METRICS[expandedOverviewMetric].color,
                       },
-                    }
+                    },
                   )}
                 </div>
                 <div>
@@ -3419,7 +4163,7 @@ const selectedUserTeamName = useMemo(() => {
             </div>
 
             {/* Stats Summary Cards */}
-            <div className="px-8 py-5 bg-white dark:bg-slate-900/50">
+            {/* <div className="px-8 py-5 bg-white dark:bg-slate-900/50">
               <div className="grid grid-cols-4 gap-5">
                 <div className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-700">
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -3454,8 +4198,8 @@ const selectedUserTeamName = useMemo(() => {
                     {expandedGroupBy === "daily"
                       ? "Daily"
                       : expandedGroupBy === "weekly"
-                      ? "Weekly"
-                      : "Monthly"}{" "}
+                        ? "Weekly"
+                        : "Monthly"}{" "}
                     Average
                   </div>
                   <div className="text-4xl font-black text-emerald-600">
@@ -3482,6 +4226,48 @@ const selectedUserTeamName = useMemo(() => {
                     )}
                   </div>
                 </div>
+              </div>
+            </div> */}
+
+            {/* Simplified Summary */}
+            <div className="px-8 py-3 bg-slate-50 dark:bg-slate-800/30 flex items-center gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500">Current:</span>
+                <span
+                  className="font-bold"
+                  style={{
+                    color: OVERVIEW_METRICS[expandedOverviewMetric].color,
+                  }}
+                >
+                  {filteredStats[
+                    OVERVIEW_METRICS[expandedOverviewMetric].dataKey
+                  ] || "—"}
+                  {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+                </span>
+              </div>
+              <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500">Avg:</span>
+                <span className="font-bold text-slate-700 dark:text-slate-300">
+                  {getExpandedAverage(expandedOverviewMetric)}
+                </span>
+              </div>
+              <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500">Trend:</span>
+                <span
+                  className={`font-bold flex items-center gap-1 ${getExpandedTrend(expandedOverviewMetric).isPositive ? "text-emerald-500" : "text-rose-500"}`}
+                >
+                  {getExpandedTrend(expandedOverviewMetric).value}
+                  {getExpandedTrend(expandedOverviewMetric).isPositive ? (
+                    <TrendingUp className="w-4 h-4" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4" />
+                  )}
+                </span>
+              </div>
+              <div className="ml-auto text-xs text-slate-400">
+                Click any point to drill down
               </div>
             </div>
 
@@ -3559,19 +4345,31 @@ const selectedUserTeamName = useMemo(() => {
                         marginBottom: "8px",
                         color: isDark ? "#fff" : "#1e293b",
                       }}
-                      formatter={(value, name) => [
-                        <span
-                          className="text-lg font-bold"
-                          style={{
-                            color:
-                              OVERVIEW_METRICS[expandedOverviewMetric].color,
-                          }}
-                        >
-                          {typeof value === "number" ? value.toFixed(2) : value}{" "}
-                          {OVERVIEW_METRICS[expandedOverviewMetric].unit}
-                        </span>,
-                        OVERVIEW_METRICS[expandedOverviewMetric].label,
-                      ]}
+                      formatter={(value, name) => {
+                        // CSAT and FRR should be integers, others can have decimals
+                        const isIntegerMetric = ["csat", "frrPercent"].includes(
+                          expandedOverviewMetric,
+                        );
+                        const displayValue =
+                          typeof value === "number"
+                            ? isIntegerMetric
+                              ? Math.round(value)
+                              : value.toFixed(2)
+                            : value;
+                        return [
+                          <span
+                            className="text-lg font-bold"
+                            style={{
+                              color:
+                                OVERVIEW_METRICS[expandedOverviewMetric].color,
+                            }}
+                          >
+                            {displayValue}{" "}
+                            {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+                          </span>,
+                          OVERVIEW_METRICS[expandedOverviewMetric].label,
+                        ];
+                      }}
                     />
                     <Area
                       type="monotone"
@@ -3589,6 +4387,16 @@ const selectedUserTeamName = useMemo(() => {
                         strokeWidth: 3,
                         stroke: "#fff",
                         fill: OVERVIEW_METRICS[expandedOverviewMetric].color,
+                        cursor: "pointer",
+                        onClick: (e, payload) => {
+                          if (payload?.payload?.date) {
+                            handleDrillDown(
+                              expandedOverviewMetric,
+                              payload.payload.date,
+                              payload.payload.name,
+                            );
+                          }
+                        },
                       }}
                     />
                   </AreaChart>
@@ -3662,7 +4470,7 @@ const selectedUserTeamName = useMemo(() => {
                             setSelectedUsers([...selectedUsers, user]);
                           else
                             setSelectedUsers(
-                              selectedUsers.filter((u) => u !== user)
+                              selectedUsers.filter((u) => u !== user),
                             );
                         }}
                         className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
@@ -3837,6 +4645,16 @@ const selectedUserTeamName = useMemo(() => {
           </div>
         </div>
       )}
+
+      {/* Drill-Down Modal */}
+      <DrillDownModal
+        isOpen={!!drillDownData}
+        onClose={() => setDrillDownData(null)}
+        title={drillDownData?.title || ""}
+        tickets={drillDownData?.tickets || []}
+        metricKey={drillDownData?.metricKey || ""}
+        summary={drillDownData?.summary || ""}
+      />
     </div>
   );
 };

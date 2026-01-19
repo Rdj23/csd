@@ -1398,7 +1398,7 @@ ${
                         }))
                       }
                     />
-                    <MultiSelectFilter
+                   <MultiSelectFilter
                       icon={Users}
                       label="Member"
                       options={options.owners}
@@ -1407,6 +1407,18 @@ ${
                         setTabFilters((prev) => ({
                           ...prev,
                           analytics: { ...prev.analytics, owners: v },
+                        }))
+                      }
+                    />
+                    <MultiSelectFilter
+                      icon={Globe}
+                      label="Region"
+                      options={options.regions}
+                      selected={tabFilters.analytics?.regions || []}
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          analytics: { ...prev.analytics, regions: v },
                         }))
                       }
                     />
@@ -1761,8 +1773,17 @@ ${
             <div className="flex-1 overflow-y-auto pr-1 pt-2 pb-10 no-scrollbar">
               {activeTab === "analytics" ? (
                 <AnalyticsDashboard
-                  tickets={filteredTickets}
-                  currentUser={Users}
+                  tickets={tickets}
+                  dependencies={dependencies}
+                  filters={tabFilters.analytics}
+                  filterOptions={options}
+                  onFilterChange={(key, value) => {
+                    setTabFilters((prev) => ({
+                      ...prev,
+                      analytics: { ...prev.analytics, [key]: value },
+                    }));
+                  }}
+                  
                   isDark={theme === "dark"}
                 />
               ) : activeTab === "alltickets" ? (
