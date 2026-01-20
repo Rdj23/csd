@@ -2141,12 +2141,15 @@ const AnalyticsDashboard = ({
         let summary = `${ticketsForDate.length} tickets`;
 
         if (metricKey === "frrPercent" || metricKey === "frr") {
+        if (metricKey === "frrPercent" || metricKey === "frr") {
           const frrMetCount = ticketsForDate.filter((t) => t.frr === 1).length;
-          const pct =
-            ticketsForDate.length > 0
-              ? Math.round((frrMetCount / ticketsForDate.length) * 100)
+          // FRR valid = tickets where frr is not null (0 or 1)
+          const frrValidCount = ticketsForDate.filter((t) => t.frr === 0 || t.frr === 1).length;
+          const pct = frrValidCount > 0
+              ? Math.round((frrMetCount / frrValidCount) * 100)
               : 0;
-          summary = `FRR Met: ${frrMetCount} of ${ticketsForDate.length} (${pct}%)`;
+          summary = `FRR Met: ${frrMetCount} of ${frrValidCount} (${pct}%) | Total: ${ticketsForDate.length} tickets`;
+        }
         } else if (metricKey === "csat" || metricKey === "positiveCSAT") {
           const good = ticketsForDate.filter((t) => t.csat === 2).length;
           const bad = ticketsForDate.filter((t) => t.csat === 1).length;
@@ -2840,6 +2843,143 @@ const AnalyticsDashboard = ({
 
   const getExpandedChartData = useCallback(
     (metricKey) => {
+            // =====================================================
+      // When owner/team filter is active, aggregate from individualTrends
+      // =====================================================
+      const hasOwnerFilters = filters?.owners?.length > 0 || filters?.teams?.length > 0;
+      
+      if (hasOwnerFilters && analyticsData?.individualTrends) {
+        const individualTrends = analyticsData.individualTrends;
+        let ownersToInclude = Object.keys(individualTrends);
+        
+        // Filter by owners
+        if (filters?.owners?.length > 0) {
+          ownersToInclude = ownersToInclude.filter(owner =>
+            filters.owners.some(o => o.toLowerCase() === owner.toLowerCase())
+          );
+        }
+        // Filter by teams
+        if (filters?.teams?.length > 0) {
+          ownersToInclude = ownersToInclude.filter(owner => {
+            const ownerTeams = Object.keys(TEAM_GROUPS).filter(teamKey =>
+              Object.values(TEAM_GROUPS[teamKey]).some(m => m.toLowerCase() === owner.toLowerCase())
+            );
+            return filters.teams.some(team => ownerTeams.includes(team));
+          });
+        }
+        
+        // Aggregate trends from filtered owners
+        const aggregatedByDate = {};
+        ownersToInclude.forEach(owner => {
+          const ownerTrends = individualTrends[owner] || [];
+          ownerTrends.forEach(day => {
+            if (!aggregatedByDate[day.date]) {
+              aggregatedByDate[day.date] = {
+                date: day.date,
+                solved: 0,
+                avgRWT: 0, rwtCount: 0,
+                avgFRT: 0, frtCount: 0,
+                avgIterations: 0, iterCount: 0,
+                positiveCSAT: 0,
+                frrMet: 0,
+              };
+            }
+            const agg = aggregatedByDate[day.date];
+            agg.solved += day.solved || 0;
+            agg.positiveCSAT += day.positiveCSAT || 0;
+            agg.frrMet += day.frrMet || 0;
+            if (day.avgRWT > 0) {
+              agg.avgRWT += day.avgRWT * (day.rwtValidCount || day.solved || 1);
+              agg.rwtCount += day.rwtValidCount || day.solved || 1;
+            }
+            if (day.avgFRT > 0) {
+              agg.avgFRT += day.avgFRT * (day.frtValidCount || day.solved || 1);
+              agg.frtCount += day.frtValidCount || day.solved || 1;
+            }
+            if (day.avgIterations > 0) {
+              agg.avgIterations += day.avgIterations * (day.iterValidCount || day.solved || 1);
+              agg.iterCount += day.iterValidCount || day.solved || 1;
+            }
+          });
+        });
+        
+        // Convert to trends array format
+        const trends = Object.values(aggregatedByDate).map(agg => ({
+          date: agg.date,
+          solved: agg.solved,
+          avgRWT: agg.rwtCount > 0 ? agg.avgRWT / agg.rwtCount : 0,
+          avgFRT: agg.frtCount > 0 ? agg.avgFRT / agg.frtCount : 0,
+          avgIterations: agg.iterCount > 0 ? agg.avgIterations / agg.iterCount : 0,
+          positiveCSAT: agg.positiveCSAT,
+          frrMet: agg.frrMet,
+        }));
+        
+        // Continue with existing logic using filtered trends...
+        if (!trends.length) return [];
+        
+        const start = expandedEffectiveDateRange.start;
+        const end = expandedEffectiveDateRange.end;
+        
+        const filteredData = trends.filter(t => {
+          if (!t.date) return false;
+          const d = parseISO(t.date);
+          return d >= start && d <= end;
+        });
+        
+        const dataKeyMap = {
+          avgRWT: "avgRWT",
+          csat: "positiveCSAT",
+          frrPercent: "frrMet",
+          avgIterations: "avgIterations",
+          avgFRT: "avgFRT",
+        };
+        const dataKey = dataKeyMap[metricKey] || "solved";
+        
+        if (expandedGroupBy === "daily") {
+          return filteredData.map(t => ({
+            name: format(parseISO(t.date), "MMM dd"),
+            date: t.date,
+            value: t[dataKey] || 0,
+          }));
+        }
+        
+        // Weekly/Monthly grouping (same logic as before)
+        if (expandedGroupBy === "weekly") {
+          const weeks = {};
+          filteredData.forEach(t => {
+            const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
+            if (!weeks[weekKey]) weeks[weekKey] = { values: [], date: t.date };
+            weeks[weekKey].values.push(t[dataKey] || 0);
+          });
+          return Object.entries(weeks)
+            .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
+            .map(([week, data]) => ({
+              name: `Week ${week.split("W")[1]}`,
+              date: data.date,
+              value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
+                ? data.values.reduce((a, b) => a + b, 0) / data.values.length
+                : data.values.reduce((a, b) => a + b, 0),
+            }));
+        }
+        
+        // Monthly
+        const months = {};
+        filteredData.forEach(t => {
+          const monthKey = format(parseISO(t.date), "yyyy-MM");
+          if (!months[monthKey]) months[monthKey] = { values: [], date: t.date };
+          months[monthKey].values.push(t[dataKey] || 0);
+        });
+        return Object.entries(months)
+          .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
+          .map(([month, data]) => ({
+            name: format(parseISO(data.date), "MMM yyyy"),
+            date: data.date,
+            value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
+              ? data.values.reduce((a, b) => a + b, 0) / data.values.length
+              : data.values.reduce((a, b) => a + b, 0),
+          }));
+      }
+
       // Use expandedAllTrends instead of analyticsData?.trends
       const trends =
         expandedAllTrends.length > 0
@@ -2951,10 +3091,13 @@ const AnalyticsDashboard = ({
       return [];
     },
     [
+      analyticsData?.trends,
+      analyticsData?.individualTrends,
       expandedAllTrends,
-      analyticsData,
       expandedEffectiveDateRange,
       expandedGroupBy,
+      filters?.owners,
+      filters?.teams,
     ],
   );
 
@@ -3365,6 +3508,59 @@ useEffect(() => {
   }, [volumeTickets, effectiveDateRange, analyticsData, filters]);
 
  const filteredStats = useMemo(() => {
+
+   // =================================================================================
+    // SCENARIO 0: REGION FILTER APPLIED - Must use DevRev data (MongoDB doesn't have region per trend)
+    // =================================================================================
+    if (filters?.regions?.length > 0) {
+      // When region filter is active, calculate from solvedTickets (already filtered by region in baseFilteredTickets)
+      let filteredSolved = solvedTickets;
+      
+      // Also apply owner/team filter if present
+      if (filters?.owners?.length > 0) {
+        filteredSolved = filteredSolved.filter(t => {
+          const ownerName = t.owned_by?.[0]?.display_name;
+          return filters.owners.some(o => 
+            o.toLowerCase() === ownerName?.toLowerCase() ||
+            ownerName?.toLowerCase().includes(o.toLowerCase())
+          );
+        });
+      }
+      if (filters?.teams?.length > 0) {
+        filteredSolved = filteredSolved.filter(t => {
+          const ownerName = t.owned_by?.[0]?.display_name;
+          const ownerTeams = Object.keys(TEAM_GROUPS).filter(teamKey =>
+            Object.values(TEAM_GROUPS[teamKey]).some(m => 
+              m.toLowerCase() === ownerName?.toLowerCase() ||
+              ownerName?.toLowerCase().includes(m.toLowerCase())
+            )
+          );
+          return filters.teams.some(team => ownerTeams.includes(team));
+        });
+      }
+      
+      const totalSolved = filteredSolved.length;
+      const rwtValues = filteredSolved.map(t => t.custom_fields?.tnt__rwt_business_hours).filter(v => v > 0);
+      const frtValues = filteredSolved.map(t => t.custom_fields?.tnt__frt_hours).filter(v => v > 0);
+      const iterValues = filteredSolved.map(t => t.custom_fields?.tnt__iteration_count).filter(v => v > 0);
+      const positiveCSAT = filteredSolved.filter(t => Number(t.custom_fields?.tnt__csatrating) === 2).length;
+      const frrMet = filteredSolved.filter(t => 
+        t.custom_fields?.tnt__frr === true || 
+        t.custom_fields?.tnt__iteration_count === 1
+      ).length;
+      
+      return {
+        totalTickets: volumeTickets.length,
+        totalSolved,
+        avgRWT: rwtValues.length > 0 ? (rwtValues.reduce((a,b) => a+b, 0) / rwtValues.length).toFixed(2) : "0.00",
+        avgFRT: frtValues.length > 0 ? (frtValues.reduce((a,b) => a+b, 0) / frtValues.length).toFixed(2) : "0.00",
+        avgIterations: iterValues.length > 0 ? (iterValues.reduce((a,b) => a+b, 0) / iterValues.length).toFixed(1) : "0.0",
+        positiveCSAT,
+        frrPercent: totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
+        _source: "devrev_region_filtered",
+      };
+    }
+
     // =================================================================================
     // SCENARIO 1: SPECIFIC FILTERS APPLIED (Calculated from Individual Trends)
     // =================================================================================
@@ -3500,7 +3696,7 @@ useEffect(() => {
       frrMet,
       _source: "mongodb_global_calc",
     };
-  }, [analyticsData, volumeTickets, filters, effectiveDateRange]);
+  }, [analyticsData, volumeTickets, solvedTickets, filters, effectiveDateRange]);
 
   // Expanded chart data
   const expandedData = useMemo(() => {
