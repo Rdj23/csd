@@ -220,7 +220,7 @@ const DrillDownModal = ({
         if (t.created_date && (t.actual_close_date || t.closed_date)) {
           return differenceInDays(
             parseISO(t.actual_close_date || t.closed_date),
-            parseISO(t.created_date)
+            parseISO(t.created_date),
           );
         }
         return 0;
@@ -229,7 +229,7 @@ const DrillDownModal = ({
     }
   };
 
-const getMetricDisplay = (t) => {
+  const getMetricDisplay = (t) => {
     switch (metricKey) {
       case "avgRWT":
       case "rwt":
@@ -258,7 +258,9 @@ const getMetricDisplay = (t) => {
         return t.custom_fields?.tnt__iteration_count || "-";
       case "volume":
         // For incoming volume, show created date
-        return t.created_date ? format(parseISO(t.created_date), "MMM dd") : "-";
+        return t.created_date
+          ? format(parseISO(t.created_date), "MMM dd")
+          : "-";
       case "solved":
         // For solved tickets, show solved date
         const closedDate = t.actual_close_date || t.closed_date;
@@ -268,7 +270,7 @@ const getMetricDisplay = (t) => {
         if (t.created_date && (t.actual_close_date || t.closed_date)) {
           const age = differenceInDays(
             parseISO(t.actual_close_date || t.closed_date),
-            parseISO(t.created_date)
+            parseISO(t.created_date),
           );
           return `${age} days`;
         }
@@ -427,7 +429,7 @@ const getMetricDisplay = (t) => {
                 >
                   Created <SortIcon column="created_date" />
                 </th>
-              
+
                 <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
                   onClick={() => handleSort("metric")}
@@ -1487,8 +1489,6 @@ const SmartInsights = ({
   const teamTotal = data.reduce((acc, d) => acc + (d.compare_team || 0), 0);
   const gstTotal = data.reduce((acc, d) => acc + (d.compare_gst || 0), 0);
 
-  
-
   const teamSize =
     myTeamName && TEAM_GROUPS[myTeamName?.replace("Team ", "")]
       ? Object.values(TEAM_GROUPS[myTeamName.replace("Team ", "")]).length
@@ -1843,20 +1843,23 @@ const AnalyticsDashboard = ({
 
   // Expanded chart date range - syncs with global but can be overridden
   const [expandedDateRange, setExpandedDateRange] = useState(null);
-  
- 
-const effectiveDateRange = useMemo(() => {
+
+  const effectiveDateRange = useMemo(() => {
     const dateRange = filters?.dateRange;
-    
+
     console.log("Analytics dateRange filter:", dateRange);
-    
+
     // Valid date range provided
-    if (dateRange?.start && dateRange?.end && 
-        dateRange.start.length > 0 && dateRange.end.length > 0) {
+    if (
+      dateRange?.start &&
+      dateRange?.end &&
+      dateRange.start.length > 0 &&
+      dateRange.end.length > 0
+    ) {
       try {
         const startDate = parseISO(dateRange.start);
         const endDate = parseISO(dateRange.end);
-        
+
         if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
           return {
             start: startDate,
@@ -1869,30 +1872,42 @@ const effectiveDateRange = useMemo(() => {
         console.error("Error parsing date range:", e);
       }
     }
-    
-    // "All Time" selected (empty strings)
-    if (dateRange && dateRange.start === '' && dateRange.end === '') {
-      const allTimeStart = new Date('2025-10-01');
-      const allTimeEnd = new Date();
+
+    // 2. "All Time"
+    if (dateRange && dateRange.start === "" && dateRange.end === "") {
       return {
-        start: allTimeStart,
-        end: allTimeEnd,
-        days: differenceInDays(allTimeEnd, allTimeStart) + 1,
+        start: new Date("2025-10-01"),
+        end: new Date(),
+        days: 999,
         isAllTime: true,
       };
     }
-    
-    // Default to last 30 days
-    const end = new Date();
-    const start = subDays(end, 29);
-    return { start, end, days: 30, isAllTime: false };
-  }, [filters?.dateRange]);
-// Use global date range for expanded charts unless overridden
+
+    // 3. ✅ FIX: Default to Current Quarter Dates (instead of last 30 days)
+    // This ensures UI cards show data for the full quarter selected
+    const getQuarterDates = (q) => {
+      if (q === "Q4_25")
+        return { start: new Date("2025-10-01"), end: new Date("2025-12-31") };
+      if (q === "Q1_26")
+        return { start: new Date("2026-01-01"), end: new Date("2026-03-31") };
+      return { start: subDays(new Date(), 29), end: new Date() };
+    };
+
+    const { start, end } = getQuarterDates(currentQuarter);
+    return {
+      start,
+      end,
+      days: differenceInDays(end, start) + 1,
+      isAllTime: false,
+    };
+  }, [filters?.dateRange, currentQuarter]);
+
+  // Use global date range for expanded charts unless overridden
   const expandedEffectiveDateRange = useMemo(() => {
     if (expandedDateRange) {
       // Handle "All Time" (empty strings)
-      if (expandedDateRange.start === '' && expandedDateRange.end === '') {
-        const allTimeStart = new Date('2025-10-01');
+      if (expandedDateRange.start === "" && expandedDateRange.end === "") {
+        const allTimeStart = new Date("2025-10-01");
         const allTimeEnd = new Date();
         return {
           start: allTimeStart,
@@ -1901,18 +1916,24 @@ const effectiveDateRange = useMemo(() => {
           isAllTime: true,
         };
       }
-      
+
       // Handle valid date range - PARSE STRINGS TO DATE OBJECTS
-      if (expandedDateRange.start && expandedDateRange.end &&
-          expandedDateRange.start.length > 0 && expandedDateRange.end.length > 0) {
+      if (
+        expandedDateRange.start &&
+        expandedDateRange.end &&
+        expandedDateRange.start.length > 0 &&
+        expandedDateRange.end.length > 0
+      ) {
         try {
-          const start = typeof expandedDateRange.start === 'string' 
-            ? parseISO(expandedDateRange.start) 
-            : expandedDateRange.start;
-          const end = typeof expandedDateRange.end === 'string'
-            ? parseISO(expandedDateRange.end)
-            : expandedDateRange.end;
-          
+          const start =
+            typeof expandedDateRange.start === "string"
+              ? parseISO(expandedDateRange.start)
+              : expandedDateRange.start;
+          const end =
+            typeof expandedDateRange.end === "string"
+              ? parseISO(expandedDateRange.end)
+              : expandedDateRange.end;
+
           // Validate parsed dates
           if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
             return {
@@ -1930,39 +1951,43 @@ const effectiveDateRange = useMemo(() => {
     return effectiveDateRange;
   }, [expandedDateRange, effectiveDateRange]);
 
- // Fetch analytics data when EXPANDED date range changes
+  // Fetch analytics data when EXPANDED date range changes
   useEffect(() => {
     if (!expandedOverviewMetric) return; // Only when modal is open
-    
+
     const range = expandedEffectiveDateRange;
     if (!range?.start || !range?.end) return;
-    
+
     console.log("Fetching data for expanded modal:", range);
-    
+
     if (range.isAllTime) {
-      fetchAnalyticsData({ quarter: 'Q4_25', excludeZendesk });
-      fetchAnalyticsData({ quarter: 'Q1_26', excludeZendesk });
+      fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk });
+      fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk });
     } else {
       const startYear = range.start.getFullYear();
       const startMonth = range.start.getMonth();
       const endYear = range.end.getFullYear();
-      
+
       // Fetch Q4_25 if date range includes Oct-Dec 2025
       if (startYear === 2025 && startMonth >= 9) {
-        fetchAnalyticsData({ quarter: 'Q4_25', excludeZendesk });
+        fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk });
       }
       // Fetch Q1_26 if date range includes Jan-Mar 2026
       if (endYear === 2026 || (startYear === 2025 && startMonth === 11)) {
-        fetchAnalyticsData({ quarter: 'Q1_26', excludeZendesk });
+        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk });
       }
       // If only in Jan 2026
       if (startYear === 2026) {
-        fetchAnalyticsData({ quarter: 'Q1_26', excludeZendesk });
+        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk });
       }
     }
-  }, [expandedEffectiveDateRange, expandedOverviewMetric, excludeZendesk, fetchAnalyticsData]);
+  }, [
+    expandedEffectiveDateRange,
+    expandedOverviewMetric,
+    excludeZendesk,
+    fetchAnalyticsData,
+  ]);
 
-  
   // 1. Common Filters (Team, Owner, Region, etc.) - applied to ALL tickets first
   const baseFilteredTickets = useMemo(() => {
     return tickets.filter((t) => {
@@ -1988,7 +2013,7 @@ const effectiveDateRange = useMemo(() => {
           return false;
       }
 
-     // Owner Filter
+      // Owner Filter
       if (filters?.owners?.length > 0) {
         const owner =
           FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
@@ -2056,7 +2081,7 @@ const effectiveDateRange = useMemo(() => {
           if (!t.created_date) return false;
           return format(parseISO(t.created_date), "yyyy-MM-dd") === dateKey;
         });
-        
+
         setDrillDownData({
           title: `Incoming Volume - ${dataPointName}`,
           tickets: ticketsForDate,
@@ -2068,83 +2093,108 @@ const effectiveDateRange = useMemo(() => {
 
       // For SOLVED metrics - ALWAYS fetch from MongoDB
       const API_BASE = import.meta.env.VITE_API_URL || "";
-      
+
       // Build owner filter
       let ownerFilter = [];
       if (filters?.owners?.length > 0) {
         ownerFilter = filters.owners;
       } else if (filters?.teams?.length > 0) {
-        filters.teams.forEach(teamKey => {
+        filters.teams.forEach((teamKey) => {
           if (TEAM_GROUPS[teamKey]) {
             ownerFilter.push(...Object.values(TEAM_GROUPS[teamKey]));
           }
         });
       }
-      
+
       // Build query params
       const queryParams = new URLSearchParams({
         date: dateKey,
-        owners: ownerFilter.join(','),
+        owners: ownerFilter.join(","),
         metric: metricKey,
-        excludeZendesk: excludeZendesk ? 'true' : 'false',
+        excludeZendesk: excludeZendesk ? "true" : "false",
       });
-      
+
       // Add region filter if set
       if (filters?.regions?.length > 0) {
-        queryParams.set('region', filters.regions.join(','));
+        queryParams.set("region", filters.regions.join(","));
       }
-      
-      console.log(`🔍 Fetching from MongoDB: /api/tickets/by-date?${queryParams}`);
-      
+
+      console.log(
+        `🔍 Fetching from MongoDB: /api/tickets/by-date?${queryParams}`,
+      );
+
       try {
-        const response = await fetch(`${API_BASE}/api/tickets/by-date?${queryParams}`);
-        
+        const response = await fetch(
+          `${API_BASE}/api/tickets/by-date?${queryParams}`,
+        );
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        
+
         const data = await response.json();
         let ticketsForDate = data.tickets || [];
-        
+
         console.log(`   📊 MongoDB returned ${ticketsForDate.length} tickets`);
-        
+
         // Apply NOC filter client-side (if excludeNOC is enabled)
         // Note: For historical data, we can't filter NOC without dependency info
         // This is a known limitation - NOC filter only works for recent data
-        
+
         // Build summary
         let summary = `${ticketsForDate.length} tickets`;
-        
+
         if (metricKey === "frrPercent" || metricKey === "frr") {
-          const frrMetCount = ticketsForDate.filter(t => t.frr === 1).length;
-          const pct = ticketsForDate.length > 0 ? Math.round((frrMetCount / ticketsForDate.length) * 100) : 0;
+          const frrMetCount = ticketsForDate.filter((t) => t.frr === 1).length;
+          const pct =
+            ticketsForDate.length > 0
+              ? Math.round((frrMetCount / ticketsForDate.length) * 100)
+              : 0;
           summary = `FRR Met: ${frrMetCount} of ${ticketsForDate.length} (${pct}%)`;
         } else if (metricKey === "csat" || metricKey === "positiveCSAT") {
-          const good = ticketsForDate.filter(t => t.csat === 2).length;
-          const bad = ticketsForDate.filter(t => t.csat === 1).length;
+          const good = ticketsForDate.filter((t) => t.csat === 2).length;
+          const bad = ticketsForDate.filter((t) => t.csat === 1).length;
           summary = `Good: ${good} 👍 | Bad: ${bad} 👎 | Total: ${ticketsForDate.length}`;
         } else if (metricKey === "rwt" || metricKey === "avgRWT") {
-          const rwtValues = ticketsForDate.map(t => t.rwt).filter(v => v != null && !isNaN(v));
-          const avg = rwtValues.length > 0 
-            ? (rwtValues.reduce((a, b) => a + b, 0) / rwtValues.length).toFixed(1)
-            : 0;
+          const rwtValues = ticketsForDate
+            .map((t) => t.rwt)
+            .filter((v) => v != null && !isNaN(v));
+          const avg =
+            rwtValues.length > 0
+              ? (
+                  rwtValues.reduce((a, b) => a + b, 0) / rwtValues.length
+                ).toFixed(1)
+              : 0;
           summary = `Avg RWT: ${avg} hrs | ${ticketsForDate.length} tickets`;
         } else if (metricKey === "frt" || metricKey === "avgFRT") {
-          const frtValues = ticketsForDate.map(t => t.frt).filter(v => v != null && !isNaN(v));
-          const avg = frtValues.length > 0 
-            ? (frtValues.reduce((a, b) => a + b, 0) / frtValues.length).toFixed(1)
-            : 0;
+          const frtValues = ticketsForDate
+            .map((t) => t.frt)
+            .filter((v) => v != null && !isNaN(v));
+          const avg =
+            frtValues.length > 0
+              ? (
+                  frtValues.reduce((a, b) => a + b, 0) / frtValues.length
+                ).toFixed(1)
+              : 0;
           summary = `Avg FRT: ${avg} hrs | ${ticketsForDate.length} tickets`;
-        } else if (metricKey === "iterations" || metricKey === "avgIterations") {
-          const iterValues = ticketsForDate.map(t => t.iterations).filter(v => v != null && !isNaN(v));
-          const avg = iterValues.length > 0 
-            ? (iterValues.reduce((a, b) => a + b, 0) / iterValues.length).toFixed(1)
-            : 0;
+        } else if (
+          metricKey === "iterations" ||
+          metricKey === "avgIterations"
+        ) {
+          const iterValues = ticketsForDate
+            .map((t) => t.iterations)
+            .filter((v) => v != null && !isNaN(v));
+          const avg =
+            iterValues.length > 0
+              ? (
+                  iterValues.reduce((a, b) => a + b, 0) / iterValues.length
+                ).toFixed(1)
+              : 0;
           summary = `Avg Iterations: ${avg} | ${ticketsForDate.length} tickets`;
         }
-        
+
         // Map MongoDB fields to expected format
-        const mappedTickets = ticketsForDate.map(t => ({
+        const mappedTickets = ticketsForDate.map((t) => ({
           ...t,
           display_id: t.display_id || t.ticket_id,
           custom_fields: {
@@ -2160,17 +2210,16 @@ const effectiveDateRange = useMemo(() => {
           owned_by: [{ display_name: t.owner }],
           actual_close_date: t.closed_date,
         }));
-        
+
         setDrillDownData({
           title: `${getMetricLabel(metricKey)} - ${dataPointName}`,
           tickets: mappedTickets,
           metricKey,
           summary,
         });
-        
       } catch (error) {
         console.error("❌ Drill-down fetch error:", error);
-        
+
         // Show error - don't fall back to cache (it doesn't have old data)
         setDrillDownData({
           title: `${getMetricLabel(metricKey)} - ${dataPointName}`,
@@ -2180,9 +2229,9 @@ const effectiveDateRange = useMemo(() => {
         });
       }
     },
-    [volumeTickets, filters, excludeZendesk, excludeNOC]
+    [volumeTickets, filters, excludeZendesk, excludeNOC],
   );
-  
+
   // Helper function for metric labels
   const getMetricLabel = (metricKey) => {
     const labels = {
@@ -2210,7 +2259,6 @@ const effectiveDateRange = useMemo(() => {
   const [showGST, setShowGST] = useState(false);
   const [timeRange, setTimeRange] = useState(30);
   const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
-
 
   const isDark = propIsDark !== undefined ? propIsDark : theme === "dark";
 
@@ -2817,13 +2865,23 @@ const effectiveDateRange = useMemo(() => {
       const dataKeyMap = {
         avgRWT: "avgRWT",
         csat: "positiveCSAT",
-        frrPercent: "frrMet", // This maps to frrMet in the trends data
+        frrPercent: "frrMet",
         avgIterations: "avgIterations",
         avgFRT: "avgFRT",
       };
       const dataKey = dataKeyMap[metricKey] || "solved";
 
-      // Group data based on expandedGroupBy
+      // ✅ IDENTIFY SUM METRICS (CSAT, Volume, Solved, FRR Count)
+      const isSumMetric = [
+        "volume",
+        "solved",
+        "csat",
+        "positiveCSAT",
+        "backlog",
+        "frrPercent", // mapped to frrMet (count) above
+      ].includes(metricKey);
+
+      // 1. DAILY VIEW
       if (expandedGroupBy === "daily") {
         return filteredData.map((t) => ({
           name: format(parseISO(t.date), "MMM dd"),
@@ -2844,13 +2902,33 @@ const effectiveDateRange = useMemo(() => {
 
         return Object.entries(weeks)
           .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-          .map(([week, data]) => ({
-            name: `Week ${week.split("W")[1]}`,
-            date: data.date,
-            value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
-          }));
+          .map(([week, data]) => {
+            // ✅ FIX: Calculate readable date range for the week
+            const dateObj = parseISO(data.date);
+            // Find Monday of this week
+            const day = dateObj.getDay();
+            const diff = dateObj.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(dateObj.setDate(diff));
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+
+            const rangeLabel = `${format(monday, "MMM dd")} - ${format(sunday, "MMM dd")}`;
+
+            // Fix sum definition
+            const sum = data.values.reduce((a, b) => a + b, 0);
+
+            return {
+              name: `Week ${week.split("W")[1]}`,
+              range: rangeLabel, // Pass this to tooltip
+              date: data.date,
+              value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
+                ? sum / (data.values.length || 1)
+                : sum,
+            };
+          });
       }
 
+      // 3. MONTHLY VIEW
       if (expandedGroupBy === "monthly") {
         const months = {};
         filteredData.forEach((t) => {
@@ -2863,33 +2941,25 @@ const effectiveDateRange = useMemo(() => {
 
         return Object.entries(months)
           .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-          .map(([month, data]) => ({
-            name: format(parseISO(data.date), "MMM yyyy"),
-            date: data.date,
-            value: data.values.reduce((a, b) => a + b, 0) / data.values.length,
-          }));
+          .map(([month, data]) => {
+            // ✅ FIX: "sum is not defined" error fixed by adding braces
+            const sum = data.values.reduce((a, b) => a + b, 0);
+            return {
+              name: format(parseISO(data.date), "MMM yyyy"),
+              date: data.date,
+              value: isSumMetric ? sum : sum / (data.values.length || 1), // Average for RWT/FRT
+            };
+          });
       }
 
       return [];
     },
-    [expandedAllTrends, analyticsData, expandedEffectiveDateRange, expandedGroupBy],
-  );
-  // Get period total
-  const getExpandedPeriodTotal = useCallback(
-    (metricKey) => {
-      const chartData = getExpandedChartData(metricKey);
-      if (!chartData.length) return "—";
-
-      const total = chartData.reduce((sum, d) => sum + (d.value || 0), 0);
-
-      // For averages, return the average not total
-      if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
-        return (total / chartData.length).toFixed(2);
-      }
-
-      return Math.round(total).toLocaleString();
-    },
-    [getExpandedChartData],
+    [
+      expandedAllTrends,
+      analyticsData,
+      expandedEffectiveDateRange,
+      expandedGroupBy,
+    ],
   );
 
   // Get average
@@ -3113,28 +3183,41 @@ const effectiveDateRange = useMemo(() => {
     fetchAnalyticsData,
     groupBy,
   ]);
-
-  // Fetch ALL historical data for expanded view (ignores quarter selection)
-  useEffect(() => {
+useEffect(() => {
     const fetchAllTrends = async () => {
       if (!expandedOverviewMetric) return;
 
       setExpandedLoading(true);
       try {
-        // Fetch Q4_25 + Q1_26 data (or use "all" if your API supports it)
+        const API_BASE = import.meta.env.VITE_API_URL || "";
+        
+        // Build params with filters
+        const buildParams = (quarter) => {
+          const params = new URLSearchParams({ quarter });
+          if (excludeZendesk) params.set('excludeZendesk', 'true');
+          // Add owner filter if teams selected
+          if (filters?.teams?.length > 0) {
+            const teamMembers = [];
+            filters.teams.forEach(teamKey => {
+              if (TEAM_GROUPS[teamKey]) {
+                teamMembers.push(...Object.values(TEAM_GROUPS[teamKey]));
+              }
+            });
+            if (teamMembers.length > 0) {
+              params.set('owners', teamMembers.join(','));
+            }
+          }
+          if (filters?.owners?.length > 0) {
+            params.set('owners', filters.owners.join(','));
+          }
+          return params.toString();
+        };
+        
         const [q4Res, q1Res] = await Promise.all([
-          fetch(
-            `${
-              import.meta.env.VITE_API_URL || ""
-            }/api/tickets/analytics?quarter=Q4_25&excludeZendesk=${excludeZendesk}`,
-          ).then((r) => r.json()),
-          fetch(
-            `${
-              import.meta.env.VITE_API_URL || ""
-            }/api/tickets/analytics?quarter=Q1_26&excludeZendesk=${excludeZendesk}`,
-          ).then((r) => r.json()),
+          fetch(`${API_BASE}/api/tickets/analytics?${buildParams('Q4_25')}`).then((r) => r.json()),
+          fetch(`${API_BASE}/api/tickets/analytics?${buildParams('Q1_26')}`).then((r) => r.json()),
         ]);
-
+  
         // Combine trends from both quarters
         const allTrends = [...(q4Res.trends || []), ...(q1Res.trends || [])];
 
@@ -3155,7 +3238,7 @@ const effectiveDateRange = useMemo(() => {
     };
 
     fetchAllTrends();
-  }, [expandedOverviewMetric, excludeZendesk]);
+  }, [expandedOverviewMetric, excludeZendesk, filters?.teams, filters?.owners]);
 
   const handleQuarterChange = useCallback(
     (quarter) => setCurrentQuarter(quarter),
@@ -3191,34 +3274,36 @@ const effectiveDateRange = useMemo(() => {
 
     // For Solved/RWT/Backlog: Use MongoDB individualTrends (filtered by owner/team)
     const individualTrends = analyticsData?.individualTrends || {};
-    
+
     // Determine which owners to include based on filters
     let ownersToInclude = Object.keys(individualTrends);
-    
-    if (filters?.owners?.length > 0) {
-      ownersToInclude = ownersToInclude.filter(owner => 
-        filters.owners.includes(owner)
-      );
-    }
-    
-    if (filters?.teams?.length > 0) {
-      ownersToInclude = ownersToInclude.filter(owner => {
-        const ownerTeams = Object.keys(TEAM_GROUPS).filter(teamKey =>
-          Object.values(TEAM_GROUPS[teamKey]).includes(owner)
+
+   // Filter Owners (case-insensitive)
+      if (filters?.owners?.length > 0) {
+        const lowerFilters = filters.owners.map(o => o.toLowerCase());
+        ownersToInclude = ownersToInclude.filter((owner) =>
+          lowerFilters.includes(owner.toLowerCase()),
         );
-        return filters.teams.some(team => ownerTeams.includes(team));
+      }
+
+    if (filters?.teams?.length > 0) {
+      ownersToInclude = ownersToInclude.filter((owner) => {
+        const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+          Object.values(TEAM_GROUPS[teamKey]).includes(owner),
+        );
+        return filters.teams.some((team) => ownerTeams.includes(team));
       });
     }
-    
+
     // Build aggregated data per day
     const dailyAggregates = {};
-    
-    ownersToInclude.forEach(owner => {
+
+    ownersToInclude.forEach((owner) => {
       const ownerTrends = individualTrends[owner] || [];
-      
-      ownerTrends.forEach(day => {
+
+      ownerTrends.forEach((day) => {
         if (!day.date) return;
-        
+
         if (!dailyAggregates[day.date]) {
           dailyAggregates[day.date] = {
             solved: 0,
@@ -3227,7 +3312,7 @@ const effectiveDateRange = useMemo(() => {
             backlogCleared: 0,
           };
         }
-        
+
         dailyAggregates[day.date].solved += day.solved || 0;
         if (day.avgRWT && day.solved) {
           dailyAggregates[day.date].totalRWT += day.avgRWT * day.solved;
@@ -3253,9 +3338,8 @@ const effectiveDateRange = useMemo(() => {
     const rwtData = daysInterval.map((day) => {
       const dateKey = format(day, "yyyy-MM-dd");
       const dayAgg = dailyAggregates[dateKey];
-      const avgRWT = dayAgg?.rwtCount > 0 
-        ? dayAgg.totalRWT / dayAgg.rwtCount 
-        : 0;
+      const avgRWT =
+        dayAgg?.rwtCount > 0 ? dayAgg.totalRWT / dayAgg.rwtCount : 0;
       return {
         name: format(day, "MMM dd"),
         date: dateKey,
@@ -3284,95 +3368,141 @@ const effectiveDateRange = useMemo(() => {
     };
   }, [volumeTickets, effectiveDateRange, analyticsData, filters]);
 
-const filteredStats = useMemo(() => {
-    // Get MongoDB individualTrends
-    const individualTrends = analyticsData?.individualTrends || {};
-    
-    // Determine which owners to include based on filters
-    let ownersToInclude = Object.keys(individualTrends);
-    
-    // Apply owner filter
-    if (filters?.owners?.length > 0) {
-      ownersToInclude = ownersToInclude.filter(owner => 
-        filters.owners.includes(owner)
-      );
-    }
-    
-    // Apply team filter
-    if (filters?.teams?.length > 0) {
-      ownersToInclude = ownersToInclude.filter(owner => {
-        const ownerTeams = Object.keys(TEAM_GROUPS).filter(teamKey =>
-          Object.values(TEAM_GROUPS[teamKey]).includes(owner)
+ const filteredStats = useMemo(() => {
+    // =================================================================================
+    // SCENARIO 1: SPECIFIC FILTERS APPLIED (Calculated from Individual Trends)
+    // =================================================================================
+    const hasOwnerFilters = filters?.owners?.length > 0 || filters?.teams?.length > 0;
+
+    if (hasOwnerFilters) {
+      const individualTrends = analyticsData?.individualTrends || {};
+      let ownersToInclude = Object.keys(individualTrends);
+
+      // Filter Owners
+      if (filters?.owners?.length > 0) {
+        ownersToInclude = ownersToInclude.filter((owner) =>
+          filters.owners.includes(owner),
         );
-        return filters.teams.some(team => ownerTeams.includes(team));
+      }
+      // Filter Teams
+      if (filters?.teams?.length > 0) {
+        ownersToInclude = ownersToInclude.filter((owner) => {
+          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+            Object.values(TEAM_GROUPS[teamKey]).includes(owner),
+          );
+          return filters.teams.some((team) => ownerTeams.includes(team));
+        });
+      }
+
+      console.log("🔍 FILTER DEBUG:", {
+        selectedTeams: filters?.teams,
+        allOwnersInMongo: Object.keys(individualTrends),
+        ownersAfterFilter: ownersToInclude,
+        teamGroupsKeys: Object.keys(TEAM_GROUPS),
+        dateRange: { start: effectiveDateRange.start, end: effectiveDateRange.end },
       });
+
+      let totalSolved = 0;
+      let weightedRWT = 0, validRWTCount = 0;
+      let weightedFRT = 0, validFRTCount = 0;
+      let weightedIter = 0, validIterCount = 0;
+      let positiveCSAT = 0;
+      let frrMet = 0;
+
+      ownersToInclude.forEach((owner) => {
+        const ownerTrends = individualTrends[owner] || [];
+        ownerTrends.forEach((day) => {
+          if (!day.date) return;
+          const dayDate = parseISO(day.date);
+          if (dayDate < effectiveDateRange.start || dayDate > effectiveDateRange.end) return;
+
+          totalSolved += day.solved || 0;
+          positiveCSAT += day.positiveCSAT || 0; 
+          frrMet += day.frrMet || 0;
+
+          // Weighted Averages
+          if (day.avgRWT > 0 && day.rwtValidCount > 0) {
+            weightedRWT += day.avgRWT * day.rwtValidCount;
+            validRWTCount += day.rwtValidCount;
+          }
+          if (day.avgFRT > 0 && day.frtValidCount > 0) {
+            weightedFRT += day.avgFRT * day.frtValidCount;
+            validFRTCount += day.frtValidCount;
+          }
+          if (day.avgIterations > 0 && day.iterValidCount > 0) {
+            weightedIter += day.avgIterations * day.iterValidCount;
+            validIterCount += day.iterValidCount;
+          }
+        });
+      });
+
+      return {
+        totalTickets: volumeTickets.length,
+        totalSolved,
+        avgRWT: validRWTCount > 0 ? (weightedRWT / validRWTCount).toFixed(2) : "0.00",
+        avgFRT: validFRTCount > 0 ? (weightedFRT / validFRTCount).toFixed(2) : "0.00",
+        avgIterations: validIterCount > 0 ? (weightedIter / validIterCount).toFixed(1) : "0.0",
+        positiveCSAT,
+        frrPercent: totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
+      };
     }
-    
-    // Aggregate stats from individualTrends within date range
+
+    // =================================================================================
+    // SCENARIO 2: NO FILTERS (Global Trends)
+    // =================================================================================
+    const globalTrends = analyticsData?.trends || [];
+
     let totalSolved = 0;
-    let totalRWT = 0, rwtCount = 0;
-    let totalFRT = 0, frtCount = 0;
-    let totalIterations = 0, iterCount = 0;
     let positiveCSAT = 0;
     let frrMet = 0;
     
-    ownersToInclude.forEach(owner => {
-      const ownerTrends = individualTrends[owner] || [];
-      
-      ownerTrends.forEach(day => {
-        if (!day.date) return;
-        
-        // Check if day is within effectiveDateRange
-        const dayDate = parseISO(day.date);
-        if (dayDate < effectiveDateRange.start || dayDate > effectiveDateRange.end) {
-          return;
-        }
-        
-        totalSolved += day.solved || 0;
-        
-        if (day.avgRWT && day.solved) {
-          totalRWT += day.avgRWT * day.solved;
-          rwtCount += day.solved;
-        }
-        
-        if (day.avgFRT && day.solved) {
-          totalFRT += day.avgFRT * day.solved;
-          frtCount += day.solved;
-        }
-        
-        // Note: individualTrends doesn't have iterations, CSAT, FRR per day
-        // We need to get these from MongoDB trends (aggregated)
-        positiveCSAT += day.positiveCSAT || 0;
-        frrMet += day.frrMet || 0;
-      });
+    // Variables for Global Calculation
+    let weightedRWT = 0, rwtCount = 0;
+    let weightedFRT = 0, frtCount = 0;
+    let weightedIter = 0, iterCount = 0;
+
+    globalTrends.forEach((day) => {
+      if (!day.date) return;
+      const dayDate = parseISO(day.date);
+      // STRICTLY RESPECT DATE RANGE
+      if (dayDate < effectiveDateRange.start || dayDate > effectiveDateRange.end) return;
+
+      totalSolved += day.solved || 0;
+      positiveCSAT += day.positiveCSAT || 0;
+      frrMet += day.frrMet || 0;
+
+      if (day.avgRWT > 0) {
+         weightedRWT += day.avgRWT * day.solved;
+         rwtCount += day.solved;
+       }
+       if (day.avgFRT > 0) {
+         weightedFRT += day.avgFRT * day.solved;
+         frtCount += day.solved;
+       }
+       if (day.avgIterations > 0) {
+         weightedIter += day.avgIterations * day.solved;
+         iterCount += day.solved;
+       }
     });
-    
-    // If no owner filter, use MongoDB aggregated stats
-    const mongoStats = analyticsData?.stats || {};
-    
-    // Calculate averages
-    const avgRWT = rwtCount > 0 ? (totalRWT / rwtCount).toFixed(2) : "0.00";
-    const avgFRT = frtCount > 0 ? (totalFRT / frtCount).toFixed(2) : "0.00";
-    
-    // For CSAT and FRR, use MongoDB aggregated if no owner filter
-    // Otherwise we don't have per-owner breakdown for these
-    const useMongoAggregated = filters?.owners?.length === 0 && filters?.teams?.length === 0;
-    
-    const frrPercent = totalSolved > 0 
-      ? Math.round((frrMet / totalSolved) * 100) 
-      : (useMongoAggregated ? mongoStats.frrPercent || 0 : 0);
-    
+
+    // ✅ FIX: Use 'rwtCount' here (NOT totalValidRWT which is undefined in this block)
+    const avgRWT = rwtCount > 0 ? (weightedRWT / rwtCount).toFixed(2) : "0.00";
+    const avgFRT = frtCount > 0 ? (weightedFRT / frtCount).toFixed(2) : "0.00";
+    const avgIterations = iterCount > 0 ? (weightedIter / iterCount).toFixed(1) : "0.0";
+
+    // ✅ FIX: FRR Percent calculation
+    const frrPercent = totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
+
     return {
-      totalTickets: volumeTickets.length, // Volume still from DevRev (created_date is fine)
+      totalTickets: volumeTickets.length,
       totalSolved,
       avgRWT,
-      avgFRT: useMongoAggregated ? (mongoStats.avgFRT?.toFixed(2) || "0.00") : avgFRT,
-      avgIterations: useMongoAggregated ? (mongoStats.avgIterations?.toFixed(1) || "0.0") : "0.0",
-      positiveCSAT: useMongoAggregated ? (mongoStats.positiveCSAT || 0) : positiveCSAT,
+      avgFRT,
+      avgIterations,
+      positiveCSAT,
       frrPercent,
       frrMet,
-      // Keep reference for debugging
-      _source: useMongoAggregated ? "mongodb_aggregated" : "mongodb_individual",
+      _source: "mongodb_global_calc",
     };
   }, [analyticsData, volumeTickets, filters, effectiveDateRange]);
 
@@ -3386,9 +3516,9 @@ const filteredStats = useMemo(() => {
     // For VOLUME - use real-time tickets with created_date
     // For VOLUME - use real-time tickets with created_date
     if (expandedMetric === "volume") {
-      const daysInterval = eachDayOfInterval({ 
-        start: rangeToUse.start, 
-        end: rangeToUse.end 
+      const daysInterval = eachDayOfInterval({
+        start: rangeToUse.start,
+        end: rangeToUse.end,
       });
 
       return daysInterval.map((day) => {
@@ -3519,7 +3649,7 @@ const filteredStats = useMemo(() => {
     selectedUserTeamName,
     tickets,
     effectiveDateRange,
-    expandedEffectiveDateRange
+    expandedEffectiveDateRange,
   ]);
 
   const colors = {
@@ -3593,11 +3723,16 @@ const filteredStats = useMemo(() => {
               </h2>
             </div>
             {/* Debug: Show current date range */}
-<div className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
-  {effectiveDateRange.start ? format(effectiveDateRange.start, "MMM dd") : "?"} - 
-  {effectiveDateRange.end ? format(effectiveDateRange.end, "MMM dd") : "?"} 
-  ({effectiveDateRange.days} days)
-</div>
+            <div className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+              {effectiveDateRange.start
+                ? format(effectiveDateRange.start, "MMM dd")
+                : "?"}{" "}
+              -
+              {effectiveDateRange.end
+                ? format(effectiveDateRange.end, "MMM dd")
+                : "?"}
+              ({effectiveDateRange.days} days)
+            </div>
             <button
               onClick={() => setShowAdminConsole(false)}
               className="p-2 hover:bg-slate-800 rounded-lg"
@@ -4282,7 +4417,7 @@ const filteredStats = useMemo(() => {
               </button>
             </div>
 
-          {/* Controls Bar */}
+            {/* Controls Bar */}
             <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4">
               {/* Date Range Picker - Same as global */}
               <SmartDateRangePicker
@@ -4310,10 +4445,22 @@ const filteredStats = useMemo(() => {
               {/* Date Range Display */}
               {/* Date Range Display */}
               <div className="ml-auto text-sm text-slate-500 flex items-center gap-2">
-                <span className="font-medium">{expandedEffectiveDateRange.days || effectiveDateRange.days} days</span>
+                <span className="font-medium">
+                  {expandedEffectiveDateRange.days || effectiveDateRange.days}{" "}
+                  days
+                </span>
                 <span>•</span>
                 <span>
-                  {format(expandedEffectiveDateRange.start || effectiveDateRange.start, "MMM dd")} - {format(expandedEffectiveDateRange.end || effectiveDateRange.end, "MMM dd, yyyy")}
+                  {format(
+                    expandedEffectiveDateRange.start ||
+                      effectiveDateRange.start,
+                    "MMM dd",
+                  )}{" "}
+                  -{" "}
+                  {format(
+                    expandedEffectiveDateRange.end || effectiveDateRange.end,
+                    "MMM dd, yyyy",
+                  )}
                 </span>
               </div>
             </div>
@@ -4433,6 +4580,13 @@ const filteredStats = useMemo(() => {
                         fontSize: "14px",
                         marginBottom: "8px",
                         color: isDark ? "#fff" : "#1e293b",
+                      }}
+                      labelFormatter={(label, payload) => {
+                        // ✅ FIX: Show date range if available (Weekly view)
+                        if (payload && payload[0] && payload[0].payload.range) {
+                          return `${label} (${payload[0].payload.range})`;
+                        }
+                        return label;
                       }}
                       formatter={(value, name) => {
                         // CSAT and FRR should be integers, others can have decimals
@@ -4575,10 +4729,10 @@ const filteredStats = useMemo(() => {
               {/* Time Range */}
               <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
                 <Calendar className="w-4 h-4 text-slate-400" />
-                 <SmartDateRangePicker
-                value={expandedDateRange || filters?.dateRange}
-                onChange={(val) => setExpandedDateRange(val)}
-              />
+                <SmartDateRangePicker
+                  value={expandedDateRange || filters?.dateRange}
+                  onChange={(val) => setExpandedDateRange(val)}
+                />
               </div>
 
               <div className="h-8 w-px bg-slate-300 dark:bg-slate-700 mx-2"></div>
