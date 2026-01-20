@@ -233,9 +233,54 @@ const getQuarterDateRange = (quarter) => {
   }
 };
 
+
+
 // ============================================================================
 // ✅ MAIN ANALYTICS ENDPOINT - Server-side Aggregation
 // ============================================================================
+
+// ============================================================================
+// DRILL-DOWN ENDPOINT (Direct Mongo Query)
+// ============================================================================
+app.get("/api/tickets/drilldown", async (req, res) => {
+  try {
+    const { date, metric, type } = req.query; // type = 'created' (Volume) or 'closed' (Performance)
+    
+    if (!date) return res.status(400).json({ error: "Date required" });
+
+    // Define Start/End of that specific day
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    let query = {};
+
+    // 1. Determine Date Filter
+    if (type === "created") {
+      query.created_date = { $gte: startOfDay, $lte: endOfDay };
+    } else {
+      // For Solved, RWT, Backlog
+      query.actual_close_date = { $gte: startOfDay, $lte: endOfDay };
+      // Ensure it is actually solved
+      query.stage_name = { $in: ["solved", "closed", "resolved", "Resolved", "Solved", "Closed"] };
+    }
+
+    // 2. Fetch from Mongo (Not RAM!)
+    // We select only needed fields to keep it fast
+    const tickets = await AnalyticsTicket.find(query)
+      .select("display_id title created_date actual_close_date owner stage_name rwt account_name")
+      .lean(); // .lean() makes it a plain JSON object (faster)
+
+    res.json({ tickets });
+
+  } catch (error) {
+    console.error("Drilldown Error:", error);
+    res.status(500).json({ error: "Failed to fetch drilldown data" });
+  }
+});
+
 app.get("/api/tickets/analytics", async (req, res) => {
   try {
     const {
@@ -250,6 +295,12 @@ app.get("/api/tickets/analytics", async (req, res) => {
     }_${groupBy}`;
 
     console.log(`📊 Analytics Request: ${cacheKey}`);
+
+     console.log("🔍 ANALYTICS QUERY PARAMS", {
+  quarter: req.query.quarter,
+  start: req.query.start,
+  end: req.query.end,
+});
 
     // Check cache (1 hour TTL)
     if (forceRefresh !== "true") {
@@ -266,6 +317,22 @@ app.get("/api/tickets/analytics", async (req, res) => {
     }
 
     const { start, end } = getQuarterDateRange(quarter);
+
+    console.log("📅 BACKEND DATE RANGE USED", {
+  start: start.toISOString(),
+  end: end.toISOString(),
+});
+
+
+   
+
+
+
+    console.log("📅 BACKEND DATE RANGE USED", {
+  start: start.toISOString(),
+  end: end.toISOString(),
+});
+
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
       owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
@@ -420,7 +487,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
     const individualTrends = await AnalyticsTicket.aggregate([
       {
         $match: {
-          closed_date: { $gte: sixtyDaysAgo },
+          closed_date: { $gte: start, $lte: end }, // <--- Uses the actual filter range
           owner: { $nin: ["Anmol", "anmol-sawhney"] },
         },
       },
@@ -535,6 +602,101 @@ app.get("/api/tickets/analytics", async (req, res) => {
   }
 });
 
+
+// Get tickets for a specific date (for drill-down)
+app.get("/api/tickets/by-date", async (req, res) => {
+  try {
+    const { date, owners, metric, excludeZendesk, region } = req.query;
+    
+    if (!date) {
+      return res.status(400).json({ error: "Date required" });
+    }
+    
+    // Parse date - handle both "2026-01-08" and "2026-W02" formats
+    let startOfDay, endOfDay;
+    
+    if (date.includes('W')) {
+      // Weekly format: "2026-W02" - get all tickets in that week
+      const [year, weekPart] = date.split('-W');
+      const weekNum = parseInt(weekPart);
+      // Get first day of week
+      const jan4 = new Date(parseInt(year), 0, 4);
+      const dayOfWeek = jan4.getDay() || 7;
+      startOfDay = new Date(jan4);
+      startOfDay.setDate(jan4.getDate() - dayOfWeek + 1 + (weekNum - 1) * 7);
+      endOfDay = new Date(startOfDay);
+      endOfDay.setDate(startOfDay.getDate() + 6);
+      endOfDay.setHours(23, 59, 59, 999);
+    } else {
+      // Daily format: "2026-01-08"
+      startOfDay = new Date(date + "T00:00:00.000Z");
+      endOfDay = new Date(date + "T23:59:59.999Z");
+    }
+    
+    console.log(`📊 By-date query: ${date} -> ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
+    
+    const matchConditions = {
+      closed_date: { $gte: startOfDay, $lte: endOfDay },
+    };
+    
+    // Filter by owners if provided
+    if (owners && owners.length > 0) {
+      const ownerList = owners.split(',').filter(o => o.trim());
+      if (ownerList.length > 0) {
+        matchConditions.owner = { $in: ownerList };
+      }
+    }
+    
+    // Exclude Zendesk tickets
+    if (excludeZendesk === 'true') {
+      matchConditions.is_zendesk = { $ne: true };
+    }
+    
+    // Filter by region
+    if (region && region.length > 0) {
+      const regionList = region.split(',').filter(r => r.trim());
+      if (regionList.length > 0) {
+        matchConditions.region = { $in: regionList };
+      }
+    }
+    
+    // For backlog metric, only get tickets > 15 days old
+    if (metric === "backlog") {
+      matchConditions.$expr = {
+        $gt: [
+          { $subtract: ["$closed_date", "$created_date"] },
+          15 * 24 * 60 * 60 * 1000,
+        ],
+      };
+    }
+    
+    console.log(`   Query:`, JSON.stringify(matchConditions));
+    
+    const tickets = await AnalyticsTicket.find(matchConditions)
+      .sort({ closed_date: -1 })
+      .limit(500)
+      .lean();
+    
+    console.log(`   Found: ${tickets.length} tickets`);
+    
+    res.json({ 
+      tickets,
+      count: tickets.length,
+      date,
+      dateRange: { start: startOfDay, end: endOfDay },
+      filters: { 
+        owners: owners?.split(',') || [],
+        excludeZendesk: excludeZendesk === 'true',
+        region: region?.split(',') || [],
+      },
+    });
+  } catch (e) {
+    console.error("❌ By-date fetch error:", e);
+    res.status(500).json({ error: e.message, tickets: [] });
+  }
+});
+
+
 const fetchAndCacheTickets = async (source = "auto") => {
   if (isSyncing) {
     syncQueued = true;
@@ -546,7 +708,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
   try {
     // ✅ DEFINE sevenDaysAgo FIRST (before it's used!)
     const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 1825);
     sevenDaysAgo.setHours(0, 0, 0, 0);
     console.log(
       "📅 Including solved tickets since:",
