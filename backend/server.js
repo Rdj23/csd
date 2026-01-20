@@ -234,7 +234,137 @@ const getQuarterDateRange = (quarter) => {
 };
 
 
+// ============================================================================
+// LIVE STATS ENDPOINT (The "Drill-Down Method" for Cards & Charts)
+// ============================================================================
+app.get("/api/tickets/live-stats", async (req, res) => {
+  try {
+    const { start, end, owners, teams, region, excludeZendesk } = req.query;
 
+    if (!start || !end) {
+      return res.status(400).json({ error: "Start and End dates required" });
+    }
+
+    // 1. Build Filter (Exact same as Drill-Down)
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    
+    // Ensure full day coverage
+    if (startDate.getHours() === 0) startDate.setHours(0, 0, 0, 0);
+    if (endDate.getHours() === 0) endDate.setHours(23, 59, 59, 999);
+
+    const matchConditions = {
+      closed_date: { $gte: startDate, $lte: endDate },
+    };
+
+    // Owner Filter
+    if (owners && owners.length > 0 && owners !== "All") {
+      const ownerList = owners.split(",").filter((o) => o.trim());
+      if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
+    }
+
+    // Region Filter (Crucial for your issue)
+    if (region && region.length > 0 && region !== "All") {
+       matchConditions.region = { $in: region.split(",").filter(r => r.trim()) };
+    }
+
+    // Zendesk Filter
+    if (excludeZendesk === "true") {
+      matchConditions.is_zendesk = { $ne: true };
+    }
+
+    // 2. Aggregation Pipeline (Calculate Stats & Trends on the fly)
+    const result = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      {
+        $group: {
+          _id: null,
+          totalSolved: { $sum: 1 },
+          
+          // Stats for Cards (ignoring 0 values)
+          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+
+          // ✅ FIX: VALID COUNTS (Needed for Weighted Average on Frontend)
+          rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
+          frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
+          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
+          
+          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+
+          // Daily Trend for Expanded Chart
+          dailyData: {
+            $push: {
+              date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+              rwt: "$rwt",
+              frt: "$frt",
+              iterations: "$iterations",
+              csat: "$csat",
+              frr: "$frr"
+            }
+          }
+        }
+      }
+    ]);
+
+    if (result.length === 0) {
+      return res.json({ stats: {}, trends: [] });
+    }
+
+    const data = result[0];
+
+    // 3. Process Daily Trends for Chart
+    // We group the 'dailyData' array by date inside JS to handle the daily sums
+    const trendsMap = {};
+    data.dailyData.forEach(t => {
+      if (!trendsMap[t.date]) {
+        trendsMap[t.date] = { 
+          date: t.date, solved: 0, 
+          sumRWT: 0, countRWT: 0,
+          sumFRT: 0, countFRT: 0,
+          sumIter: 0, countIter: 0,
+          positiveCSAT: 0, frrMet: 0
+        };
+      }
+      const day = trendsMap[t.date];
+      day.solved++;
+      if (t.csat === 2) day.positiveCSAT++;
+      if (t.frr === 1) day.frrMet++;
+      
+      if (t.rwt > 0) { day.sumRWT += t.rwt; day.countRWT++; }
+      if (t.frt > 0) { day.sumFRT += t.frt; day.countFRT++; }
+      if (t.iterations > 0) { day.sumIter += t.iterations; day.countIter++; }
+    });
+
+    const trends = Object.values(trendsMap).map(day => ({
+      date: day.date,
+      solved: day.solved,
+      positiveCSAT: day.positiveCSAT,
+      frrMet: day.frrMet,
+      avgRWT: day.countRWT ? day.sumRWT / day.countRWT : 0,
+      avgFRT: day.countFRT ? day.sumFRT / day.countFRT : 0,
+      avgIterations: day.countIter ? day.sumIter / day.countIter : 0,
+    })).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    res.json({
+      stats: {
+        totalSolved: data.totalSolved,
+        avgRWT: data.avgRWT || 0,
+        avgFRT: data.avgFRT || 0,
+        avgIterations: data.avgIterations || 0,
+        positiveCSAT: data.positiveCSAT,
+        frrPercent: data.totalSolved ? Math.round((data.frrMet / data.totalSolved) * 100) : 0,
+      },
+      trends
+    });
+
+  } catch (e) {
+    console.error("Live Stats Error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
 // ============================================================================
 // ✅ MAIN ANALYTICS ENDPOINT - Server-side Aggregation
 // ============================================================================
@@ -281,173 +411,321 @@ app.get("/api/tickets/drilldown", async (req, res) => {
   }
 });
 
-// ============================================================================
-// 1. ANALYTICS ENDPOINT - FIXES GRAPHS SHOWING "ALL DATA"
-// ============================================================================
 app.get("/api/tickets/analytics", async (req, res) => {
   try {
-    const { quarter, excludeZendesk, owner, owners, region, groupBy } = req.query; // Added owners/region
+    const {
+      quarter = "Q4_25",
+      excludeZendesk,
+      owner,
+      forceRefresh,
+      groupBy = "daily",
+    } = req.query;
+    const cacheKey = `${quarter}_${excludeZendesk || "all"}_${
+      owner || "all"
+    }_${groupBy}`;
 
-    // 1. Date Range Logic
-    let start, end;
-    const now = new Date();
-    
-    // Default to Q1_26 if not specified
-    if (quarter === "Q4_25") {
-      start = new Date("2025-10-01");
-      end = new Date("2025-12-31");
-      end.setHours(23, 59, 59, 999);
-    } else {
-      // Q1 2026
-      start = new Date("2026-01-01");
-      end = new Date("2026-03-31");
-      end.setHours(23, 59, 59, 999);
+    console.log(`📊 Analytics Request: ${cacheKey}`);
+
+     console.log("🔍 ANALYTICS QUERY PARAMS", {
+  quarter: req.query.quarter,
+  start: req.query.start,
+  end: req.query.end,
+});
+
+    // Check cache (1 hour TTL)
+    if (forceRefresh !== "true") {
+      const cached = await AnalyticsCache.findOne({
+        cache_key: cacheKey,
+      }).lean();
+      if (
+        cached &&
+        Date.now() - new Date(cached.computed_at).getTime() < 1800000
+      ) {
+        console.log(`   ⚡ Serving from cache`);
+        return res.json(cached);
+      }
     }
 
-    // 2. Build Match Conditions (THE MISSING PIECE)
+    const { start, end } = getQuarterDateRange(quarter);
+
+    console.log("📅 BACKEND DATE RANGE USED", {
+  start: start.toISOString(),
+  end: end.toISOString(),
+});
+
+
+   
+
+
+
+    console.log("📅 BACKEND DATE RANGE USED", {
+  start: start.toISOString(),
+  end: end.toISOString(),
+});
+
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
+      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
+    if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
+    if (owner && owner !== "All")
+      matchConditions.owner = { $regex: owner, $options: "i" };
 
-    // Filter by Single Owner (Legacy)
-    if (owner && owner !== "All") {
-      matchConditions.owner = owner;
-    }
+    console.log(
+      `   📅 Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`
+    );
 
-    // Filter by Multiple Owners (From Team Select)
-    if (owners) {
-      const ownerList = owners.split(",").filter(o => o.trim());
-      if (ownerList.length > 0) {
-        matchConditions.owner = { $in: ownerList };
-      }
-    }
-
-    // Filter by Region
-    if (region) {
-      const regionList = region.split(",").filter(r => r.trim());
-      if (regionList.length > 0) {
-        matchConditions.region = { $in: regionList };
-      }
-    }
-
-    // Exclude Zendesk
-    if (excludeZendesk === "true") {
-      matchConditions.is_zendesk = { $ne: true };
-    }
-
-    const cacheKey = `analytics_${quarter}_${excludeZendesk}_${owner || 'all'}_${owners || 'none'}_${region || 'none'}`;
-    const cachedData = cache.get(cacheKey);
-    if (cachedData) return res.json(cachedData);
-
-    // 3. Stats Aggregation (Respects Filters)
-    const statsResult = await AnalyticsTicket.aggregate([
+    // Aggregate Stats
+    const [statsResult] = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
       {
         $group: {
           _id: null,
           totalTickets: { $sum: 1 },
-          // Stats ignoring 0s
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          // Counts
+          avgRWT: {
+            $avg: {
+              $cond: [
+                { $and: [{ $ne: ["$rwt", null] }, { $gt: ["$rwt", 0] }] },
+                "$rwt",
+                null,
+              ],
+            },
+          },
+          avgFRT: {
+            $avg: {
+              $cond: [
+                { $and: [{ $ne: ["$frt", null] }, { $gt: ["$frt", 0] }] },
+                "$frt",
+                null,
+              ],
+            },
+          },
+          avgIterations: {
+            $avg: {
+              $cond: [{ $ne: ["$iterations", null] }, "$iterations", null],
+            },
+          },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
           negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          frrTotal: { $sum: { $cond: [{ $in: ["$frr", [0, 1]] }, 1, 0] } },
+          // ✅ FIX 4: Updated FRR Aggregation (Sum of 1s)
+          frrMet: { $sum: "$frr" },
+          frrTotal: { $sum: 1 },
         },
       },
-    ]).then((res) => res[0]);
+    ]);
 
-    // 4. Trends Aggregation (FIXED: Now Respects MatchConditions)
+    let dateFormat = "%Y-%m-%d"; // daily
+    if (groupBy === "weekly") dateFormat = "%Y-W%V";
+    if (groupBy === "monthly") dateFormat = "%Y-%m";
+
+    // Daily/Weekly/Monthly Trends
     const trends = await AnalyticsTicket.aggregate([
-      { $match: matchConditions }, // <--- THIS WAS MISSING BEFORE
+      { $match: matchConditions },
       {
         $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+          _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
           solved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          avgRWT: { $avg: "$rwt" },
+          avgFRT: { $avg: "$frt" },
+          avgIterations: { $avg: "$iterations" },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
         },
       },
       { $sort: { _id: 1 } },
+      { $limit: 100 },
     ]);
 
-    // 5. Leaderboard (Respects Filters)
+    // Backlog Clearance (tickets >15 days old when closed) with same grouping
+    const backlogCleared = await AnalyticsTicket.aggregate([
+      {
+        $match: {
+          ...matchConditions,
+          $expr: {
+            $gt: [
+              { $subtract: ["$closed_date", "$created_date"] },
+              15 * 24 * 60 * 60 * 1000,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $limit: 100 },
+    ]);
+
+    // Leaderboard
     const leaderboard = await AnalyticsTicket.aggregate([
-      { $match: matchConditions }, // <--- THIS WAS MISSING
+      { $match: matchConditions },
       {
         $group: {
           _id: "$owner",
           totalTickets: { $sum: 1 },
           goodCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
           badCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+          avgRWT: { $avg: "$rwt" },
+          avgFRT: { $avg: "$frt" },
         },
       },
-      { $sort: { goodCSAT: -1 } },
-      { $limit: 15 },
+      { $match: { _id: { $ne: null }, totalTickets: { $gte: 3 } } },
+      {
+        $addFields: {
+          winRate: {
+            $cond: [
+              { $gt: [{ $add: ["$goodCSAT", "$badCSAT"] }, 0] },
+              {
+                $multiply: [
+                  {
+                    $divide: ["$goodCSAT", { $add: ["$goodCSAT", "$badCSAT"] }],
+                  },
+                  100,
+                ],
+              },
+              0,
+            ],
+          },
+        },
+      },
+      { $sort: { goodCSAT: -1, winRate: -1 } },
+      { $limit: 25 },
     ]);
 
-    // 6. Individual Trends (Respects Filters)
-    // Note: We might want a wider date range for individual trends sparklines, 
-    // but typically it should match the requested view for graphs.
-    const individualTrends = await AnalyticsTicket.aggregate([
-      { $match: matchConditions }, // <--- THIS WAS MISSING
+    // Bad CSAT (including all for DSAT)
+    const dsatMatch = { closed_date: { $gte: start, $lte: end }, csat: 1 };
+    if (excludeZendesk === "true") dsatMatch.is_zendesk = { $ne: true };
+    const badTickets = await AnalyticsTicket.find(dsatMatch, {
+      ticket_id: 1,
+      display_id: 1,
+      title: 1,
+      owner: 1,
+      created_date: 1,
+      closed_date: 1,
+    })
+      .sort({ closed_date: -1 })
+      .limit(50)
+      .lean();
+
+    // Individual trends (last 60 days)
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+   const individualTrends = await AnalyticsTicket.aggregate([
+      {
+        $match: {
+          closed_date: { $gte: start, $lte: end }, // Use request range
+          owner: { $nin: ["Anmol", "anmol-sawhney"] },
+        },
+      },
+      {
+        $addFields: {
+          ticketAge: {
+            $divide: [
+              { $subtract: ["$closed_date", "$created_date"] },
+              1000 * 60 * 60 * 24, 
+            ],
+          },
+        },
+      },
       {
         $group: {
           _id: {
-            date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+            date: {
+              $dateToString: { format: "%Y-%m-%d", date: "$closed_date" },
+            },
             owner: "$owner",
           },
           solved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+          
+          // ✅ FIX: Use $cond to ignore 0 values for averages
+          avgRWT: { 
+            $avg: { 
+              $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] 
+            } 
+          },
+          avgFRT: { 
+            $avg: { 
+              $cond: [{ $gt: ["$frt", 0] }, "$frt", null] 
+            } 
+          },
+          // ✅ NEW: Iterations (Avg + Valid Count for weighting)
+          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
+
+          // ✅ FIX: Add counts of valid tickets for Weighted Average calc on Frontend
+          rwtValidCount: { 
+            $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } 
+          },
+          frtValidCount: { 
+            $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } 
+          },
+         
+
+          // ✅ FIX: Add CSAT and FRR data
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          backlogCleared: { $sum: 0 } // simplified
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          
+          backlogCleared: {
+            $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] },
+          },
         },
       },
       { $sort: { "_id.date": 1 } },
     ]);
 
-    // 7. Bad Tickets (DSAT)
-    const badTickets = await AnalyticsTicket.find({
-      ...matchConditions,
-      csat: 1,
-    })
-      .sort({ closed_date: -1 })
-      .limit(20)
-      .lean();
-
     const response = {
       cache_key: cacheKey,
+      computed_at: new Date(),
+      quarter,
+      dateRange: { start, end },
       stats: {
         totalTickets: statsResult?.totalTickets || 0,
         avgRWT: statsResult?.avgRWT ? Number(statsResult.avgRWT.toFixed(2)) : 0,
         avgFRT: statsResult?.avgFRT ? Number(statsResult.avgFRT.toFixed(2)) : 0,
-        avgIterations: statsResult?.avgIterations ? Number(statsResult.avgIterations.toFixed(1)) : 0,
+        avgIterations: statsResult?.avgIterations
+          ? Number(statsResult.avgIterations.toFixed(1))
+          : 0,
         positiveCSAT: statsResult?.positiveCSAT || 0,
         negativeCSAT: statsResult?.negativeCSAT || 0,
-        frrPercent: statsResult?.frrTotal > 0 ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100) : 0,
+        frrPercent:
+          statsResult?.frrTotal > 0
+            ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100)
+            : 0,
       },
-      trends: trends.map(t => ({
-        date: t._id,
-        solved: t.solved,
-        avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
-        avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
-        avgIterations: t.avgIterations ? Number(t.avgIterations.toFixed(1)) : 0,
-        positiveCSAT: t.positiveCSAT,
-        frrMet: t.frrMet
-      })),
-      leaderboard: leaderboard.map(l => ({
+      trends: trends.map((t) => {
+        const backlog = backlogCleared.find((b) => b._id === t._id);
+        return {
+          date: t._id,
+          solved: t.solved,
+          avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
+          avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
+          avgIterations: t.avgIterations
+            ? Number(t.avgIterations.toFixed(1))
+            : 0,
+          backlogCleared: backlog?.count || 0,
+          positiveCSAT: t.positiveCSAT,
+          frrMet: t.frrMet || 0,
+        };
+      }),
+      leaderboard: leaderboard.map((l) => ({
         name: l._id,
         totalTickets: l.totalTickets,
         goodCSAT: l.goodCSAT,
         badCSAT: l.badCSAT,
+        winRate: Math.round(l.winRate || 0),
         avgRWT: l.avgRWT ? Number(l.avgRWT.toFixed(2)) : 0,
+        avgFRT: l.avgFRT ? Number(l.avgFRT.toFixed(2)) : 0,
+      })),
+      badTickets: badTickets.map((t) => ({
+        id: t.ticket_id,
+        display_id: t.display_id,
+        title: t.title,
+        owner: t.owner,
+        created_date: t.created_date,
+        closed_date: t.closed_date,
       })),
       individualTrends: individualTrends.reduce((acc, item) => {
         const { date, owner } = item._id;
@@ -456,87 +734,90 @@ app.get("/api/tickets/analytics", async (req, res) => {
           date,
           solved: item.solved,
           avgRWT: item.avgRWT ? Number(item.avgRWT.toFixed(2)) : 0,
-          positiveCSAT: item.positiveCSAT,
+          avgFRT: item.avgFRT ? Number(item.avgFRT.toFixed(2)) : 0,
+          avgIterations: item.avgIterations ? Number(item.avgIterations.toFixed(1)) : 0,
+          // Pass the Raw Counts
+          positiveCSAT: item.positiveCSAT || 0,
+          frrMet: item.frrMet || 0,
+          // Pass Valid Counts for Frontend Weighting
+          rwtValidCount: item.rwtValidCount || 0,
+          frtValidCount: item.frtValidCount || 0,
+          iterValidCount: item.iterValidCount || 0,
+          backlogCleared: item.backlogCleared || 0,
         });
         return acc;
       }, {}),
-      badTickets: badTickets.map(t => ({
-        id: t.ticket_id,
-        display_id: t.display_id,
-        title: t.title,
-        owner: t.owner,
-        created_date: t.created_date,
-        closed_date: t.closed_date,
-      })),
     };
 
-    cache.set(cacheKey, response);
+    await AnalyticsCache.findOneAndUpdate({ cache_key: cacheKey }, response, {
+      upsert: true,
+    });
+    console.log(`   ✅ Computed: ${response.stats.totalTickets} tickets`);
     res.json(response);
-
   } catch (e) {
-    console.error("Analytics Error:", e);
-    res.status(500).json({ error: e.message });
+    console.error("❌ Analytics Error:", e);
+    res.status(500).json({
+      stats: {},
+      trends: [],
+      leaderboard: [],
+      badTickets: [],
+      individualTrends: {},
+    });
   }
 });
 
 
-// ============================================================================
-// 2. DRILL-DOWN ENDPOINT - FIXES "SHOW ALL TICKETS"
-// ============================================================================
+// Get tickets for a specific date (for drill-down)
+
 app.get("/api/tickets/by-date", async (req, res) => {
   try {
     const { date, owners, metric, excludeZendesk, region } = req.query;
     
     if (!date) return res.status(400).json({ error: "Date required" });
     
-    // Date Parsing
+    // Parse date logic (Weekly vs Daily)
     let startOfDay, endOfDay;
     if (date.includes('W')) {
-       const [year, weekPart] = date.split('-W');
-       const weekNum = parseInt(weekPart);
-       const simple = new Date(parseInt(year), 0, 1 + (weekNum - 1) * 7);
-       const dow = simple.getDay();
-       const ISOweekStart = simple;
-       if (dow <= 4) ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
-       else ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
-       
-       startOfDay = new Date(ISOweekStart);
-       endOfDay = new Date(startOfDay);
-       endOfDay.setDate(startOfDay.getDate() + 6);
-       endOfDay.setHours(23, 59, 59, 999);
+      const [year, weekPart] = date.split('-W');
+      const weekNum = parseInt(weekPart);
+      const simple = new Date(parseInt(year), 0, 1 + (weekNum - 1) * 7);
+      const dow = simple.getDay();
+      const ISOweekStart = simple;
+      if (dow <= 4) ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+      else ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
+      
+      startOfDay = new Date(ISOweekStart);
+      endOfDay = new Date(startOfDay);
+      endOfDay.setDate(startOfDay.getDate() + 6);
+      endOfDay.setHours(23, 59, 59, 999);
     } else {
       startOfDay = new Date(date + "T00:00:00.000Z");
       endOfDay = new Date(date + "T23:59:59.999Z");
     }
     
-    // Base Match: Solved Tickets in Date Range
     const matchConditions = {
       closed_date: { $gte: startOfDay, $lte: endOfDay },
     };
     
-    // Filters
+    // 1. Owner Filter
     if (owners && owners.length > 0 && owners !== 'All') {
       const ownerList = owners.split(',').filter(o => o.trim());
       if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
     }
-    if (region && region.length > 0 && region !== 'All') {
-       matchConditions.region = { $in: region.split(',').filter(r => r.trim()) };
-    }
-    if (excludeZendesk === 'true') matchConditions.is_zendesk = { $ne: true };
-
-    // Metric Logic - SHOW ALL TICKETS FOR RWT/FRT/ITERATIONS
+    
+   // ✅ METRIC SPECIFIC FILTERS (Exclude 0/Null values)
     if (metric === "csat" || metric === "positiveCSAT") {
-      matchConditions.csat = 2; // Keep positive filter for CSAT
+      matchConditions.csat = 2; 
     } else if (metric === "frrPercent" || metric === "frr") {
-      matchConditions.frr = 1;  // Keep met filter for FRR
+      matchConditions.frr = 1; // Only met
     } else if (metric === "backlog") {
-      delete matchConditions.closed_date;
       matchConditions.$expr = {
         $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 86400000],
       };
-    }
-    // REMOVED: { $gt: 0 } filters for rwt, frt, iterations
-    // This ensures ALL tickets appear in the list
+    } 
+    // 3. Zendesk & Region
+    if (excludeZendesk === 'true') matchConditions.is_zendesk = { $ne: true };
+    if (region && region.length > 0) matchConditions.region = { $in: region.split(',') };
 
     const tickets = await AnalyticsTicket.find(matchConditions)
       .sort({ closed_date: -1 })
@@ -549,6 +830,7 @@ app.get("/api/tickets/by-date", async (req, res) => {
     res.status(500).json({ error: e.message, tickets: [] });
   }
 });
+
 
 
 const fetchAndCacheTickets = async (source = "auto") => {

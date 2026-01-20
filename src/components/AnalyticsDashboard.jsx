@@ -2137,11 +2137,7 @@ const AnalyticsDashboard = ({
 
         console.log(`   📊 MongoDB returned ${ticketsForDate.length} tickets`);
 
-        // Apply NOC filter client-side (if excludeNOC is enabled)
-        // Note: For historical data, we can't filter NOC without dependency info
-        // This is a known limitation - NOC filter only works for recent data
-
-        // Build summary
+        
         let summary = `${ticketsForDate.length} tickets`;
 
         if (metricKey === "frrPercent" || metricKey === "frr") {
