@@ -354,6 +354,13 @@ app.get("/api/tickets/live-stats", async (req, res) => {
         avgRWT: data.avgRWT || 0,
         avgFRT: data.avgFRT || 0,
         avgIterations: data.avgIterations || 0,
+
+        // ✅ FIX: VALID COUNTS (Needed for Weighted Average on Frontend)
+          rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
+          frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
+          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
+
+
         positiveCSAT: data.positiveCSAT,
         frrPercent: data.totalSolved ? Math.round((data.frrMet / data.totalSolved) * 100) : 0,
       },
@@ -803,6 +810,10 @@ app.get("/api/tickets/by-date", async (req, res) => {
     if (owners && owners.length > 0 && owners !== 'All') {
       const ownerList = owners.split(',').filter(o => o.trim());
       if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
+    }
+
+    if (region && region !== 'All') {
+       matchConditions.region = { $in: region.split(',').filter(r => r.trim()) };
     }
     
    // ✅ METRIC SPECIFIC FILTERS (Exclude 0/Null values)
