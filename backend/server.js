@@ -613,10 +613,7 @@ if (excludeNOC === "true") {
     if (owner && owner !== "All")
       matchConditions.owner = { $regex: owner, $options: "i" };
 
-    console.log(
-      `   📅 Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`
-    );
-
+  
     
 
     // Aggregate Stats
