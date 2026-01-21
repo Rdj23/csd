@@ -463,6 +463,11 @@ app.get("/api/tickets/analytics", async (req, res) => {
 
     console.log(`📊 Analytics Request: ${cacheKey}`);
 
+       // NOC Filter
+    if (req.query.excludeNOC === "true") {
+      matchConditions.is_noc = { $ne: true };
+    }
+
      console.log("🔍 ANALYTICS QUERY PARAMS", {
   quarter: req.query.quarter,
   start: req.query.start,
