@@ -460,7 +460,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
    const cacheKey = `analytics_${quarter}_${excludeZendesk}_${excludeNOC}_${owner || 'all'}_${owners || 'none'}_${region || 'none'}_${groupBy}`;
    const cachedData = cache.get(cacheKey);
     if (cachedData) return res.json(cachedData);
-    
+
     console.log(`📊 Analytics Request: ${cacheKey}`);
 
      console.log("🔍 ANALYTICS QUERY PARAMS", {
@@ -657,10 +657,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
     sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
    const individualTrends = await AnalyticsTicket.aggregate([
       {
-        $match: {
-          closed_date: { $gte: start, $lte: end }, // Use request range
-          owner: { $nin: ["Anmol", "anmol-sawhney"] },
-        },
+       $match: matchConditions
       },
       {
         $addFields: {
@@ -839,6 +836,7 @@ app.get("/api/tickets/by-date", async (req, res) => {
     
     const matchConditions = {
       closed_date: { $gte: startOfDay, $lte: endOfDay },
+      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
     
     // 1. Owner Filter

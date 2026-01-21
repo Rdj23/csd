@@ -3313,12 +3313,14 @@ const AnalyticsDashboard = ({
     fetchAnalyticsData({
       quarter: currentQuarter,
       excludeZendesk,
+      excludeNOC,
       owner: filterOwner !== "All" ? filterOwner : null,
       groupBy,
     });
   }, [
     currentQuarter,
     excludeZendesk,
+    excludeNOC,
     filterOwner,
     fetchAnalyticsData,
     groupBy,
@@ -3507,7 +3509,7 @@ useEffect(() => {
       rwt: rwtData,
       backlog: backlogData,
     };
-  }, [volumeTickets, effectiveDateRange, analyticsData, filters]);
+  }, [volumeTickets, effectiveDateRange, analyticsData, filters, excludeNOC]);
 
  const filteredStats = useMemo(() => {
 
@@ -3532,7 +3534,7 @@ useEffect(() => {
     // =================================================================================
     if (filters?.regions?.length > 0) {
       // When region filter is active, calculate from solvedTickets (already filtered by region in baseFilteredTickets)
-      let filteredSolved = solvedTickets;
+      let filteredSolved = effectiveSolvedTickets;
       
       // Also apply owner/team filter if present
       if (filters?.owners?.length > 0) {
@@ -3714,7 +3716,7 @@ useEffect(() => {
       frrMet,
       _source: "mongodb_global_calc",
     };
-  }, [analyticsData, volumeTickets, solvedTickets, filters, effectiveDateRange]);
+  }, [analyticsData, volumeTickets, solvedTickets, filters, effectiveDateRange, excludeNOC, dependencies]);
 
   // Expanded chart data
   const expandedData = useMemo(() => {
