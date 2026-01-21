@@ -13,6 +13,8 @@ import process from "process";
 import { OAuth2Client } from "google-auth-library";
 import { parseISO, format, subDays } from "date-fns";
 import mongoose from "mongoose";
+import compression from "compression";
+import Redis from "ioredis";
 
 // Memory management for Render
 if (process.env.NODE_ENV === "production") {
@@ -45,6 +47,78 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("🍃 MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
+
+  // --- REDIS CONNECTION ---
+const REDIS_URL = process.env.REDIS_URL || "redis://red-d5obeffgi27c73ejbck0:6379";
+let redis = null;
+
+const initRedis = async () => {
+  try {
+    redis = new Redis(REDIS_URL, {
+      maxRetriesPerRequest: 3,
+      retryDelayOnFailover: 100,
+      enableReadyCheck: true,
+      connectTimeout: 10000,
+      lazyConnect: true,
+    });
+    
+    redis.on("connect", () => console.log("🔴 Redis Connected"));
+    redis.on("error", (err) => {
+      console.error("Redis Error:", err.message);
+      redis = null; // Fallback to no cache
+    });
+    
+    await redis.connect();
+  } catch (err) {
+    console.error("Redis Init Failed:", err.message);
+    redis = null;
+  }
+};
+
+initRedis();
+
+// --- REDIS CACHE HELPERS ---
+const CACHE_TTL = {
+  ANALYTICS: 1800,      // 30 minutes
+  TICKETS: 300,         // 5 minutes
+  LEADERBOARD: 3600,    // 1 hour
+  DRILLDOWN: 600,       // 10 minutes
+};
+
+const redisGet = async (key) => {
+  if (!redis) return null;
+  try {
+    const data = await redis.get(key);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    console.error("Redis GET error:", e.message);
+    return null;
+  }
+};
+
+const redisSet = async (key, data, ttl = 1800) => {
+  if (!redis) return false;
+  try {
+    await redis.setex(key, ttl, JSON.stringify(data));
+    return true;
+  } catch (e) {
+    console.error("Redis SET error:", e.message);
+    return false;
+  }
+};
+
+const redisDelete = async (pattern) => {
+  if (!redis) return;
+  try {
+    const keys = await redis.keys(pattern);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+      console.log(`🗑️ Cleared ${keys.length} cache keys: ${pattern}`);
+    }
+  } catch (e) {
+    console.error("Redis DEL error:", e.message);
+  }
+};
 
 // Map DevRev display_name to GST roster name
 const GST_NAME_MAP = {
@@ -141,11 +215,16 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     noc_jira_key: { type: String, default: null },      // e.g., "SUC-128878"
     noc_rca: { type: String, default: null },           // e.g., "Understanding Gap - CS"
     noc_reported_by: { type: String, default: null },   // e.g., "Sambhaavna A"
+    noc_assignee: { type: String, default: null },
   },
   { versionKey: false }
 );
 
 AnalyticsTicketSchema.index({ closed_date: 1, owner: 1 });
+AnalyticsTicketSchema.index({ closed_date: 1, is_noc: 1 });
+AnalyticsTicketSchema.index({ closed_date: 1, is_zendesk: 1 });
+AnalyticsTicketSchema.index({ owner: 1, closed_date: 1, region: 1 });
+
 const AnalyticsTicket = mongoose.model(
   "AnalyticsTicket",
   AnalyticsTicketSchema
@@ -166,6 +245,9 @@ const AnalyticsCache = mongoose.model("AnalyticsCache", AnalyticsCacheSchema);
 app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+    req.setTimeout(30000); // 30 second timeout
+  res.setTimeout(30000);
+ 
   next();
 });
 
@@ -178,6 +260,15 @@ app.use(
     credentials: true,
   })
 );
+// GZIP Compression - reduces payload by 70%
+app.use(compression({
+  level: 6,
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -262,10 +353,18 @@ const getQuarterDateRange = (quarter) => {
 // ============================================================================
 app.get("/api/tickets/live-stats", async (req, res) => {
   try {
-    const { start, end, owners, teams, region, excludeZendesk } = req.query;
+    const { start, end, owners, teams, region, excludeZendesk, excludeNOC } = req.query;
 
     if (!start || !end) {
       return res.status(400).json({ error: "Start and End dates required" });
+    }
+    
+    // Redis cache check
+    const cacheKey = `livestats:${start}:${end}:${owners || 'all'}:${region || 'all'}:${excludeZendesk || 'false'}:${excludeNOC || 'false'}`;
+    const cachedData = await redisGet(cacheKey);
+    if (cachedData) {
+      console.log(`⚡ LiveStats Redis HIT`);
+      return res.json(cachedData);
     }
 
     // 1. Build Filter (Exact same as Drill-Down)
@@ -376,6 +475,9 @@ app.get("/api/tickets/live-stats", async (req, res) => {
       avgIterations: day.countIter ? day.sumIter / day.countIter : 0,
     })).sort((a, b) => new Date(a.date) - new Date(b.date));
 
+    // Cache response
+    await redisSet(cacheKey, responseData, CACHE_TTL.DRILLDOWN);
+
     res.json({
       stats: {
         totalSolved: data.totalSolved,
@@ -449,7 +551,7 @@ app.get("/api/tickets/drilldown", async (req, res) => {
 app.get("/api/tickets/analytics", async (req, res) => {
   try {
     const {
-      quarter = "Q4_25",
+      quarter = "Q1_26",
       excludeZendesk,
       excludeNOC,
       owner,
@@ -458,41 +560,29 @@ app.get("/api/tickets/analytics", async (req, res) => {
       forceRefresh,
       groupBy = "daily",
     } = req.query;
-   const cacheKey = `analytics_${quarter}_${excludeZendesk}_${excludeNOC}_${owner || 'all'}_${owners || 'none'}_${region || 'none'}_${groupBy}`;
-   const cachedData = cache.get(cacheKey);
-    if (cachedData) return res.json(cachedData);
-
-    console.log(`📊 Analytics Request: ${cacheKey}`);
-
-  
-
-     console.log("🔍 ANALYTICS QUERY PARAMS", {
-  quarter: req.query.quarter,
-  start: req.query.start,
-  end: req.query.end,
-});
-
-    // Check cache (1 hour TTL)
+      const cacheKey = `analytics:${quarter}:${excludeZendesk || 'false'}:${excludeNOC || 'false'}:${owner || 'all'}:${owners || 'none'}:${region || 'none'}:${groupBy}`;
+    
+    // 1. Check Redis cache first (fastest)
     if (forceRefresh !== "true") {
-      const cached = await AnalyticsCache.findOne({
-        cache_key: cacheKey,
-      }).lean();
-      if (
-        cached &&
-        Date.now() - new Date(cached.computed_at).getTime() < 1800000
-      ) {
-        console.log(`   ⚡ Serving from cache`);
-        return res.json(cached);
+      const redisData = await redisGet(cacheKey);
+      if (redisData) {
+        console.log(`⚡ Redis HIT: ${cacheKey}`);
+        return res.json(redisData);
       }
     }
+    
+    console.log(`📊 Analytics Request (Cache MISS): ${cacheKey}`);
 
-    const { start, end } = getQuarterDateRange(quarter);
-
-    console.log("📅 BACKEND DATE RANGE USED", {
-  start: start.toISOString(),
-  end: end.toISOString(),
-});
-
+    // 2. Check MongoDB cache (fallback)
+    if (forceRefresh !== "true") {
+      const mongoCache = await AnalyticsCache.findOne({ cache_key: cacheKey }).lean();
+      if (mongoCache && Date.now() - new Date(mongoCache.computed_at).getTime() < 1800000) {
+        console.log(`⚡ MongoDB Cache HIT`);
+        // Store in Redis for next time
+        await redisSet(cacheKey, mongoCache, CACHE_TTL.ANALYTICS);
+        return res.json(mongoCache);
+      }
+    }
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
       owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
@@ -788,7 +878,19 @@ if (excludeNOC === "true") {
     await AnalyticsCache.findOneAndUpdate({ cache_key: cacheKey }, response, {
       upsert: true,
     });
-    console.log(`   ✅ Computed: ${response.stats.totalTickets} tickets`);
+   
+
+    // Cache in Redis (fast) and MongoDB (persistent)
+    await Promise.all([
+      redisSet(cacheKey, response, CACHE_TTL.ANALYTICS),
+      AnalyticsCache.findOneAndUpdate(
+        { cache_key: cacheKey },
+        { $set: response },
+        { upsert: true }
+      )
+    ]);
+    
+    console.log(`✅ Analytics computed & cached: ${cacheKey}`);
     res.json(response);
   } catch (e) {
     console.error("❌ Analytics Error:", e.message, e.stack);
@@ -802,6 +904,38 @@ if (excludeNOC === "true") {
   }
 });
 
+// Cache status endpoint for debugging
+app.get("/api/cache/status", async (req, res) => {
+  const nodeKeys = cache.keys();
+  let redisKeys = [];
+  
+  if (redis) {
+    try {
+      redisKeys = await redis.keys("*");
+    } catch (e) {
+      redisKeys = ["Error: " + e.message];
+    }
+  }
+  
+  res.json({
+    nodeCache: {
+      keys: nodeKeys,
+      stats: cache.getStats(),
+    },
+    redis: {
+      status: redis?.status || "disconnected",
+      keys: redisKeys.length,
+      keyList: redisKeys.slice(0, 20), // First 20 keys
+    },
+  });
+});
+
+// Manual cache clear endpoint
+app.post("/api/cache/clear", async (req, res) => {
+  cache.flushAll();
+  await redisDelete("*");
+  res.json({ success: true, message: "All caches cleared" });
+});
 
 // Get tickets for a specific date (for drill-down)
 
@@ -810,6 +944,13 @@ app.get("/api/tickets/by-date", async (req, res) => {
     const { date, owners, metric, excludeZendesk, region, } = req.query;
     
     if (!date) return res.status(400).json({ error: "Date required" });
+
+    const cacheKey = `bydate:${date}:${owners || 'all'}:${excludeZendesk || 'false'}:${excludeNOC || 'false'}`;
+    const cached = await redisGet(cacheKey);
+    if (cached) {
+      console.log(`⚡ ByDate Redis HIT`);
+      return res.json(cached);
+    }
     
     // Parse date logic (Weekly vs Daily)
     let startOfDay, endOfDay;
@@ -869,7 +1010,8 @@ app.get("/api/tickets/by-date", async (req, res) => {
       .sort({ closed_date: -1 })
       .limit(500)
       .lean();
-    
+
+    await redisSet(cacheKey, { tickets }, CACHE_TTL.DRILLDOWN);
     res.json({ tickets, count: tickets.length });
   } catch (e) {
     console.error("❌ By-date fetch error:", e);
@@ -969,7 +1111,10 @@ const fetchAndCacheTickets = async (source = "auto") => {
       return stage.includes("solved") || stage.includes("closed");
     }).length;
 
+  // Store in both NodeCache (fast local) and Redis (shared across restarts)
     cache.set("tickets_active", activeTickets);
+    await redisSet("tickets:active", activeTickets, CACHE_TTL.TICKETS);
+    
     collected = null;
     if (global.gc) global.gc();
     console.log(
@@ -991,12 +1136,26 @@ const fetchAndCacheTickets = async (source = "auto") => {
 // ACTIVE TICKETS (Dashboard - Open/Pending only)
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
+  // Try Redis first
+  const redisData = await redisGet("tickets:active");
+  if (redisData) {
+    console.log("⚡ Active Tickets: Redis HIT");
+    return res.json({ tickets: redisData });
+  }
+  
+  // Try NodeCache
   const cached = cache.get("tickets_active");
-  if (cached) return res.json({ tickets: cached });
+  if (cached) {
+    // Store in Redis for next time
+    await redisSet("tickets:active", cached, CACHE_TTL.TICKETS);
+    return res.json({ tickets: cached });
+  }
+  
   await fetchAndCacheTickets("first_load");
-  res.json({ tickets: cache.get("tickets_active") || [] });
+  const tickets = cache.get("tickets_active") || [];
+  await redisSet("tickets:active", tickets, CACHE_TTL.TICKETS);
+  res.json({ tickets });
 });
-
 // Fetch linked issues for a ticket
 app.post("/api/tickets/links", async (req, res) => {
   try {
@@ -1323,11 +1482,13 @@ const syncHistoricalToDB = async (fullHistory = false) => {
           if (iterations === 1) frrVal = 1;
 
           // NOC Detection - Only for tickets closed >= Jan 1, 2026
+    
           let isNoc = false;
           let nocIssueId = null;
           let nocJiraKey = null;
           let nocRca = null;
           let nocReportedBy = null;
+          let nocAssignee = null;  // NEW
 
           const closedDate = new Date(t.actual_close_date);
           if (closedDate >= NOC_CHECK_DATE) {
@@ -1359,14 +1520,16 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                   const issue = issRes.data.work;
 
                   // Check if it's a NOC issue (PSN Task)
+                // Check if it's a NOC issue (PSN Task)
                   if (issue?.custom_fields?.ctype__issuetype === "PSN Task") {
                     isNoc = true;
-                    nocIssueId = issue.display_id;                                    // ISS-124362
-                    nocJiraKey = issue.custom_fields?.ctype__key || null;             // SUC-128878
-                    nocRca = issue.custom_fields?.ctype__customfield_10169 || null;   // Understanding Gap - CS
-                    nocReportedBy = issue.reported_by?.[0]?.display_name || null;     // Sambhaavna A
+                    nocIssueId = issue.display_id;
+                    nocJiraKey = issue.custom_fields?.ctype__key || null;
+                    nocRca = issue.custom_fields?.ctype__customfield_10169 || null;
+                    nocReportedBy = issue.reported_by?.[0]?.display_name || null;
+                    nocAssignee = issue.owned_by?.[0]?.display_name || null;  // NEW: Get assignee
                     nocCount++;
-                    console.log(`   ✓ NOC: ${t.display_id} → ${nocIssueId} (${nocJiraKey}), RCA: ${nocRca}, By: ${nocReportedBy}`);
+                    console.log(`   ✓ NOC: ${t.display_id} → ${nocIssueId}, Assignee: ${nocAssignee}, RCA: ${nocRca}`);
                     break;
                   }
                 } catch (e) {
@@ -1397,6 +1560,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                   noc_jira_key: nocJiraKey,
                   noc_rca: nocRca,
                   noc_reported_by: nocReportedBy,
+                  noc_assignee: nocAssignee,  
                   rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
                   frt: t.custom_fields?.tnt__frt_hours ?? null,
                   iterations: iterations ?? null,
@@ -1424,9 +1588,31 @@ const syncHistoricalToDB = async (fullHistory = false) => {
     }
   } while (cursor && loop < 1000);
 
-  await AnalyticsCache.deleteMany({});
-  console.log(`✅ SYNC COMPLETE: ${processedCount} GST tickets, ${nocCount} NOC tickets, ${skippedCount} non-GST skipped`);
+  // Clear all caches
+  await Promise.all([
+    AnalyticsCache.deleteMany({}),
+    redisDelete("analytics:*"),
+    redisDelete("livestats:*"),
+    redisDelete("bydate:*"),
+    redisDelete("tickets:*"),
+  ]);
+  console.log(`✅ SYNC COMPLETE: ${processedCount} GST tickets, ${nocCount} NOC tickets, ${skippedCount} non-GST skipped. Caches cleared.`);
+
 };
+
+// Health check with Redis status
+app.get("/api/health", async (req, res) => {
+  const mongoStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
+  const redisStatus = redis?.status || "disconnected";
+  
+  res.json({
+    status: "ok",
+    mongo: mongoStatus,
+    redis: redisStatus,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+  });
+});
 
 // Webhooks & Admin
 app.post("/api/webhooks/devrev", (req, res) => {
@@ -1761,6 +1947,26 @@ app.delete("/api/views/:userId/:viewId", async (req, res) => {
 
 // Startup
 const PORT = process.env.PORT || 5000;
+
+// Pre-warm cache on server start
+const warmCache = async () => {
+  console.log("🔥 Warming cache...");
+  try {
+    // Pre-compute current quarter analytics
+    const currentQuarter = "Q1_26";
+    const { start, end } = getQuarterDateRange(currentQuarter);
+    
+    // Trigger analytics computation
+    const response = await axios.get(`http://localhost:${PORT}/api/tickets/analytics?quarter=${currentQuarter}`);
+    console.log("✅ Cache warmed for", currentQuarter);
+  } catch (e) {
+    console.log("Cache warming skipped:", e.message);
+  }
+};
+
+// Warm cache 5 seconds after server starts
+setTimeout(warmCache, 5000);
+
 server.listen(PORT, async () => {
   console.log(`🚀 Server on port ${PORT}`);
   const count = await AnalyticsTicket.countDocuments();
