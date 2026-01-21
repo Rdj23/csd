@@ -953,7 +953,7 @@ app.post("/api/cache/clear", async (req, res) => {
 
 app.get("/api/tickets/by-date", async (req, res) => {
   try {
-    const { date, owners, metric, excludeZendesk, region, } = req.query;
+    const { date, owners, metric, excludeZendesk, region,excludeNOC } = req.query;
     
     if (!date) return res.status(400).json({ error: "Date required" });
 
