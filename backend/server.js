@@ -463,10 +463,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
 
     console.log(`📊 Analytics Request: ${cacheKey}`);
 
-       // NOC Filter
-    if (req.query.excludeNOC === "true") {
-      matchConditions.is_noc = { $ne: true };
-    }
+  
 
      console.log("🔍 ANALYTICS QUERY PARAMS", {
   quarter: req.query.quarter,
@@ -494,18 +491,6 @@ app.get("/api/tickets/analytics", async (req, res) => {
   start: start.toISOString(),
   end: end.toISOString(),
 });
-
-
-   
-
-
-
-    console.log("📅 BACKEND DATE RANGE USED", {
-  start: start.toISOString(),
-  end: end.toISOString(),
-});
-
-
 
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
@@ -805,7 +790,7 @@ if (excludeNOC === "true") {
     console.log(`   ✅ Computed: ${response.stats.totalTickets} tickets`);
     res.json(response);
   } catch (e) {
-    console.error("❌ Analytics Error:", e);
+    console.error("❌ Analytics Error:", e.message, e.stack);
     res.status(500).json({
       stats: {},
       trends: [],

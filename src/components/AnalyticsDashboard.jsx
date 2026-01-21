@@ -3099,6 +3099,7 @@ const AnalyticsDashboard = ({
       expandedGroupBy,
       filters?.owners,
       filters?.teams,
+      excludeNOC,
     ],
   );
 
@@ -3391,6 +3392,7 @@ useEffect(() => {
     fetchAnalyticsData({
       quarter: currentQuarter,
       excludeZendesk,
+       excludeNOC,
       forceRefresh: true,
     });
 

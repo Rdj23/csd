@@ -185,7 +185,7 @@ fetchAnalyticsData: async (filters = {}) => {
     
     if (filters.quarter) params.append('quarter', filters.quarter);
     if (filters.excludeZendesk) params.append('excludeZendesk', 'true');
-    if (filters.excludeNOC) params.append("excludeNOC", "true");
+    if (filters.excludeNOC) params.set("excludeNOC", "true");
     if (filters.owner) params.append('owner', filters.owner);
     if (filters.forceRefresh) params.append('forceRefresh', 'true');
     if (filters.groupBy) params.append('groupBy', filters.groupBy); // ADD THIS LINE
