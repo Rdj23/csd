@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useRef,useCallback } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import GroupedTicketList from "./components/GroupedTicketList";
 import AllTicketsView from "./components/Allticketsview";
-import { loginUser, trackEvent } from "./utils/clevertap";
+
 
 import {
   Users,
