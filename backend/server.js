@@ -49,28 +49,38 @@ mongoose
   .catch((err) => console.error("❌ MongoDB Error:", err));
 
   // --- REDIS CONNECTION ---
-const REDIS_URL = process.env.REDIS_URL || "redis://red-d5obeffgi27c73ejbck0:6379";
+// Redis URL - internal URL only works on Render, external URL needed for local dev
+const REDIS_URL = process.env.REDIS_URL;
 let redis = null;
 
 const initRedis = async () => {
+  // Skip Redis if no URL provided (local dev without Redis)
+  if (!REDIS_URL) {
+    console.log("⚠️ No REDIS_URL - running without Redis cache");
+    return;
+  }
+  
   try {
     redis = new Redis(REDIS_URL, {
       maxRetriesPerRequest: 3,
       retryDelayOnFailover: 100,
       enableReadyCheck: true,
-      connectTimeout: 10000,
+      connectTimeout: 5000,
       lazyConnect: true,
     });
     
     redis.on("connect", () => console.log("🔴 Redis Connected"));
     redis.on("error", (err) => {
       console.error("Redis Error:", err.message);
-      redis = null; // Fallback to no cache
+      // Don't keep retrying if it fails
+      redis.disconnect();
+      redis = null;
     });
     
     await redis.connect();
   } catch (err) {
     console.error("Redis Init Failed:", err.message);
+    console.log("⚠️ Continuing without Redis cache");
     redis = null;
   }
 };
@@ -583,6 +593,11 @@ app.get("/api/tickets/analytics", async (req, res) => {
         return res.json(mongoCache);
       }
     }
+
+    // 3. Compute fresh data
+    const { start, end } = getQuarterDateRange(quarter);
+    console.log(`📅 Date Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`);
+
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
       owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
