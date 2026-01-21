@@ -67,7 +67,8 @@ const GST_NAME_MAP = {
   "nikita-narwani": "Nikita",
   "Aditya Mishra": "Aditya",
 
-  "Taha Khans": "Tuaha Khan",
+  "Taha Khan": "Tuaha Khan",
+
 
   "Harsh Singh": "Harsh",
   "Tamanna Khan": "Tamanna",
@@ -94,7 +95,7 @@ const resolveOwnerName = (displayName) => {
 
 const isGSTMember = (ownerName) => {
   if (!ownerName) return false;
-  return GST_MEMBERS.includes(ownerName);
+  return GST_MEMBERS.has(ownerName);
 };
 
 // --- SCHEMAS ---
