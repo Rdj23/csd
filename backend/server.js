@@ -457,10 +457,10 @@ app.get("/api/tickets/analytics", async (req, res) => {
       forceRefresh,
       groupBy = "daily",
     } = req.query;
-    const cacheKey = `${quarter}_${excludeZendesk || "all"}_${
-      owner || "all"
-    }_${groupBy}`;
-
+   const cacheKey = `analytics_${quarter}_${excludeZendesk}_${excludeNOC}_${owner || 'all'}_${owners || 'none'}_${region || 'none'}_${groupBy}`;
+   const cachedData = cache.get(cacheKey);
+    if (cachedData) return res.json(cachedData);
+    
     console.log(`📊 Analytics Request: ${cacheKey}`);
 
      console.log("🔍 ANALYTICS QUERY PARAMS", {
@@ -500,6 +500,8 @@ app.get("/api/tickets/analytics", async (req, res) => {
   end: end.toISOString(),
 });
 
+
+
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
       owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
@@ -512,6 +514,8 @@ app.get("/api/tickets/analytics", async (req, res) => {
     console.log(
       `   📅 Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`
     );
+
+    
 
     // Aggregate Stats
     const [statsResult] = await AnalyticsTicket.aggregate([
@@ -809,7 +813,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
 
 app.get("/api/tickets/by-date", async (req, res) => {
   try {
-    const { date, owners, metric, excludeZendesk, region } = req.query;
+    const { date, owners, metric, excludeZendesk, region, } = req.query;
     
     if (!date) return res.status(400).json({ error: "Date required" });
     
