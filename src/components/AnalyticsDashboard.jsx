@@ -69,6 +69,7 @@ import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
 import { useTicketStore } from "../store";
 import SmartDateRangePicker from "./SmartDateRangePicker";
 import MultiSelectFilter from "./MultiSelectFilter";
+import { trackEvent } from "../utils/clevertap";
 
 const HIDDEN_USERS = [
   "System",
@@ -974,6 +975,8 @@ const PerformanceMetricsCards = ({
   const currentWeekNum = getCurrentWeekNum();
 
   const handleQuarterChange = (qId) => {
+    trackEvent("Analytics Quarter Changed", { Quarter: qId }); // ✅ Add this
+    setSelectedQuarter(qId);
     setSelectedQuarter(qId);
     setGroupBy("daily"); // Reset to daily when changing quarter
     setSelectedWeek(null);
@@ -1961,8 +1964,8 @@ const AnalyticsDashboard = ({
     console.log("Fetching data for expanded modal:", range);
 
     if (range.isAllTime) {
-      fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk,excludeNOC });
-      fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk,excludeNOC });
+      fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk, excludeNOC });
+      fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk, excludeNOC });
     } else {
       const startYear = range.start.getFullYear();
       const startMonth = range.start.getMonth();
@@ -1970,15 +1973,15 @@ const AnalyticsDashboard = ({
 
       // Fetch Q4_25 if date range includes Oct-Dec 2025
       if (startYear === 2025 && startMonth >= 9) {
-        fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk,excludeNOC });
+        fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk, excludeNOC });
       }
       // Fetch Q1_26 if date range includes Jan-Mar 2026
       if (endYear === 2026 || (startYear === 2025 && startMonth === 11)) {
-        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk,excludeNOC });
+        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk, excludeNOC });
       }
       // If only in Jan 2026
       if (startYear === 2026) {
-        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk ,excludeNOC});
+        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk, excludeNOC });
       }
     }
   }, [
@@ -1986,7 +1989,7 @@ const AnalyticsDashboard = ({
     expandedOverviewMetric,
     excludeZendesk,
     fetchAnalyticsData,
-    excludeNOC
+    excludeNOC,
   ]);
 
   // 1. Common Filters (Team, Owner, Region, etc.) - applied to ALL tickets first
@@ -2076,6 +2079,11 @@ const AnalyticsDashboard = ({
 
   const handleDrillDown = useCallback(
     async (metricKey, dateKey, dataPointName, chartData) => {
+      // ✅ Add this
+      trackEvent("Chart Drill Down", {
+        Metric: metricKey,
+        Date: dateKey,
+      });
       // For VOLUME - use DevRev tickets (has created_date)
       if (metricKey === "volume") {
         const ticketsForDate = volumeTickets.filter((t) => {
@@ -2112,7 +2120,7 @@ const AnalyticsDashboard = ({
         date: dateKey,
         owners: ownerFilter.join(","),
         metric: metricKey,
-       excludeZendesk: excludeZendesk ? "true" : "false",
+        excludeZendesk: excludeZendesk ? "true" : "false",
         excludeNOC: excludeNOC ? "true" : "false",
       });
 
@@ -2139,19 +2147,24 @@ const AnalyticsDashboard = ({
 
         console.log(`   📊 MongoDB returned ${ticketsForDate.length} tickets`);
 
-        
         let summary = `${ticketsForDate.length} tickets`;
 
         if (metricKey === "frrPercent" || metricKey === "frr") {
-        if (metricKey === "frrPercent" || metricKey === "frr") {
-          const frrMetCount = ticketsForDate.filter((t) => t.frr === 1).length;
-          // FRR valid = tickets where frr is not null (0 or 1)
-          const frrValidCount = ticketsForDate.filter((t) => t.frr === 0 || t.frr === 1).length;
-          const pct = frrValidCount > 0
-              ? Math.round((frrMetCount / frrValidCount) * 100)
-              : 0;
-          summary = `FRR Met: ${frrMetCount} of ${frrValidCount} (${pct}%) | Total: ${ticketsForDate.length} tickets`;
-        }
+          if (metricKey === "frrPercent" || metricKey === "frr") {
+            const frrMetCount = ticketsForDate.filter(
+              (t) => t.frr === 1,
+            ).length;
+            // FRR valid = tickets where frr is not null (0 or 1)
+            const frrValidCount = ticketsForDate.filter(
+              (t) => t.frr === 0 || t.frr === 1,
+            ).length;
+            const totalCount = ticketsForDate.length;
+            const pct =
+              totalSolved > 0
+                ? Math.round((frrMetCount / totalCount) * 100)
+                : 0;
+            summary = `FRR Met: ${frrMetCount} of ${totalCount} (${pct}%) | Total: ${ticketsForDate.length} tickets`;
+          }
         } else if (metricKey === "csat" || metricKey === "positiveCSAT") {
           const good = ticketsForDate.filter((t) => t.csat === 2).length;
           const bad = ticketsForDate.filter((t) => t.csat === 1).length;
@@ -2845,43 +2858,49 @@ const AnalyticsDashboard = ({
 
   const getExpandedChartData = useCallback(
     (metricKey) => {
-            // =====================================================
+      // =====================================================
       // When owner/team filter is active, aggregate from individualTrends
       // =====================================================
-      const hasOwnerFilters = filters?.owners?.length > 0 || filters?.teams?.length > 0;
-      
+      const hasOwnerFilters =
+        filters?.owners?.length > 0 || filters?.teams?.length > 0;
+
       if (hasOwnerFilters && analyticsData?.individualTrends) {
         const individualTrends = analyticsData.individualTrends;
         let ownersToInclude = Object.keys(individualTrends);
-        
+
         // Filter by owners
         if (filters?.owners?.length > 0) {
-          ownersToInclude = ownersToInclude.filter(owner =>
-            filters.owners.some(o => o.toLowerCase() === owner.toLowerCase())
+          ownersToInclude = ownersToInclude.filter((owner) =>
+            filters.owners.some((o) => o.toLowerCase() === owner.toLowerCase()),
           );
         }
         // Filter by teams
         if (filters?.teams?.length > 0) {
-          ownersToInclude = ownersToInclude.filter(owner => {
-            const ownerTeams = Object.keys(TEAM_GROUPS).filter(teamKey =>
-              Object.values(TEAM_GROUPS[teamKey]).some(m => m.toLowerCase() === owner.toLowerCase())
+          ownersToInclude = ownersToInclude.filter((owner) => {
+            const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+              Object.values(TEAM_GROUPS[teamKey]).some(
+                (m) => m.toLowerCase() === owner.toLowerCase(),
+              ),
             );
-            return filters.teams.some(team => ownerTeams.includes(team));
+            return filters.teams.some((team) => ownerTeams.includes(team));
           });
         }
-        
+
         // Aggregate trends from filtered owners
         const aggregatedByDate = {};
-        ownersToInclude.forEach(owner => {
+        ownersToInclude.forEach((owner) => {
           const ownerTrends = individualTrends[owner] || [];
-          ownerTrends.forEach(day => {
+          ownerTrends.forEach((day) => {
             if (!aggregatedByDate[day.date]) {
               aggregatedByDate[day.date] = {
                 date: day.date,
                 solved: 0,
-                avgRWT: 0, rwtCount: 0,
-                avgFRT: 0, frtCount: 0,
-                avgIterations: 0, iterCount: 0,
+                avgRWT: 0,
+                rwtCount: 0,
+                avgFRT: 0,
+                frtCount: 0,
+                avgIterations: 0,
+                iterCount: 0,
                 positiveCSAT: 0,
                 frrMet: 0,
               };
@@ -2899,35 +2918,37 @@ const AnalyticsDashboard = ({
               agg.frtCount += day.frtValidCount || day.solved || 1;
             }
             if (day.avgIterations > 0) {
-              agg.avgIterations += day.avgIterations * (day.iterValidCount || day.solved || 1);
+              agg.avgIterations +=
+                day.avgIterations * (day.iterValidCount || day.solved || 1);
               agg.iterCount += day.iterValidCount || day.solved || 1;
             }
           });
         });
-        
+
         // Convert to trends array format
-        const trends = Object.values(aggregatedByDate).map(agg => ({
+        const trends = Object.values(aggregatedByDate).map((agg) => ({
           date: agg.date,
           solved: agg.solved,
           avgRWT: agg.rwtCount > 0 ? agg.avgRWT / agg.rwtCount : 0,
           avgFRT: agg.frtCount > 0 ? agg.avgFRT / agg.frtCount : 0,
-          avgIterations: agg.iterCount > 0 ? agg.avgIterations / agg.iterCount : 0,
+          avgIterations:
+            agg.iterCount > 0 ? agg.avgIterations / agg.iterCount : 0,
           positiveCSAT: agg.positiveCSAT,
           frrMet: agg.frrMet,
         }));
-        
+
         // Continue with existing logic using filtered trends...
         if (!trends.length) return [];
-        
+
         const start = expandedEffectiveDateRange.start;
         const end = expandedEffectiveDateRange.end;
-        
-        const filteredData = trends.filter(t => {
+
+        const filteredData = trends.filter((t) => {
           if (!t.date) return false;
           const d = parseISO(t.date);
           return d >= start && d <= end;
         });
-        
+
         const dataKeyMap = {
           avgRWT: "avgRWT",
           csat: "positiveCSAT",
@@ -2936,19 +2957,19 @@ const AnalyticsDashboard = ({
           avgFRT: "avgFRT",
         };
         const dataKey = dataKeyMap[metricKey] || "solved";
-        
+
         if (expandedGroupBy === "daily") {
-          return filteredData.map(t => ({
+          return filteredData.map((t) => ({
             name: format(parseISO(t.date), "MMM dd"),
             date: t.date,
             value: t[dataKey] || 0,
           }));
         }
-        
+
         // Weekly/Monthly grouping (same logic as before)
         if (expandedGroupBy === "weekly") {
           const weeks = {};
-          filteredData.forEach(t => {
+          filteredData.forEach((t) => {
             const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
             if (!weeks[weekKey]) weeks[weekKey] = { values: [], date: t.date };
             weeks[weekKey].values.push(t[dataKey] || 0);
@@ -2963,12 +2984,13 @@ const AnalyticsDashboard = ({
                 : data.values.reduce((a, b) => a + b, 0),
             }));
         }
-        
+
         // Monthly
         const months = {};
-        filteredData.forEach(t => {
+        filteredData.forEach((t) => {
           const monthKey = format(parseISO(t.date), "yyyy-MM");
-          if (!months[monthKey]) months[monthKey] = { values: [], date: t.date };
+          if (!months[monthKey])
+            months[monthKey] = { values: [], date: t.date };
           months[monthKey].values.push(t[dataKey] || 0);
         });
         return Object.entries(months)
@@ -3019,12 +3041,11 @@ const AnalyticsDashboard = ({
         "frrPercent", // mapped to frrMet (count) above
       ].includes(metricKey);
 
-      
-     // 1. DAILY VIEW
+      // 1. DAILY VIEW
       if (expandedGroupBy === "daily") {
         return filteredData.map((t) => {
           let value = t[dataKey] || 0;
-          
+
           // For FRR, calculate percentage: frrMet / solved * 100
           if (metricKey === "frrPercent" && t.solved > 0) {
             value = Math.round((t.frrMet / t.solved) * 100);
@@ -3033,7 +3054,7 @@ const AnalyticsDashboard = ({
           if (metricKey === "csat" && t.solved > 0) {
             value = Math.round((t.positiveCSAT / t.solved) * 100);
           }
-          
+
           return {
             name: format(parseISO(t.date), "MMM dd"),
             date: t.date,
@@ -3046,13 +3067,13 @@ const AnalyticsDashboard = ({
         });
       }
 
-    if (expandedGroupBy === "weekly") {
+      if (expandedGroupBy === "weekly") {
         const weeks = {};
         filteredData.forEach((t) => {
           const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
           if (!weeks[weekKey]) {
-            weeks[weekKey] = { 
-              values: [], 
+            weeks[weekKey] = {
+              values: [],
               date: t.date,
               solvedCounts: [],
               frrMetCounts: [],
@@ -3082,26 +3103,36 @@ const AnalyticsDashboard = ({
             // Fix sum definition
             const sum = data.values.reduce((a, b) => a + b, 0);
 
-            r// Calculate proper value based on metric type
+            r; // Calculate proper value based on metric type
             let value;
             if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
               // Average metrics
               value = sum / (data.values.length || 1);
             } else if (metricKey === "frrPercent") {
               // FRR percentage: need total frrMet / total solved
-              const totalSolved = data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
-              const totalFrrMet = data.frrMetCounts?.reduce((a, b) => a + b, 0) || 0;
-              value = totalSolved > 0 ? Math.round((totalFrrMet / totalSolved) * 100) : 0;
+              const totalSolved =
+                data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
+              const totalFrrMet =
+                data.frrMetCounts?.reduce((a, b) => a + b, 0) || 0;
+              value =
+                totalSolved > 0
+                  ? Math.round((totalFrrMet / totalSolved) * 100)
+                  : 0;
             } else if (metricKey === "csat") {
               // CSAT percentage
-              const totalSolved = data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
-              const totalCSAT = data.csatCounts?.reduce((a, b) => a + b, 0) || 0;
-              value = totalSolved > 0 ? Math.round((totalCSAT / totalSolved) * 100) : 0;
+              const totalSolved =
+                data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
+              const totalCSAT =
+                data.csatCounts?.reduce((a, b) => a + b, 0) || 0;
+              value =
+                totalSolved > 0
+                  ? Math.round((totalCSAT / totalSolved) * 100)
+                  : 0;
             } else {
               // Sum metrics (solved, volume, backlog)
               value = sum;
             }
-            
+
             return {
               name: `Week ${week.split("W")[1]}`,
               range: rangeLabel,
@@ -3372,42 +3403,46 @@ const AnalyticsDashboard = ({
     fetchAnalyticsData,
     groupBy,
   ]);
-useEffect(() => {
+  useEffect(() => {
     const fetchAllTrends = async () => {
       if (!expandedOverviewMetric) return;
 
       setExpandedLoading(true);
       try {
         const API_BASE = import.meta.env.VITE_API_URL || "";
-        
+
         // Build params with filters
         const buildParams = (quarter) => {
           const params = new URLSearchParams({ quarter });
-          if (excludeZendesk) params.set('excludeZendesk', 'true');
-          if (excludeNOC) params.set('excludeNOC', 'true');
+          if (excludeZendesk) params.set("excludeZendesk", "true");
+          if (excludeNOC) params.set("excludeNOC", "true");
           // Add owner filter if teams selected
           if (filters?.teams?.length > 0) {
             const teamMembers = [];
-            filters.teams.forEach(teamKey => {
+            filters.teams.forEach((teamKey) => {
               if (TEAM_GROUPS[teamKey]) {
                 teamMembers.push(...Object.values(TEAM_GROUPS[teamKey]));
               }
             });
             if (teamMembers.length > 0) {
-              params.set('owners', teamMembers.join(','));
+              params.set("owners", teamMembers.join(","));
             }
           }
           if (filters?.owners?.length > 0) {
-            params.set('owners', filters.owners.join(','));
+            params.set("owners", filters.owners.join(","));
           }
           return params.toString();
         };
-        
+
         const [q4Res, q1Res] = await Promise.all([
-          fetch(`${API_BASE}/api/tickets/analytics?${buildParams('Q4_25')}`).then((r) => r.json()),
-          fetch(`${API_BASE}/api/tickets/analytics?${buildParams('Q1_26')}`).then((r) => r.json()),
+          fetch(
+            `${API_BASE}/api/tickets/analytics?${buildParams("Q4_25")}`,
+          ).then((r) => r.json()),
+          fetch(
+            `${API_BASE}/api/tickets/analytics?${buildParams("Q1_26")}`,
+          ).then((r) => r.json()),
         ]);
-  
+
         // Combine trends from both quarters
         const allTrends = [...(q4Res.trends || []), ...(q1Res.trends || [])];
 
@@ -3428,7 +3463,13 @@ useEffect(() => {
     };
 
     fetchAllTrends();
-  }, [expandedOverviewMetric, excludeZendesk, filters?.teams, filters?.owners,excludeNOC]);
+  }, [
+    expandedOverviewMetric,
+    excludeZendesk,
+    filters?.teams,
+    filters?.owners,
+    excludeNOC,
+  ]);
 
   const handleQuarterChange = useCallback(
     (quarter) => setCurrentQuarter(quarter),
@@ -3438,7 +3479,7 @@ useEffect(() => {
     fetchAnalyticsData({
       quarter: currentQuarter,
       excludeZendesk,
-       excludeNOC,
+      excludeNOC,
       forceRefresh: true,
     });
 
@@ -3469,13 +3510,13 @@ useEffect(() => {
     // Determine which owners to include based on filters
     let ownersToInclude = Object.keys(individualTrends);
 
-   // Filter Owners (case-insensitive)
-      if (filters?.owners?.length > 0) {
-        const lowerFilters = filters.owners.map(o => o.toLowerCase());
-        ownersToInclude = ownersToInclude.filter((owner) =>
-          lowerFilters.includes(owner.toLowerCase()),
-        );
-      }
+    // Filter Owners (case-insensitive)
+    if (filters?.owners?.length > 0) {
+      const lowerFilters = filters.owners.map((o) => o.toLowerCase());
+      ownersToInclude = ownersToInclude.filter((owner) =>
+        lowerFilters.includes(owner.toLowerCase()),
+      );
+    }
 
     if (filters?.teams?.length > 0) {
       ownersToInclude = ownersToInclude.filter((owner) => {
@@ -3559,72 +3600,98 @@ useEffect(() => {
     };
   }, [volumeTickets, effectiveDateRange, analyticsData, filters, excludeNOC]);
 
- const filteredStats = useMemo(() => {
-
-
-     // =====================================================
+  const filteredStats = useMemo(() => {
+    // =====================================================
     // EXCLUDE NOC: Filter solvedTickets if excludeNOC is ON
     // =====================================================
     let effectiveSolvedTickets = solvedTickets;
     if (excludeNOC) {
       // For DevRev tickets, check dependencies
-      effectiveSolvedTickets = solvedTickets.filter(t => {
+      effectiveSolvedTickets = solvedTickets.filter((t) => {
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];
         // Exclude if has NOC dependency
-        return !(dep?.hasDependency && dep?.issues?.some(i => i.team === "NOC"));
+        return !(
+          dep?.hasDependency && dep?.issues?.some((i) => i.team === "NOC")
+        );
       });
     }
 
-
-   // =================================================================================
+    // =================================================================================
     // SCENARIO 0: REGION FILTER APPLIED - Must use DevRev data (MongoDB doesn't have region per trend)
     // =================================================================================
     if (filters?.regions?.length > 0) {
       // When region filter is active, calculate from solvedTickets (already filtered by region in baseFilteredTickets)
       let filteredSolved = effectiveSolvedTickets;
-      
+
       // Also apply owner/team filter if present
       if (filters?.owners?.length > 0) {
-        filteredSolved = filteredSolved.filter(t => {
+        filteredSolved = filteredSolved.filter((t) => {
           const ownerName = t.owned_by?.[0]?.display_name;
-          return filters.owners.some(o => 
-            o.toLowerCase() === ownerName?.toLowerCase() ||
-            ownerName?.toLowerCase().includes(o.toLowerCase())
+          return filters.owners.some(
+            (o) =>
+              o.toLowerCase() === ownerName?.toLowerCase() ||
+              ownerName?.toLowerCase().includes(o.toLowerCase()),
           );
         });
       }
       if (filters?.teams?.length > 0) {
-        filteredSolved = filteredSolved.filter(t => {
+        filteredSolved = filteredSolved.filter((t) => {
           const ownerName = t.owned_by?.[0]?.display_name;
-          const ownerTeams = Object.keys(TEAM_GROUPS).filter(teamKey =>
-            Object.values(TEAM_GROUPS[teamKey]).some(m => 
-              m.toLowerCase() === ownerName?.toLowerCase() ||
-              ownerName?.toLowerCase().includes(m.toLowerCase())
-            )
+          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+            Object.values(TEAM_GROUPS[teamKey]).some(
+              (m) =>
+                m.toLowerCase() === ownerName?.toLowerCase() ||
+                ownerName?.toLowerCase().includes(m.toLowerCase()),
+            ),
           );
-          return filters.teams.some(team => ownerTeams.includes(team));
+          return filters.teams.some((team) => ownerTeams.includes(team));
         });
       }
-      
+
       const totalSolved = filteredSolved.length;
-      const rwtValues = filteredSolved.map(t => t.custom_fields?.tnt__rwt_business_hours).filter(v => v > 0);
-      const frtValues = filteredSolved.map(t => t.custom_fields?.tnt__frt_hours).filter(v => v > 0);
-      const iterValues = filteredSolved.map(t => t.custom_fields?.tnt__iteration_count).filter(v => v > 0);
-      const positiveCSAT = filteredSolved.filter(t => Number(t.custom_fields?.tnt__csatrating) === 2).length;
-      const frrMet = filteredSolved.filter(t => 
-        t.custom_fields?.tnt__frr === true || 
-        t.custom_fields?.tnt__iteration_count === 1
+      const rwtValues = filteredSolved
+        .map((t) => t.custom_fields?.tnt__rwt_business_hours)
+        .filter((v) => v > 0);
+      const frtValues = filteredSolved
+        .map((t) => t.custom_fields?.tnt__frt_hours)
+        .filter((v) => v > 0);
+      const iterValues = filteredSolved
+        .map((t) => t.custom_fields?.tnt__iteration_count)
+        .filter((v) => v > 0);
+      const positiveCSAT = filteredSolved.filter(
+        (t) => Number(t.custom_fields?.tnt__csatrating) === 2,
       ).length;
-      
+      const frrMet = filteredSolved.filter(
+        (t) =>
+          t.custom_fields?.tnt__frr === true ||
+          t.custom_fields?.tnt__iteration_count === 1,
+      ).length;
+
       return {
         totalTickets: volumeTickets.length,
         totalSolved,
-        avgRWT: rwtValues.length > 0 ? (rwtValues.reduce((a,b) => a+b, 0) / rwtValues.length).toFixed(2) : "0.00",
-        avgFRT: frtValues.length > 0 ? (frtValues.reduce((a,b) => a+b, 0) / frtValues.length).toFixed(2) : "0.00",
-        avgIterations: iterValues.length > 0 ? (iterValues.reduce((a,b) => a+b, 0) / iterValues.length).toFixed(1) : "0.0",
+        avgRWT:
+          rwtValues.length > 0
+            ? (rwtValues.reduce((a, b) => a + b, 0) / rwtValues.length).toFixed(
+                2,
+              )
+            : "0.00",
+        avgFRT:
+          frtValues.length > 0
+            ? (frtValues.reduce((a, b) => a + b, 0) / frtValues.length).toFixed(
+                2,
+              )
+            : "0.00",
+        avgIterations:
+          iterValues.length > 0
+            ? (
+                iterValues.reduce((a, b) => a + b, 0) / iterValues.length
+              ).toFixed(1)
+            : "0.0",
         positiveCSAT,
-        frrPercent: totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
+        frrPercent:
+          totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
         _source: "devrev_region_filtered",
       };
     }
@@ -3632,7 +3699,8 @@ useEffect(() => {
     // =================================================================================
     // SCENARIO 1: SPECIFIC FILTERS APPLIED (Calculated from Individual Trends)
     // =================================================================================
-    const hasOwnerFilters = filters?.owners?.length > 0 || filters?.teams?.length > 0;
+    const hasOwnerFilters =
+      filters?.owners?.length > 0 || filters?.teams?.length > 0;
 
     if (hasOwnerFilters) {
       const individualTrends = analyticsData?.individualTrends || {};
@@ -3659,13 +3727,19 @@ useEffect(() => {
         allOwnersInMongo: Object.keys(individualTrends),
         ownersAfterFilter: ownersToInclude,
         teamGroupsKeys: Object.keys(TEAM_GROUPS),
-        dateRange: { start: effectiveDateRange.start, end: effectiveDateRange.end },
+        dateRange: {
+          start: effectiveDateRange.start,
+          end: effectiveDateRange.end,
+        },
       });
 
       let totalSolved = 0;
-      let weightedRWT = 0, validRWTCount = 0;
-      let weightedFRT = 0, validFRTCount = 0;
-      let weightedIter = 0, validIterCount = 0;
+      let weightedRWT = 0,
+        validRWTCount = 0;
+      let weightedFRT = 0,
+        validFRTCount = 0;
+      let weightedIter = 0,
+        validIterCount = 0;
       let positiveCSAT = 0;
       let frrMet = 0;
 
@@ -3674,10 +3748,14 @@ useEffect(() => {
         ownerTrends.forEach((day) => {
           if (!day.date) return;
           const dayDate = parseISO(day.date);
-          if (dayDate < effectiveDateRange.start || dayDate > effectiveDateRange.end) return;
+          if (
+            dayDate < effectiveDateRange.start ||
+            dayDate > effectiveDateRange.end
+          )
+            return;
 
           totalSolved += day.solved || 0;
-          positiveCSAT += day.positiveCSAT || 0; 
+          positiveCSAT += day.positiveCSAT || 0;
           frrMet += day.frrMet || 0;
 
           // Weighted Averages
@@ -3699,11 +3777,17 @@ useEffect(() => {
       return {
         totalTickets: volumeTickets.length,
         totalSolved,
-        avgRWT: validRWTCount > 0 ? (weightedRWT / validRWTCount).toFixed(2) : "0.00",
-        avgFRT: validFRTCount > 0 ? (weightedFRT / validFRTCount).toFixed(2) : "0.00",
-        avgIterations: validIterCount > 0 ? (weightedIter / validIterCount).toFixed(1) : "0.0",
+        avgRWT:
+          validRWTCount > 0 ? (weightedRWT / validRWTCount).toFixed(2) : "0.00",
+        avgFRT:
+          validFRTCount > 0 ? (weightedFRT / validFRTCount).toFixed(2) : "0.00",
+        avgIterations:
+          validIterCount > 0
+            ? (weightedIter / validIterCount).toFixed(1)
+            : "0.0",
         positiveCSAT,
-        frrPercent: totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
+        frrPercent:
+          totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
       };
     }
 
@@ -3715,43 +3799,52 @@ useEffect(() => {
     let totalSolved = 0;
     let positiveCSAT = 0;
     let frrMet = 0;
-    
+
     // Variables for Global Calculation
-    let weightedRWT = 0, rwtCount = 0;
-    let weightedFRT = 0, frtCount = 0;
-    let weightedIter = 0, iterCount = 0;
+    let weightedRWT = 0,
+      rwtCount = 0;
+    let weightedFRT = 0,
+      frtCount = 0;
+    let weightedIter = 0,
+      iterCount = 0;
 
     globalTrends.forEach((day) => {
       if (!day.date) return;
       const dayDate = parseISO(day.date);
       // STRICTLY RESPECT DATE RANGE
-      if (dayDate < effectiveDateRange.start || dayDate > effectiveDateRange.end) return;
+      if (
+        dayDate < effectiveDateRange.start ||
+        dayDate > effectiveDateRange.end
+      )
+        return;
 
       totalSolved += day.solved || 0;
       positiveCSAT += day.positiveCSAT || 0;
       frrMet += day.frrMet || 0;
 
       if (day.avgRWT > 0) {
-         weightedRWT += day.avgRWT * day.solved;
-         rwtCount += day.solved;
-       }
-       if (day.avgFRT > 0) {
-         weightedFRT += day.avgFRT * day.solved;
-         frtCount += day.solved;
-       }
-       if (day.avgIterations > 0) {
-         weightedIter += day.avgIterations * day.solved;
-         iterCount += day.solved;
-       }
+        weightedRWT += day.avgRWT * day.solved;
+        rwtCount += day.solved;
+      }
+      if (day.avgFRT > 0) {
+        weightedFRT += day.avgFRT * day.solved;
+        frtCount += day.solved;
+      }
+      if (day.avgIterations > 0) {
+        weightedIter += day.avgIterations * day.solved;
+        iterCount += day.solved;
+      }
     });
 
     // ✅ FIX: Use 'rwtCount' here (NOT totalValidRWT which is undefined in this block)
     const avgRWT = rwtCount > 0 ? (weightedRWT / rwtCount).toFixed(2) : "0.00";
     const avgFRT = frtCount > 0 ? (weightedFRT / frtCount).toFixed(2) : "0.00";
-    const avgIterations = iterCount > 0 ? (weightedIter / iterCount).toFixed(1) : "0.0";
+    const avgIterations =
+      iterCount > 0 ? (weightedIter / iterCount).toFixed(1) : "0.0";
 
     // ✅ FIX: FRR Percent calculation
-    const frrPercent = totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
+    const frrPercent =
+      totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
 
     return {
       totalTickets: volumeTickets.length,
@@ -3764,7 +3857,15 @@ useEffect(() => {
       frrMet,
       _source: "mongodb_global_calc",
     };
-  }, [analyticsData, volumeTickets, solvedTickets, filters, effectiveDateRange, excludeNOC, dependencies]);
+  }, [
+    analyticsData,
+    volumeTickets,
+    solvedTickets,
+    filters,
+    effectiveDateRange,
+    excludeNOC,
+    dependencies,
+  ]);
 
   // Expanded chart data
   const expandedData = useMemo(() => {
@@ -4482,7 +4583,10 @@ useEffect(() => {
         onExcludeNOCChange={() => setExcludeNOC(!excludeNOC)}
         onRefresh={handleRefresh}
         isRefreshing={analyticsLoading}
-        onExpandMetric={(metricKey) => setExpandedOverviewMetric(metricKey)}
+        onExpandMetric={(metricKey) => {
+          trackEvent("Metric Expanded", { Metric: metricKey }); // ✅ Add this
+          setExpandedOverviewMetric(metricKey);
+        }}
         onGroupByChange={(newGroupBy) => {
           setGroupBy(newGroupBy);
           // If it's a week selection like "Q1_26_W1", set quarter accordingly

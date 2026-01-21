@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef,useCallback } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import GroupedTicketList from "./components/GroupedTicketList";
 import AllTicketsView from "./components/Allticketsview";
+import { loginUser, trackEvent } from "./utils/clevertap";
 
 import {
   Users,
@@ -160,7 +161,27 @@ const App = () => {
   }, [tickets, activeTab]);
 
 
+// ✅ TRACK TAB VISITS
+  useEffect(() => {
+    if (activeTab) {
+      trackEvent("Tab Visited", { Tab: activeTab });
+    }
+  }, [activeTab]);
 
+  // ✅ TRACK SEARCH (Debounced to prevent spamming while typing)
+  useEffect(() => {
+    const query = searchQueries[activeTab];
+    if (!query || query.length < 3) return; // Only track if 3+ chars
+
+    const handler = setTimeout(() => {
+      trackEvent("Search Performed", { 
+        Tab: activeTab, 
+        Query: query 
+      });
+    }, 1500); // Wait 1.5 seconds after typing stops
+
+    return () => clearTimeout(handler);
+  }, [searchQueries, activeTab]);
 
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
@@ -330,6 +351,8 @@ const App = () => {
 
   const onSaveView = async () => {
     if (!newViewName.trim()) return;
+    // ✅ ADD TRACKING HERE
+    trackEvent("View Saved", { Name: newViewName });
     const success = await saveView(newViewName, tabFilters.tickets);
     if (success) {
       setNewViewName("");
@@ -535,6 +558,7 @@ const App = () => {
   }, [isAuthenticated, currentUser, options]);
 
   const handleKPIFilter = (statusValue) => {
+    trackEvent("KPI Card Clicked", { Status: statusValue }); // ✅ Add this
     setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "health"])));
     setFilter("health", [statusValue]);
   };
@@ -753,7 +777,11 @@ const App = () => {
     return activeTab !== "vistas" && activeTab !== "analytics";
   }, [activeTab]);
 
- 
+ useEffect(() => {
+  if (activeTab) {
+    trackEvent("Tab Viewed", { Tab: activeTab });
+  }
+}, [activeTab]);
 
   // All Tickets filters are rendered inline in the main content area below
   // This is just a placeholder to indicate the filter location
@@ -1170,6 +1198,11 @@ ${
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            // ✅ ADD TRACKING HERE
+                            trackEvent("View Deleted", { 
+                              Name: view.name, 
+                              ID: view._id 
+                            });
                             deleteView(view._id);
                           }}
                           className="p-2 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100"
