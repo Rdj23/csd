@@ -1961,8 +1961,8 @@ const AnalyticsDashboard = ({
     console.log("Fetching data for expanded modal:", range);
 
     if (range.isAllTime) {
-      fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk });
-      fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk });
+      fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk,excludeNOC });
+      fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk,excludeNOC });
     } else {
       const startYear = range.start.getFullYear();
       const startMonth = range.start.getMonth();
@@ -1970,15 +1970,15 @@ const AnalyticsDashboard = ({
 
       // Fetch Q4_25 if date range includes Oct-Dec 2025
       if (startYear === 2025 && startMonth >= 9) {
-        fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk });
+        fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk,excludeNOC });
       }
       // Fetch Q1_26 if date range includes Jan-Mar 2026
       if (endYear === 2026 || (startYear === 2025 && startMonth === 11)) {
-        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk });
+        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk,excludeNOC });
       }
       // If only in Jan 2026
       if (startYear === 2026) {
-        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk });
+        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk ,excludeNOC});
       }
     }
   }, [
@@ -1986,6 +1986,7 @@ const AnalyticsDashboard = ({
     expandedOverviewMetric,
     excludeZendesk,
     fetchAnalyticsData,
+    excludeNOC
   ]);
 
   // 1. Common Filters (Team, Owner, Region, etc.) - applied to ALL tickets first
