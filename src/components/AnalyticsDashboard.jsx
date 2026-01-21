@@ -3018,23 +3018,50 @@ const AnalyticsDashboard = ({
         "frrPercent", // mapped to frrMet (count) above
       ].includes(metricKey);
 
-      // 1. DAILY VIEW
+      
+     // 1. DAILY VIEW
       if (expandedGroupBy === "daily") {
-        return filteredData.map((t) => ({
-          name: format(parseISO(t.date), "MMM dd"),
-          date: t.date,
-          value: t[dataKey] || 0,
-        }));
+        return filteredData.map((t) => {
+          let value = t[dataKey] || 0;
+          
+          // For FRR, calculate percentage: frrMet / solved * 100
+          if (metricKey === "frrPercent" && t.solved > 0) {
+            value = Math.round((t.frrMet / t.solved) * 100);
+          }
+          // For CSAT, calculate percentage: positiveCSAT / solved * 100
+          if (metricKey === "csat" && t.solved > 0) {
+            value = Math.round((t.positiveCSAT / t.solved) * 100);
+          }
+          
+          return {
+            name: format(parseISO(t.date), "MMM dd"),
+            date: t.date,
+            value,
+            // Include raw counts for drill-down
+            solved: t.solved,
+            frrMet: t.frrMet,
+            positiveCSAT: t.positiveCSAT,
+          };
+        });
       }
 
-      if (expandedGroupBy === "weekly") {
+    if (expandedGroupBy === "weekly") {
         const weeks = {};
         filteredData.forEach((t) => {
           const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
           if (!weeks[weekKey]) {
-            weeks[weekKey] = { values: [], date: t.date };
+            weeks[weekKey] = { 
+              values: [], 
+              date: t.date,
+              solvedCounts: [],
+              frrMetCounts: [],
+              csatCounts: [],
+            };
           }
           weeks[weekKey].values.push(t[dataKey] || 0);
+          weeks[weekKey].solvedCounts.push(t.solved || 0);
+          weeks[weekKey].frrMetCounts.push(t.frrMet || 0);
+          weeks[weekKey].csatCounts.push(t.positiveCSAT || 0);
         });
 
         return Object.entries(weeks)
@@ -3054,13 +3081,31 @@ const AnalyticsDashboard = ({
             // Fix sum definition
             const sum = data.values.reduce((a, b) => a + b, 0);
 
+            r// Calculate proper value based on metric type
+            let value;
+            if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
+              // Average metrics
+              value = sum / (data.values.length || 1);
+            } else if (metricKey === "frrPercent") {
+              // FRR percentage: need total frrMet / total solved
+              const totalSolved = data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
+              const totalFrrMet = data.frrMetCounts?.reduce((a, b) => a + b, 0) || 0;
+              value = totalSolved > 0 ? Math.round((totalFrrMet / totalSolved) * 100) : 0;
+            } else if (metricKey === "csat") {
+              // CSAT percentage
+              const totalSolved = data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
+              const totalCSAT = data.csatCounts?.reduce((a, b) => a + b, 0) || 0;
+              value = totalSolved > 0 ? Math.round((totalCSAT / totalSolved) * 100) : 0;
+            } else {
+              // Sum metrics (solved, volume, backlog)
+              value = sum;
+            }
+            
             return {
               name: `Week ${week.split("W")[1]}`,
-              range: rangeLabel, // Pass this to tooltip
+              range: rangeLabel,
               date: data.date,
-              value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
-                ? sum / (data.values.length || 1)
-                : sum,
+              value,
             };
           });
       }
