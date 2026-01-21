@@ -450,7 +450,10 @@ app.get("/api/tickets/analytics", async (req, res) => {
     const {
       quarter = "Q4_25",
       excludeZendesk,
+      excludeNOC,
       owner,
+      owners,     // Ensure this is here if using new filters
+      region,
       forceRefresh,
       groupBy = "daily",
     } = req.query;
@@ -502,6 +505,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
       owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
     if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
+    if (excludeNOC === "true") matchConditions.is_noc = { $ne: true }; // <--- ADD THIS LINE
     if (owner && owner !== "All")
       matchConditions.owner = { $regex: owner, $options: "i" };
 

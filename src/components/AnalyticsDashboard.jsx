@@ -3379,7 +3379,7 @@ useEffect(() => {
     };
 
     fetchAllTrends();
-  }, [expandedOverviewMetric, excludeZendesk, filters?.teams, filters?.owners]);
+  }, [expandedOverviewMetric, excludeZendesk, filters?.teams, filters?.owners,excludeNOC]);
 
   const handleQuarterChange = useCallback(
     (quarter) => setCurrentQuarter(quarter),
