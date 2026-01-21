@@ -432,14 +432,7 @@ const DrillDownModal = ({
         if (selectedDependency.includes("no_dependency") && hasDep) return false;
       }
       
-      // Dependency team filter
-      // if (selectedDepTeams.length > 0) {
-      //   const ticketId = t.display_id?.replace("TKT-", "");
-      //   const dep = dependencies[ticketId];
-      //   const ticketTeams = dep?.issues?.map(i => i.team) || [];
-      //   const hasMatchingTeam = selectedDepTeams.some(team => ticketTeams.includes(team));
-      //   if (!hasMatchingTeam) return false;
-      // }
+     
       
       // Dependency filter
       if (selectedDependency.length > 0 && selectedDependency.length < 2) {

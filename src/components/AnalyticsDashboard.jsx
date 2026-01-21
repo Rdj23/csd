@@ -2111,7 +2111,8 @@ const AnalyticsDashboard = ({
         date: dateKey,
         owners: ownerFilter.join(","),
         metric: metricKey,
-        excludeZendesk: excludeZendesk ? "true" : "false",
+       excludeZendesk: excludeZendesk ? "true" : "false",
+        excludeNOC: excludeNOC ? "true" : "false",
       });
 
       // Add region filter if set
@@ -3334,6 +3335,7 @@ useEffect(() => {
         const buildParams = (quarter) => {
           const params = new URLSearchParams({ quarter });
           if (excludeZendesk) params.set('excludeZendesk', 'true');
+          if (excludeNOC) params.set('excludeNOC', 'true');
           // Add owner filter if teams selected
           if (filters?.teams?.length > 0) {
             const teamMembers = [];
@@ -3508,6 +3510,22 @@ useEffect(() => {
   }, [volumeTickets, effectiveDateRange, analyticsData, filters]);
 
  const filteredStats = useMemo(() => {
+
+
+     // =====================================================
+    // EXCLUDE NOC: Filter solvedTickets if excludeNOC is ON
+    // =====================================================
+    let effectiveSolvedTickets = solvedTickets;
+    if (excludeNOC) {
+      // For DevRev tickets, check dependencies
+      effectiveSolvedTickets = solvedTickets.filter(t => {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        // Exclude if has NOC dependency
+        return !(dep?.hasDependency && dep?.issues?.some(i => i.team === "NOC"));
+      });
+    }
+
 
    // =================================================================================
     // SCENARIO 0: REGION FILTER APPLIED - Must use DevRev data (MongoDB doesn't have region per trend)

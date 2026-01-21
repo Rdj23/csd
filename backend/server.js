@@ -76,9 +76,25 @@ const GST_NAME_MAP = {
   "Shreyas Naikwadi": "Shreyas",
 };
 
+// List of valid GST members
+const GST_MEMBERS = new Set([
+  "Rohan", "Archie", "Neha", "Shreya", "Vaibhav", "Adarsh", "Abhishek",
+  "Shubhankar", "Musaveer", "Anurag", "Debashish",
+  "Aditya", "Shweta", "Nikita",
+  "Tuaha Khan", "Harsh", "Tamanna", "Shreyas",
+  "Adish"
+]);
+
 const resolveOwnerName = (displayName) => {
-  if (!displayName) return "Unassigned";
-  return GST_NAME_MAP[displayName] || displayName;
+  if (!displayName) return null; // Will be filtered out
+  const resolved = GST_NAME_MAP[displayName];
+  if (resolved && GST_MEMBERS.has(resolved)) return resolved;
+  return null; // Non-GST member, will be filtered out
+};
+
+const isGSTMember = (ownerName) => {
+  if (!ownerName) return false;
+  return GST_MEMBERS.includes(ownerName);
 };
 
 // --- SCHEMAS ---
@@ -118,6 +134,12 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     // ✅ FIX 4: FRR is Number (0 or 1)
     frr: { type: Number, default: 0 },
     account_name: { type: String, index: true },
+     // NOC Fields
+    is_noc: { type: Boolean, default: false, index: true },
+    noc_issue_id: { type: String, default: null },      // e.g., "ISS-124362"
+    noc_jira_key: { type: String, default: null },      // e.g., "SUC-128878"
+    noc_rca: { type: String, default: null },           // e.g., "Understanding Gap - CS"
+    noc_reported_by: { type: String, default: null },   // e.g., "Sambhaavna A"
   },
   { versionKey: false }
 );
@@ -271,6 +293,11 @@ app.get("/api/tickets/live-stats", async (req, res) => {
     // Zendesk Filter
     if (excludeZendesk === "true") {
       matchConditions.is_zendesk = { $ne: true };
+    }
+
+   // NOC Filter
+    if (req.query.excludeNOC === "true") {
+      matchConditions.is_noc = { $ne: true };
     }
 
     // 2. Aggregation Pipeline (Calculate Stats & Trends on the fly)
@@ -830,6 +857,11 @@ app.get("/api/tickets/by-date", async (req, res) => {
     if (excludeZendesk === 'true') matchConditions.is_zendesk = { $ne: true };
     if (region && region.length > 0) matchConditions.region = { $in: region.split(',') };
 
+    // NOC filter
+    if (req.query.excludeNOC === 'true') {
+      matchConditions.is_noc = { $ne: true };
+    }
+
     const tickets = await AnalyticsTicket.find(matchConditions)
       .sort({ closed_date: -1 })
       .limit(500)
@@ -1233,104 +1265,166 @@ const syncHistoricalToDB = async (fullHistory = false) => {
   console.log("📦 Syncing to MongoDB...");
   let cursor = null,
     loop = 0,
-    processedCount = 0;
+    processedCount = 0,
+    nocCount = 0,
+    skippedCount = 0;
   const TARGET_DATE = new Date("2025-10-01");
+  const NOC_CHECK_DATE = new Date("2026-01-01"); // Only check NOC for tickets >= Jan 1, 2026
 
   do {
     try {
       const res = await axios.get(
-        `${DEVREV_API}/works.list?limit=50&type=ticket${
-          cursor ? `&cursor=${cursor}` : ""
-        }`,
+        `${DEVREV_API}/works.list?limit=50&type=ticket${cursor ? `&cursor=${cursor}` : ""}`,
         { headers: HEADERS }
       );
       const works = res.data.works || [];
       if (!works.length) break;
-      if (
-        new Date(works[works.length - 1].created_date) < TARGET_DATE &&
-        !fullHistory
-      )
-        break;
+      if (new Date(works[works.length - 1].created_date) < TARGET_DATE && !fullHistory) break;
 
       const solved = works.filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
         return (
-          (stage.includes("solved") ||
-            stage.includes("closed") ||
-            stage.includes("Resolved")) &&
+          (stage.includes("solved") || stage.includes("closed") || stage.includes("resolved")) &&
           t.actual_close_date
         );
       });
 
       if (solved.length) {
-        const ops = solved
-          // ✅ FIX 1: Filter out Anmol BEFORE creating ops
-          .filter((t) => {
-            const owner = t.owned_by?.[0]?.display_name || "";
-            return !owner.toLowerCase().includes("anmol-sawhney");
-          })
-          .map((t) => {
-            // ✅ FIX 3: CSAT Integer Logic (0, 1, 2)
-            const csatRaw = t.custom_fields?.tnt__csatrating;
-            let csatVal = 0;
-            if (csatRaw == 1 || csatRaw == "1") csatVal = 1;
-            if (csatRaw == 2 || csatRaw == "2") csatVal = 2;
+        const ops = [];
+        
+        for (const t of solved) {
+          // Skip Anmol
+          const ownerRaw = t.owned_by?.[0]?.display_name || "";
+          if (ownerRaw.toLowerCase().includes("anmol-sawhney")) {
+            skippedCount++;
+            continue;
+          }
+          
+          // Resolve owner - returns null for non-GST
+          const owner = resolveOwnerName(ownerRaw);
+          if (!owner) {
+            skippedCount++;
+            continue; // Skip non-GST members
+          }
 
-            // ✅ FIX 4: FRR Logic (0 or 1)
-            // If custom field is true OR iterations == 1, then FRR is met
-            let frrVal = 0;
-            if (t.custom_fields?.tnt__frr === true) frrVal = 1;
-            const iterations = t.custom_fields?.tnt__iteration_count;
-            if (iterations === 1) frrVal = 1;
+          // CSAT
+          const csatRaw = t.custom_fields?.tnt__csatrating;
+          let csatVal = 0;
+          if (csatRaw == 1 || csatRaw == "1") csatVal = 1;
+          if (csatRaw == 2 || csatRaw == "2") csatVal = 2;
 
-            return {
-              updateOne: {
-                filter: { ticket_id: t.display_id },
-                update: {
-                  $set: {
-                    ticket_id: t.display_id,
-                    display_id: t.display_id,
-                    title: t.title,
-                    created_date: new Date(t.created_date),
-                    closed_date: new Date(t.actual_close_date),
-                    owner: resolveOwnerName(t.owned_by?.[0]?.display_name),
-                    region:
-                      t.custom_fields?.tnt__region_salesforce || "Unknown",
-                    priority: t.priority,
-                    is_zendesk: t.tags?.some(
-                      (tag) => tag.tag?.name === "Zendesk import"
-                    ),
-                    rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
-                    frt: t.custom_fields?.tnt__frt_hours ?? null,
-                    iterations: iterations ?? null,
+          // FRR
+          let frrVal = 0;
+          if (t.custom_fields?.tnt__frr === true) frrVal = 1;
+          const iterations = t.custom_fields?.tnt__iteration_count;
+          if (iterations === 1) frrVal = 1;
 
-                    csat: csatVal,
-                    frr: frrVal, // Stored as Number (0/1)
-                    // ✅ NEW: Extract Account Name
-                    account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
-                  },
+          // NOC Detection - Only for tickets closed >= Jan 1, 2026
+          let isNoc = false;
+          let nocIssueId = null;
+          let nocJiraKey = null;
+          let nocRca = null;
+          let nocReportedBy = null;
+
+          const closedDate = new Date(t.actual_close_date);
+          if (closedDate >= NOC_CHECK_DATE) {
+            try {
+              // Step 1: Get linked issues using links.list
+              const linksRes = await axios.post(
+                `${DEVREV_API}/links.list`,
+                {
+                  object: t.id,
+                  object_types: ["issue"],
+                  limit: 10
                 },
-                upsert: true,
+                { headers: HEADERS }
+              );
+              const links = linksRes.data.links || [];
+
+              // Step 2: Check each linked issue
+              for (const link of links) {
+                const issueId = link.target?.display_id || link.source?.display_id;
+                if (!issueId || !issueId.startsWith("ISS-")) continue;
+
+                try {
+                  // Step 3: Get issue details using works.get
+                  const issRes = await axios.post(
+                    `${DEVREV_API}/works.get`,
+                    { id: issueId },
+                    { headers: HEADERS }
+                  );
+                  const issue = issRes.data.work;
+
+                  // Check if it's a NOC issue (PSN Task)
+                  if (issue?.custom_fields?.ctype__issuetype === "PSN Task") {
+                    isNoc = true;
+                    nocIssueId = issue.display_id;                                    // ISS-124362
+                    nocJiraKey = issue.custom_fields?.ctype__key || null;             // SUC-128878
+                    nocRca = issue.custom_fields?.ctype__customfield_10169 || null;   // Understanding Gap - CS
+                    nocReportedBy = issue.reported_by?.[0]?.display_name || null;     // Sambhaavna A
+                    nocCount++;
+                    console.log(`   ✓ NOC: ${t.display_id} → ${nocIssueId} (${nocJiraKey}), RCA: ${nocRca}, By: ${nocReportedBy}`);
+                    break;
+                  }
+                } catch (e) {
+                  // Ignore individual issue fetch errors
+                }
+              }
+            } catch (e) {
+              // Ignore links fetch errors
+            }
+          }
+
+          ops.push({
+            updateOne: {
+              filter: { ticket_id: t.display_id },
+              update: {
+                $set: {
+                  ticket_id: t.display_id,
+                  display_id: t.display_id,
+                  title: t.title,
+                  created_date: new Date(t.created_date),
+                  closed_date: new Date(t.actual_close_date),
+                  owner,
+                  region: t.custom_fields?.tnt__region_salesforce || "Unknown",
+                  priority: t.priority,
+                  is_zendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+                  is_noc: isNoc,
+                  noc_issue_id: nocIssueId,
+                  noc_jira_key: nocJiraKey,
+                  noc_rca: nocRca,
+                  noc_reported_by: nocReportedBy,
+                  rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
+                  frt: t.custom_fields?.tnt__frt_hours ?? null,
+                  iterations: iterations ?? null,
+                  csat: csatVal,
+                  frr: frrVal,
+                  account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
+                },
               },
-            };
+              upsert: true,
+            },
           });
+        }
 
         if (ops.length > 0) {
           await AnalyticsTicket.bulkWrite(ops);
           processedCount += ops.length;
+          console.log(`   📊 Batch done: ${processedCount} synced, ${nocCount} NOC, ${skippedCount} skipped`);
         }
       }
       cursor = res.data.next_cursor;
       loop++;
     } catch (e) {
-      console.error("Error:", e.message);
+      console.error("Sync Error:", e.message);
       break;
     }
   } while (cursor && loop < 1000);
 
   await AnalyticsCache.deleteMany({});
-  console.log(`✅ ${processedCount} tickets synced. Cache cleared.`);
+  console.log(`✅ SYNC COMPLETE: ${processedCount} GST tickets, ${nocCount} NOC tickets, ${skippedCount} non-GST skipped`);
 };
+
 // Webhooks & Admin
 app.post("/api/webhooks/devrev", (req, res) => {
   const event = req.body;
