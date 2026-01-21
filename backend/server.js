@@ -268,6 +268,7 @@ app.use(
       "https://clevertapintel.globalsupportteam.com",
     ],
     credentials: true,
+     maxAge: 86400,
   })
 );
 // GZIP Compression - reduces payload by 70%
@@ -887,9 +888,6 @@ if (excludeNOC === "true") {
       }, {}),
     };
 
-    await AnalyticsCache.findOneAndUpdate({ cache_key: cacheKey }, response, {
-      upsert: true,
-    });
    
 
     // Cache in Redis (fast) and MongoDB (persistent)
@@ -1044,7 +1042,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
   try {
     // ✅ DEFINE sevenDaysAgo FIRST (before it's used!)
     const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 1825);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);  // ✅ 7 days
     sevenDaysAgo.setHours(0, 0, 0, 0);
     console.log(
       "📅 Including solved tickets since:",
@@ -1071,7 +1069,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
       if (lastDate < TARGET_DATE) break;
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 100);
+    } while (cursor && loop < 30);
 
     // ✅ FILTER: Active tickets + Solved in last 7 days
     const activeTickets = collected
@@ -1148,25 +1146,39 @@ const fetchAndCacheTickets = async (source = "auto") => {
 // ACTIVE TICKETS (Dashboard - Open/Pending only)
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
-  // Try Redis first
-  const redisData = await redisGet("tickets:active");
-  if (redisData) {
-    console.log("⚡ Active Tickets: Redis HIT");
-    return res.json({ tickets: redisData });
+  try {
+    // 1. Try Redis first (fastest)
+    const redisData = await redisGet("tickets:active");
+    if (redisData) {
+      console.log("⚡ Active Tickets: Redis HIT");
+      return res.json({ tickets: redisData });
+    }
+    
+    // 2. Try NodeCache (fast)
+    const cached = cache.get("tickets_active");
+    if (cached) {
+      console.log("⚡ Active Tickets: NodeCache HIT");
+      // Store in Redis async (don't wait)
+      redisSet("tickets:active", cached, CACHE_TTL.TICKETS).catch(() => {});
+      return res.json({ tickets: cached });
+    }
+    
+    // 3. No cache - return empty immediately, sync in background
+    console.log("⏳ No cache - starting background sync");
+    
+    // Start sync in background (non-blocking)
+    fetchAndCacheTickets("first_load").catch(console.error);
+    
+    // Return empty array immediately - frontend will retry or use websocket
+    res.json({ 
+      tickets: [], 
+      syncing: true,
+      message: "Data is being loaded. Please refresh in a few seconds."
+    });
+  } catch (e) {
+    console.error("❌ /api/tickets error:", e.message);
+    res.status(500).json({ tickets: [], error: e.message });
   }
-  
-  // Try NodeCache
-  const cached = cache.get("tickets_active");
-  if (cached) {
-    // Store in Redis for next time
-    await redisSet("tickets:active", cached, CACHE_TTL.TICKETS);
-    return res.json({ tickets: cached });
-  }
-  
-  await fetchAndCacheTickets("first_load");
-  const tickets = cache.get("tickets_active") || [];
-  await redisSet("tickets:active", tickets, CACHE_TTL.TICKETS);
-  res.json({ tickets });
 });
 // Fetch linked issues for a ticket
 app.post("/api/tickets/links", async (req, res) => {
@@ -1964,18 +1976,24 @@ const PORT = process.env.PORT || 5000;
 const warmCache = async () => {
   console.log("🔥 Warming cache...");
   try {
-    // Pre-compute current quarter analytics
-    const currentQuarter = "Q1_26";
-    const { start, end } = getQuarterDateRange(currentQuarter);
+    const PORT = process.env.PORT || 5000;
     
-    // Trigger analytics computation
-    const response = await axios.get(`http://localhost:${PORT}/api/tickets/analytics?quarter=${currentQuarter}`);
-    console.log("✅ Cache warmed for", currentQuarter);
+    // 1. Warm analytics cache
+    await axios.get(`http://localhost:${PORT}/api/tickets/analytics?quarter=Q1_26`);
+    console.log("✅ Analytics cache warmed");
+    
+    // 2. Start ticket sync in background (don't wait)
+    fetchAndCacheTickets("startup").catch(console.error);
+    console.log("✅ Ticket sync started in background");
   } catch (e) {
-    console.log("Cache warming skipped:", e.message);
+    console.log("⚠️ Cache warming skipped:", e.message);
   }
 };
 
+// Wait for MongoDB before warming cache
+mongoose.connection.once("open", () => {
+  setTimeout(warmCache, 3000);
+});
 // Warm cache 5 seconds after server starts
 setTimeout(warmCache, 5000);
 
