@@ -168,21 +168,7 @@ const App = () => {
     }
   }, [activeTab]);
 
-  // ✅ TRACK SEARCH (Debounced to prevent spamming while typing)
-  useEffect(() => {
-    const query = searchQueries[activeTab];
-    if (!query || query.length < 3) return; // Only track if 3+ chars
-
-    const handler = setTimeout(() => {
-      trackEvent("Search Performed", { 
-        Tab: activeTab, 
-        Query: query 
-      });
-    }, 1500); // Wait 1.5 seconds after typing stops
-
-    return () => clearTimeout(handler);
-  }, [searchQueries, activeTab]);
-
+ 
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
@@ -320,6 +306,22 @@ const App = () => {
       loginUser(currentUser);
     }
   }, [isAuthenticated]);
+
+   // ✅ TRACK SEARCH (Debounced to prevent spamming while typing)
+  useEffect(() => {
+    const query = searchQueries[activeTab];
+    if (!query || query.length < 3) return; // Only track if 3+ chars
+
+    const handler = setTimeout(() => {
+      trackEvent("Search Performed", { 
+        Tab: activeTab, 
+        Query: query 
+      });
+    }, 1500); // Wait 1.5 seconds after typing stops
+
+    return () => clearTimeout(handler);
+  }, [searchQueries, activeTab]);
+
 
   //   useEffect(() => {
   //   if (selectedTeamLead && TEAM_LEADS[selectedTeamLead]) {
