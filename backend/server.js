@@ -1179,7 +1179,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
     let collected = [],
       cursor = null,
       loop = 0;
-    const TARGET_DATE = new Date("2025-10-01");  // Extended to Oct 1 to catch more solved tickets
+    const TARGET_DATE_FOR_SOLVED = new Date("2025-10-01");  // Only for solved tickets
 
     do {
       const response = await axios.get(
@@ -1191,34 +1191,52 @@ const fetchAndCacheTickets = async (source = "auto") => {
 
       const newWorks = response.data.works || [];
       if (!newWorks.length) break;
+
+      // Check if this batch has any active (non-solved) tickets
+      const hasActiveTickets = newWorks.some((t) => {
+        const stage = t.stage?.name?.toLowerCase() || "";
+        return stage.includes("waiting on assignee") ||
+               stage.includes("awaiting customer reply") ||
+               stage.includes("waiting on clevertap") ||
+               stage.includes("on hold") ||
+               stage.includes("pending") ||
+               stage.includes("open");
+      });
+
       collected = [...collected, ...newWorks];
-      const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
-      if (lastDate < TARGET_DATE) break;
+
+      // If we have active tickets, keep going regardless of date
+      // If no active tickets and we're past the cutoff date for solved tickets, stop
+      if (!hasActiveTickets) {
+        const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
+        if (lastDate < TARGET_DATE_FOR_SOLVED) break;
+      }
+
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 50);  // Increased from 30 to fetch more tickets
+    } while (cursor && loop < 100);  // Increased limit to ensure we get all active tickets
 
-    // ✅ FILTER: Active tickets + ALL Solved tickets (no date restriction)
+    // ✅ FILTER: ALL Active tickets (no date restriction) + Solved tickets from Oct 2025 onwards
     const activeTickets = collected
       .filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
 
-        // Keep all active/open tickets
-        if (
-          stage.includes("waiting on assignee") ||
-          stage.includes("awaiting customer reply") ||
-          stage.includes("waiting on clevertap")
-        ) {
-          return true;
-        }
-        // Keep ALL solved/closed tickets (removed date restriction for full data)
-        if (
-          stage.includes("solved") ||
-          stage.includes("closed") ||
-          stage.includes("resolved")
-        ) {
-          return true;
-        }
+        // Keep ALL active/open/pending tickets (no date filtering)
+        const isActive = stage.includes("waiting on assignee") ||
+                        stage.includes("awaiting customer reply") ||
+                        stage.includes("waiting on clevertap") ||
+                        stage.includes("on hold") ||
+                        stage.includes("pending") ||
+                        stage.includes("open");
+
+        if (isActive) return true;
+
+        // Keep solved/closed tickets
+        const isSolved = stage.includes("solved") ||
+                        stage.includes("closed") ||
+                        stage.includes("resolved");
+
+        if (isSolved) return true;
 
         return false;
       })
