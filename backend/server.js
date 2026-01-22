@@ -1179,15 +1179,6 @@ const fetchAndCacheTickets = async (source = "auto") => {
   console.log("🔄 Syncing Active Tickets...");
 
   try {
-    // ✅ DEFINE sevenDaysAgo FIRST (before it's used!)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 100); // ✅ 7 days
-    sevenDaysAgo.setHours(0, 0, 0, 0);
-    console.log(
-      "📅 Including solved tickets since:",
-      sevenDaysAgo.toISOString(),
-    );
-
     let collected = [],
       cursor = null,
       loop = 0;
@@ -1210,7 +1201,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
       loop++;
     } while (cursor && loop < 30);
 
-    // ✅ FILTER: Active tickets + Solved in last 7 days
+    // ✅ FILTER: Active tickets + ALL Solved tickets (no date restriction)
     const activeTickets = collected
       .filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
@@ -1223,16 +1214,13 @@ const fetchAndCacheTickets = async (source = "auto") => {
         ) {
           return true;
         }
-        // Keep solved/closed ONLY if closed in last 7 days
+        // Keep ALL solved/closed tickets (removed date restriction for full data)
         if (
           stage.includes("solved") ||
           stage.includes("closed") ||
           stage.includes("resolved")
         ) {
-          if (t.actual_close_date) {
-            return new Date(t.actual_close_date) >= sevenDaysAgo;
-          }
-          return false;
+          return true;
         }
 
         return false;
@@ -1267,7 +1255,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
     collected = null;
     if (global.gc) global.gc();
     console.log(
-      `✅ ${activeTickets.length} tickets cached (${solvedCount} solved in last 7 days)`,
+      `✅ ${activeTickets.length} tickets cached (${solvedCount} solved)`,
     );
     io.emit("REFRESH_TICKETS", activeTickets);
   } catch (e) {
