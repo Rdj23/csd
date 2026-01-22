@@ -191,7 +191,7 @@ const App = () => {
         setBackupInfo(data.backup);
       }
     } catch (e) {
-      console.error("Failed to fetch backup", e);
+      console.error("Failed to fetch sbackup", e);
     }
   };
 
