@@ -1914,6 +1914,7 @@ app.delete("/api/views/:userId/:viewId", async (req, res) => {
 // Roster
 let ROSTER_ROWS = [],
   DATE_COL_MAP = {};
+  let LEVEL_COL_IDX = -1;
 const syncRoster = async () => {
   console.log("🔄 Roster Sync...");
   // 1. SAFETY CHECK: Verify Env Var Exists
@@ -1953,6 +1954,14 @@ const syncRoster = async () => {
       if (col?.includes("-") || col?.includes("Jan"))
         DATE_COL_MAP[col.trim()] = i;
     });
+
+    // ✅ Map Level/Designation Column (CRITICAL FIX)
+      if (colName.toLowerCase().includes("designation") || colName.toLowerCase().includes("level")) {
+        LEVEL_COL_IDX = i;
+        console.log(`✅ Level/Designation found at column ${i}`);
+      }
+    
+
     ROSTER_ROWS = rows.slice(headerIdx + 1).filter((r) => r[0]?.length > 2);
     console.log(`✅ ${ROSTER_ROWS.length} engineers loaded`);
   } catch (e) {
