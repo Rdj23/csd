@@ -72,6 +72,10 @@ import {
   TEAM_REGION_MAP,
 } from "./utils";
 
+const SUPER_ADMIN_EMAILS = [
+  "rohan.jadhav@clevertap.com"
+  // Add other admin emails here
+];
 const EMPTY_FILTERS = {
   teams: [],
   owners: [],
