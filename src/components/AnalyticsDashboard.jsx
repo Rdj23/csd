@@ -83,8 +83,7 @@ const HIDDEN_USERS = [
   "anmol-sawhney",
 ];
 const SUPER_ADMIN_EMAILS = [
-  "rohan.jadhav@clevertap.com",
-  "anmol.sawhney@clevertap.com",
+  "rohan.jadhav@clevertap.com"
 ];
 // ============================================================================
 // METRICS CONFIG

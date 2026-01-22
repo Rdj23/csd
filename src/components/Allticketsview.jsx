@@ -1396,14 +1396,13 @@ const AllTicketsView = ({
         // For solved: filter by SOLVED DATE (not created date), exclude Unassigned
         if (owner !== "Unassigned") {
           // Get solved/closed date
-          const solvedDate = t.closed_date
-            ? new Date(t.closed_date)
-            : t.resolved_at
-              ? new Date(t.resolved_at)
+          const solvedDate = t.actual_close_date
+            ? new Date(t.actual_close_date)
+            : t.closed_date
+              ? new Date(t.closed_date)
               : t.modified_date
                 ? new Date(t.modified_date)
                 : null;
-
           if (hasDateFilter && solvedDate) {
             // Only include if solved within date range
             if (solvedDate >= filterStart && solvedDate <= filterEnd) {

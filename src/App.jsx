@@ -1,8 +1,15 @@
-import React, { useEffect, useMemo, useState, useRef,useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import GroupedTicketList from "./components/GroupedTicketList";
 import AllTicketsView from "./components/Allticketsview";
 
+import GamificationView from "./components/GamificationView";
 
 import {
   Users,
@@ -30,6 +37,7 @@ import {
   AlertTriangle,
   FileDown,
   Clock,
+  Trophy,
   Smile, // Add this
   Inbox, // Add this
   AlertCircle,
@@ -160,38 +168,35 @@ const App = () => {
     }
   }, [tickets, activeTab]);
 
-
-// ✅ TRACK TAB VISITS
+  // ✅ TRACK TAB VISITS
   useEffect(() => {
     if (activeTab) {
       trackEvent("Tab Visited", { Tab: activeTab });
     }
   }, [activeTab]);
 
- 
   // In App.jsx or a new component
 
-const [backupInfo, setBackupInfo] = useState(null);
+  const [backupInfo, setBackupInfo] = useState(null);
 
-const fetchBackup = async () => {
-  try {
-    const res = await fetch("/api/roster/backup");
-    const data = await res.json();
-    if (data.backup) {
-      setBackupInfo(data.backup);
+  const fetchBackup = async () => {
+    try {
+      const res = await fetch("/api/roster/backup");
+      const data = await res.json();
+      if (data.backup) {
+        setBackupInfo(data.backup);
+      }
+    } catch (e) {
+      console.error("Failed to fetch backup", e);
     }
-  } catch (e) {
-    console.error("Failed to fetch backup", e);
-  }
-};
+  };
 
-// Refresh backup every 5 minutes
-useEffect(() => {
-  fetchBackup();
-  const interval = setInterval(fetchBackup, 5 * 60 * 1000);
-  return () => clearInterval(interval);
-}, []);
-
+  // Refresh backup every 5 minutes
+  useEffect(() => {
+    fetchBackup();
+    const interval = setInterval(fetchBackup, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
@@ -330,21 +335,20 @@ useEffect(() => {
     }
   }, [isAuthenticated]);
 
-   // ✅ TRACK SEARCH (Debounced to prevent spamming while typing)
+  // ✅ TRACK SEARCH (Debounced to prevent spamming while typing)
   useEffect(() => {
     const query = searchQueries[activeTab];
     if (!query || query.length < 3) return; // Only track if 3+ chars
 
     const handler = setTimeout(() => {
-      trackEvent("Search Performed", { 
-        Tab: activeTab, 
-        Query: query 
+      trackEvent("Search Performed", {
+        Tab: activeTab,
+        Query: query,
       });
     }, 1500); // Wait 1.5 seconds after typing stops
 
     return () => clearTimeout(handler);
   }, [searchQueries, activeTab]);
-
 
   //   useEffect(() => {
   //   if (selectedTeamLead && TEAM_LEADS[selectedTeamLead]) {
@@ -388,12 +392,12 @@ useEffect(() => {
 
   // ✅ EXPORT TO CSV FUNCTION
   const handleExportCSV = () => {
-
-    const ticketsToExport = activeTab === "alltickets" ? allTicketsFiltered : filteredTickets;
+    const ticketsToExport =
+      activeTab === "alltickets" ? allTicketsFiltered : filteredTickets;
 
     if (!ticketsToExport.length) return showToast("❌ No tickets to export");
 
-     // ✅ TRACK EVENT
+    // ✅ TRACK EVENT
     trackEvent("Report Downloaded", {
       "Ticket Count": ticketsToExport.length,
       Workspace: ticketsToExport[0]?.account?.display_name || "Mixed",
@@ -411,15 +415,33 @@ useEffect(() => {
     ticketsToExport.forEach((t) => {
       const stageLower = (t.stage?.name || "").toLowerCase();
       let state = "Open";
-      if (stageLower.includes("awaiting customer") || stageLower.includes("pending")) state = "Pending";
-      else if (stageLower.includes("waiting on clevertap") || stageLower.includes("on hold")) state = "On Hold";
-      else if (stageLower.includes("solved") || stageLower.includes("closed") || stageLower.includes("resolved")) state = "Solved";
+      if (
+        stageLower.includes("awaiting customer") ||
+        stageLower.includes("pending")
+      )
+        state = "Pending";
+      else if (
+        stageLower.includes("waiting on clevertap") ||
+        stageLower.includes("on hold")
+      )
+        state = "On Hold";
+      else if (
+        stageLower.includes("solved") ||
+        stageLower.includes("closed") ||
+        stageLower.includes("resolved")
+      )
+        state = "Solved";
       ticketsByState[state].push(t);
     });
 
     // Build CSV with sections
     let csvContent = "";
-    const reportTitle = activeTab === "csd" ? "CSD Highlighted Tickets" : activeTab === "vistas" ? "My Vistas" : "Ticket View";
+    const reportTitle =
+      activeTab === "csd"
+        ? "CSD Highlighted Tickets"
+        : activeTab === "vistas"
+          ? "My Vistas"
+          : "Ticket View";
     const currentDate = new Date();
     const formattedDate = `${currentDate.toLocaleString("default", { month: "long" })} ${currentDate.getDate()} ${currentDate.getFullYear()} ${currentDate.getHours()}:${String(currentDate.getMinutes()).padStart(2, "0")}`;
 
@@ -435,7 +457,21 @@ useEffect(() => {
     csvContent += `Solved:,${ticketsByState.Solved.length}\n`;
     csvContent += "\n";
 
-    const headers = ["Ticket ID", "Title", "Account", "Region", "CSM", "TAM", "Assignee", "Age (Days)", "RWT (hrs)", "FRT (hrs)", "Iterations", "CSAT", "FRR"];
+    const headers = [
+      "Ticket ID",
+      "Title",
+      "Account",
+      "Region",
+      "CSM",
+      "TAM",
+      "Assignee",
+      "Age (Days)",
+      "RWT (hrs)",
+      "FRT (hrs)",
+      "Iterations",
+      "CSAT",
+      "FRR",
+    ];
 
     // Process each state section
     ["Open", "Pending", "On Hold", "Solved"].forEach((state) => {
@@ -452,7 +488,10 @@ useEffect(() => {
         csvContent += headers.join(",") + "\n";
 
         stateTickets.forEach((t) => {
-          const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "Unassigned";
+          const owner =
+            FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+            t.owned_by?.[0]?.display_name ||
+            "Unassigned";
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
 
@@ -643,7 +682,12 @@ useEffect(() => {
           frt: t.custom_fields?.tnt__frt_hours || null,
           iterations: t.custom_fields?.tnt__iteration_count || null,
           csat: t.custom_fields?.tnt__csatrating || null,
-          frr: t.custom_fields?.tnt__frr === true ? "Yes" : (t.custom_fields?.tnt__iteration_count === 1 ? "Yes" : null),
+          frr:
+            t.custom_fields?.tnt__frr === true
+              ? "Yes"
+              : t.custom_fields?.tnt__iteration_count === 1
+                ? "Yes"
+                : null,
         };
       })
       .filter((t) => {
@@ -797,16 +841,15 @@ useEffect(() => {
     dependencies, // ADD THIS
   ]);
 
-  
   const shouldShowFilter = useMemo(() => {
     return activeTab !== "vistas" && activeTab !== "analytics";
   }, [activeTab]);
 
- useEffect(() => {
-  if (activeTab) {
-    trackEvent("Tab Viewed", { Tab: activeTab });
-  }
-}, [activeTab]);
+  useEffect(() => {
+    if (activeTab) {
+      trackEvent("Tab Viewed", { Tab: activeTab });
+    }
+  }, [activeTab]);
 
   // All Tickets filters are rendered inline in the main content area below
   // This is just a placeholder to indicate the filter location
@@ -885,9 +928,9 @@ useEffect(() => {
 
             // IF SOLVED: Use Close Date. IF OPEN: Use Created Date.
             let dateStrToCheck = t.created_date;
-            
+
             if (isSolved && t.actual_close_date) {
-               dateStrToCheck = t.actual_close_date;
+              dateStrToCheck = t.actual_close_date;
             }
 
             const ticketDate = parseISO(t.dateStrToCheck);
@@ -1045,7 +1088,7 @@ useEffect(() => {
           if (dep?.hasDependency) {
             const ticketTeams = dep.issues?.map((i) => i.team) || [];
             const hasMatchingTeam = allTicketsFilters.dependencyTeams.some(
-              (team) => ticketTeams.includes(team)
+              (team) => ticketTeams.includes(team),
             );
             if (!hasMatchingTeam) return false;
           }
@@ -1185,6 +1228,7 @@ ${
               { id: "csd", icon: Star, label: "CSD Highlighted" },
               { id: "vistas", icon: Layout, label: "My Views" },
               { id: "analytics", icon: BarChart3, label: "Analytics" },
+              { id: "gamification", icon: Trophy, label: "Gamification" },
             ].map((t) => (
               <button
                 key={t.id}
@@ -1237,9 +1281,9 @@ ${
                           onClick={(e) => {
                             e.stopPropagation();
                             // ✅ ADD TRACKING HERE
-                            trackEvent("View Deleted", { 
-                              Name: view.name, 
-                              ID: view._id 
+                            trackEvent("View Deleted", {
+                              Name: view.name,
+                              ID: view._id,
                             });
                             deleteView(view._id);
                           }}
@@ -1377,64 +1421,142 @@ ${
                         }))
                       }
                     />
-                {/* Dependency Filter - Same as Ticket View */}
+                    {/* Dependency Filter - Same as Ticket View */}
                     <div className="flex items-center gap-1">
                       <div className="relative group">
                         <button className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold text-indigo-700 dark:text-indigo-300">
                           <Link2 className="w-3.5 h-3.5" />
-                          {tabFilters.alltickets?.dependency?.length === 2 ? "All" :
-                           tabFilters.alltickets?.dependency?.length === 1 ?
-                             (tabFilters.alltickets?.dependency[0] === "with_dependency" ? "Has Dep." : "No Dep.") : "Dependency"}
+                          {tabFilters.alltickets?.dependency?.length === 2
+                            ? "All"
+                            : tabFilters.alltickets?.dependency?.length === 1
+                              ? tabFilters.alltickets?.dependency[0] ===
+                                "with_dependency"
+                                ? "Has Dep."
+                                : "No Dep."
+                              : "Dependency"}
                           <ChevronDown className="w-3 h-3" />
                         </button>
 
                         <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-3 hidden group-hover:block">
-                          <div className="text-xs font-bold text-slate-500 uppercase mb-2">Status</div>
+                          <div className="text-xs font-bold text-slate-500 uppercase mb-2">
+                            Status
+                          </div>
                           {DEPENDENCY_OPTIONS.map((opt) => (
-                            <label key={opt.value} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
+                            <label
+                              key={opt.value}
+                              className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded"
+                            >
                               <input
                                 type="checkbox"
-                                checked={tabFilters.alltickets?.dependency?.includes(opt.value)}
+                                checked={tabFilters.alltickets?.dependency?.includes(
+                                  opt.value,
+                                )}
                                 onChange={(e) => {
                                   const newVal = e.target.checked
-                                    ? [...(tabFilters.alltickets?.dependency || []), opt.value]
-                                    : (tabFilters.alltickets?.dependency || []).filter(v => v !== opt.value);
-                                  setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependency: newVal } }));
-                                  if (opt.value === "with_dependency" && e.target.checked) {
-                                    setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependencyTeams: DEPENDENCY_TEAM_OPTIONS.map(o => o.value) } }));
+                                    ? [
+                                        ...(tabFilters.alltickets?.dependency ||
+                                          []),
+                                        opt.value,
+                                      ]
+                                    : (
+                                        tabFilters.alltickets?.dependency || []
+                                      ).filter((v) => v !== opt.value);
+                                  setTabFilters((prev) => ({
+                                    ...prev,
+                                    alltickets: {
+                                      ...prev.alltickets,
+                                      dependency: newVal,
+                                    },
+                                  }));
+                                  if (
+                                    opt.value === "with_dependency" &&
+                                    e.target.checked
+                                  ) {
+                                    setTabFilters((prev) => ({
+                                      ...prev,
+                                      alltickets: {
+                                        ...prev.alltickets,
+                                        dependencyTeams:
+                                          DEPENDENCY_TEAM_OPTIONS.map(
+                                            (o) => o.value,
+                                          ),
+                                      },
+                                    }));
                                   }
-                                  if (opt.value === "with_dependency" && !e.target.checked) {
-                                    setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependencyTeams: [] } }));
+                                  if (
+                                    opt.value === "with_dependency" &&
+                                    !e.target.checked
+                                  ) {
+                                    setTabFilters((prev) => ({
+                                      ...prev,
+                                      alltickets: {
+                                        ...prev.alltickets,
+                                        dependencyTeams: [],
+                                      },
+                                    }));
                                   }
                                 }}
                                 className="rounded border-slate-300 text-indigo-600"
                               />
-                              <span className="text-sm text-slate-700 dark:text-slate-300">{opt.label}</span>
+                              <span className="text-sm text-slate-700 dark:text-slate-300">
+                                {opt.label}
+                              </span>
                             </label>
                           ))}
 
-                          {tabFilters.alltickets?.dependency?.includes("with_dependency") && (
+                          {tabFilters.alltickets?.dependency?.includes(
+                            "with_dependency",
+                          ) && (
                             <>
-                              <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">Team</div>
+                              <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                Team
+                              </div>
                               {DEPENDENCY_TEAM_OPTIONS.map((opt) => (
-                                <label key={opt.value} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
+                                <label
+                                  key={opt.value}
+                                  className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded"
+                                >
                                   <input
                                     type="checkbox"
-                                    checked={tabFilters.alltickets?.dependencyTeams?.includes(opt.value)}
+                                    checked={tabFilters.alltickets?.dependencyTeams?.includes(
+                                      opt.value,
+                                    )}
                                     onChange={(e) => {
                                       const newVal = e.target.checked
-                                        ? [...(tabFilters.alltickets?.dependencyTeams || []), opt.value]
-                                        : (tabFilters.alltickets?.dependencyTeams || []).filter(v => v !== opt.value);
-                                      setTabFilters(prev => ({ ...prev, alltickets: { ...prev.alltickets, dependencyTeams: newVal } }));
+                                        ? [
+                                            ...(tabFilters.alltickets
+                                              ?.dependencyTeams || []),
+                                            opt.value,
+                                          ]
+                                        : (
+                                            tabFilters.alltickets
+                                              ?.dependencyTeams || []
+                                          ).filter((v) => v !== opt.value);
+                                      setTabFilters((prev) => ({
+                                        ...prev,
+                                        alltickets: {
+                                          ...prev.alltickets,
+                                          dependencyTeams: newVal,
+                                        },
+                                      }));
                                     }}
                                     className="rounded border-slate-300 text-indigo-600"
                                   />
-                                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                                    opt.value === "NOC" ? "bg-rose-100 text-rose-700" :
-                                    opt.value === "Whatsapp" ? "bg-emerald-100 text-emerald-700" :
-                                    opt.value === "Billing" ? "bg-amber-100 text-amber-700" :
-                                    opt.value === "Email" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700"
-                                  }`}>{opt.label}</span>
+                                  <span
+                                    className={`text-xs px-2 py-0.5 rounded font-medium ${
+                                      opt.value === "NOC"
+                                        ? "bg-rose-100 text-rose-700"
+                                        : opt.value === "Whatsapp"
+                                          ? "bg-emerald-100 text-emerald-700"
+                                          : opt.value === "Billing"
+                                            ? "bg-amber-100 text-amber-700"
+                                            : opt.value === "Email"
+                                              ? "bg-blue-100 text-blue-700"
+                                              : "bg-slate-100 text-slate-700"
+                                    }`}
+                                  >
+                                    {opt.label}
+                                  </span>
                                 </label>
                               ))}
                             </>
@@ -1469,7 +1591,7 @@ ${
                         }))
                       }
                     />
-                   <MultiSelectFilter
+                    <MultiSelectFilter
                       icon={Users}
                       label="Member"
                       options={options.owners}
@@ -1854,8 +1976,11 @@ ${
                       analytics: { ...prev.analytics, [key]: value },
                     }));
                   }}
-                  
                   isDark={theme === "dark"}
+                />
+              ) : activeTab === "gamification" ? (
+                <GamificationView
+                  quarter={tabFilters.analytics?.quarter || "Q1_26"}
                 />
               ) : activeTab === "alltickets" ? (
                 <AllTicketsView

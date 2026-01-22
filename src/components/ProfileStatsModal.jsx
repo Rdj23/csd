@@ -37,45 +37,54 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
         setLoading(true);
         const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-        // 1. Determine My Team (Existing Logic)
-        let myTeamNames = [];
-        Object.values(TEAM_GROUPS).forEach((group) => {
-          const names = Object.values(group);
-          // Check if the current user is in this group
-          if (names.some((n) => user.name.toLowerCase().includes(n.toLowerCase()))) {
-            myTeamNames = names;
+        // 1. Fetch backup from improved endpoint
+        const backupRes = await axios.get(`${API_BASE}/api/roster/backup?userName=${encodeURIComponent(user.name)}&teamOnly=true`);
+        setBackup(backupRes.data.backup);
+
+        // 2. Calculate stats from solved tickets
+        const totalTickets = solvedTickets.length;
+        
+        // Calculate avg resolution time
+        let totalMinutes = 0, count = 0;
+        solvedTickets.forEach((t) => {
+          if (t.created_date && t.actual_close_date) {
+            const created = new Date(t.created_date);
+            const closed = new Date(t.actual_close_date);
+            const mins = Math.floor((closed - created) / 60000);
+            if (mins > 0) {
+              totalMinutes += mins;
+              count++;
+            }
           }
         });
+        const avgMins = count > 0 ? Math.floor(totalMinutes / count) : 0;
+        const avgResolution = count > 0 ? `${Math.floor(avgMins / 60)}h ${avgMins % 60}m` : "--";
 
-        // 2. Fetch Live Workload of EVERYONE (New Logic)
-        const workloadRes = await axios.get(`${API_BASE}/api/roster/workload`);
-        const allActiveEngineers = workloadRes.data;
-
-        // 3. Find the Best Backup for THIS Team
-        // Filter: Must be in myTeam AND not me
-        const teamMatesOnline = allActiveEngineers.filter(eng => 
-          myTeamNames.some(teamMember => teamMember.toLowerCase() === eng.name.toLowerCase()) &&
-          eng.name.toLowerCase() !== user.name.toLowerCase()
-        );
-
-        // Sort: Least Loaded -> Then L1/L2 preference if needed
-        teamMatesOnline.sort((a, b) => a.load - b.load);
-
-        // Pick the winner (First one is least loaded)
-        setBackup(teamMatesOnline[0] || null);
-
-        // (Keep your existing Stats logic below...)
-        const totalTickets = solvedTickets.length;
-        const avgResTime = totalTickets > 0 ? "24h" : "--"; // Placeholder for calc
+        // 3. Get profile status
+        const statusRes = await axios.post(`${API_BASE}/api/profile/status`, { userName: user.name });
 
         setData({
           stats: {
-            avgResolution: avgResTime,
+            avgResolution,
             solvedCount: totalTickets,
+            q1Solved: totalTickets,
           },
+          isActive: statusRes.data.isActive,
+          status: statusRes.data.status,
+          timings: statusRes.data.shift,
+          aiSummary: backupRes.data.backup 
+            ? `${user.name} is working. Best backup: ${backupRes.data.backup.name} (${backupRes.data.backup.role}) with ${backupRes.data.backup.currentLoad} active tickets.`
+            : statusRes.data.isActive 
+              ? `${user.name} is on shift. No teammates currently available.`
+              : `${user.name} is off duty today.`,
         });
       } catch (err) {
         console.error("Failed to load profile stats", err);
+        setData({
+          stats: { avgResolution: "--", solvedCount: 0, q1Solved: 0 },
+          isActive: false,
+          status: "Unknown",
+        });
       } finally {
         setLoading(false);
       }

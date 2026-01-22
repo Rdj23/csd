@@ -48,7 +48,7 @@ mongoose
   .then(() => console.log("🍃 MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 
-  // --- REDIS CONNECTION ---
+// --- REDIS CONNECTION ---
 // Redis URL - internal URL only works on Render, external URL needed for local dev
 const REDIS_URL = process.env.REDIS_URL;
 let redis = null;
@@ -59,7 +59,7 @@ const initRedis = async () => {
     console.log("⚠️ No REDIS_URL - running without Redis cache");
     return;
   }
-  
+
   try {
     redis = new Redis(REDIS_URL, {
       maxRetriesPerRequest: 3,
@@ -68,7 +68,7 @@ const initRedis = async () => {
       connectTimeout: 5000,
       lazyConnect: true,
     });
-    
+
     redis.on("connect", () => console.log("🔴 Redis Connected"));
     redis.on("error", (err) => {
       console.error("Redis Error:", err.message);
@@ -76,7 +76,7 @@ const initRedis = async () => {
       redis.disconnect();
       redis = null;
     });
-    
+
     await redis.connect();
   } catch (err) {
     console.error("Redis Init Failed:", err.message);
@@ -89,10 +89,10 @@ initRedis();
 
 // --- REDIS CACHE HELPERS ---
 const CACHE_TTL = {
-  ANALYTICS: 1800,      // 30 minutes
-  TICKETS: 300,         // 5 minutes
-  LEADERBOARD: 3600,    // 1 hour
-  DRILLDOWN: 600,       // 10 minutes
+  ANALYTICS: 1800, // 30 minutes
+  TICKETS: 300, // 5 minutes
+  LEADERBOARD: 3600, // 1 hour
+  DRILLDOWN: 600, // 10 minutes
 };
 
 const redisGet = async (key) => {
@@ -153,7 +153,6 @@ const GST_NAME_MAP = {
 
   "Taha Khan": "Tuaha Khan",
 
-
   "Harsh Singh": "Harsh",
   "Tamanna Khan": "Tamanna",
   Tamanna: "Tamanna",
@@ -163,11 +162,25 @@ const GST_NAME_MAP = {
 
 // List of valid GST members
 const GST_MEMBERS = new Set([
-  "Rohan", "Archie", "Neha", "Shreya", "Vaibhav", "Adarsh", "Abhishek",
-  "Shubhankar", "Musaveer", "Anurag", "Debashish",
-  "Aditya", "Shweta", "Nikita",
-  "Tuaha Khan", "Harsh", "Tamanna", "Shreyas",
-  "Adish"
+  "Rohan",
+  "Archie",
+  "Neha",
+  "Shreya",
+  "Vaibhav",
+  "Adarsh",
+  "Abhishek",
+  "Shubhankar",
+  "Musaveer",
+  "Anurag",
+  "Debashish",
+  "Aditya",
+  "Shweta",
+  "Nikita",
+  "Tuaha Khan",
+  "Harsh",
+  "Tamanna",
+  "Shreyas",
+  "Adish",
 ]);
 
 const resolveOwnerName = (displayName) => {
@@ -219,15 +232,15 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     // ✅ FIX 4: FRR is Number (0 or 1)
     frr: { type: Number, default: 0 },
     account_name: { type: String, index: true },
-     // NOC Fields
+    // NOC Fields
     is_noc: { type: Boolean, default: false, index: true },
-    noc_issue_id: { type: String, default: null },      // e.g., "ISS-124362"
-    noc_jira_key: { type: String, default: null },      // e.g., "SUC-128878"
-    noc_rca: { type: String, default: null },           // e.g., "Understanding Gap - CS"
-    noc_reported_by: { type: String, default: null },   // e.g., "Sambhaavna A"
+    noc_issue_id: { type: String, default: null }, // e.g., "ISS-124362"
+    noc_jira_key: { type: String, default: null }, // e.g., "SUC-128878"
+    noc_rca: { type: String, default: null }, // e.g., "Understanding Gap - CS"
+    noc_reported_by: { type: String, default: null }, // e.g., "Sambhaavna A"
     noc_assignee: { type: String, default: null },
   },
-  { versionKey: false }
+  { versionKey: false },
 );
 
 AnalyticsTicketSchema.index({ closed_date: 1, owner: 1 });
@@ -237,7 +250,7 @@ AnalyticsTicketSchema.index({ owner: 1, closed_date: 1, region: 1 });
 
 const AnalyticsTicket = mongoose.model(
   "AnalyticsTicket",
-  AnalyticsTicketSchema
+  AnalyticsTicketSchema,
 );
 
 const AnalyticsCacheSchema = new mongoose.Schema({
@@ -255,9 +268,9 @@ const AnalyticsCache = mongoose.model("AnalyticsCache", AnalyticsCacheSchema);
 app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-    req.setTimeout(30000); // 30 second timeout
+  req.setTimeout(30000); // 30 second timeout
   res.setTimeout(30000);
- 
+
   next();
 });
 
@@ -268,18 +281,20 @@ app.use(
       "https://clevertapintel.globalsupportteam.com",
     ],
     credentials: true,
-     maxAge: 86400,
-  })
+    maxAge: 86400,
+  }),
 );
 // GZIP Compression - reduces payload by 70%
-app.use(compression({
-  level: 6,
-  threshold: 1024, // Only compress responses > 1KB
-  filter: (req, res) => {
-    if (req.headers['x-no-compression']) return false;
-    return compression.filter(req, res);
-  }
-}));
+app.use(
+  compression({
+    level: 6,
+    threshold: 1024, // Only compress responses > 1KB
+    filter: (req, res) => {
+      if (req.headers["x-no-compression"]) return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -358,20 +373,20 @@ const getQuarterDateRange = (quarter) => {
   }
 };
 
-
 // ============================================================================
 // LIVE STATS ENDPOINT (The "Drill-Down Method" for Cards & Charts)
 // ============================================================================
 app.get("/api/tickets/live-stats", async (req, res) => {
   try {
-    const { start, end, owners, teams, region, excludeZendesk, excludeNOC } = req.query;
+    const { start, end, owners, teams, region, excludeZendesk, excludeNOC } =
+      req.query;
 
     if (!start || !end) {
       return res.status(400).json({ error: "Start and End dates required" });
     }
-    
+
     // Redis cache check
-    const cacheKey = `livestats:${start}:${end}:${owners || 'all'}:${region || 'all'}:${excludeZendesk || 'false'}:${excludeNOC || 'false'}`;
+    const cacheKey = `livestats:${start}:${end}:${owners || "all"}:${region || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
     const cachedData = await redisGet(cacheKey);
     if (cachedData) {
       console.log(`⚡ LiveStats Redis HIT`);
@@ -381,7 +396,7 @@ app.get("/api/tickets/live-stats", async (req, res) => {
     // 1. Build Filter (Exact same as Drill-Down)
     const startDate = new Date(start);
     const endDate = new Date(end);
-    
+
     // Ensure full day coverage
     if (startDate.getHours() === 0) startDate.setHours(0, 0, 0, 0);
     if (endDate.getHours() === 0) endDate.setHours(23, 59, 59, 999);
@@ -398,7 +413,9 @@ app.get("/api/tickets/live-stats", async (req, res) => {
 
     // Region Filter (Crucial for your issue)
     if (region && region.length > 0 && region !== "All") {
-       matchConditions.region = { $in: region.split(",").filter(r => r.trim()) };
+      matchConditions.region = {
+        $in: region.split(",").filter((r) => r.trim()),
+      };
     }
 
     // Zendesk Filter
@@ -406,7 +423,7 @@ app.get("/api/tickets/live-stats", async (req, res) => {
       matchConditions.is_zendesk = { $ne: true };
     }
 
-   // NOC Filter
+    // NOC Filter
     if (req.query.excludeNOC === "true") {
       matchConditions.is_noc = { $ne: true };
     }
@@ -418,33 +435,39 @@ app.get("/api/tickets/live-stats", async (req, res) => {
         $group: {
           _id: null,
           totalSolved: { $sum: 1 },
-          
+
           // Stats for Cards (ignoring 0 values)
           avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
           avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          avgIterations: {
+            $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] },
+          },
 
           // ✅ FIX: VALID COUNTS (Needed for Weighted Average on Frontend)
           rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
           frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
-          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
-          
+          iterValidCount: {
+            $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] },
+          },
+
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
 
           // Daily Trend for Expanded Chart
           dailyData: {
             $push: {
-              date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+              date: {
+                $dateToString: { format: "%Y-%m-%d", date: "$closed_date" },
+              },
               rwt: "$rwt",
               frt: "$frt",
               iterations: "$iterations",
               csat: "$csat",
-              frr: "$frr"
-            }
-          }
-        }
-      }
+              frr: "$frr",
+            },
+          },
+        },
+      },
     ]);
 
     if (result.length === 0) {
@@ -456,35 +479,51 @@ app.get("/api/tickets/live-stats", async (req, res) => {
     // 3. Process Daily Trends for Chart
     // We group the 'dailyData' array by date inside JS to handle the daily sums
     const trendsMap = {};
-    data.dailyData.forEach(t => {
+    data.dailyData.forEach((t) => {
       if (!trendsMap[t.date]) {
-        trendsMap[t.date] = { 
-          date: t.date, solved: 0, 
-          sumRWT: 0, countRWT: 0,
-          sumFRT: 0, countFRT: 0,
-          sumIter: 0, countIter: 0,
-          positiveCSAT: 0, frrMet: 0
+        trendsMap[t.date] = {
+          date: t.date,
+          solved: 0,
+          sumRWT: 0,
+          countRWT: 0,
+          sumFRT: 0,
+          countFRT: 0,
+          sumIter: 0,
+          countIter: 0,
+          positiveCSAT: 0,
+          frrMet: 0,
         };
       }
       const day = trendsMap[t.date];
       day.solved++;
       if (t.csat === 2) day.positiveCSAT++;
       if (t.frr === 1) day.frrMet++;
-      
-      if (t.rwt > 0) { day.sumRWT += t.rwt; day.countRWT++; }
-      if (t.frt > 0) { day.sumFRT += t.frt; day.countFRT++; }
-      if (t.iterations > 0) { day.sumIter += t.iterations; day.countIter++; }
+
+      if (t.rwt > 0) {
+        day.sumRWT += t.rwt;
+        day.countRWT++;
+      }
+      if (t.frt > 0) {
+        day.sumFRT += t.frt;
+        day.countFRT++;
+      }
+      if (t.iterations > 0) {
+        day.sumIter += t.iterations;
+        day.countIter++;
+      }
     });
 
-    const trends = Object.values(trendsMap).map(day => ({
-      date: day.date,
-      solved: day.solved,
-      positiveCSAT: day.positiveCSAT,
-      frrMet: day.frrMet,
-      avgRWT: day.countRWT ? day.sumRWT / day.countRWT : 0,
-      avgFRT: day.countFRT ? day.sumFRT / day.countFRT : 0,
-      avgIterations: day.countIter ? day.sumIter / day.countIter : 0,
-    })).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const trends = Object.values(trendsMap)
+      .map((day) => ({
+        date: day.date,
+        solved: day.solved,
+        positiveCSAT: day.positiveCSAT,
+        frrMet: day.frrMet,
+        avgRWT: day.countRWT ? day.sumRWT / day.countRWT : 0,
+        avgFRT: day.countFRT ? day.sumFRT / day.countFRT : 0,
+        avgIterations: day.countIter ? day.sumIter / day.countIter : 0,
+      }))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     // Cache response
     await redisSet(cacheKey, responseData, CACHE_TTL.DRILLDOWN);
@@ -497,17 +536,19 @@ app.get("/api/tickets/live-stats", async (req, res) => {
         avgIterations: data.avgIterations || 0,
 
         // ✅ FIX: VALID COUNTS (Needed for Weighted Average on Frontend)
-          rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
-          frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
-          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
-
+        rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
+        frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
+        iterValidCount: {
+          $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] },
+        },
 
         positiveCSAT: data.positiveCSAT,
-        frrPercent: data.totalSolved ? Math.round((data.frrMet / data.totalSolved) * 100) : 0,
+        frrPercent: data.totalSolved
+          ? Math.round((data.frrMet / data.totalSolved) * 100)
+          : 0,
       },
-      trends
+      trends,
     });
-
   } catch (e) {
     console.error("Live Stats Error:", e);
     res.status(500).json({ error: e.message });
@@ -523,13 +564,13 @@ app.get("/api/tickets/live-stats", async (req, res) => {
 app.get("/api/tickets/drilldown", async (req, res) => {
   try {
     const { date, metric, type } = req.query; // type = 'created' (Volume) or 'closed' (Performance)
-    
+
     if (!date) return res.status(400).json({ error: "Date required" });
 
     // Define Start/End of that specific day
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
-    
+
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
@@ -542,17 +583,20 @@ app.get("/api/tickets/drilldown", async (req, res) => {
       // For Solved, RWT, Backlog
       query.actual_close_date = { $gte: startOfDay, $lte: endOfDay };
       // Ensure it is actually solved
-      query.stage_name = { $in: ["solved", "closed", "resolved", "Resolved", "Solved", "Closed"] };
+      query.stage_name = {
+        $in: ["solved", "closed", "resolved", "Resolved", "Solved", "Closed"],
+      };
     }
 
     // 2. Fetch from Mongo (Not RAM!)
     // We select only needed fields to keep it fast
     const tickets = await AnalyticsTicket.find(query)
-      .select("display_id title created_date actual_close_date owner stage_name rwt account_name")
+      .select(
+        "display_id title created_date actual_close_date owner stage_name rwt account_name",
+      )
       .lean(); // .lean() makes it a plain JSON object (faster)
 
     res.json({ tickets });
-
   } catch (error) {
     console.error("Drilldown Error:", error);
     res.status(500).json({ error: "Failed to fetch drilldown data" });
@@ -566,13 +610,13 @@ app.get("/api/tickets/analytics", async (req, res) => {
       excludeZendesk,
       excludeNOC,
       owner,
-      owners,     // Ensure this is here if using new filters
+      owners, // Ensure this is here if using new filters
       region,
       forceRefresh,
       groupBy = "daily",
     } = req.query;
-      const cacheKey = `analytics:${quarter}:${excludeZendesk || 'false'}:${excludeNOC || 'false'}:${owner || 'all'}:${owners || 'none'}:${region || 'none'}:${groupBy}`;
-    
+    const cacheKey = `analytics:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${groupBy}`;
+
     // 1. Check Redis cache first (fastest)
     if (forceRefresh !== "true") {
       const redisData = await redisGet(cacheKey);
@@ -581,13 +625,18 @@ app.get("/api/tickets/analytics", async (req, res) => {
         return res.json(redisData);
       }
     }
-    
+
     console.log(`📊 Analytics Request (Cache MISS): ${cacheKey}`);
 
     // 2. Check MongoDB cache (fallback)
     if (forceRefresh !== "true") {
-      const mongoCache = await AnalyticsCache.findOne({ cache_key: cacheKey }).lean();
-      if (mongoCache && Date.now() - new Date(mongoCache.computed_at).getTime() < 1800000) {
+      const mongoCache = await AnalyticsCache.findOne({
+        cache_key: cacheKey,
+      }).lean();
+      if (
+        mongoCache &&
+        Date.now() - new Date(mongoCache.computed_at).getTime() < 1800000
+      ) {
         console.log(`⚡ MongoDB Cache HIT`);
         // Store in Redis for next time
         await redisSet(cacheKey, mongoCache, CACHE_TTL.ANALYTICS);
@@ -597,7 +646,9 @@ app.get("/api/tickets/analytics", async (req, res) => {
 
     // 3. Compute fresh data
     const { start, end } = getQuarterDateRange(quarter);
-    console.log(`📅 Date Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`);
+    console.log(
+      `📅 Date Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`,
+    );
 
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
@@ -606,16 +657,12 @@ app.get("/api/tickets/analytics", async (req, res) => {
     if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
 
     // ✅ FIX: NOC filter MUST be here
-if (excludeNOC === "true") {
-  matchConditions.is_noc = { $ne: true };
-}
+    if (excludeNOC === "true") {
+      matchConditions.is_noc = { $ne: true };
+    }
 
-  
     if (owner && owner !== "All")
       matchConditions.owner = { $regex: owner, $options: "i" };
-
-  
-    
 
     // Aggregate Stats
     const [statsResult] = await AnalyticsTicket.aggregate([
@@ -755,16 +802,16 @@ if (excludeNOC === "true") {
     // Individual trends (last 60 days)
     const sixtyDaysAgo = new Date();
     sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-   const individualTrends = await AnalyticsTicket.aggregate([
+    const individualTrends = await AnalyticsTicket.aggregate([
       {
-       $match: matchConditions
+        $match: matchConditions,
       },
       {
         $addFields: {
           ticketAge: {
             $divide: [
               { $subtract: ["$closed_date", "$created_date"] },
-              1000 * 60 * 60 * 24, 
+              1000 * 60 * 60 * 24,
             ],
           },
         },
@@ -778,35 +825,38 @@ if (excludeNOC === "true") {
             owner: "$owner",
           },
           solved: { $sum: 1 },
-          
+
           // ✅ FIX: Use $cond to ignore 0 values for averages
-          avgRWT: { 
-            $avg: { 
-              $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] 
-            } 
+          avgRWT: {
+            $avg: {
+              $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null],
+            },
           },
-          avgFRT: { 
-            $avg: { 
-              $cond: [{ $gt: ["$frt", 0] }, "$frt", null] 
-            } 
+          avgFRT: {
+            $avg: {
+              $cond: [{ $gt: ["$frt", 0] }, "$frt", null],
+            },
           },
           // ✅ NEW: Iterations (Avg + Valid Count for weighting)
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
+          avgIterations: {
+            $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] },
+          },
+          iterValidCount: {
+            $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] },
+          },
 
           // ✅ FIX: Add counts of valid tickets for Weighted Average calc on Frontend
-          rwtValidCount: { 
-            $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } 
+          rwtValidCount: {
+            $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] },
           },
-          frtValidCount: { 
-            $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } 
+          frtValidCount: {
+            $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] },
           },
-         
 
           // ✅ FIX: Add CSAT and FRR data
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          
+
           backlogCleared: {
             $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] },
           },
@@ -874,7 +924,9 @@ if (excludeNOC === "true") {
           solved: item.solved,
           avgRWT: item.avgRWT ? Number(item.avgRWT.toFixed(2)) : 0,
           avgFRT: item.avgFRT ? Number(item.avgFRT.toFixed(2)) : 0,
-          avgIterations: item.avgIterations ? Number(item.avgIterations.toFixed(1)) : 0,
+          avgIterations: item.avgIterations
+            ? Number(item.avgIterations.toFixed(1))
+            : 0,
           // Pass the Raw Counts
           positiveCSAT: item.positiveCSAT || 0,
           frrMet: item.frrMet || 0,
@@ -888,18 +940,16 @@ if (excludeNOC === "true") {
       }, {}),
     };
 
-   
-
     // Cache in Redis (fast) and MongoDB (persistent)
     await Promise.all([
       redisSet(cacheKey, response, CACHE_TTL.ANALYTICS),
       AnalyticsCache.findOneAndUpdate(
         { cache_key: cacheKey },
         { $set: response },
-        { upsert: true }
-      )
+        { upsert: true },
+      ),
     ]);
-    
+
     console.log(`✅ Analytics computed & cached: ${cacheKey}`);
     res.json(response);
   } catch (e) {
@@ -918,7 +968,7 @@ if (excludeNOC === "true") {
 app.get("/api/cache/status", async (req, res) => {
   const nodeKeys = cache.keys();
   let redisKeys = [];
-  
+
   if (redis) {
     try {
       redisKeys = await redis.keys("*");
@@ -926,7 +976,7 @@ app.get("/api/cache/status", async (req, res) => {
       redisKeys = ["Error: " + e.message];
     }
   }
-  
+
   res.json({
     nodeCache: {
       keys: nodeKeys,
@@ -947,32 +997,110 @@ app.post("/api/cache/clear", async (req, res) => {
   res.json({ success: true, message: "All caches cleared" });
 });
 
+// ============================================================================
+// Get ALL tickets for a date RANGE (for weekly/monthly drill-down)
+// ============================================================================
+app.get("/api/tickets/by-range", async (req, res) => {
+  try {
+    const { start, end, owners, metric, excludeZendesk, excludeNOC, region } = req.query;
+
+    if (!start || !end) {
+      return res.status(400).json({ error: "Start and end dates required" });
+    }
+
+    const startDate = new Date(start);
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(end);
+    endDate.setHours(23, 59, 59, 999);
+
+    console.log(`📊 By-Range: ${start} to ${end}, metric=${metric}`);
+
+    const matchConditions = {
+      closed_date: { $gte: startDate, $lte: endDate },
+      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
+    };
+
+    // Owner filter
+    if (owners && owners !== "All") {
+      const ownerList = owners.split(",").filter((o) => o.trim());
+      if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
+    }
+
+    // Region filter
+    if (region && region !== "All") {
+      matchConditions.region = { $in: region.split(",").filter((r) => r.trim()) };
+    }
+
+    // Zendesk filter
+    if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
+    
+    // NOC filter
+    if (excludeNOC === "true") matchConditions.is_noc = { $ne: true };
+
+    // For FRR/CSAT - return ALL tickets, let frontend calculate percentage
+    // Only filter for specific metrics that need it
+    if (metric === "backlog") {
+      matchConditions.$expr = {
+        $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 86400000],
+      };
+    }
+
+    const tickets = await AnalyticsTicket.find(matchConditions)
+      .sort({ closed_date: -1 })
+      .limit(2000)
+      .lean();
+
+    // Calculate summary stats
+    const stats = {
+      total: tickets.length,
+      frrMet: tickets.filter(t => t.frr === 1).length,
+      frrNotMet: tickets.filter(t => t.frr !== 1).length,
+      positiveCSAT: tickets.filter(t => t.csat === 2).length,
+      negativeCSAT: tickets.filter(t => t.csat === 1).length,
+      avgRWT: tickets.length > 0 
+        ? (tickets.reduce((sum, t) => sum + (t.rwt || 0), 0) / tickets.filter(t => t.rwt > 0).length).toFixed(2)
+        : 0,
+      avgIterations: tickets.length > 0
+        ? (tickets.reduce((sum, t) => sum + (t.iterations || 0), 0) / tickets.filter(t => t.iterations > 0).length).toFixed(2)
+        : 0,
+    };
+
+    res.json({ tickets, stats, count: tickets.length });
+  } catch (e) {
+    console.error("❌ By-range fetch error:", e);
+    res.status(500).json({ error: e.message, tickets: [], stats: {} });
+  }
+});
+
 // Get tickets for a specific date (for drill-down)
 
 app.get("/api/tickets/by-date", async (req, res) => {
   try {
-    const { date, owners, metric, excludeZendesk, region,excludeNOC } = req.query;
-    
+    const { date, owners, metric, excludeZendesk, region, excludeNOC } =
+      req.query;
+
     if (!date) return res.status(400).json({ error: "Date required" });
 
-    const cacheKey = `bydate:${date}:${owners || 'all'}:${excludeZendesk || 'false'}:${excludeNOC || 'false'}`;
+    const cacheKey = `bydate:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
     const cached = await redisGet(cacheKey);
     if (cached) {
       console.log(`⚡ ByDate Redis HIT`);
       return res.json(cached);
     }
-    
+
     // Parse date logic (Weekly vs Daily)
     let startOfDay, endOfDay;
-    if (date.includes('W')) {
-      const [year, weekPart] = date.split('-W');
+    if (date.includes("W")) {
+      const [year, weekPart] = date.split("-W");
       const weekNum = parseInt(weekPart);
       const simple = new Date(parseInt(year), 0, 1 + (weekNum - 1) * 7);
       const dow = simple.getDay();
       const ISOweekStart = simple;
-      if (dow <= 4) ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+      if (dow <= 4)
+        ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
       else ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
-      
+
       startOfDay = new Date(ISOweekStart);
       endOfDay = new Date(startOfDay);
       endOfDay.setDate(startOfDay.getDate() + 6);
@@ -981,38 +1109,48 @@ app.get("/api/tickets/by-date", async (req, res) => {
       startOfDay = new Date(date + "T00:00:00.000Z");
       endOfDay = new Date(date + "T23:59:59.999Z");
     }
-    
+
     const matchConditions = {
       closed_date: { $gte: startOfDay, $lte: endOfDay },
       owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
-    
+
     // 1. Owner Filter
-    if (owners && owners.length > 0 && owners !== 'All') {
-      const ownerList = owners.split(',').filter(o => o.trim());
+    if (owners && owners.length > 0 && owners !== "All") {
+      const ownerList = owners.split(",").filter((o) => o.trim());
       if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
     }
 
-    if (region && region !== 'All') {
-       matchConditions.region = { $in: region.split(',').filter(r => r.trim()) };
+    if (region && region !== "All") {
+      matchConditions.region = {
+        $in: region.split(",").filter((r) => r.trim()),
+      };
     }
-    
-   // ✅ METRIC SPECIFIC FILTERS (Exclude 0/Null values)
+
+    // ✅ METRIC SPECIFIC FILTERS (Exclude 0/Null values)
+   // ✅ METRIC SPECIFIC FILTERS
+    // For CSAT: Show only positive CSAT tickets
     if (metric === "csat" || metric === "positiveCSAT") {
-      matchConditions.csat = 2; 
-    } else if (metric === "frrPercent" || metric === "frr") {
-      matchConditions.frr = 1; // Only met
-    } else if (metric === "backlog") {
+      matchConditions.csat = 2;
+    }
+    // For FRR: Return ALL tickets (NOT filtered by frr=1)
+    // The response will include frr field so frontend can show "X of Y met"
+    // else if (metric === "frrPercent" || metric === "frr") { }  // ← REMOVED!
+    
+    // For Backlog: Tickets older than 15 days
+    else if (metric === "backlog") {
       matchConditions.$expr = {
         $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 86400000],
       };
-    } 
+    }
+
     // 3. Zendesk & Region
-    if (excludeZendesk === 'true') matchConditions.is_zendesk = { $ne: true };
-    if (region && region.length > 0) matchConditions.region = { $in: region.split(',') };
+    if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
+    if (region && region.length > 0)
+      matchConditions.region = { $in: region.split(",") };
 
     // NOC filter
-    if (req.query.excludeNOC === 'true') {
+    if (req.query.excludeNOC === "true") {
       matchConditions.is_noc = { $ne: true };
     }
 
@@ -1029,8 +1167,6 @@ app.get("/api/tickets/by-date", async (req, res) => {
   }
 });
 
-
-
 const fetchAndCacheTickets = async (source = "auto") => {
   if (isSyncing) {
     syncQueued = true;
@@ -1042,11 +1178,11 @@ const fetchAndCacheTickets = async (source = "auto") => {
   try {
     // ✅ DEFINE sevenDaysAgo FIRST (before it's used!)
     const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);  // ✅ 7 days
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 100); // ✅ 7 days
     sevenDaysAgo.setHours(0, 0, 0, 0);
     console.log(
       "📅 Including solved tickets since:",
-      sevenDaysAgo.toISOString()
+      sevenDaysAgo.toISOString(),
     );
 
     let collected = [],
@@ -1059,7 +1195,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
         `${DEVREV_API}/works.list?limit=50&type=ticket${
           cursor ? `&cursor=${cursor}` : ""
         }`,
-        { headers: HEADERS, timeout: 30000 }
+        { headers: HEADERS, timeout: 30000 },
       );
 
       const newWorks = response.data.works || [];
@@ -1121,14 +1257,14 @@ const fetchAndCacheTickets = async (source = "auto") => {
       return stage.includes("solved") || stage.includes("closed");
     }).length;
 
-  // Store in both NodeCache (fast local) and Redis (shared across restarts)
+    // Store in both NodeCache (fast local) and Redis (shared across restarts)
     cache.set("tickets_active", activeTickets);
     await redisSet("tickets:active", activeTickets, CACHE_TTL.TICKETS);
-    
+
     collected = null;
     if (global.gc) global.gc();
     console.log(
-      `✅ ${activeTickets.length} tickets cached (${solvedCount} solved in last 7 days)`
+      `✅ ${activeTickets.length} tickets cached (${solvedCount} solved in last 7 days)`,
     );
     io.emit("REFRESH_TICKETS", activeTickets);
   } catch (e) {
@@ -1153,7 +1289,7 @@ app.get("/api/tickets", async (req, res) => {
       console.log("⚡ Active Tickets: Redis HIT");
       return res.json({ tickets: redisData });
     }
-    
+
     // 2. Try NodeCache (fast)
     const cached = cache.get("tickets_active");
     if (cached) {
@@ -1162,18 +1298,18 @@ app.get("/api/tickets", async (req, res) => {
       redisSet("tickets:active", cached, CACHE_TTL.TICKETS).catch(() => {});
       return res.json({ tickets: cached });
     }
-    
+
     // 3. No cache - return empty immediately, sync in background
     console.log("⏳ No cache - starting background sync");
-    
+
     // Start sync in background (non-blocking)
     fetchAndCacheTickets("first_load").catch(console.error);
-    
+
     // Return empty array immediately - frontend will retry or use websocket
-    res.json({ 
-      tickets: [], 
+    res.json({
+      tickets: [],
       syncing: true,
-      message: "Data is being loaded. Please refresh in a few seconds."
+      message: "Data is being loaded. Please refresh in a few seconds.",
     });
   } catch (e) {
     console.error("❌ /api/tickets error:", e.message);
@@ -1193,7 +1329,7 @@ app.post("/api/tickets/links", async (req, res) => {
         object_types: ["issue"],
         limit: 10,
       },
-      { headers: HEADERS }
+      { headers: HEADERS },
     );
 
     const links = linksRes.data.links || [];
@@ -1235,7 +1371,7 @@ app.post("/api/issues/get", async (req, res) => {
     const issRes = await axios.post(
       `${DEVREV_API}/works.get`,
       { id: issueId },
-      { headers: HEADERS }
+      { headers: HEADERS },
     );
 
     const issue = issRes.data.work;
@@ -1304,7 +1440,7 @@ app.post("/api/tickets/dependencies", async (req, res) => {
                 object_types: ["issue"],
                 limit: 10,
               },
-              { headers: HEADERS }
+              { headers: HEADERS },
             );
 
             const links = linksRes.data.links || [];
@@ -1325,7 +1461,7 @@ app.post("/api/tickets/dependencies", async (req, res) => {
                   const issRes = await axios.post(
                     `${DEVREV_API}/works.get`,
                     { id: target.display_id },
-                    { headers: HEADERS }
+                    { headers: HEADERS },
                   );
 
                   const issue = issRes.data.work;
@@ -1363,7 +1499,7 @@ app.post("/api/tickets/dependencies", async (req, res) => {
                     isNOC: false,
                   };
                 }
-              })
+              }),
             );
 
             const validIssues = issues.filter(Boolean);
@@ -1388,7 +1524,7 @@ app.post("/api/tickets/dependencies", async (req, res) => {
               error: e.message,
             };
           }
-        })
+        }),
       );
     }
 
@@ -1412,7 +1548,7 @@ app.post("/api/admin/sync-now", async (req, res) => {
       latestClosedDate: latest?.closed_date,
       message: `Synced successfully. Latest ticket: ${format(
         latest?.closed_date || new Date(),
-        "MMM dd, yyyy"
+        "MMM dd, yyyy",
       )}`,
     });
   } catch (e) {
@@ -1461,23 +1597,29 @@ const syncHistoricalToDB = async (fullHistory = false) => {
     try {
       const res = await axios.get(
         `${DEVREV_API}/works.list?limit=50&type=ticket${cursor ? `&cursor=${cursor}` : ""}`,
-        { headers: HEADERS }
+        { headers: HEADERS },
       );
       const works = res.data.works || [];
       if (!works.length) break;
-      if (new Date(works[works.length - 1].created_date) < TARGET_DATE && !fullHistory) break;
+      if (
+        new Date(works[works.length - 1].created_date) < TARGET_DATE &&
+        !fullHistory
+      )
+        break;
 
       const solved = works.filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
         return (
-          (stage.includes("solved") || stage.includes("closed") || stage.includes("resolved")) &&
+          (stage.includes("solved") ||
+            stage.includes("closed") ||
+            stage.includes("resolved")) &&
           t.actual_close_date
         );
       });
 
       if (solved.length) {
         const ops = [];
-        
+
         for (const t of solved) {
           // Skip Anmol
           const ownerRaw = t.owned_by?.[0]?.display_name || "";
@@ -1485,7 +1627,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
             skippedCount++;
             continue;
           }
-          
+
           // Resolve owner - returns null for non-GST
           const owner = resolveOwnerName(ownerRaw);
           if (!owner) {
@@ -1506,13 +1648,13 @@ const syncHistoricalToDB = async (fullHistory = false) => {
           if (iterations === 1) frrVal = 1;
 
           // NOC Detection - Only for tickets closed >= Jan 1, 2026
-    
+
           let isNoc = false;
           let nocIssueId = null;
           let nocJiraKey = null;
           let nocRca = null;
           let nocReportedBy = null;
-          let nocAssignee = null;  // NEW
+          let nocAssignee = null; // NEW
 
           const closedDate = new Date(t.actual_close_date);
           if (closedDate >= NOC_CHECK_DATE) {
@@ -1523,15 +1665,16 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                 {
                   object: t.id,
                   object_types: ["issue"],
-                  limit: 10
+                  limit: 10,
                 },
-                { headers: HEADERS }
+                { headers: HEADERS },
               );
               const links = linksRes.data.links || [];
 
               // Step 2: Check each linked issue
               for (const link of links) {
-                const issueId = link.target?.display_id || link.source?.display_id;
+                const issueId =
+                  link.target?.display_id || link.source?.display_id;
                 if (!issueId || !issueId.startsWith("ISS-")) continue;
 
                 try {
@@ -1539,21 +1682,25 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                   const issRes = await axios.post(
                     `${DEVREV_API}/works.get`,
                     { id: issueId },
-                    { headers: HEADERS }
+                    { headers: HEADERS },
                   );
                   const issue = issRes.data.work;
 
                   // Check if it's a NOC issue (PSN Task)
-                // Check if it's a NOC issue (PSN Task)
+                  // Check if it's a NOC issue (PSN Task)
                   if (issue?.custom_fields?.ctype__issuetype === "PSN Task") {
                     isNoc = true;
                     nocIssueId = issue.display_id;
                     nocJiraKey = issue.custom_fields?.ctype__key || null;
-                    nocRca = issue.custom_fields?.ctype__customfield_10169 || null;
-                    nocReportedBy = issue.reported_by?.[0]?.display_name || null;
-                    nocAssignee = issue.owned_by?.[0]?.display_name || null;  // NEW: Get assignee
+                    nocRca =
+                      issue.custom_fields?.ctype__customfield_10169 || null;
+                    nocReportedBy =
+                      issue.reported_by?.[0]?.display_name || null;
+                    nocAssignee = issue.owned_by?.[0]?.display_name || null; // NEW: Get assignee
                     nocCount++;
-                    console.log(`   ✓ NOC: ${t.display_id} → ${nocIssueId}, Assignee: ${nocAssignee}, RCA: ${nocRca}`);
+                    console.log(
+                      `   ✓ NOC: ${t.display_id} → ${nocIssueId}, Assignee: ${nocAssignee}, RCA: ${nocRca}`,
+                    );
                     break;
                   }
                 } catch (e) {
@@ -1578,19 +1725,24 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                   owner,
                   region: t.custom_fields?.tnt__region_salesforce || "Unknown",
                   priority: t.priority,
-                  is_zendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+                  is_zendesk: t.tags?.some(
+                    (tag) => tag.tag?.name === "Zendesk import",
+                  ),
                   is_noc: isNoc,
                   noc_issue_id: nocIssueId,
                   noc_jira_key: nocJiraKey,
                   noc_rca: nocRca,
                   noc_reported_by: nocReportedBy,
-                  noc_assignee: nocAssignee,  
+                  noc_assignee: nocAssignee,
                   rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
                   frt: t.custom_fields?.tnt__frt_hours ?? null,
                   iterations: iterations ?? null,
                   csat: csatVal,
                   frr: frrVal,
-                  account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
+                  account_name:
+                    t.custom_fields?.tnt__instance_account_name ||
+                    t.account?.display_name ||
+                    "Unknown",
                 },
               },
               upsert: true,
@@ -1601,7 +1753,9 @@ const syncHistoricalToDB = async (fullHistory = false) => {
         if (ops.length > 0) {
           await AnalyticsTicket.bulkWrite(ops);
           processedCount += ops.length;
-          console.log(`   📊 Batch done: ${processedCount} synced, ${nocCount} NOC, ${skippedCount} skipped`);
+          console.log(
+            `   📊 Batch done: ${processedCount} synced, ${nocCount} NOC, ${skippedCount} skipped`,
+          );
         }
       }
       cursor = res.data.next_cursor;
@@ -1620,15 +1774,17 @@ const syncHistoricalToDB = async (fullHistory = false) => {
     redisDelete("bydate:*"),
     redisDelete("tickets:*"),
   ]);
-  console.log(`✅ SYNC COMPLETE: ${processedCount} GST tickets, ${nocCount} NOC tickets, ${skippedCount} non-GST skipped. Caches cleared.`);
-
+  console.log(
+    `✅ SYNC COMPLETE: ${processedCount} GST tickets, ${nocCount} NOC tickets, ${skippedCount} non-GST skipped. Caches cleared.`,
+  );
 };
 
 // Health check with Redis status
 app.get("/api/health", async (req, res) => {
-  const mongoStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
+  const mongoStatus =
+    mongoose.connection.readyState === 1 ? "connected" : "disconnected";
   const redisStatus = redis?.status || "disconnected";
-  
+
   res.json({
     status: "ok",
     mongo: mongoStatus,
@@ -1661,12 +1817,12 @@ app.post("/api/admin/search", async (req, res) => {
     if (processedQuery.closed_date) {
       if (processedQuery.closed_date.$gte) {
         processedQuery.closed_date.$gte = new Date(
-          processedQuery.closed_date.$gte
+          processedQuery.closed_date.$gte,
         );
       }
       if (processedQuery.closed_date.$lte) {
         processedQuery.closed_date.$lte = new Date(
-          processedQuery.closed_date.$lte
+          processedQuery.closed_date.$lte,
         );
       }
     }
@@ -1863,7 +2019,7 @@ app.post("/api/auth/google", async (req, res) => {
   }
 });
 app.get("/api/auth/config", (req, res) =>
-  res.json({ clientId: GOOGLE_CLIENT_ID })
+  res.json({ clientId: GOOGLE_CLIENT_ID }),
 );
 
 // Remarks
@@ -1888,7 +2044,7 @@ app.post("/api/comments", async (req, res) => {
         body: req.body.body,
         visibility: "internal",
       },
-      { headers: HEADERS }
+      { headers: HEADERS },
     );
     res.json(resp.data);
   } catch (e) {
@@ -1899,8 +2055,8 @@ app.post("/api/comments", async (req, res) => {
 // Views
 app.get("/api/views/:userId", async (req, res) =>
   res.json(
-    await View.find({ userId: req.params.userId }).sort({ createdAt: -1 })
-  )
+    await View.find({ userId: req.params.userId }).sort({ createdAt: -1 }),
+  ),
 );
 app.post("/api/views", async (req, res) => {
   const view = await View.create(req.body);
@@ -1914,26 +2070,32 @@ app.delete("/api/views/:userId/:viewId", async (req, res) => {
 // Roster
 let ROSTER_ROWS = [],
   DATE_COL_MAP = {};
-  let LEVEL_COL_IDX = -1;
+let LEVEL_COL_IDX = -1;
+// [backend/server.js] - Replace the syncRoster function with this:
+
 const syncRoster = async () => {
   console.log("🔄 Roster Sync...");
-  // 1. SAFETY CHECK: Verify Env Var Exists
+
+  // 1. SAFETY CHECK
   if (!process.env.GOOGLE_SHEETS_KEY_BASE64) {
-    console.error("❌ FATAL: GOOGLE_SHEETS_KEY_BASE64 is missing from process.env");
-    console.error("   -> Check your .env file (local) or Render Environment Tab.");
-    return; // Stop here, don't crash the server
+    console.error("❌ FATAL: GOOGLE_SHEETS_KEY_BASE64 is missing");
+    return;
   }
+
   try {
-    // 2. Decode the Key
-    const decodedKey = Buffer.from(process.env.GOOGLE_SHEETS_KEY_BASE64, "base64").toString();
+    const decodedKey = Buffer.from(
+      process.env.GOOGLE_SHEETS_KEY_BASE64,
+      "base64",
+    ).toString();
     const creds = JSON.parse(decodedKey);
 
-    
     const auth = new google.auth.GoogleAuth({
       credentials: creds,
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
     const sheets = google.sheets({ version: "v4", auth });
+
+    // Fetch Data
     const meta = await sheets.spreadsheets.get({
       spreadsheetId: process.env.ROSTER_SHEET_ID,
     });
@@ -1944,23 +2106,41 @@ const syncRoster = async () => {
     });
     const rows = resp.data.values || [];
 
+    // Find Header Row
     let headerIdx = rows.findIndex((r) =>
-      r.some((c) => String(c).toLowerCase().includes("designation"))
+      r.some(
+        (c) =>
+          String(c).toLowerCase().includes("designation") ||
+          String(c).toLowerCase().includes("level"),
+      ),
     );
-    if (headerIdx === -1) return;
+    if (headerIdx === -1) {
+      console.log("⚠️ Could not find header row in Roster");
+      return;
+    }
 
+    // Map Columns
     DATE_COL_MAP = {};
-    rows[headerIdx].forEach((col, i) => {
-      if (col?.includes("-") || col?.includes("Jan"))
-        DATE_COL_MAP[col.trim()] = i;
-    });
+    const headerRow = rows[headerIdx];
 
-    // ✅ Map Level/Designation Column (CRITICAL FIX)
-      if (colName.toLowerCase().includes("designation") || colName.toLowerCase().includes("level")) {
+    // ✅ FIX: Loop through columns correctly
+    headerRow.forEach((col, i) => {
+      const colName = String(col).trim(); // Define colName here!
+
+      // Map Dates (e.g., "01-Jan")
+      if (colName.includes("-") || colName.includes("Jan")) {
+        DATE_COL_MAP[colName] = i;
+      }
+
+      // Map Level/Designation
+      if (
+        colName.toLowerCase().includes("designation") ||
+        colName.toLowerCase().includes("level")
+      ) {
         LEVEL_COL_IDX = i;
         console.log(`✅ Level/Designation found at column ${i}`);
       }
-    
+    });
 
     ROSTER_ROWS = rows.slice(headerIdx + 1).filter((r) => r[0]?.length > 2);
     console.log(`✅ ${ROSTER_ROWS.length} engineers loaded`);
@@ -1974,157 +2154,414 @@ app.post("/api/profile/status", (req, res) => {
   const dateKey = format(new Date(), "d-MMM");
   const colIdx = DATE_COL_MAP[dateKey];
   const row = ROSTER_ROWS.find((r) =>
-    r[0]?.toLowerCase().includes(userName?.toLowerCase())
+    r[0]?.toLowerCase().includes(userName?.toLowerCase()),
   );
   const shift = row?.[colIdx]?.toUpperCase() || "?";
   const isActive = !["WO", "L", "PL", ""].includes(shift);
   res.json({ isActive, shift, status: isActive ? "On Shift" : "Off" });
 });
 
-
 // ============================================================================
-// API: GET CURRENT BACKUP (LEAST LOADED ENGINEER)
+// API: GET BACKUP FOR A SPECIFIC USER (From Their Team)
 // ============================================================================
 app.get("/api/roster/backup", async (req, res) => {
   try {
-    // 1. Get Today's Date Key (e.g., "22-Jan")
-    const dateKey = format(new Date(), "d-MMM");
+    const { userName, teamOnly = "true" } = req.query;
+    const today = new Date();
+    const dateKey = format(today, "d-MMM");
     const colIdx = DATE_COL_MAP[dateKey];
+    const currentHour = today.getHours();
 
-    // 2. Filter Active Engineers from Roster
+    // Shift timings
+    const SHIFT_HOURS = {
+      "SHIFT 1": { start: 6, end: 15 },
+      "SHIFT 2": { start: 9, end: 18 },
+      "SHIFT 3": { start: 12, end: 21 },
+      "SHIFT 4": { start: 15, end: 24 },
+      "ON CALL": { start: 0, end: 24 },
+    };
+    const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", ""];
+
+    // Helper to check if engineer is on shift
+    const isOnShift = (row) => {
+      const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
+      if (OFF_STATUSES.includes(shift)) return false;
+      
+      const shiftKey = shift.replace(/\s+/g, " ").trim();
+      const hours = SHIFT_HOURS[shiftKey];
+      if (hours) {
+        return currentHour >= hours.start && currentHour < hours.end;
+      }
+      return true;
+    };
+
+    // Find user's team from TEAM_GROUPS
+    let userTeam = null;
+    let teamMembers = [];
+    
+    if (userName) {
+      // Import TEAM_GROUPS logic here or use a hardcoded mapping
+      const TEAM_MAPPING = {
+        "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+        "Anurag": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+        "Musaveer": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+        "Shubhankar": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+        
+        "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+        "Harsh": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+        "Tamanna": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+        "Shreyas": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+        
+        "Shweta": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+        "Aditya": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+        "Nikita": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+        
+        "Rohan": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+        "Archie": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+        "Neha": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+        "Shreya": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+        "Abhishek": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+        "Adarsh": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+        "Vaibhav": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+      };
+
+      const mapping = TEAM_MAPPING[userName];
+      if (mapping) {
+        userTeam = mapping.team;
+        teamMembers = mapping.members.filter(m => m !== userName);
+      }
+    }
+
+    // Get active engineers
     const activeEngineers = ROSTER_ROWS.filter((row) => {
-      // Must have a valid name and email
       if (!row[0] || !row[1]) return false;
-
-      // Check Shift Status
-      const shift = colIdx ? (row[colIdx]?.toUpperCase() || "") : "?";
-      const isOff = ["WO", "L", "PL", "PH", ""].includes(shift);
-      return !isOff;
-    }).map(row => ({
-      name: row[0], // Name from Column A
-      email: row[1], // Email from Column B
-      role: row[LEVEL_COL_IDX] || "L1" // L1/L2
+      
+      // If teamOnly, filter to team members
+      if (teamOnly === "true" && teamMembers.length > 0) {
+        const isTeamMember = teamMembers.some(m => 
+          m.toLowerCase() === row[0].toLowerCase()
+        );
+        if (!isTeamMember) return false;
+      }
+      
+      return isOnShift(row);
+    }).map((row) => ({
+      name: row[0],
+      email: row[1],
+      role: row[LEVEL_COL_IDX] || "L1",
+      shift: colIdx ? row[colIdx] : "Unknown",
     }));
 
     if (activeEngineers.length === 0) {
-      return res.json({ backup: null, message: "No engineers on shift today." });
+      return res.json({
+        backup: null,
+        message: "No teammates currently on shift.",
+        team: userTeam,
+      });
     }
 
-    // 3. Calculate Workload for Active Engineers
-    // We count tickets that are NOT solved/closed
+    // Calculate workload
+    const tickets = cache.get("tickets_active") || [];
     const workloadMap = {};
-    
-    // Initialize counts to 0
-    activeEngineers.forEach(eng => workloadMap[eng.name] = 0);
+    activeEngineers.forEach((eng) => (workloadMap[eng.name.toLowerCase()] = 0));
 
-    // Fetch all OPEN tickets from MongoDB
-    const openTickets = await AnalyticsTicket.find({
-      stage: { $nin: ["Solved", "Closed", "Resolved", "Cancelled"] }
-    });
+    tickets.forEach((t) => {
+      const stageName = (t.stage?.name || "").toLowerCase();
+      if (stageName.includes("solved") || stageName.includes("closed")) return;
 
-    // Count tickets per owner
-    openTickets.forEach(t => {
-      // Normalize owner name to match Roster name
-      const ownerName = t.owner; 
-      // Only count if this owner is actually working today
-      if (workloadMap.hasOwnProperty(ownerName)) {
-        // WEIGHTED SCORING: High Priority counts as double load
-        const load = (t.priority === "high" || t.priority === "urgent") ? 2 : 1;
-        workloadMap[ownerName] += load;
+      const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || 
+                        t.owned_by?.[0]?.display_name || "";
+      if (ownerName) {
+        const nameKey = ownerName.toLowerCase();
+        if (workloadMap.hasOwnProperty(nameKey)) {
+          const priority = (t.priority || "").toLowerCase();
+          workloadMap[nameKey] += (priority === "high" || priority === "urgent") ? 2 : 1;
+        }
       }
     });
 
-    // 4. Find the "Winner" (Lowest Load)
-    // Sort by Load (Ascending) -> Then by Name (for stability)
+    // Sort: L2 first (for complex issues), then by least load
     activeEngineers.sort((a, b) => {
-      const loadA = workloadMap[a.name];
-      const loadB = workloadMap[b.name];
-      return loadA - loadB;
+      // Prefer L2 for backup
+      if (a.role === "L2" && b.role === "L1") return -1;
+      if (a.role === "L1" && b.role === "L2") return 1;
+      // Then by least load
+      return workloadMap[a.name.toLowerCase()] - workloadMap[b.name.toLowerCase()];
     });
 
-    // The first one is the Backup
-    const backupEngineer = activeEngineers[0];
+    const backup = activeEngineers[0];
 
     res.json({
       backup: {
-        name: backupEngineer.name,
-        email: backupEngineer.email,
-        currentLoad: workloadMap[backupEngineer.name],
-        role: backupEngineer.role
+        name: backup.name,
+        email: backup.email,
+        role: backup.role,
+        shift: backup.shift,
+        currentLoad: workloadMap[backup.name.toLowerCase()],
       },
-      allLoads: activeEngineers.map(e => ({
+      team: userTeam,
+      allCandidates: activeEngineers.map((e) => ({
         name: e.name,
-        load: workloadMap[e.name]
-      }))
+        role: e.role,
+        shift: e.shift,
+        load: workloadMap[e.name.toLowerCase()],
+      })),
+    });
+  } catch (e) {
+    console.error("❌ Backup Error:", e);
+    res.status(500).json({ backup: null, error: e.message });
+  }
+});
+
+// ============================================================================
+// GAMIFICATION - Performance Leaderboard
+// ============================================================================
+app.get("/api/gamification", async (req, res) => {
+  try {
+    const { quarter = "Q1_26" } = req.query;
+    const { start, end } = getQuarterDateRange(quarter);
+
+    console.log(`🎮 Gamification: ${quarter} (${start.toDateString()} - ${end.toDateString()})`);
+
+    // Get stats from MongoDB grouped by owner
+    const stats = await AnalyticsTicket.aggregate([
+      { 
+        $match: { 
+          closed_date: { $gte: start, $lte: end },
+          owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney", null, ""] }
+        } 
+      },
+      {
+        $group: {
+          _id: "$owner",
+          solved: { $sum: 1 },
+          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    // L1/L2 designation mapping
+    const DESIGNATION_MAP = {
+      "Debashish": "L2", "Anurag": "L1", "Musaveer": "L1", "Shubhankar": "L1",
+      "Tuaha Khan": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
+      "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
+      "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
+      "Abhishek": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
+    };
+
+    // Team mapping
+    const TEAM_MAP = {
+      "Debashish": "Debashish", "Anurag": "Debashish", "Musaveer": "Debashish", "Shubhankar": "Debashish",
+      "Tuaha Khan": "Tuaha", "Harsh": "Tuaha", "Tamanna": "Tuaha", "Shreyas": "Tuaha",
+      "Shweta": "Shweta", "Aditya": "Shweta", "Nikita": "Shweta",
+      "Rohan": "Mashnu", "Archie": "Mashnu", "Neha": "Mashnu", "Shreya": "Mashnu",
+      "Abhishek": "Mashnu", "Adarsh": "Mashnu", "Vaibhav": "Mashnu", "Adish": "Adish",
+    };
+
+    // Calculate days worked from roster
+    const getDaysWorked = (name) => {
+      const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === name.toLowerCase());
+      if (!row) return 0;
+      
+      let days = 0;
+      const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", ""];
+      
+      // Count non-off days from roster
+      for (let i = 2; i < row.length; i++) { // Start from column 2 (after name and designation)
+        const val = (row[i] || "").toUpperCase().trim();
+        if (!OFF_STATUSES.includes(val) && val.length > 0) {
+          days++;
+        }
+      }
+      return days;
+    };
+
+    // Build response
+    const data = { L1: [], L2: [] };
+
+    stats.forEach(s => {
+      const name = s._id;
+      const designation = DESIGNATION_MAP[name] || "L1";
+      const team = TEAM_MAP[name] || "Unknown";
+      const daysWorked = getDaysWorked(name);
+      const frrPercent = s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0;
+      const productivity = daysWorked > 0 ? (s.solved / daysWorked).toFixed(2) : 0;
+
+      const entry = {
+        name,
+        team,
+        designation,
+        daysWorked,
+        solved: s.solved,
+        productivity: parseFloat(productivity),
+        avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(1)) : 0,
+        avgFRT: s.avgFRT ? parseFloat(s.avgFRT.toFixed(1)) : 0,
+        avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
+        positiveCSAT: s.positiveCSAT,
+        negativeCSAT: s.negativeCSAT,
+        frrMet: s.frrMet,
+        frrPercent,
+        csatPercent: s.solved > 0 ? Math.round((s.positiveCSAT / s.solved) * 100) : 0,
+      };
+
+      if (designation === "L2") {
+        data.L2.push(entry);
+      } else {
+        data.L1.push(entry);
+      }
     });
 
+    // Calculate weighted average and rank
+    const calculateWeightedAvg = (e, isL2) => {
+      // Weights: Productivity(30%), CSAT(15-20%), #CSATs(10%), RWT(15%), Iterations(15%), FRR(15%)
+      const csatWeight = isL2 ? 0.20 : 0.15;
+      
+      // Lower is better for RWT and iterations, so invert scoring
+      const rwtScore = e.avgRWT > 0 ? Math.max(0, 10 - e.avgRWT) : 5;
+      const iterScore = e.avgIterations > 0 ? Math.max(0, 5 - e.avgIterations) : 2.5;
+      
+      return (
+        (e.productivity * 0.30) +
+        ((e.csatPercent / 100) * csatWeight * 10) +
+        (Math.min(e.positiveCSAT, 20) * 0.10 * 0.5) +
+        (rwtScore * 0.15) +
+        (iterScore * 0.15) +
+        ((e.frrPercent / 100) * 0.15 * 10)
+      );
+    };
+
+    // Calculate weighted avg and sort
+    data.L1.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, false).toFixed(2)); });
+    data.L2.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, true).toFixed(2)); });
+
+    // Sort by weighted avg (higher is better)
+    data.L1.sort((a, b) => b.weightedAvg - a.weightedAvg);
+    data.L2.sort((a, b) => b.weightedAvg - a.weightedAvg);
+
+    // Add ranks
+    data.L1.forEach((e, i) => { e.rank = i + 1; });
+    data.L2.forEach((e, i) => { e.rank = i + 1; });
+
+    res.json({
+      quarter,
+      dateRange: { start: start.toISOString(), end: end.toISOString() },
+      data,
+      totalL1: data.L1.length,
+      totalL2: data.L2.length,
+      lastUpdated: new Date().toISOString(),
+    });
   } catch (e) {
-    console.error("❌ Backup Calculation Error:", e);
-    res.status(500).json({ error: "Failed to calculate backup" });
+    console.error("❌ Gamification Error:", e);
+    res.status(500).json({ error: e.message });
   }
 });
 
 // [server.js] - Add this new endpoint
-
 // ============================================================================
-// API: GET WORKLOAD FOR ALL ACTIVE ENGINEERS (For Backup Logic)
+// API: GET WORKLOAD FOR ALL ACTIVE ENGINEERS (With Proper Shift Detection)
 // ============================================================================
 app.get("/api/roster/workload", async (req, res) => {
   try {
     // 1. Get Today's Date Key (e.g., "22-Jan") for Roster Check
-    const dateKey = format(new Date(), "d-MMM");
+    const today = new Date();
+    const dateKey = format(today, "d-MMM");
     const colIdx = DATE_COL_MAP[dateKey];
+    const currentHour = today.getHours();
 
-    // 2. Identify Active Engineers (On Shift)
+    console.log(`🔍 Workload check for ${dateKey}, hour=${currentHour}`);
+
+    // Shift timings (IST hours)
+    const SHIFT_HOURS = {
+      "SHIFT 1": { start: 6, end: 15 },   // 6 AM - 3 PM
+      "SHIFT 2": { start: 9, end: 18 },   // 9 AM - 6 PM
+      "SHIFT 3": { start: 12, end: 21 },  // 12 PM - 9 PM
+      "SHIFT 4": { start: 15, end: 24 },  // 3 PM - 12 AM
+      "ON CALL": { start: 0, end: 24 },   // Always available
+    };
+
+    // Off-duty statuses
+    const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", ""];
+
+    // 2. Identify Active Engineers (Currently On Shift)
     const activeEngineers = ROSTER_ROWS.filter((row) => {
       if (!row[0] || !row[1]) return false; // Must have Name & Email
+
+      const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
       
-      const shift = colIdx ? (row[colIdx]?.toUpperCase() || "") : "?";
-      // Exclude WO (Week Off), L (Leave), PL (Planned Leave), PH (Public Holiday)
-      return !["WO", "L", "PL", "PH", ""].includes(shift);
-    }).map(row => ({
-      name: row[0], // Name (e.g., "Rohan")
+      // Check if off duty
+      if (OFF_STATUSES.includes(shift)) return false;
+      
+      // Check if within shift hours
+      const shiftKey = shift.replace(/\s+/g, " ").trim();
+      const hours = SHIFT_HOURS[shiftKey];
+      
+      if (hours) {
+        // Check if current time is within shift
+        return currentHour >= hours.start && currentHour < hours.end;
+      }
+      
+      // If shift format not recognized, assume available
+      return true;
+    }).map((row) => ({
+      name: row[0],
       email: row[1],
-      role: row[LEVEL_COL_IDX] || "L1" // L1 or L2
+      role: row[LEVEL_COL_IDX] || "L1", // L1 or L2
+      shift: colIdx ? row[colIdx] : "Unknown",
     }));
 
-    // 3. Calculate Live Workload (Open Tickets)
-    const workloadMap = {};
-    
-    // Initialize everyone with 0
-    activeEngineers.forEach(eng => workloadMap[eng.name.toLowerCase()] = 0);
+    console.log(`✅ ${activeEngineers.length} engineers currently on shift`);
 
-    // Fetch ALL tickets that are NOT solved/closed
-    const openTickets = await AnalyticsTicket.find({
-      stage: { $nin: ["Solved", "Closed", "Resolved", "Cancelled"] }
+    // 3. Calculate Live Workload from Active Tickets Cache
+    const tickets = cache.get("tickets_active") || [];
+    const workloadMap = {};
+
+    // Initialize everyone with 0
+    activeEngineers.forEach((eng) => {
+      workloadMap[eng.name.toLowerCase()] = 0;
     });
 
-    // Count them
-    openTickets.forEach(t => {
-      if (t.owner) {
-        const nameKey = t.owner.toLowerCase();
-        // Only count if this person is actually on shift
+    // Count open tickets
+    tickets.forEach((t) => {
+      const stageName = (t.stage?.name || "").toLowerCase();
+      if (stageName.includes("solved") || stageName.includes("closed") || stageName.includes("resolved")) {
+        return; // Skip solved tickets
+      }
+
+      // Get owner name
+      const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || 
+                        t.owned_by?.[0]?.display_name || "";
+      
+      if (ownerName) {
+        const nameKey = ownerName.toLowerCase();
         if (workloadMap.hasOwnProperty(nameKey)) {
-          // Weighted Logic: High Priority = 2 points, Normal = 1 point
-          const points = (t.priority === "high" || t.priority === "urgent") ? 2 : 1;
+          // Weighted: High/Urgent = 2 points, Normal = 1 point
+          const priority = (t.priority || "").toLowerCase();
+          const points = (priority === "high" || priority === "urgent") ? 2 : 1;
           workloadMap[nameKey] += points;
         }
       }
     });
 
-    // 4. Send Response
-    // Format: [ { name: "Rohan", load: 5, role: "L1" }, ... ]
-    const results = activeEngineers.map(eng => ({
-      name: eng.name,
-      email: eng.email,
-      role: eng.role,
-      load: workloadMap[eng.name.toLowerCase()] || 0
-    })).sort((a, b) => a.load - b.load); // Sort by Least Loaded
+    // 4. Build Response sorted by least loaded
+    const results = activeEngineers
+      .map((eng) => ({
+        name: eng.name,
+        email: eng.email,
+        role: eng.role,
+        shift: eng.shift,
+        load: workloadMap[eng.name.toLowerCase()] || 0,
+        isOnShift: true,
+      }))
+      .sort((a, b) => a.load - b.load);
 
     res.json(results);
-
   } catch (e) {
-    console.error("❌ Workload Sync Error:", e);
+    console.error("❌ Workload Error:", e);
     res.status(500).json([]);
   }
 });
@@ -2142,11 +2579,13 @@ const warmCache = async () => {
   console.log("🔥 Warming cache...");
   try {
     const PORT = process.env.PORT || 5000;
-    
+
     // 1. Warm analytics cache
-    await axios.get(`http://localhost:${PORT}/api/tickets/analytics?quarter=Q1_26`);
+    await axios.get(
+      `http://localhost:${PORT}/api/tickets/analytics?quarter=Q1_26`,
+    );
     console.log("✅ Analytics cache warmed");
-    
+
     // 2. Start ticket sync in background (don't wait)
     fetchAndCacheTickets("startup").catch(console.error);
     console.log("✅ Ticket sync started in background");
@@ -2168,14 +2607,17 @@ server.listen(PORT, async () => {
   console.log(
     count
       ? `✅ ${count} tickets in MongoDB`
-      : "⚠️ MongoDB empty - run /api/admin/backfill"
+      : "⚠️ MongoDB empty - run /api/admin/backfill",
   );
   await syncRoster();
 });
-setInterval(() => {
-  console.log("⏰ Scheduled sync (every 6 hours)...");
-  syncHistoricalToDB(false);
-}, 6 * 60 * 60 * 1000);
+setInterval(
+  () => {
+    console.log("⏰ Scheduled sync (every 6 hours)...");
+    syncHistoricalToDB(false);
+  },
+  6 * 60 * 60 * 1000,
+);
 
 // Also run on startup after 1 minute delay
 setTimeout(() => {
