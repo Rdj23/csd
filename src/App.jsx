@@ -854,7 +854,20 @@ const App = () => {
           allTicketsFilters.dateRange?.end
         ) {
           try {
-            const ticketDate = parseISO(t.created_date);
+            const stageLower = (t.stage?.name || "").toLowerCase();
+            const isSolved =
+              stageLower.includes("solved") ||
+              stageLower.includes("closed") ||
+              stageLower.includes("resolved");
+
+            // IF SOLVED: Use Close Date. IF OPEN: Use Created Date.
+            let dateStrToCheck = t.created_date;
+            
+            if (isSolved && t.actual_close_date) {
+               dateStrToCheck = t.actual_close_date;
+            }
+
+            const ticketDate = parseISO(t.dateStrToCheck);
             const start = startOfDay(
               parseISO(allTicketsFilters.dateRange.start),
             );

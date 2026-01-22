@@ -1912,62 +1912,70 @@ app.delete("/api/views/:userId/:viewId", async (req, res) => {
 });
 
 // Roster
-// let ROSTER_ROWS = [],
-//   DATE_COL_MAP = {};
-// const syncRoster = async () => {
-//   console.log("🔄 Roster Sync...");
-//   try {
-//     const creds = JSON.parse(
-//       Buffer.from(process.env.GOOGLE_SHEETS_KEY_BASE64, "base64").toString()
-//     );
-//     const auth = new google.auth.GoogleAuth({
-//       credentials: creds,
-//       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-//     });
-//     const sheets = google.sheets({ version: "v4", auth });
-//     const meta = await sheets.spreadsheets.get({
-//       spreadsheetId: process.env.ROSTER_SHEET_ID,
-//     });
-//     const sheetName = meta.data.sheets?.[0]?.properties?.title || "Sheet1";
-//     const resp = await sheets.spreadsheets.values.get({
-//       spreadsheetId: process.env.ROSTER_SHEET_ID,
-//       range: `'${sheetName}'!A1:AZ100`,
-//     });
-//     const rows = resp.data.values || [];
+let ROSTER_ROWS = [],
+  DATE_COL_MAP = {};
+const syncRoster = async () => {
+  console.log("🔄 Roster Sync...");
+  // 1. SAFETY CHECK: Verify Env Var Exists
+  if (!process.env.GOOGLE_SHEETS_KEY_BASE64) {
+    console.error("❌ FATAL: GOOGLE_SHEETS_KEY_BASE64 is missing from process.env");
+    console.error("   -> Check your .env file (local) or Render Environment Tab.");
+    return; // Stop here, don't crash the server
+  }
+  try {
+    // 2. Decode the Key
+    const decodedKey = Buffer.from(process.env.GOOGLE_SHEETS_KEY_BASE64, "base64").toString();
+    const creds = JSON.parse(decodedKey);
 
-//     let headerIdx = rows.findIndex((r) =>
-//       r.some((c) => String(c).toLowerCase().includes("designation"))
-//     );
-//     if (headerIdx === -1) return;
+    
+    const auth = new google.auth.GoogleAuth({
+      credentials: creds,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    });
+    const sheets = google.sheets({ version: "v4", auth });
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.ROSTER_SHEET_ID,
+    });
+    const sheetName = meta.data.sheets?.[0]?.properties?.title || "Sheet1";
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.ROSTER_SHEET_ID,
+      range: `'${sheetName}'!A1:AZ100`,
+    });
+    const rows = resp.data.values || [];
 
-//     DATE_COL_MAP = {};
-//     rows[headerIdx].forEach((col, i) => {
-//       if (col?.includes("-") || col?.includes("Jan"))
-//         DATE_COL_MAP[col.trim()] = i;
-//     });
-//     ROSTER_ROWS = rows.slice(headerIdx + 1).filter((r) => r[0]?.length > 2);
-//     console.log(`✅ ${ROSTER_ROWS.length} engineers loaded`);
-//   } catch (e) {
-//     console.error("Roster error:", e.message);
-//   }
-// };
+    let headerIdx = rows.findIndex((r) =>
+      r.some((c) => String(c).toLowerCase().includes("designation"))
+    );
+    if (headerIdx === -1) return;
 
-// app.post("/api/profile/status", (req, res) => {
-//   const { userName } = req.body;
-//   const dateKey = format(new Date(), "d-MMM");
-//   const colIdx = DATE_COL_MAP[dateKey];
-//   const row = ROSTER_ROWS.find((r) =>
-//     r[0]?.toLowerCase().includes(userName?.toLowerCase())
-//   );
-//   const shift = row?.[colIdx]?.toUpperCase() || "?";
-//   const isActive = !["WO", "L", "PL", ""].includes(shift);
-//   res.json({ isActive, shift, status: isActive ? "On Shift" : "Off" });
-// });
+    DATE_COL_MAP = {};
+    rows[headerIdx].forEach((col, i) => {
+      if (col?.includes("-") || col?.includes("Jan"))
+        DATE_COL_MAP[col.trim()] = i;
+    });
+    ROSTER_ROWS = rows.slice(headerIdx + 1).filter((r) => r[0]?.length > 2);
+    console.log(`✅ ${ROSTER_ROWS.length} engineers loaded`);
+  } catch (e) {
+    console.error("Roster error:", e.message);
+  }
+};
 
-// app.post("/api/roster/sync", async (req, res) => {
-//   await syncRoster();
-//   res.json({ success: true });
-// });
+app.post("/api/profile/status", (req, res) => {
+  const { userName } = req.body;
+  const dateKey = format(new Date(), "d-MMM");
+  const colIdx = DATE_COL_MAP[dateKey];
+  const row = ROSTER_ROWS.find((r) =>
+    r[0]?.toLowerCase().includes(userName?.toLowerCase())
+  );
+  const shift = row?.[colIdx]?.toUpperCase() || "?";
+  const isActive = !["WO", "L", "PL", ""].includes(shift);
+  res.json({ isActive, shift, status: isActive ? "On Shift" : "Off" });
+});
+
+app.post("/api/roster/sync", async (req, res) => {
+  await syncRoster();
+  res.json({ success: true });
+});
 
 // Startup
 const PORT = process.env.PORT || 5000;
@@ -2005,7 +2013,7 @@ server.listen(PORT, async () => {
       ? `✅ ${count} tickets in MongoDB`
       : "⚠️ MongoDB empty - run /api/admin/backfill"
   );
-  // await syncRoster();
+  await syncRoster();
 });
 setInterval(() => {
   console.log("⏰ Scheduled sync (every 6 hours)...");
