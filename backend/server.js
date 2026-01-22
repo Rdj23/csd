@@ -655,7 +655,6 @@ app.get("/api/tickets/analytics", async (req, res) => {
 
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
-      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
     if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
 
@@ -1021,7 +1020,6 @@ app.get("/api/tickets/by-range", async (req, res) => {
 
     const matchConditions = {
       closed_date: { $gte: startDate, $lte: endDate },
-      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
 
     // Owner filter
@@ -1115,7 +1113,6 @@ app.get("/api/tickets/by-date", async (req, res) => {
 
     const matchConditions = {
       closed_date: { $gte: startOfDay, $lte: endOfDay },
-      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
 
     // 1. Owner Filter

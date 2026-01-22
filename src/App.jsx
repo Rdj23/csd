@@ -915,9 +915,6 @@ const App = () => {
           t.owned_by?.[0]?.display_name ||
           "";
 
-        // Exclude anmol-sawhney
-        if (ownerName.toLowerCase().includes("anmol")) return false;
-
         // Date Range filter
         if (
           allTicketsFilters.dateRange?.start &&
@@ -937,7 +934,7 @@ const App = () => {
               dateStrToCheck = t.actual_close_date;
             }
 
-            const ticketDate = parseISO(t.dateStrToCheck);
+            const ticketDate = parseISO(dateStrToCheck);
             const start = startOfDay(
               parseISO(allTicketsFilters.dateRange.start),
             );
