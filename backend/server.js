@@ -1179,7 +1179,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
     let collected = [],
       cursor = null,
       loop = 0;
-    const TARGET_DATE = new Date("2025-12-12");
+    const TARGET_DATE = new Date("2025-10-01");  // Extended to Oct 1 to catch more solved tickets
 
     do {
       const response = await axios.get(
@@ -1196,7 +1196,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
       if (lastDate < TARGET_DATE) break;
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 30);
+    } while (cursor && loop < 50);  // Increased from 30 to fetch more tickets
 
     // ✅ FILTER: Active tickets + ALL Solved tickets (no date restriction)
     const activeTickets = collected
@@ -1578,7 +1578,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
     processedCount = 0,
     nocCount = 0,
     skippedCount = 0;
-  const TARGET_DATE = new Date("2025-11-12"); 
+  const TARGET_DATE = new Date("2025-10-01");  // Extended to Oct 1 to catch more historical tickets
   const NOC_CHECK_DATE = new Date("2026-01-01"); // Only check NOC for tickets >= Jan 1, 2026
 
   do {
@@ -1613,12 +1613,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
           if (new Date(t.actual_close_date) < TARGET_DATE) {
             continue;
           }
-          // Skip Anmol
           const ownerRaw = t.owned_by?.[0]?.display_name || "";
-          if (ownerRaw.toLowerCase().includes("anmol-sawhney")) {
-            skippedCount++;
-            continue;
-          }
 
           // Resolve owner - returns null for non-GST
           const owner = resolveOwnerName(ownerRaw);
@@ -1896,7 +1891,6 @@ app.get("/api/admin/debug-stats", async (req, res) => {
 
     const query = {
       closed_date: { $gte: start, $lte: end },
-      owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney"] },
     };
 
     if (owner) {
@@ -2330,11 +2324,11 @@ app.get("/api/gamification", async (req, res) => {
 
     // Get stats from MongoDB grouped by owner
     const stats = await AnalyticsTicket.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           closed_date: { $gte: start, $lte: end },
-          owner: { $nin: ["Anmol", "anmol-sawhney", "Anmol Sawhney", null, ""] }
-        } 
+          owner: { $nin: [null, ""] }
+        }
       },
       {
         $group: {
