@@ -3069,7 +3069,7 @@ const AnalyticsDashboard = ({
             // Fix sum definition
             const sum = data.values.reduce((a, b) => a + b, 0);
 
-            r; // Calculate proper value based on metric type
+           // Calculate proper value based on metric type
             let value;
             if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
               // Average metrics
