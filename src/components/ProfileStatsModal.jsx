@@ -26,49 +26,63 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
     }
   };
 
-  // --- 1. DYNAMIC API CALL ---
+ // [ProfileStatsModal.jsx]
+
+  // Add state for backup
+  const [backup, setBackup] = useState(null);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const API_BASE = import.meta.env.VITE_API_URL;
+        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-        // A. Determine Team
-        let myTeam = [];
+        // 1. Determine My Team (Existing Logic)
+        let myTeamNames = [];
         Object.values(TEAM_GROUPS).forEach((group) => {
           const names = Object.values(group);
-          if (
-            names.some((n) => user.name.toLowerCase().includes(n.toLowerCase()))
-          ) {
-            myTeam = names;
+          // Check if the current user is in this group
+          if (names.some((n) => user.name.toLowerCase().includes(n.toLowerCase()))) {
+            myTeamNames = names;
           }
         });
 
-        // ✅ STEP 1: Lightweight Ticket Mapping (Send ALL active, not just 10)
-        // We only send the fields the backend needs for the summary logic
-        const lightweightTickets = tickets.map((t) => ({
-          stage: t.stage?.name,
-          severity: t.severity || t.priority,
-          account: t.account ? t.account.display_name : "Unknown",
-        }));
+        // 2. Fetch Live Workload of EVERYONE (New Logic)
+        const workloadRes = await axios.get(`${API_BASE}/api/roster/workload`);
+        const allActiveEngineers = workloadRes.data;
 
-        // B. POST request to Server
-        const res = await axios.post(`${API_BASE}/api/profile/status`, {
-          userName: user.name,
-          activeTickets: lightweightTickets, // ✅ Send ALL tickets (lightweight)
-          teamMembers: myTeam,
+        // 3. Find the Best Backup for THIS Team
+        // Filter: Must be in myTeam AND not me
+        const teamMatesOnline = allActiveEngineers.filter(eng => 
+          myTeamNames.some(teamMember => teamMember.toLowerCase() === eng.name.toLowerCase()) &&
+          eng.name.toLowerCase() !== user.name.toLowerCase()
+        );
+
+        // Sort: Least Loaded -> Then L1/L2 preference if needed
+        teamMatesOnline.sort((a, b) => a.load - b.load);
+
+        // Pick the winner (First one is least loaded)
+        setBackup(teamMatesOnline[0] || null);
+
+        // (Keep your existing Stats logic below...)
+        const totalTickets = solvedTickets.length;
+        const avgResTime = totalTickets > 0 ? "24h" : "--"; // Placeholder for calc
+
+        setData({
+          stats: {
+            avgResolution: avgResTime,
+            solvedCount: totalTickets,
+          },
         });
-
-        setData(res.data);
       } catch (err) {
-        console.error("Profile Fetch Error:", err);
+        console.error("Failed to load profile stats", err);
       } finally {
         setLoading(false);
       }
     };
 
     if (user) fetchData();
-  }, [user]);
+  }, [user, solvedTickets]);
 
   const calculateAvgResolution = () => {
     if (!solvedTickets?.length) return "--";
@@ -181,51 +195,39 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
             </p>
           </div>
 
-          {/* ✅ FIXED BACKUP SECTION - Handles Multiple Backups */}
-          {!loading && !data?.isActive && (
-            <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/30 rounded-xl">
-              <div className="flex justify-between items-center mb-3">
-                <h4 className="text-xs font-bold text-amber-700 dark:text-amber-500 uppercase tracking-wider">
-                  Recommended Backups
-                </h4>
-                <button
-                  onClick={handleRequestETA}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 text-slate-600 dark:text-slate-300 text-[10px] font-bold rounded-lg shadow-sm transition-colors"
-                >
-                  <BellRing className="w-3 h-3 text-indigo-500" /> Ping{" "}
-                  {user.name}
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {data?.backups && data.backups.length > 0 ? (
-                  data.backups.map((backupName, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-3 bg-white/50 dark:bg-black/20 p-2 rounded-lg"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 shadow-sm shrink-0">
-                        {backupName[0]}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                          {backupName}
-                        </p>
-                        <p className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>{" "}
-                          Active Now
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <span className="text-sm text-slate-500 italic block text-center py-2">
-                    No backup online in this team.
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
+          {/* BACKUP CARD */}
+<div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
+  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+    Recommended Backup
+  </div>
+  
+  {backup ? (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs">
+          {backup.name.charAt(0)}
+        </div>
+        <div>
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+            {backup.name}
+          </p>
+          <p className="text-[10px] text-slate-500">
+            {backup.role} • <span className="text-green-600 font-medium">{backup.load} Active Tix</span>
+          </p>
+        </div>
+      </div>
+      {/* Optional: Assign Button */}
+      <button className="text-xs bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
+        Assign
+      </button>
+    </div>
+  ) : (
+    <div className="text-xs text-slate-400 italic py-2 text-center">
+      No teammates online 🌙
+    </div>
+  )}
+</div>
+         
 
           {/* KPI */}
           <div className="grid grid-cols-2 gap-4">

@@ -169,6 +169,29 @@ const App = () => {
   }, [activeTab]);
 
  
+  // In App.jsx or a new component
+
+const [backupInfo, setBackupInfo] = useState(null);
+
+const fetchBackup = async () => {
+  try {
+    const res = await fetch("/api/roster/backup");
+    const data = await res.json();
+    if (data.backup) {
+      setBackupInfo(data.backup);
+    }
+  } catch (e) {
+    console.error("Failed to fetch backup", e);
+  }
+};
+
+// Refresh backup every 5 minutes
+useEffect(() => {
+  fetchBackup();
+  const interval = setInterval(fetchBackup, 5 * 60 * 1000);
+  return () => clearInterval(interval);
+}, []);
+
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {

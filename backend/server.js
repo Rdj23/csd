@@ -1972,6 +1972,154 @@ app.post("/api/profile/status", (req, res) => {
   res.json({ isActive, shift, status: isActive ? "On Shift" : "Off" });
 });
 
+
+// ============================================================================
+// API: GET CURRENT BACKUP (LEAST LOADED ENGINEER)
+// ============================================================================
+app.get("/api/roster/backup", async (req, res) => {
+  try {
+    // 1. Get Today's Date Key (e.g., "22-Jan")
+    const dateKey = format(new Date(), "d-MMM");
+    const colIdx = DATE_COL_MAP[dateKey];
+
+    // 2. Filter Active Engineers from Roster
+    const activeEngineers = ROSTER_ROWS.filter((row) => {
+      // Must have a valid name and email
+      if (!row[0] || !row[1]) return false;
+
+      // Check Shift Status
+      const shift = colIdx ? (row[colIdx]?.toUpperCase() || "") : "?";
+      const isOff = ["WO", "L", "PL", "PH", ""].includes(shift);
+      return !isOff;
+    }).map(row => ({
+      name: row[0], // Name from Column A
+      email: row[1], // Email from Column B
+      role: row[LEVEL_COL_IDX] || "L1" // L1/L2
+    }));
+
+    if (activeEngineers.length === 0) {
+      return res.json({ backup: null, message: "No engineers on shift today." });
+    }
+
+    // 3. Calculate Workload for Active Engineers
+    // We count tickets that are NOT solved/closed
+    const workloadMap = {};
+    
+    // Initialize counts to 0
+    activeEngineers.forEach(eng => workloadMap[eng.name] = 0);
+
+    // Fetch all OPEN tickets from MongoDB
+    const openTickets = await AnalyticsTicket.find({
+      stage: { $nin: ["Solved", "Closed", "Resolved", "Cancelled"] }
+    });
+
+    // Count tickets per owner
+    openTickets.forEach(t => {
+      // Normalize owner name to match Roster name
+      const ownerName = t.owner; 
+      // Only count if this owner is actually working today
+      if (workloadMap.hasOwnProperty(ownerName)) {
+        // WEIGHTED SCORING: High Priority counts as double load
+        const load = (t.priority === "high" || t.priority === "urgent") ? 2 : 1;
+        workloadMap[ownerName] += load;
+      }
+    });
+
+    // 4. Find the "Winner" (Lowest Load)
+    // Sort by Load (Ascending) -> Then by Name (for stability)
+    activeEngineers.sort((a, b) => {
+      const loadA = workloadMap[a.name];
+      const loadB = workloadMap[b.name];
+      return loadA - loadB;
+    });
+
+    // The first one is the Backup
+    const backupEngineer = activeEngineers[0];
+
+    res.json({
+      backup: {
+        name: backupEngineer.name,
+        email: backupEngineer.email,
+        currentLoad: workloadMap[backupEngineer.name],
+        role: backupEngineer.role
+      },
+      allLoads: activeEngineers.map(e => ({
+        name: e.name,
+        load: workloadMap[e.name]
+      }))
+    });
+
+  } catch (e) {
+    console.error("❌ Backup Calculation Error:", e);
+    res.status(500).json({ error: "Failed to calculate backup" });
+  }
+});
+
+// [server.js] - Add this new endpoint
+
+// ============================================================================
+// API: GET WORKLOAD FOR ALL ACTIVE ENGINEERS (For Backup Logic)
+// ============================================================================
+app.get("/api/roster/workload", async (req, res) => {
+  try {
+    // 1. Get Today's Date Key (e.g., "22-Jan") for Roster Check
+    const dateKey = format(new Date(), "d-MMM");
+    const colIdx = DATE_COL_MAP[dateKey];
+
+    // 2. Identify Active Engineers (On Shift)
+    const activeEngineers = ROSTER_ROWS.filter((row) => {
+      if (!row[0] || !row[1]) return false; // Must have Name & Email
+      
+      const shift = colIdx ? (row[colIdx]?.toUpperCase() || "") : "?";
+      // Exclude WO (Week Off), L (Leave), PL (Planned Leave), PH (Public Holiday)
+      return !["WO", "L", "PL", "PH", ""].includes(shift);
+    }).map(row => ({
+      name: row[0], // Name (e.g., "Rohan")
+      email: row[1],
+      role: row[LEVEL_COL_IDX] || "L1" // L1 or L2
+    }));
+
+    // 3. Calculate Live Workload (Open Tickets)
+    const workloadMap = {};
+    
+    // Initialize everyone with 0
+    activeEngineers.forEach(eng => workloadMap[eng.name.toLowerCase()] = 0);
+
+    // Fetch ALL tickets that are NOT solved/closed
+    const openTickets = await AnalyticsTicket.find({
+      stage: { $nin: ["Solved", "Closed", "Resolved", "Cancelled"] }
+    });
+
+    // Count them
+    openTickets.forEach(t => {
+      if (t.owner) {
+        const nameKey = t.owner.toLowerCase();
+        // Only count if this person is actually on shift
+        if (workloadMap.hasOwnProperty(nameKey)) {
+          // Weighted Logic: High Priority = 2 points, Normal = 1 point
+          const points = (t.priority === "high" || t.priority === "urgent") ? 2 : 1;
+          workloadMap[nameKey] += points;
+        }
+      }
+    });
+
+    // 4. Send Response
+    // Format: [ { name: "Rohan", load: 5, role: "L1" }, ... ]
+    const results = activeEngineers.map(eng => ({
+      name: eng.name,
+      email: eng.email,
+      role: eng.role,
+      load: workloadMap[eng.name.toLowerCase()] || 0
+    })).sort((a, b) => a.load - b.load); // Sort by Least Loaded
+
+    res.json(results);
+
+  } catch (e) {
+    console.error("❌ Workload Sync Error:", e);
+    res.status(500).json([]);
+  }
+});
+
 app.post("/api/roster/sync", async (req, res) => {
   await syncRoster();
   res.json({ success: true });
