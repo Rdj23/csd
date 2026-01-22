@@ -131,6 +131,9 @@ const redisDelete = async (pattern) => {
 };
 
 // Map DevRev display_name to GST roster name
+
+
+
 const GST_NAME_MAP = {
   Rohan: "Rohan",
   "Rohan Jadhav": "Rohan",
@@ -1156,7 +1159,7 @@ app.get("/api/tickets/by-date", async (req, res) => {
 
     const tickets = await AnalyticsTicket.find(matchConditions)
       .sort({ closed_date: -1 })
-      .limit(500)
+      .limit(2000)
       .lean();
 
     await redisSet(cacheKey, { tickets }, CACHE_TTL.DRILLDOWN);
@@ -2200,6 +2203,14 @@ app.get("/api/roster/backup", async (req, res) => {
     let teamMembers = [];
     
     if (userName) {
+
+         const FLAT_TEAM_MAP = {};
+Object.entries(TEAM_GROUPS).forEach(([lead, members]) => {
+  Object.entries(members).forEach(([id, name]) => {
+    FLAT_TEAM_MAP[id] = name;
+  });
+});
+
       // Import TEAM_GROUPS logic here or use a hardcoded mapping
       const TEAM_MAPPING = {
         "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
@@ -2230,6 +2241,9 @@ app.get("/api/roster/backup", async (req, res) => {
         userTeam = mapping.team;
         teamMembers = mapping.members.filter(m => m !== userName);
       }
+
+   
+
     }
 
     // Get active engineers
@@ -2268,6 +2282,8 @@ app.get("/api/roster/backup", async (req, res) => {
     tickets.forEach((t) => {
       const stageName = (t.stage?.name || "").toLowerCase();
       if (stageName.includes("solved") || stageName.includes("closed")) return;
+
+
 
       const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || 
                         t.owned_by?.[0]?.display_name || "";

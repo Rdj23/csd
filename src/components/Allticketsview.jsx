@@ -5,7 +5,6 @@ import {
   ExternalLink,
   Building2,
   Search,
-  
   RefreshCw,
   ChevronLeft,
   ChevronDown,
@@ -304,11 +303,19 @@ const DrillDownModal = ({
   const [selectedAccounts, setSelectedAccounts] = useState([]);
   const [selectedCSMs, setSelectedCSMs] = useState([]);
   const [selectedTAMs, setSelectedTAMs] = useState([]);
-    const [selectedStages, setSelectedStages] = useState([]);
-  const [selectedDependency, setSelectedDependency] = useState(["with_dependency", "no_dependency"]);
-  const [selectedDepTeams, setSelectedDepTeams] = useState(["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"]);
-  
- 
+  const [selectedStages, setSelectedStages] = useState([]);
+  const [selectedDependency, setSelectedDependency] = useState([
+    "with_dependency",
+    "no_dependency",
+  ]);
+  const [selectedDepTeams, setSelectedDepTeams] = useState([
+    "NOC",
+    "Whatsapp",
+    "Billing",
+    "Email",
+    "Internal",
+    "Other",
+  ]);
 
   // Visible filters and menu
   const [visibleFilters, setVisibleFilters] = useState(["region", "assignee"]);
@@ -324,8 +331,15 @@ const DrillDownModal = ({
     setSelectedCSMs([]);
     setSelectedTAMs([]);
     setSelectedStages([]);
-     setSelectedDependency(["with_dependency", "no_dependency"]);
-    setSelectedDepTeams(["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"]);
+    setSelectedDependency(["with_dependency", "no_dependency"]);
+    setSelectedDepTeams([
+      "NOC",
+      "Whatsapp",
+      "Billing",
+      "Email",
+      "Internal",
+      "Other",
+    ]);
   }, [tickets]);
 
   // Get unique values for filters
@@ -428,38 +442,55 @@ const DrillDownModal = ({
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];
         const hasDep = dep?.hasDependency === true;
-        if (selectedDependency.includes("with_dependency") && !hasDep) return false;
-        if (selectedDependency.includes("no_dependency") && hasDep) return false;
+        if (selectedDependency.includes("with_dependency") && !hasDep)
+          return false;
+        if (selectedDependency.includes("no_dependency") && hasDep)
+          return false;
       }
-      
-     
-      
+
       // Dependency filter
       if (selectedDependency.length > 0 && selectedDependency.length < 2) {
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];
         const hasDep = dep?.hasDependency === true;
-        if (selectedDependency.includes("with_dependency") && !hasDep) return false;
-        if (selectedDependency.includes("no_dependency") && hasDep) return false;
+        if (selectedDependency.includes("with_dependency") && !hasDep)
+          return false;
+        if (selectedDependency.includes("no_dependency") && hasDep)
+          return false;
       }
-      
+
       // Dependency team filter
-      if (selectedDependency.includes("with_dependency") && selectedDepTeams.length > 0 && selectedDepTeams.length < 6) {
+      if (
+        selectedDependency.includes("with_dependency") &&
+        selectedDepTeams.length > 0 &&
+        selectedDepTeams.length < 6
+      ) {
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];
         if (dep?.hasDependency) {
-          const ticketTeams = dep.issues?.map(i => i.team) || [];
-          const hasMatchingTeam = selectedDepTeams.some(team => ticketTeams.includes(team));
+          const ticketTeams = dep.issues?.map((i) => i.team) || [];
+          const hasMatchingTeam = selectedDepTeams.some((team) =>
+            ticketTeams.includes(team),
+          );
           if (!hasMatchingTeam) return false;
         }
       }
 
       return true;
-
-      
     });
-  }, 
-    [tickets, search, selectedRegions, selectedAssignees, selectedAccounts, selectedCSMs, selectedTAMs, selectedStages, selectedDependency, selectedDepTeams, dependencies]);
+  }, [
+    tickets,
+    search,
+    selectedRegions,
+    selectedAssignees,
+    selectedAccounts,
+    selectedCSMs,
+    selectedTAMs,
+    selectedStages,
+    selectedDependency,
+    selectedDepTeams,
+    dependencies,
+  ]);
 
   // Download CSV function - Professional sectioned report
   const downloadCSV = useCallback(() => {
@@ -555,6 +586,13 @@ const DrillDownModal = ({
             csm,
             tam,
             owner,
+            t.created_date
+              ? format(parseISO(t.created_date), "yyyy-MM-dd")
+              : "-", // ✅ Added
+            t.actual_close_date
+              ? format(parseISO(t.actual_close_date), "yyyy-MM-dd")
+              : "-", // ✅ Added
+            // ... rest of fields
             t.days || 0,
             t.rwt || "-",
             t.frt || "-",
@@ -576,6 +614,16 @@ const DrillDownModal = ({
     URL.revokeObjectURL(url);
   }, [filteredTickets, title]);
 
+   const calculateAge = (t) => {
+    if (!t.created_date) return 0;
+    const start = new Date(t.created_date);
+    const end = t.actual_close_date
+      ? new Date(t.actual_close_date)
+      : new Date();
+    const diffTime = Math.abs(end - start);
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
   // Sort tickets
   const sortedTickets = useMemo(() => {
     const sorted = [...filteredTickets];
@@ -584,10 +632,24 @@ const DrillDownModal = ({
       let aVal, bVal;
 
       switch (sortConfig.key) {
-        case "days":
-          aVal = a.days || 0;
-          bVal = b.days || 0;
+        // ✅ NEW: Sort by Created Date
+        case "created":
+          aVal = new Date(a.created_date || 0).getTime();
+          bVal = new Date(b.created_date || 0).getTime();
           break;
+
+        // ✅ NEW: Sort by Closed Date
+        case "closed":
+          aVal = new Date(a.actual_close_date || 0).getTime();
+          bVal = new Date(b.actual_close_date || 0).getTime();
+          break;
+
+        // ✅ FIXED: Sort by Calculated Age
+        case "days":
+          aVal = calculateAge(a);
+          bVal = calculateAge(b);
+          break;
+
         case "rwt":
           aVal = a.rwt || 0;
           bVal = b.rwt || 0;
@@ -618,6 +680,7 @@ const DrillDownModal = ({
     }));
     setCurrentPage(1);
   };
+ 
 
   // Pagination
   const totalPages = Math.ceil(sortedTickets.length / pageSize);
@@ -760,7 +823,10 @@ const DrillDownModal = ({
                 label="Stage"
                 options={filterOptions.stages}
                 selected={selectedStages}
-                onChange={(v) => { setSelectedStages(v); setCurrentPage(1); }}
+                onChange={(v) => {
+                  setSelectedStages(v);
+                  setCurrentPage(1);
+                }}
               />
             )}
 
@@ -773,33 +839,78 @@ const DrillDownModal = ({
                   <ChevronDown className="w-3 h-3" />
                 </button>
                 <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 p-3 hidden group-hover:block">
-                  <div className="text-xs font-bold text-slate-500 uppercase mb-2">Status</div>
-                  {[{value:"with_dependency",label:"Has Dependency"},{value:"no_dependency",label:"No Dependency"}].map((opt) => (
-                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
-                      <input type="checkbox" checked={selectedDependency.includes(opt.value)} onChange={(e) => {
-                        const newVal = e.target.checked ? [...selectedDependency, opt.value] : selectedDependency.filter(v => v !== opt.value);
-                        setSelectedDependency(newVal);
-                        setCurrentPage(1);
-                      }} className="rounded border-slate-300 text-indigo-600" />
-                      <span className="text-sm text-slate-700 dark:text-slate-300">{opt.label}</span>
+                  <div className="text-xs font-bold text-slate-500 uppercase mb-2">
+                    Status
+                  </div>
+                  {[
+                    { value: "with_dependency", label: "Has Dependency" },
+                    { value: "no_dependency", label: "No Dependency" },
+                  ].map((opt) => (
+                    <label
+                      key={opt.value}
+                      className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDependency.includes(opt.value)}
+                        onChange={(e) => {
+                          const newVal = e.target.checked
+                            ? [...selectedDependency, opt.value]
+                            : selectedDependency.filter((v) => v !== opt.value);
+                          setSelectedDependency(newVal);
+                          setCurrentPage(1);
+                        }}
+                        className="rounded border-slate-300 text-indigo-600"
+                      />
+                      <span className="text-sm text-slate-700 dark:text-slate-300">
+                        {opt.label}
+                      </span>
                     </label>
                   ))}
                   {selectedDependency.includes("with_dependency") && (
                     <>
-                      <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">Team</div>
-                      {["NOC","Whatsapp","Billing","Email","Internal","Other"].map((team) => (
-                        <label key={team} className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded">
-                          <input type="checkbox" checked={selectedDepTeams.includes(team)} onChange={(e) => {
-                            const newVal = e.target.checked ? [...selectedDepTeams, team] : selectedDepTeams.filter(v => v !== team);
-                            setSelectedDepTeams(newVal);
-                            setCurrentPage(1);
-                          }} className="rounded border-slate-300 text-indigo-600" />
-                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                            team === "NOC" ? "bg-rose-100 text-rose-700" :
-                            team === "Whatsapp" ? "bg-emerald-100 text-emerald-700" :
-                            team === "Billing" ? "bg-amber-100 text-amber-700" :
-                            team === "Email" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700"
-                          }`}>{team}</span>
+                      <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        Team
+                      </div>
+                      {[
+                        "NOC",
+                        "Whatsapp",
+                        "Billing",
+                        "Email",
+                        "Internal",
+                        "Other",
+                      ].map((team) => (
+                        <label
+                          key={team}
+                          className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDepTeams.includes(team)}
+                            onChange={(e) => {
+                              const newVal = e.target.checked
+                                ? [...selectedDepTeams, team]
+                                : selectedDepTeams.filter((v) => v !== team);
+                              setSelectedDepTeams(newVal);
+                              setCurrentPage(1);
+                            }}
+                            className="rounded border-slate-300 text-indigo-600"
+                          />
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded font-medium ${
+                              team === "NOC"
+                                ? "bg-rose-100 text-rose-700"
+                                : team === "Whatsapp"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : team === "Billing"
+                                    ? "bg-amber-100 text-amber-700"
+                                    : team === "Email"
+                                      ? "bg-blue-100 text-blue-700"
+                                      : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {team}
+                          </span>
                         </label>
                       ))}
                     </>
@@ -883,7 +994,7 @@ const DrillDownModal = ({
         </div>
 
         {/* Table */}
-         <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto">
           <table className="w-full text-sm min-w-[1400px]">
             <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
               <tr className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -898,6 +1009,22 @@ const DrillDownModal = ({
                 <th className="py-3 px-3 text-left font-semibold">Dep Team</th>
                 <th className="py-3 px-3 text-left font-semibold">
                   Dep Assignee
+                </th>
+                {/* ✅ UPDATED: Sortable Headers */}
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("created")}
+                >
+                  Created
+                  <SortIndicator column="created" />
+                </th>
+
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("closed")}
+                >
+                  Closed
+                  <SortIndicator column="closed" />
                 </th>
                 <th className="py-3 px-3 text-left font-semibold">Stage</th>
                 <th
@@ -941,6 +1068,7 @@ const DrillDownModal = ({
                 const csm =
                   t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
                 const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+                const ticketAge = calculateAge(t);
 
                 return (
                   <tr
@@ -979,20 +1107,29 @@ const DrillDownModal = ({
                     <td className="py-3 px-3 text-slate-600 dark:text-slate-400 text-xs">
                       {tam}
                     </td>
-                    <td className="py-3 px-3 text-slate-700 dark:text-slate-300 text-xs font-medium">{owner}</td>
+                    <td className="py-3 px-3 text-slate-700 dark:text-slate-300 text-xs font-medium">
+                      {owner}
+                    </td>
                     <td className="py-3 px-3">
                       {(() => {
-                         const ticketId = t.display_id?.replace("TKT-", "");
+                        const ticketId = t.display_id?.replace("TKT-", "");
                         const dep = dependencies[ticketId];
                         const team = dep?.primary?.team || null;
-                        if (!team) return <span className="text-slate-400">-</span>;
+                        if (!team)
+                          return <span className="text-slate-400">-</span>;
                         const colors = {
                           NOC: "bg-rose-100 text-rose-700",
                           Whatsapp: "bg-emerald-100 text-emerald-700",
                           Billing: "bg-amber-100 text-amber-700",
                           Email: "bg-blue-100 text-blue-700",
                         };
-                        return <span className={`text-xs px-2 py-0.5 rounded font-medium ${colors[team] || "bg-slate-100 text-slate-700"}`}>{team}</span>;
+                        return (
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded font-medium ${colors[team] || "bg-slate-100 text-slate-700"}`}
+                          >
+                            {team}
+                          </span>
+                        );
                       })()}
                     </td>
                     <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-400">
@@ -1001,22 +1138,38 @@ const DrillDownModal = ({
                         return dependencies[ticketId]?.primary?.owner || "-";
                       })()}
                     </td>
+                    {/* ✅ NEW: Created Date Column */}
+                    <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                      {t.created_date
+                        ? format(parseISO(t.created_date), "MMM d, yyyy")
+                        : "-"}
+                    </td>
+
+                    {/* ✅ NEW: Closed Date Column */}
+                    <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                      {t.actual_close_date
+                        ? format(parseISO(t.actual_close_date), "MMM d, yyyy")
+                        : "-"}
+                    </td>
                     <td className="py-3 px-3">
                       <span className="text-xs px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-medium">
-                        {STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-"}
+                        {STAGE_MAP[t.stage?.name]?.label ||
+                          t.stage?.name ||
+                          "-"}
                       </span>
                     </td>
+                    {/* ✅ FIXED: Age Column using calculated value */}
                     <td className="py-3 px-3 text-right">
                       <span
                         className={`text-sm font-medium ${
-                          t.days > 15
+                          ticketAge > 15
                             ? "text-rose-600"
-                            : t.days > 10
+                            : ticketAge > 10
                               ? "text-amber-600"
                               : "text-slate-600"
                         }`}
                       >
-                        {t.days}d
+                        {ticketAge}d
                       </span>
                     </td>
                     <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-slate-400">
@@ -1331,8 +1484,7 @@ const AllTicketsView = ({
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
 
-
-// Categorize tickets by state (with dependency filtering)
+  // Categorize tickets by state (with dependency filtering)
   const categorizedTickets = useMemo(() => {
     const result = {
       open: [],
@@ -1354,7 +1506,10 @@ const AllTicketsView = ({
     const depFilter = filters?.dependency || [];
     const depTeamsFilter = filters?.dependencyTeams || [];
     const hasDepFilter = depFilter.length > 0 && depFilter.length < 2;
-    const hasDepTeamsFilter = depFilter.includes("with_dependency") && depTeamsFilter.length > 0 && depTeamsFilter.length < 6;
+    const hasDepTeamsFilter =
+      depFilter.includes("with_dependency") &&
+      depTeamsFilter.length > 0 &&
+      depTeamsFilter.length < 6;
 
     tickets.forEach((t) => {
       // Apply dependency filter first
@@ -1362,11 +1517,19 @@ const AllTicketsView = ({
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];
         const hasDep = dep?.hasDependency === true;
-        
-        if (depFilter.includes("with_dependency") && !depFilter.includes("no_dependency") && !hasDep) {
+
+        if (
+          depFilter.includes("with_dependency") &&
+          !depFilter.includes("no_dependency") &&
+          !hasDep
+        ) {
           return; // Skip - want dependency but ticket has none
         }
-        if (depFilter.includes("no_dependency") && !depFilter.includes("with_dependency") && hasDep) {
+        if (
+          depFilter.includes("no_dependency") &&
+          !depFilter.includes("with_dependency") &&
+          hasDep
+        ) {
           return; // Skip - want no dependency but ticket has one
         }
       }
@@ -1377,7 +1540,9 @@ const AllTicketsView = ({
         const dep = dependencies[ticketId];
         if (dep?.hasDependency) {
           const ticketTeams = dep.issues?.map((i) => i.team) || [];
-          const hasMatchingTeam = depTeamsFilter.some((team) => ticketTeams.includes(team));
+          const hasMatchingTeam = depTeamsFilter.some((team) =>
+            ticketTeams.includes(team),
+          );
           if (!hasMatchingTeam) return; // Skip - no matching team
         }
       }
@@ -1429,7 +1594,13 @@ const AllTicketsView = ({
     });
 
     return result;
-  }, [tickets, filters?.dateRange, filters?.dependency, filters?.dependencyTeams, dependencies]);
+  }, [
+    tickets,
+    filters?.dateRange,
+    filters?.dependency,
+    filters?.dependencyTeams,
+    dependencies,
+  ]);
 
   // Account distribution data
   const accountDistribution = useMemo(() => {
@@ -1558,6 +1729,8 @@ const AllTicketsView = ({
       "CSM",
       "TAM",
       "Assignee",
+      "Created Date", // ✅ Added
+      "Closed Date",
       "Stage",
       "Age (Days)",
       "RWT (hrs)",

@@ -1185,40 +1185,7 @@ const PerformanceMetricsCards = ({
 
   return (
     <div className="space-y-4">
-      {/* Time Controls Row */}
-      {/* <div className="flex flex-wrap items-center gap-3">
-       
-        <div
-          className={`flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl ${
-            !isCurrentQuarter ? "opacity-50" : ""
-          }`}
-        >
-          {["weekly", "monthly"].map((g) => (
-            <button
-              key={g}
-              onClick={() => handleGroupByChange(g)}
-              disabled={!isCurrentQuarter}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                groupBy === g && isCurrentQuarter
-                  ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              } ${!isCurrentQuarter ? "cursor-not-allowed" : ""}`}
-              title={
-                !isCurrentQuarter ? "Only available for current quarter" : ""
-              }
-            >
-              {g.charAt(0).toUpperCase() + g.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        {!isCurrentQuarter && (
-          <span className="text-[10px] text-slate-400 italic">
-            (Drill-down available for current quarter only)
-          </span>
-        )}
-      </div> */}
-
+     
       {/* Week Selector - Only when Weekly is selected for Q1_26 */}
       {isCurrentQuarter && groupBy === "weekly" && (
         <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">

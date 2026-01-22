@@ -119,12 +119,6 @@ const GamificationView = ({ quarter = "Q1_26" }) => {
             </div>
             GST Gamification
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 flex items-center gap-2">
-            <Calendar className="w-4 h-4" />
-            {quarter} Performance Rankings
-            <span className="text-slate-300 dark:text-slate-600">•</span>
-            Updated {new Date(data?.lastUpdated).toLocaleDateString()}
-          </p>
         </div>
         
         {/* Tab Switcher */}
