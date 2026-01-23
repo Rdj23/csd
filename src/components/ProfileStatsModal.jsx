@@ -165,7 +165,7 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
             {backup.name}
           </p>
           <p className="text-[10px] text-slate-500">
-            {backup.role} • <span className="text-green-600 font-medium">{backup.load} Active Tix</span>
+            {backup.role} • <span className="text-green-600 font-medium">{backup.load} Active Now</span>
           </p>
         </div>
       </div>

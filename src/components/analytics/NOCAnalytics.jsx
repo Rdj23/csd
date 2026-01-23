@@ -56,6 +56,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const [selectedOwner, setSelectedOwner] = useState("all");
   const [showRcaDropdown, setShowRcaDropdown] = useState(false);
   const [showReporterDropdown, setShowReporterDropdown] = useState(false);
+  const [showOwnerDropdown, setShowOwnerDropdown] = useState(false);
   const [activePieChart, setActivePieChart] = useState("reporter"); // 'reporter', 'rca', 'owner'
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -85,6 +86,15 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, selectedRca, selectedReporter, selectedOwner]);
+
+  // Compute owner options from tickets
+  const ownerOptions = useMemo(() => {
+    const owners = new Set();
+    (nocData.tickets || []).forEach(t => {
+      if (t.owner) owners.add(t.owner);
+    });
+    return Array.from(owners).sort();
+  }, [nocData.tickets]);
 
   // Filter tickets based on search term and owner (for pie chart click)
   const filteredTickets = useMemo(() => {
@@ -141,7 +151,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       t.noc_issue_id || "",
       t.noc_assignee || "",
       t.noc_rca || "",
-      t.noc_jira_key ? `https://jira.clevertap.com/browse/${t.noc_jira_key}` : "",
+      t.noc_jira_key ? `https://wizrocket.atlassian.net/browse/${t.noc_jira_key}` : "",
       t.closed_date ? new Date(t.closed_date).toLocaleDateString() : "",
     ]);
 
@@ -491,8 +501,20 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                           "-"
                         )}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400">
-                        {ticket.noc_issue_id || "-"}
+                      <td className="px-4 py-3">
+                        {ticket.noc_issue_id ? (
+                          <a
+                            href={`https://app.devrev.ai/clevertapsupport/works/${ticket.noc_issue_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-cyan-600 hover:text-cyan-800 font-mono font-bold text-xs flex items-center gap-1"
+                          >
+                            {ticket.noc_issue_id}
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        ) : (
+                          "-"
+                        )}
                       </td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                         {ticket.noc_assignee || "-"}
@@ -518,7 +540,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                       <td className="px-4 py-3">
                         {ticket.noc_jira_key ? (
                           <a
-                            href={`https://jira.clevertap.com/browse/${ticket.noc_jira_key}`}
+                            href={`https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-emerald-600 hover:text-emerald-800 font-mono text-xs flex items-center gap-1"
