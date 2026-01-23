@@ -2415,7 +2415,7 @@ app.get("/api/gamification", async (req, res) => {
       if (!row) return 0;
 
       let days = 0;
-      const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4", "ON CALL"];
+      const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4"];
 
       for (let i = 2; i < row.length; i++) {
         const val = (row[i] || "").toUpperCase().trim();
@@ -2576,7 +2576,7 @@ app.get("/api/roster/workload", async (req, res) => {
     };
 
     // Off-duty statuses
-    const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", ""];
+    const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", "ON CALL"];
 
     // 2. Identify Active Engineers (Currently On Shift)
     const activeEngineers = ROSTER_ROWS.filter((row) => {
