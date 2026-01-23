@@ -1234,23 +1234,54 @@ const DrillDownModal = ({
 };
 
 // ============================================================================
+// GROUPING TAB OPTIONS
+// ============================================================================
+const GROUPING_TABS = [
+  { key: "gst", label: "GST", icon: Users },
+  { key: "csm", label: "CSM", icon: Briefcase },
+  { key: "tam", label: "TAM", icon: UserCircle },
+  { key: "region", label: "Region", icon: Globe },
+];
+
+// ============================================================================
 // PIE CHART CARD - Individual state card with pie chart
 // ============================================================================
-const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
+const StateCard = ({ state, tickets, onCardClick, onSliceClick, groupBy = "gst" }) => {
   const config = TICKET_STATES[state];
   const Icon = config.icon;
 
-  // Group tickets by assignee for pie chart (excluding anmol)
+  // Group tickets based on selected groupBy option
   const chartData = useMemo(() => {
     const groups = {};
     tickets.forEach((t) => {
-      const owner =
-        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-        t.owned_by?.[0]?.display_name ||
-        "Unassigned";
-      // Exclude anmol-sawhney
-      if (owner.toLowerCase().includes("anmol")) return;
-      groups[owner] = (groups[owner] || 0) + 1;
+      let groupKey;
+
+      switch (groupBy) {
+        case "csm":
+          groupKey = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "No CSM";
+          break;
+        case "tam":
+          groupKey = t.tam && t.tam !== "Unknown" ? t.tam : "No TAM";
+          break;
+        case "region":
+          groupKey = t.region || "Unknown";
+          // Normalize IN1/In1 to India
+          if (groupKey === "IN1" || groupKey === "In1" || groupKey === "in1") {
+            groupKey = "India";
+          }
+          break;
+        case "gst":
+        default:
+          groupKey =
+            FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+            t.owned_by?.[0]?.display_name ||
+            "Unassigned";
+          // Exclude anmol-sawhney for GST view
+          if (groupKey.toLowerCase().includes("anmol")) return;
+          break;
+      }
+
+      groups[groupKey] = (groups[groupKey] || 0) + 1;
     });
 
     const total = Object.values(groups).reduce((a, b) => a + b, 0);
@@ -1262,7 +1293,7 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
         percentage: total > 0 ? Math.round((value / total) * 100) : 0,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [tickets]);
+  }, [tickets, groupBy]);
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
@@ -1317,7 +1348,7 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
                   outerRadius={70}
                   paddingAngle={2}
                   dataKey="value"
-                  onClick={(data) => onSliceClick(state, data.name)}
+                  onClick={(data) => onSliceClick(state, data.name, groupBy)}
                   className="cursor-pointer"
                 >
                   {chartData.map((entry, index) => (
@@ -1338,13 +1369,13 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick }) => {
           </div>
         )}
 
-        {/* Legend - Show ALL assignees */}
+        {/* Legend - Show ALL entries based on groupBy */}
         {chartData.length > 0 && (
           <div className="mt-2 space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
             {chartData.map((item, idx) => (
               <button
                 key={item.name}
-                onClick={() => onSliceClick(state, item.name)}
+                onClick={() => onSliceClick(state, item.name, groupBy)}
                 className="w-full flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 px-2 py-1 rounded transition-colors"
               >
                 <div className="flex items-center gap-2">
@@ -1483,6 +1514,7 @@ const AllTicketsView = ({
   dependencies = {},
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
+  const [groupBy, setGroupBy] = useState("gst"); // gst, csm, tam, region
 
   // Categorize tickets by state (with dependency filtering)
   const categorizedTickets = useMemo(() => {
@@ -1655,22 +1687,46 @@ const AllTicketsView = ({
     [categorizedTickets],
   );
 
-  // Handle slice click - open drill down for specific assignee
+  // Handle slice click - open drill down for specific groupBy value
   const handleSliceClick = useCallback(
-    (state, assignee) => {
+    (state, value, groupType) => {
       const config = TICKET_STATES[state];
       const filtered = categorizedTickets[state].filter((t) => {
-        const owner =
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-          t.owned_by?.[0]?.display_name ||
-          "Unassigned";
-        return owner === assignee;
+        switch (groupType) {
+          case "csm":
+            const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "No CSM";
+            return csm === value;
+          case "tam":
+            const tam = t.tam && t.tam !== "Unknown" ? t.tam : "No TAM";
+            return tam === value;
+          case "region":
+            let region = t.region || "Unknown";
+            if (region === "IN1" || region === "In1" || region === "in1") {
+              region = "India";
+            }
+            return region === value;
+          case "gst":
+          default:
+            const owner =
+              FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+              t.owned_by?.[0]?.display_name ||
+              "Unassigned";
+            return owner === value;
+        }
       });
+
+      const groupLabel = {
+        gst: "GST",
+        csm: "CSM",
+        tam: "TAM",
+        region: "Region",
+      }[groupType] || "GST";
 
       setDrillDown({
         state,
-        assignee,
-        title: `${config.label} Tickets - ${assignee}`,
+        value,
+        groupType,
+        title: `${config.label} Tickets - ${groupLabel}: ${value}`,
         tickets: filtered,
       });
     },
@@ -1794,19 +1850,43 @@ const AllTicketsView = ({
 
   return (
     <div className="space-y-6">
-      {/* Header with Download */}
+      {/* Header with Download and Grouping Tabs */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-slate-800 dark:text-white">
           All Tickets Overview
         </h2>
-        {/* <button
-          onClick={downloadFullReport}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 font-medium text-sm"
-        >
-          <Download className="w-4 h-4" />
-          Download Report
-        </button> */}
+
+        {/* Grouping Tab Switcher - Cool UI like NOC */}
+        <div className="flex items-center gap-1 bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-900 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          {GROUPING_TABS.map((tab) => {
+            const TabIcon = tab.icon;
+            const isActive = groupBy === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setGroupBy(tab.key)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/20"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-white"
+                }`}
+              >
+                <TabIcon className={`w-4 h-4 ${isActive ? "text-white" : ""}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Info Bar showing current grouping */}
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-4 py-2 rounded-lg">
+        <Layers className="w-3.5 h-3.5" />
+        <span>Pie charts grouped by: <span className="font-semibold text-indigo-600 dark:text-indigo-400">{GROUPING_TABS.find(t => t.key === groupBy)?.label}</span></span>
+        <span className="text-slate-300 dark:text-slate-600">|</span>
+        <span>Click on any slice or legend item to drill down</span>
+      </div>
+
       <div className="grid grid-cols-4 gap-4">
         {Object.keys(TICKET_STATES).map((state) => (
           <StateCard
@@ -1815,6 +1895,7 @@ const AllTicketsView = ({
             tickets={categorizedTickets[state]}
             onCardClick={handleCardClick}
             onSliceClick={handleSliceClick}
+            groupBy={groupBy}
           />
         ))}
       </div>
