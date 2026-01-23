@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Trophy,
   Medal,
@@ -14,15 +14,23 @@ import {
   Calendar,
   Target,
   Zap,
+  User,
+  Eye,
 } from "lucide-react";
 import axios from "axios";
+import { FLAT_TEAM_MAP } from "../utils";
 
-const GamificationView = ({ quarter = "Q1_26" }) => {
+const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = false }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("L1");
   const [sortBy, setSortBy] = useState("rank");
   const [sortDir, setSortDir] = useState("asc");
+  const [selectedGSTUser, setSelectedGSTUser] = useState(null);
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+
+  // Get list of GST users for dropdown
+  const gstUsers = useMemo(() => Object.values(FLAT_TEAM_MAP).sort(), []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -120,24 +128,146 @@ const GamificationView = ({ quarter = "Q1_26" }) => {
             GST Gamification
           </h1>
         </div>
-        
-        {/* Tab Switcher */}
-        <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
-          {["L1", "L2"].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                activeTab === tab
-                  ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
-                  : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
-              }`}
-            >
-              {tab} Engineers ({data?.data?.[tab]?.length || 0})
-            </button>
-          ))}
+
+        <div className="flex items-center gap-3">
+          {/* GST User Selector (Admin Only) */}
+          {isAdmin && (
+            <div className="relative">
+              <button
+                onClick={() => setShowUserDropdown(!showUserDropdown)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                  selectedGSTUser
+                    ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-700"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300"
+                }`}
+              >
+                <Eye className="w-4 h-4" />
+                {selectedGSTUser ? `View: ${selectedGSTUser}` : "View as GST User"}
+                <ChevronDown className={`w-4 h-4 transition-transform ${showUserDropdown ? "rotate-180" : ""}`} />
+              </button>
+
+              {showUserDropdown && (
+                <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto">
+                  <button
+                    onClick={() => {
+                      setSelectedGSTUser(null);
+                      setShowUserDropdown(false);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 ${
+                      !selectedGSTUser ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300" : ""
+                    }`}
+                  >
+                    <Users className="w-4 h-4" />
+                    All Engineers (Admin View)
+                  </button>
+                  <div className="border-t border-slate-100 dark:border-slate-800" />
+                  {gstUsers.map((user) => (
+                    <button
+                      key={user}
+                      onClick={() => {
+                        setSelectedGSTUser(user);
+                        setShowUserDropdown(false);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 ${
+                        selectedGSTUser === user ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300" : ""
+                      }`}
+                    >
+                      <User className="w-4 h-4" />
+                      {user}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab Switcher */}
+          <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
+            {["L1", "L2"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                  activeTab === tab
+                    ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                {tab} Engineers ({data?.data?.[tab]?.length || 0})
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* Individual User Stats Card (when GST user is selected) */}
+      {selectedGSTUser && (() => {
+        const userData = [...(data?.data?.L1 || []), ...(data?.data?.L2 || [])].find(
+          (eng) => eng.name === selectedGSTUser
+        );
+        if (!userData) return (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 text-center">
+            <p className="text-amber-700 dark:text-amber-400">No data found for {selectedGSTUser}</p>
+          </div>
+        );
+
+        return (
+          <div className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-2xl p-6 border border-indigo-200 dark:border-indigo-800 shadow-lg">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">
+                  {userData.name.charAt(0)}
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">{userData.name}</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{userData.designation} • {userData.team}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {getRankBadge(userData.rank)}
+                <span className="text-2xl font-bold text-slate-900 dark:text-white">#{userData.rank}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">Days Worked</p>
+                <p className="text-xl font-bold text-slate-800 dark:text-white">{userData.daysWorked}</p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">Tickets Solved</p>
+                <p className="text-xl font-bold text-emerald-600">{userData.solved}</p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">Productivity</p>
+                <p className="text-xl font-bold text-amber-600">{userData.productivity}/day</p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">Avg RWT</p>
+                <p className="text-xl font-bold text-purple-600">{userData.avgRWT}h</p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">Avg Iterations</p>
+                <p className="text-xl font-bold text-blue-600">{userData.avgIterations}</p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">FRR %</p>
+                <p className={`text-xl font-bold ${userData.frrPercent >= 50 ? "text-emerald-600" : userData.frrPercent >= 35 ? "text-amber-600" : "text-red-600"}`}>
+                  {userData.frrPercent}%
+                </p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">Positive CSAT</p>
+                <p className="text-xl font-bold text-yellow-600">{userData.positiveCSAT}</p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+                <p className="text-xs text-slate-500 mb-1">Score</p>
+                <p className="text-xl font-bold text-indigo-600">{userData.weightedAvg}</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Top 3 Podium */}
       {topThree.length >= 3 && (

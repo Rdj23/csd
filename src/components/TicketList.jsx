@@ -132,8 +132,12 @@ const TicketList = ({
                 </th>
                 {/* 8. Stage */}
                 <th className="p-4 w-[120px] align-middle">Stage</th>
+                {/* 9. RWT */}
+                <th className="p-4 w-[100px] align-middle text-center">RWT</th>
+                {/* 10. Iterations */}
+                <th className="p-4 w-[100px] align-middle text-center">Iterations</th>
 
-                {/* 9. Age (Sticky Right 1) */}
+                {/* 11. Age (Sticky Right 1) */}
                 <th
                   className="p-4 w-[100px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] cursor-pointer"
                   onClick={() => handleSort("days")}
@@ -275,8 +279,6 @@ const TicketList = ({
                       )}
                     </td>
 
-                    {/* 7. Iterations */}
-
                     {/* 8. Stage */}
                     <td className="px-4 py-3 align-middle">
                       <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800">
@@ -284,7 +286,41 @@ const TicketList = ({
                       </span>
                     </td>
 
-                    {/* 9. Age (Sticky Right 1) */}
+                    {/* 9. RWT */}
+                    <td className="px-4 py-3 align-middle text-center">
+                      {t.rwt != null ? (
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          t.rwt > 24
+                            ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                            : t.rwt > 12
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        }`}>
+                          {Number(t.rwt).toFixed(1)}h
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">-</span>
+                      )}
+                    </td>
+
+                    {/* 10. Iterations */}
+                    <td className="px-4 py-3 align-middle text-center">
+                      {t.iterations != null ? (
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          t.iterations > 5
+                            ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                            : t.iterations > 3
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        }`}>
+                          {t.iterations}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">-</span>
+                      )}
+                    </td>
+
+                    {/* 11. Age (Sticky Right 1) */}
                     <td className="px-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-sm font-medium">{t.days} Days</span>
                     </td>

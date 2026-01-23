@@ -7,7 +7,7 @@ import {
   BellRing,
   CheckCircle,
 } from "lucide-react";
-import axios from "axios";
+import axios from "axios";ç
 import { differenceInMinutes, parseISO } from "date-fns";
 import { TEAM_GROUPS } from "../utils";
 
@@ -15,20 +15,6 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // TRIGGER WEBHOOK
-  const handleRequestETA = async () => {
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-      await axios.post(`${API_BASE}/api/notify/eta`, { targetUser: user.name });
-      alert(`ETA Request sent to ${user.name}'s Slack!`);
-    } catch (e) {
-      alert("Failed to send request.");
-    }
-  };
-
- // [ProfileStatsModal.jsx]
-
-  // Add state for backup
   const [backup, setBackup] = useState(null);
 
   useEffect(() => {
@@ -41,34 +27,11 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
         const backupRes = await axios.get(`${API_BASE}/api/roster/backup?userName=${encodeURIComponent(user.name)}&teamOnly=true`);
         setBackup(backupRes.data.backup);
 
-        // 2. Calculate stats from solved tickets
-        const totalTickets = solvedTickets.length;
-        
-        // Calculate avg resolution time
-        let totalMinutes = 0, count = 0;
-        solvedTickets.forEach((t) => {
-          if (t.created_date && t.actual_close_date) {
-            const created = new Date(t.created_date);
-            const closed = new Date(t.actual_close_date);
-            const mins = Math.floor((closed - created) / 60000);
-            if (mins > 0) {
-              totalMinutes += mins;
-              count++;
-            }
-          }
-        });
-        const avgMins = count > 0 ? Math.floor(totalMinutes / count) : 0;
-        const avgResolution = count > 0 ? `${Math.floor(avgMins / 60)}h ${avgMins % 60}m` : "--";
-
-        // 3. Get profile status
+        // 2. Get profile status
         const statusRes = await axios.post(`${API_BASE}/api/profile/status`, { userName: user.name });
 
         setData({
-          stats: {
-            avgResolution,
-            solvedCount: totalTickets,
-            q1Solved: totalTickets,
-          },
+         
           isActive: statusRes.data.isActive,
           status: statusRes.data.status,
           timings: statusRes.data.shift,
@@ -79,9 +42,9 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
               : `${user.name} is off duty today.`,
         });
       } catch (err) {
-        console.error("Failed to load profile stats", err);
+        console.error("Failed to load profile info", err);
         setData({
-          stats: { avgResolution: "--", solvedCount: 0, q1Solved: 0 },
+         
           isActive: false,
           status: "Unknown",
         });
@@ -93,26 +56,7 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
     if (user) fetchData();
   }, [user, solvedTickets]);
 
-  const calculateAvgResolution = () => {
-    if (!solvedTickets?.length) return "--";
-    let totalMinutes = 0,
-      count = 0;
-    solvedTickets.forEach((t) => {
-      if (t.created_date && t.actual_close_date) {
-        const mins = differenceInMinutes(
-          parseISO(t.actual_close_date),
-          parseISO(t.created_date)
-        );
-        if (mins > 0) {
-          totalMinutes += mins;
-          count++;
-        }
-      }
-    });
-    if (count === 0) return "--";
-    const avg = Math.floor(totalMinutes / count);
-    return `${Math.floor(avg / 60)}h ${avg % 60}m`;
-  };
+ 
 
   if (!user) return null;
 
@@ -238,25 +182,7 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
 </div>
          
 
-          {/* KPI */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
-              <p className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1">
-                <Clock className="w-3 h-3" /> Avg Resolution
-              </p>
-              <p className="text-2xl font-bold text-slate-800 dark:text-slate-200 mt-1">
-                {data?.stats?.avgResolution || "--"}
-              </p>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
-              <p className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1">
-                <CheckCircle className="w-3 h-3" /> Solved (Q1)
-              </p>
-              <p className="text-2xl font-bold text-slate-800 dark:text-slate-200 mt-1">
-                {data?.stats?.q1Solved ?? "--"}
-              </p>
-            </div>
-          </div>
+        
         </div>
       </div>
     </div>

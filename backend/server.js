@@ -2206,16 +2206,16 @@ app.get("/api/roster/backup", async (req, res) => {
     // Find user's team from TEAM_GROUPS
     let userTeam = null;
     let teamMembers = [];
-    
+
+    // Build FLAT_TEAM_MAP from TEAM_GROUPS (must be outside if block so it's available later)
+    const FLAT_TEAM_MAP = {};
+    Object.entries(TEAM_GROUPS).forEach(([lead, members]) => {
+      Object.entries(members).forEach(([id, name]) => {
+        FLAT_TEAM_MAP[id] = name;
+      });
+    });
+
     if (userName) {
-
-         const FLAT_TEAM_MAP = {};
-Object.entries(TEAM_GROUPS).forEach(([lead, members]) => {
-  Object.entries(members).forEach(([id, name]) => {
-    FLAT_TEAM_MAP[id] = name;
-  });
-});
-
       // Import TEAM_GROUPS logic here or use a hardcoded mapping
       const TEAM_MAPPING = {
         "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },

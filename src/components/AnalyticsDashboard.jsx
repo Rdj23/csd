@@ -3628,7 +3628,7 @@ const AnalyticsDashboard = ({
       ).length;
 
       return {
-        totalTickets: volumeTickets.length,
+        totalTickets: totalSolved, // Use solved count for Performance Overview
         totalSolved,
         avgRWT:
           rwtValues.length > 0
@@ -3734,7 +3734,7 @@ const AnalyticsDashboard = ({
       });
 
       return {
-        totalTickets: volumeTickets.length,
+        totalTickets: totalSolved, // Use solved count for Performance Overview
         totalSolved,
         avgRWT:
           validRWTCount > 0 ? (weightedRWT / validRWTCount).toFixed(2) : "0.00",
@@ -3806,7 +3806,7 @@ const AnalyticsDashboard = ({
       totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
 
     return {
-      totalTickets: volumeTickets.length,
+      totalTickets: totalSolved, // Use solved count for Performance Overview
       totalSolved,
       avgRWT,
       avgFRT,

@@ -1980,7 +1980,11 @@ ${
                   isDark={theme === "dark"}
                 />
               ) : activeTab === "gamification" && SUPER_ADMIN_EMAILS.includes(currentUser?.email) ? (
-  <GamificationView quarter={tabFilters.analytics?.quarter || "Q1_26"} />
+  <GamificationView
+    quarter={tabFilters.analytics?.quarter || "Q1_26"}
+    currentUser={currentUser}
+    isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
+  />
 ) : activeTab === "alltickets" ? (
                 <AllTicketsView
                   tickets={allTicketsFiltered}
