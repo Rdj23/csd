@@ -132,7 +132,14 @@ const redisDelete = async (pattern) => {
 
 // Map DevRev display_name to GST roster name
 
-
+// --- TEAM CONFIGURATION (Backend Copy) ---
+const TEAM_GROUPS = {
+  "Mashnu": { "DEVU-1111": "Rohan", "DEVU-1114": "Archie", "DEVU-1072": "Neha", "DEVU-1115": "Shreya", "DEVU-1122": "Vaibhav", "DEVU-1076": "Adarsh", "DEVU-1108": "Abhishek" },
+  "Debashish": { "DEVU-1087": "Shubhankar", "DEVU-736": "Musaveer", "DEVU-550": "Anurag", "DEVU-1102": "Debashish" },
+  "Shweta": { "DEVU-5": "Aditya", "DEVU-1113": "Shweta", "DEVU-4": "Nikita" },
+  "Tuaha": { "DEVU-1123": "Tuaha Khan", "DEVU-1098": "Harsh", "DEVU-689": "Tamanna", "DEVU-1110": "Shreyas" },
+  "Adish": { "DEVU-1121": "Adish" } 
+};
 
 const GST_NAME_MAP = {
   Rohan: "Rohan",
@@ -2203,7 +2210,7 @@ app.get("/api/roster/backup", async (req, res) => {
       return true;
     };
 
-    // Find user's team from TEAM_GROUPS
+    // Find user's teaTEAM_GROUPSm from 
     let userTeam = null;
     let teamMembers = [];
 
