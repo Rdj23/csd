@@ -7,7 +7,7 @@ import {
   BellRing,
   CheckCircle,
 } from "lucide-react";
-import axios from "axios";ç
+import axios from "axios";
 import { differenceInMinutes, parseISO } from "date-fns";
 import { TEAM_GROUPS } from "../utils";
 
