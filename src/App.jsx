@@ -1302,8 +1302,8 @@ ${
 
           {/* RIGHT COLUMN: Filters (Fixed) + Content (Scrollable) */}
           <div className="flex-1 flex flex-col min-w-0 h-full">
-            {/* FIXED FILTERS BAR */}
-
+            {/* FIXED FILTERS BAR - Hidden for Gamification tab */}
+            {activeTab !== "gamification" && (
             <div className="shrink-0 z-40 mb-4 bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center transition-colors relative">
               {/* LEFT: Filters */}
               <div className="flex items-center gap-2">
@@ -1928,6 +1928,7 @@ ${
                 )}
               </div>
             </div>
+            )}
 
             {/* KPI CARDS */}
             {/* {activeTab !== "analytics" && activeTab !== "vistas" && ( */}
