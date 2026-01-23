@@ -1333,6 +1333,106 @@ app.get("/api/tickets", async (req, res) => {
     res.status(500).json({ tickets: [], error: e.message });
   }
 });
+
+// ============================================================================
+// NOC TICKETS ANALYTICS
+// ============================================================================
+app.get("/api/tickets/noc", async (req, res) => {
+  try {
+    const { startDate, endDate, rca, reporter } = req.query;
+
+    // Build match conditions
+    const matchConditions = {
+      is_noc: true,
+    };
+
+    // Date range filter
+    if (startDate && endDate) {
+      matchConditions.closed_date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      };
+    }
+
+    // RCA filter
+    if (rca && rca !== "all") {
+      matchConditions.noc_rca = rca;
+    }
+
+    // Reporter filter
+    if (reporter && reporter !== "all") {
+      matchConditions.noc_reported_by = reporter;
+    }
+
+    // Fetch NOC tickets
+    const nocTickets = await AnalyticsTicket.find(matchConditions)
+      .select({
+        display_id: 1,
+        title: 1,
+        owner: 1,
+        noc_issue_id: 1,
+        noc_jira_key: 1,
+        noc_rca: 1,
+        noc_reported_by: 1,
+        noc_assignee: 1,
+        closed_date: 1,
+        created_date: 1,
+      })
+      .sort({ closed_date: -1 })
+      .lean();
+
+    // Get unique RCA values for filter dropdown
+    const rcaValues = await AnalyticsTicket.distinct("noc_rca", { is_noc: true });
+    const filteredRcaValues = rcaValues.filter(r => r != null && r !== "");
+
+    // Get unique reporters for filter dropdown
+    const reporterValues = await AnalyticsTicket.distinct("noc_reported_by", { is_noc: true });
+    const filteredReporterValues = reporterValues.filter(r => r != null && r !== "");
+
+    // Aggregate stats for pie charts
+    // 1. By Reporter (who created more NOC)
+    const byReporter = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      { $group: { _id: "$noc_reported_by", count: { $sum: 1 } } },
+      { $match: { _id: { $ne: null } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    // 2. By RCA category
+    const byRca = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      { $group: { _id: "$noc_rca", count: { $sum: 1 } } },
+      { $match: { _id: { $ne: null } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    // 3. By Owner (who got more NOC tickets)
+    const byOwner = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      { $group: { _id: "$owner", count: { $sum: 1 } } },
+      { $match: { _id: { $ne: null } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    res.json({
+      tickets: nocTickets,
+      filters: {
+        rcaOptions: filteredRcaValues,
+        reporterOptions: filteredReporterValues,
+      },
+      stats: {
+        total: nocTickets.length,
+        byReporter: byReporter.map(r => ({ name: r._id, value: r.count })),
+        byRca: byRca.map(r => ({ name: r._id, value: r.count })),
+        byOwner: byOwner.map(r => ({ name: r._id, value: r.count })),
+      },
+    });
+  } catch (e) {
+    console.error("❌ /api/tickets/noc error:", e.message);
+    res.status(500).json({ tickets: [], error: e.message });
+  }
+});
+
 // Fetch linked issues for a ticket
 app.post("/api/tickets/links", async (req, res) => {
   try {

@@ -81,6 +81,7 @@ import {
   CSATLeaderboard,
   DSATAlerts,
   PerformanceMetricsCards,
+  NOCAnalytics,
 } from "./analytics";
 
 // ============================================================================
@@ -3836,6 +3837,13 @@ const AnalyticsDashboard = ({
           </div>
         ))}
       </div>
+
+      {/* NOC Analytics Section */}
+      <NOCAnalytics
+        dateRange={effectiveDateRange}
+        isLoading={analyticsLoading}
+      />
+
       {/* CSAT + DSAT */}
       {/* Change: 'lg:grid-cols-2' -> 'grid-cols-1' to make them full width & stacked */}
       <div className="grid grid-cols-1 gap-6">
