@@ -2187,6 +2187,25 @@ app.get("/api/roster/backup", async (req, res) => {
     const colIdx = DATE_COL_MAP[dateKey];
     const currentHour = today.getHours();
 
+    // Check if roster data is loaded
+    if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
+      return res.status(503).json({
+        backup: null,
+        error: "Roster data not loaded. Please try again later.",
+        message: "Roster data is still loading.",
+      });
+    }
+
+    // Check if date column exists
+    if (!colIdx && colIdx !== 0) {
+      console.warn(`⚠️ Date column not found for ${dateKey}. Available dates: ${Object.keys(DATE_COL_MAP).slice(0, 5).join(", ")}...`);
+      return res.status(503).json({
+        backup: null,
+        error: `Roster column for ${dateKey} not found.`,
+        message: "Today's roster data not available.",
+      });
+    }
+
     // Shift timings
     const SHIFT_HOURS = {
       "SHIFT 1": { start: 6, end: 15 },
@@ -2201,7 +2220,7 @@ app.get("/api/roster/backup", async (req, res) => {
     const isOnShift = (row) => {
       const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
       if (OFF_STATUSES.includes(shift)) return false;
-      
+
       const shiftKey = shift.replace(/\s+/g, " ").trim();
       const hours = SHIFT_HOURS[shiftKey];
       if (hours) {
@@ -2210,7 +2229,7 @@ app.get("/api/roster/backup", async (req, res) => {
       return true;
     };
 
-    // Find user's teaTEAM_GROUPSm from 
+    // Find user's team from TEAM_GROUPS
     let userTeam = null;
     let teamMembers = [];
 
@@ -2274,7 +2293,7 @@ app.get("/api/roster/backup", async (req, res) => {
     }).map((row) => ({
       name: row[0],
       email: row[1],
-      role: row[LEVEL_COL_IDX] || "L1",
+      role: LEVEL_COL_IDX >= 0 ? (row[LEVEL_COL_IDX] || "L1") : "L1",
       shift: colIdx ? row[colIdx] : "Unknown",
     }));
 
@@ -2391,18 +2410,20 @@ app.get("/api/gamification", async (req, res) => {
       "Abhishek": "Mashnu", "Adarsh": "Mashnu", "Vaibhav": "Mashnu", "Adish": "Adish",
     };
 
-    // Calculate days worked from roster
+    // Calculate days worked from roster - ONLY count actual shift days
     const getDaysWorked = (name) => {
       const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === name.toLowerCase());
       if (!row) return 0;
-      
+
       let days = 0;
-      const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", ""];
-      
-      // Count non-off days from roster
-      for (let i = 2; i < row.length; i++) { // Start from column 2 (after name and designation)
+      // Only these are valid working shifts - everything else is NOT a working day
+      const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4", "ON CALL"];
+
+      // Count ONLY actual shift days from roster
+      for (let i = 2; i < row.length; i++) { // Start from column 2 (after name and email/designation)
         const val = (row[i] || "").toUpperCase().trim();
-        if (!OFF_STATUSES.includes(val) && val.length > 0) {
+        // Only count if it's a valid shift - NOT Week Off, Comp Off, EL, PL, WO, etc.
+        if (VALID_SHIFTS.includes(val)) {
           days++;
         }
       }
@@ -2471,9 +2492,21 @@ app.get("/api/gamification", async (req, res) => {
     data.L1.sort((a, b) => b.weightedAvg - a.weightedAvg);
     data.L2.sort((a, b) => b.weightedAvg - a.weightedAvg);
 
-    // Add ranks
-    data.L1.forEach((e, i) => { e.rank = i + 1; });
-    data.L2.forEach((e, i) => { e.rank = i + 1; });
+    // Add ranks and calculate percentile
+    // Formula: percentile = ((total_users - rank + 1) / total_users) * 100
+    // Example: 15 L1 users, rank 1 = (15-1+1)/15*100 = 100%, rank 3 = (15-3+1)/15*100 = 86.67%
+    const totalL1 = data.L1.length;
+    const totalL2 = data.L2.length;
+
+    data.L1.forEach((e, i) => {
+      e.rank = i + 1;
+      e.percentile = totalL1 > 0 ? Math.round(((totalL1 - e.rank + 1) / totalL1) * 100) : 0;
+    });
+
+    data.L2.forEach((e, i) => {
+      e.rank = i + 1;
+      e.percentile = totalL2 > 0 ? Math.round(((totalL2 - e.rank + 1) / totalL2) * 100) : 0;
+    });
 
     res.json({
       quarter,
@@ -2648,7 +2681,7 @@ setInterval(
 );
 
 // Also run on startup after 1 minute delay
-setTimeout(() => {
-  console.log("🚀 Initial sync on startup...");
-  syncHistoricalToDB(false);
-}, 60 * 1000);
+// setTimeout(() => {
+//   console.log("🚀 Initial sync on startup...");
+//   syncHistoricalToDB(false);
+// }, 60 * 1000);
