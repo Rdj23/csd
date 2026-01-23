@@ -2361,7 +2361,7 @@ app.get("/api/roster/backup", async (req, res) => {
 });
 
 // ============================================================================
-// GAMIFICATION - Performance Leaderboard
+// GAMIFICATION - Performance Leaderboard (Per-Metric Percentile Based)
 // ============================================================================
 app.get("/api/gamification", async (req, res) => {
   try {
@@ -2370,12 +2370,13 @@ app.get("/api/gamification", async (req, res) => {
 
     console.log(`🎮 Gamification: ${quarter} (${start.toDateString()} - ${end.toDateString()})`);
 
-    // Get stats from MongoDB grouped by owner
+    // Get stats from MongoDB grouped by owner - EXCLUDE NOC TICKETS
     const stats = await AnalyticsTicket.aggregate([
       {
         $match: {
           closed_date: { $gte: start, $lte: end },
-          owner: { $nin: [null, ""] }
+          owner: { $nin: [null, ""] },
+          is_noc: { $ne: true } // Exclude NOC tickets
         }
       },
       {
@@ -2383,10 +2384,8 @@ app.get("/api/gamification", async (req, res) => {
           _id: "$owner",
           solved: { $sum: 1 },
           avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
           avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
         },
       },
@@ -2416,13 +2415,10 @@ app.get("/api/gamification", async (req, res) => {
       if (!row) return 0;
 
       let days = 0;
-      // Only these are valid working shifts - everything else is NOT a working day
       const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4", "ON CALL"];
 
-      // Count ONLY actual shift days from roster
-      for (let i = 2; i < row.length; i++) { // Start from column 2 (after name and email/designation)
+      for (let i = 2; i < row.length; i++) {
         const val = (row[i] || "").toUpperCase().trim();
-        // Only count if it's a valid shift - NOT Week Off, Comp Off, EL, PL, WO, etc.
         if (VALID_SHIFTS.includes(val)) {
           days++;
         }
@@ -2430,7 +2426,7 @@ app.get("/api/gamification", async (req, res) => {
       return days;
     };
 
-    // Build response
+    // Build initial data
     const data = { L1: [], L2: [] };
 
     stats.forEach(s => {
@@ -2438,8 +2434,9 @@ app.get("/api/gamification", async (req, res) => {
       const designation = DESIGNATION_MAP[name] || "L1";
       const team = TEAM_MAP[name] || "Unknown";
       const daysWorked = getDaysWorked(name);
+      const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
+      const csatPercent = s.solved > 0 ? Math.round((s.positiveCSAT / s.solved) * 100) : 0;
       const frrPercent = s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0;
-      const productivity = daysWorked > 0 ? (s.solved / daysWorked).toFixed(2) : 0;
 
       const entry = {
         name,
@@ -2447,15 +2444,13 @@ app.get("/api/gamification", async (req, res) => {
         designation,
         daysWorked,
         solved: s.solved,
-        productivity: parseFloat(productivity),
-        avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(1)) : 0,
-        avgFRT: s.avgFRT ? parseFloat(s.avgFRT.toFixed(1)) : 0,
-        avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
+        // Raw metrics
+        productivity,
+        csatPercent,
         positiveCSAT: s.positiveCSAT,
-        negativeCSAT: s.negativeCSAT,
-        frrMet: s.frrMet,
+        avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(1)) : 0,
+        avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
         frrPercent,
-        csatPercent: s.solved > 0 ? Math.round((s.positiveCSAT / s.solved) * 100) : 0,
       };
 
       if (designation === "L2") {
@@ -2465,36 +2460,71 @@ app.get("/api/gamification", async (req, res) => {
       }
     });
 
-    // Calculate weighted average and rank
+    // Helper: Calculate rank and percentile for a metric
+    // lowerIsBetter = true for RWT and Iterations
+    const calculateMetricPercentiles = (arr, metricKey, lowerIsBetter = false) => {
+      const total = arr.length;
+      if (total === 0) return;
+
+      // Sort by metric value
+      const sorted = [...arr].sort((a, b) => {
+        if (lowerIsBetter) {
+          return a[metricKey] - b[metricKey]; // Lower is better = rank 1
+        }
+        return b[metricKey] - a[metricKey]; // Higher is better = rank 1
+      });
+
+      // Assign ranks
+      sorted.forEach((entry, idx) => {
+        const rank = idx + 1;
+        // Find original entry and add metric rank/percentile
+        const original = arr.find(e => e.name === entry.name);
+        if (original) {
+          original[`${metricKey}Rank`] = rank;
+          original[`${metricKey}Percentile`] = Math.round(((total - rank + 1) / total) * 100);
+        }
+      });
+    };
+
+    // Calculate per-metric percentiles for L1
+    calculateMetricPercentiles(data.L1, "productivity", false);      // Higher is better
+    calculateMetricPercentiles(data.L1, "csatPercent", false);       // Higher is better
+    calculateMetricPercentiles(data.L1, "positiveCSAT", false);      // Higher is better (#CSATs)
+    calculateMetricPercentiles(data.L1, "avgRWT", true);             // Lower is better
+    calculateMetricPercentiles(data.L1, "avgIterations", true);      // Lower is better
+    calculateMetricPercentiles(data.L1, "frrPercent", false);        // Higher is better
+
+    // Calculate per-metric percentiles for L2
+    calculateMetricPercentiles(data.L2, "productivity", false);
+    calculateMetricPercentiles(data.L2, "csatPercent", false);
+    calculateMetricPercentiles(data.L2, "positiveCSAT", false);
+    calculateMetricPercentiles(data.L2, "avgRWT", true);
+    calculateMetricPercentiles(data.L2, "avgIterations", true);
+    calculateMetricPercentiles(data.L2, "frrPercent", false);
+
+    // Calculate Weighted Average using PERCENTILES
+    // Weights: Productivity(30%), CSAT%(15%/20%), #CSATs(10%), RWT(15%), Iterations(15%), FRR%(15%)
     const calculateWeightedAvg = (e, isL2) => {
-      // Weights: Productivity(30%), CSAT(15-20%), #CSATs(10%), RWT(15%), Iterations(15%), FRR(15%)
       const csatWeight = isL2 ? 0.20 : 0.15;
-      
-      // Lower is better for RWT and iterations, so invert scoring
-      const rwtScore = e.avgRWT > 0 ? Math.max(0, 10 - e.avgRWT) : 5;
-      const iterScore = e.avgIterations > 0 ? Math.max(0, 5 - e.avgIterations) : 2.5;
-      
+
       return (
-        (e.productivity * 0.30) +
-        ((e.csatPercent / 100) * csatWeight * 10) +
-        (Math.min(e.positiveCSAT, 20) * 0.10 * 0.5) +
-        (rwtScore * 0.15) +
-        (iterScore * 0.15) +
-        ((e.frrPercent / 100) * 0.15 * 10)
+        (e.productivityPercentile || 0) * 0.30 +
+        (e.csatPercentPercentile || 0) * csatWeight +
+        (e.positiveCSATPercentile || 0) * 0.10 +
+        (e.avgRWTPercentile || 0) * 0.15 +
+        (e.avgIterationsPercentile || 0) * 0.15 +
+        (e.frrPercentPercentile || 0) * 0.15
       );
     };
 
-    // Calculate weighted avg and sort
-    data.L1.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, false).toFixed(2)); });
-    data.L2.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, true).toFixed(2)); });
+    // Calculate weighted avg
+    data.L1.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, false).toFixed(1)); });
+    data.L2.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, true).toFixed(1)); });
 
-    // Sort by weighted avg (higher is better)
+    // Sort by weighted avg (higher is better) and assign final Stack Rank + Percentile
     data.L1.sort((a, b) => b.weightedAvg - a.weightedAvg);
     data.L2.sort((a, b) => b.weightedAvg - a.weightedAvg);
 
-    // Add ranks and calculate percentile
-    // Formula: percentile = ((total_users - rank + 1) / total_users) * 100
-    // Example: 15 L1 users, rank 1 = (15-1+1)/15*100 = 100%, rank 3 = (15-3+1)/15*100 = 86.67%
     const totalL1 = data.L1.length;
     const totalL2 = data.L2.length;
 

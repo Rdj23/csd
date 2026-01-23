@@ -150,6 +150,21 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
 
   const topThree = sortedData().slice(0, 3);
 
+  // Helper to get color class based on percentile
+  const getPercentileColor = (percentile) => {
+    if (percentile >= 80) return "text-emerald-600";
+    if (percentile >= 60) return "text-blue-600";
+    if (percentile >= 40) return "text-amber-600";
+    return "text-red-600";
+  };
+
+  const getPercentileBgColor = (percentile) => {
+    if (percentile >= 80) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400";
+    if (percentile >= 60) return "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400";
+    if (percentile >= 40) return "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400";
+    return "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400";
+  };
+
   // Individual User Stats Card Component
   const UserStatsCard = ({ userData, showRank = true }) => {
     if (!userData) return (
@@ -171,47 +186,67 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
             </div>
           </div>
           {showRank && (
-            <div className="flex items-center gap-2">
-              {getRankBadge(userData.rank)}
-              <span className="text-2xl font-bold text-slate-900 dark:text-white">#{userData.rank}</span>
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex items-center gap-2">
+                {getRankBadge(userData.rank)}
+                <span className="text-2xl font-bold text-slate-900 dark:text-white">#{userData.rank}</span>
+              </div>
+              <span className={`text-lg font-bold ${getPercentileColor(userData.percentile)}`}>
+                {userData.percentile}%
+              </span>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Days Worked</p>
-            <p className="text-xl font-bold text-slate-800 dark:text-white">{userData.daysWorked}</p>
-          </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Tickets Solved</p>
-            <p className="text-xl font-bold text-emerald-600">{userData.solved}</p>
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
           <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
             <p className="text-xs text-slate-500 mb-1">Productivity</p>
-            <p className="text-xl font-bold text-amber-600">{userData.productivity}/day</p>
+            <p className={`text-xl font-bold ${getPercentileColor(userData.productivityPercentile)}`}>
+              {userData.productivityPercentile ?? 0}%
+            </p>
+            <p className="text-xs text-slate-400 mt-1">{userData.productivity}/day</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Avg RWT</p>
-            <p className="text-xl font-bold text-purple-600">{userData.avgRWT}h</p>
+            <p className="text-xs text-slate-500 mb-1">CSAT %</p>
+            <p className={`text-xl font-bold ${getPercentileColor(userData.csatPercentPercentile)}`}>
+              {userData.csatPercentPercentile ?? 0}%
+            </p>
+            <p className="text-xs text-slate-400 mt-1">{userData.csatPercent}% rated</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Avg Iterations</p>
-            <p className="text-xl font-bold text-blue-600">{userData.avgIterations}</p>
+            <p className="text-xs text-slate-500 mb-1"># CSATs</p>
+            <p className={`text-xl font-bold ${getPercentileColor(userData.positiveCSATPercentile)}`}>
+              {userData.positiveCSATPercentile ?? 0}%
+            </p>
+            <p className="text-xs text-slate-400 mt-1">{userData.positiveCSAT} positive</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">RWT</p>
+            <p className={`text-xl font-bold ${getPercentileColor(userData.avgRWTPercentile)}`}>
+              {userData.avgRWTPercentile ?? 0}%
+            </p>
+            <p className="text-xs text-slate-400 mt-1">{userData.avgRWT}h avg</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">Iterations</p>
+            <p className={`text-xl font-bold ${getPercentileColor(userData.avgIterationsPercentile)}`}>
+              {userData.avgIterationsPercentile ?? 0}%
+            </p>
+            <p className="text-xs text-slate-400 mt-1">{userData.avgIterations} avg</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
             <p className="text-xs text-slate-500 mb-1">FRR %</p>
-            <p className={`text-xl font-bold ${userData.frrPercent >= 50 ? "text-emerald-600" : userData.frrPercent >= 35 ? "text-amber-600" : "text-red-600"}`}>
-              {userData.frrPercent}%
+            <p className={`text-xl font-bold ${getPercentileColor(userData.frrPercentPercentile)}`}>
+              {userData.frrPercentPercentile ?? 0}%
             </p>
+            <p className="text-xs text-slate-400 mt-1">{userData.frrPercent}% FRR</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Positive CSAT</p>
-            <p className="text-xl font-bold text-yellow-600">{userData.positiveCSAT}</p>
-          </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Score</p>
-            <p className="text-xl font-bold text-indigo-600">{userData.weightedAvg}</p>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow border-2 border-indigo-300 dark:border-indigo-700">
+            <p className="text-xs text-slate-500 mb-1">Final Percentile</p>
+            <p className={`text-xl font-bold ${getPercentileColor(userData.percentile)}`}>
+              {userData.percentile ?? 0}%
+            </p>
+            <p className="text-xs text-slate-400 mt-1">weighted avg</p>
           </div>
         </div>
       </div>
@@ -325,15 +360,21 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                     <span className="text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">{topThree[1]?.team}</span>
                   </div>
                   <h3 className="text-lg font-bold text-slate-800 dark:text-white">{topThree[1]?.name}</h3>
-                  <p className="text-xs text-slate-500 mb-3">{topThree[1]?.designation}</p>
+                  <p className="text-xs text-slate-500 mb-2">{topThree[1]?.designation}</p>
+                  <div className="text-center mb-3">
+                    <span className={`text-2xl font-bold ${getPercentileColor(topThree[1]?.percentile)}`}>
+                      {topThree[1]?.percentile ?? 0}%
+                    </span>
+                    <p className="text-xs text-slate-400">Final Percentile</p>
+                  </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <CheckCircle className="w-3 h-3 text-emerald-500" />
-                      <span className="font-semibold">{topThree[1]?.solved}</span> solved
+                      <Zap className="w-3 h-3 text-amber-500" />
+                      <span className="font-semibold">{topThree[1]?.productivityPercentile ?? 0}%</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                       <Target className="w-3 h-3 text-blue-500" />
-                      <span className="font-semibold">{topThree[1]?.frrPercent}%</span> FRR
+                      <span className="font-semibold">{topThree[1]?.frrPercentPercentile ?? 0}%</span>
                     </div>
                   </div>
                 </div>
@@ -348,23 +389,29 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                     <span className="text-xs font-medium text-yellow-700 dark:text-yellow-400 bg-yellow-200 dark:bg-yellow-900/50 px-2 py-1 rounded-full">{topThree[0]?.team}</span>
                   </div>
                   <h3 className="text-xl font-bold text-slate-900 dark:text-white">{topThree[0]?.name}</h3>
-                  <p className="text-xs text-yellow-700 dark:text-yellow-400 mb-3 font-medium">{topThree[0]?.designation} • Champion</p>
+                  <p className="text-xs text-yellow-700 dark:text-yellow-400 mb-2 font-medium">{topThree[0]?.designation} • Champion</p>
+                  <div className="text-center mb-3">
+                    <span className="text-3xl font-bold text-emerald-600">
+                      {topThree[0]?.percentile ?? 0}%
+                    </span>
+                    <p className="text-xs text-yellow-700 dark:text-yellow-400">Final Percentile</p>
+                  </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
-                      <span className="font-bold">{topThree[0]?.solved}</span> solved
+                      <Zap className="w-3.5 h-3.5 text-amber-500" />
+                      <span className="font-bold">{topThree[0]?.productivityPercentile ?? 0}%</span> Prod
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                       <Target className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="font-bold">{topThree[0]?.frrPercent}%</span> FRR
+                      <span className="font-bold">{topThree[0]?.frrPercentPercentile ?? 0}%</span> FRR
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                       <Clock className="w-3.5 h-3.5 text-purple-500" />
-                      <span className="font-bold">{topThree[0]?.avgRWT}h</span> RWT
+                      <span className="font-bold">{topThree[0]?.avgRWTPercentile ?? 0}%</span> RWT
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                       <Star className="w-3.5 h-3.5 text-amber-500" />
-                      <span className="font-bold">{topThree[0]?.positiveCSAT}</span> CSAT
+                      <span className="font-bold">{topThree[0]?.positiveCSATPercentile ?? 0}%</span> CSAT
                     </div>
                   </div>
                 </div>
@@ -378,15 +425,21 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                     <span className="text-xs font-medium text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/50 px-2 py-1 rounded-full">{topThree[2]?.team}</span>
                   </div>
                   <h3 className="text-lg font-bold text-slate-800 dark:text-white">{topThree[2]?.name}</h3>
-                  <p className="text-xs text-slate-500 mb-3">{topThree[2]?.designation}</p>
+                  <p className="text-xs text-slate-500 mb-2">{topThree[2]?.designation}</p>
+                  <div className="text-center mb-3">
+                    <span className={`text-2xl font-bold ${getPercentileColor(topThree[2]?.percentile)}`}>
+                      {topThree[2]?.percentile ?? 0}%
+                    </span>
+                    <p className="text-xs text-slate-400">Final Percentile</p>
+                  </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <CheckCircle className="w-3 h-3 text-emerald-500" />
-                      <span className="font-semibold">{topThree[2]?.solved}</span> solved
+                      <Zap className="w-3 h-3 text-amber-500" />
+                      <span className="font-semibold">{topThree[2]?.productivityPercentile ?? 0}%</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                       <Target className="w-3 h-3 text-blue-500" />
-                      <span className="font-semibold">{topThree[2]?.frrPercent}%</span> FRR
+                      <span className="font-semibold">{topThree[2]?.frrPercentPercentile ?? 0}%</span>
                     </div>
                   </div>
                 </div>
@@ -403,15 +456,14 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                     {[
                       { key: "rank", label: "#", width: "w-16" },
                       { key: "name", label: "Engineer", width: "w-40" },
-                      { key: "team", label: "Team", width: "w-28" },
-                      { key: "daysWorked", label: "Days", width: "w-20" },
-                      { key: "solved", label: "Solved", width: "w-24" },
-                      { key: "productivity", label: "Productivity", width: "w-28" },
-                      { key: "avgRWT", label: "RWT (hrs)", width: "w-24" },
-                      { key: "avgIterations", label: "Iterations", width: "w-24" },
-                      { key: "frrPercent", label: "FRR %", width: "w-24" },
-                      { key: "positiveCSAT", label: "CSAT", width: "w-20" },
-                      { key: "weightedAvg", label: "Score", width: "w-24" },
+                      { key: "team", label: "Team", width: "w-24" },
+                      { key: "productivityPercentile", label: "Productivity", width: "w-28" },
+                      { key: "csatPercentPercentile", label: "CSAT %", width: "w-24" },
+                      { key: "positiveCSATPercentile", label: "# CSATs", width: "w-24" },
+                      { key: "avgRWTPercentile", label: "RWT", width: "w-24" },
+                      { key: "avgIterationsPercentile", label: "Iterations", width: "w-24" },
+                      { key: "frrPercentPercentile", label: "FRR %", width: "w-24" },
+                      { key: "percentile", label: "Final %", width: "w-24" },
                     ].map((col) => (
                       <th
                         key={col.key}
@@ -447,34 +499,52 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{eng.team}</td>
-                      <td className="px-4 py-3 font-mono text-sm">{eng.daysWorked}</td>
                       <td className="px-4 py-3">
-                        <span className="font-bold text-slate-900 dark:text-white">{eng.solved}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <Zap className="w-3 h-3 text-amber-500" />
-                          <span className="font-semibold text-slate-700 dark:text-slate-300">{eng.productivity}</span>
-                          <span className="text-xs text-slate-400">/day</span>
+                        <div className="flex flex-col">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.productivityPercentile)}`}>
+                            {eng.productivityPercentile ?? 0}%
+                          </span>
+                          <span className="text-xs text-slate-400 mt-0.5">{eng.productivity}/day</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono text-sm">{eng.avgRWT}h</td>
-                      <td className="px-4 py-3 font-mono text-sm">{eng.avgIterations}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          eng.frrPercent >= 50
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400"
-                            : eng.frrPercent >= 35
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400"
-                              : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400"
-                        }`}>
-                          {eng.frrPercent}%
-                        </span>
+                        <div className="flex flex-col">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.csatPercentPercentile)}`}>
+                            {eng.csatPercentPercentile ?? 0}%
+                          </span>
+                          <span className="text-xs text-slate-400 mt-0.5">{eng.csatPercent}%</span>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <Star className="w-3 h-3 text-amber-400" />
-                          <span className="font-semibold">{eng.positiveCSAT}</span>
+                        <div className="flex flex-col">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.positiveCSATPercentile)}`}>
+                            {eng.positiveCSATPercentile ?? 0}%
+                          </span>
+                          <span className="text-xs text-slate-400 mt-0.5">{eng.positiveCSAT} CSATs</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.avgRWTPercentile)}`}>
+                            {eng.avgRWTPercentile ?? 0}%
+                          </span>
+                          <span className="text-xs text-slate-400 mt-0.5">{eng.avgRWT}h</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.avgIterationsPercentile)}`}>
+                            {eng.avgIterationsPercentile ?? 0}%
+                          </span>
+                          <span className="text-xs text-slate-400 mt-0.5">{eng.avgIterations} iter</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.frrPercentPercentile)}`}>
+                            {eng.frrPercentPercentile ?? 0}%
+                          </span>
+                          <span className="text-xs text-slate-400 mt-0.5">{eng.frrPercent}% FRR</span>
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -485,7 +555,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                               ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
                               : "text-slate-500"
                         }`}>
-                          {eng.weightedAvg}
+                          {eng.percentile ?? 0}%
                         </span>
                       </td>
                     </tr>
@@ -499,18 +569,24 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
           <div className="flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400 justify-center">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-emerald-500" />
-              <span>FRR ≥50%</span>
+              <span>≥80%</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-blue-500" />
+              <span>60-79%</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-amber-500" />
-              <span>FRR 35-49%</span>
+              <span>40-59%</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-red-500" />
-              <span>FRR &lt;35%</span>
+              <span>&lt;40%</span>
             </div>
             <span className="text-slate-300 dark:text-slate-600">|</span>
-            <span>Productivity = Solved / Days Worked</span>
+            <span>Percentile = ((Total Users - Rank + 1) / Total Users) × 100</span>
+            <span className="text-slate-300 dark:text-slate-600">|</span>
+            <span>Weights: Productivity(30%), CSAT%(15-20%), #CSATs(10%), RWT(15%), Iter(15%), FRR(15%)</span>
           </div>
         </>
       )}
