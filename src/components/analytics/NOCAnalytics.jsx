@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
+
 import {
   Search,
   Download,
@@ -14,7 +15,10 @@ import {
   Users,
   PieChart as PieChartIcon,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   X,
+  UserCircle,
 } from "lucide-react";
 import {
   PieChart,
@@ -37,6 +41,8 @@ const CHART_COLORS = [
   "#84cc16", // lime
 ];
 
+const ITEMS_PER_PAGE = 15;
+
 const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const [nocData, setNocData] = useState({
     tickets: [],
@@ -47,9 +53,11 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRca, setSelectedRca] = useState("all");
   const [selectedReporter, setSelectedReporter] = useState("all");
+  const [selectedOwner, setSelectedOwner] = useState("all");
   const [showRcaDropdown, setShowRcaDropdown] = useState(false);
   const [showReporterDropdown, setShowReporterDropdown] = useState(false);
   const [activePieChart, setActivePieChart] = useState("reporter"); // 'reporter', 'rca', 'owner'
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Fetch NOC data - no date filter, show all NOC tickets
   useEffect(() => {
@@ -73,20 +81,44 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     fetchNocData();
   }, [selectedRca, selectedReporter]);
 
-  // Filter tickets based on search term
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedRca, selectedReporter, selectedOwner]);
+
+  // Filter tickets based on search term and owner (for pie chart click)
   const filteredTickets = useMemo(() => {
-    if (!searchTerm) return nocData.tickets;
-    const term = searchTerm.toLowerCase();
-    return nocData.tickets.filter(
-      (t) =>
-        t.display_id?.toLowerCase().includes(term) ||
-        t.owner?.toLowerCase().includes(term) ||
-        t.noc_issue_id?.toLowerCase().includes(term) ||
-        t.noc_assignee?.toLowerCase().includes(term) ||
-        t.noc_rca?.toLowerCase().includes(term) ||
-        t.title?.toLowerCase().includes(term)
-    );
-  }, [nocData.tickets, searchTerm]);
+    let tickets = nocData.tickets || [];
+
+    // Filter by owner (from pie chart click)
+    if (selectedOwner !== "all") {
+      tickets = tickets.filter(t => t.owner === selectedOwner);
+    }
+
+    // Filter by search term
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      tickets = tickets.filter(
+        (t) =>
+          t.display_id?.toLowerCase().includes(term) ||
+          t.owner?.toLowerCase().includes(term) ||
+          t.noc_issue_id?.toLowerCase().includes(term) ||
+          t.noc_assignee?.toLowerCase().includes(term) ||
+          t.noc_rca?.toLowerCase().includes(term) ||
+          t.noc_reported_by?.toLowerCase().includes(term) ||
+          t.title?.toLowerCase().includes(term)
+      );
+    }
+
+    return tickets;
+  }, [nocData.tickets, searchTerm, selectedOwner]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredTickets.length / ITEMS_PER_PAGE);
+  const paginatedTickets = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredTickets.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredTickets, currentPage]);
 
   // Download CSV
   const downloadCSV = () => {
@@ -94,6 +126,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       "Ticket ID",
       "Title",
       "Owner",
+      "Reported By",
       "ISS ID",
       "NOC Assignee",
       "RCA",
@@ -104,6 +137,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       t.display_id || "",
       `"${(t.title || "").replace(/"/g, '""')}"`,
       t.owner || "",
+      t.noc_reported_by || "",
       t.noc_issue_id || "",
       t.noc_assignee || "",
       t.noc_rca || "",
@@ -137,6 +171,38 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
 
   const pieChartData = getPieChartData();
 
+  // Handle pie chart slice click
+  const handlePieClick = (data) => {
+    if (!data || !data.name) return;
+
+    switch (activePieChart) {
+      case "reporter":
+        setSelectedReporter(data.name);
+        break;
+      case "rca":
+        setSelectedRca(data.name);
+        break;
+      case "owner":
+        setSelectedOwner(data.name);
+        break;
+    }
+  };
+
+  // Handle legend item click
+  const handleLegendClick = (name) => {
+    switch (activePieChart) {
+      case "reporter":
+        setSelectedReporter(name);
+        break;
+      case "rca":
+        setSelectedRca(name);
+        break;
+      case "owner":
+        setSelectedOwner(name);
+        break;
+    }
+  };
+
   // Custom tooltip for pie chart
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
@@ -153,11 +219,15 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               {((data.value / nocData.stats.total) * 100).toFixed(1)}%
             </span>
           </p>
+          <p className="text-[10px] text-slate-400 mt-1">Click to filter</p>
         </div>
       );
     }
     return null;
   };
+
+  // Check if any filter is active
+  const hasActiveFilters = selectedRca !== "all" || selectedReporter !== "all" || selectedOwner !== "all" || searchTerm;
 
   if (parentLoading || isLoading) {
     return (
@@ -179,6 +249,11 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
             <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
               {nocData.stats.total} total
             </span>
+            {filteredTickets.length !== nocData.stats.total && (
+              <span className="text-sm font-normal text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-full">
+                {filteredTickets.length} filtered
+              </span>
+            )}
           </h3>
 
           {/* Actions */}
@@ -314,17 +389,32 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
             )}
           </div>
 
+          {/* Owner Filter (shown when filtered from pie chart) */}
+          {selectedOwner !== "all" && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg">
+              <UserCircle className="w-3.5 h-3.5" />
+              Owner: {selectedOwner.split(" ")[0]}
+              <button
+                onClick={() => setSelectedOwner("all")}
+                className="ml-1 hover:bg-emerald-700 rounded p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
           {/* Clear Filters */}
-          {(selectedRca !== "all" || selectedReporter !== "all" || searchTerm) && (
+          {hasActiveFilters && (
             <button
               onClick={() => {
                 setSelectedRca("all");
                 setSelectedReporter("all");
+                setSelectedOwner("all");
                 setSearchTerm("");
               }}
               className="text-xs text-rose-500 hover:text-rose-600 font-medium"
             >
-              Clear filters
+              Clear all filters
             </button>
           )}
         </div>
@@ -353,6 +443,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                       Owner
                     </th>
                     <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
+                      Reported By
+                    </th>
+                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
                       ISS ID
                     </th>
                     <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
@@ -367,7 +460,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredTickets.slice(0, 50).map((ticket) => (
+                  {paginatedTickets.map((ticket) => (
                     <tr
                       key={ticket.display_id}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
@@ -386,6 +479,18 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                         {ticket.owner || "-"}
                       </td>
+                      <td className="px-4 py-3">
+                        {ticket.noc_reported_by ? (
+                          <button
+                            onClick={() => setSelectedReporter(ticket.noc_reported_by)}
+                            className="text-violet-600 hover:text-violet-800 hover:underline text-sm"
+                          >
+                            {ticket.noc_reported_by}
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400">
                         {ticket.noc_issue_id || "-"}
                       </td>
@@ -394,8 +499,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                       </td>
                       <td className="px-4 py-3">
                         {ticket.noc_rca ? (
-                          <span
-                            className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          <button
+                            onClick={() => setSelectedRca(ticket.noc_rca)}
+                            className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer hover:opacity-80 ${
                               ticket.noc_rca.toLowerCase().includes("understanding")
                                 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                                 : ticket.noc_rca.toLowerCase().includes("non")
@@ -404,7 +510,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                             }`}
                           >
                             {ticket.noc_rca}
-                          </span>
+                          </button>
                         ) : (
                           "-"
                         )}
@@ -428,12 +534,61 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                   ))}
                 </tbody>
               </table>
-              {filteredTickets.length > 50 && (
-                <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/50 text-center text-xs text-slate-500">
-                  Showing 50 of {filteredTickets.length} tickets. Export CSV for full list.
-                </div>
-              )}
             </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-2">
+                <p className="text-xs text-slate-500">
+                  Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{" "}
+                  {Math.min(currentPage * ITEMS_PER_PAGE, filteredTickets.length)} of{" "}
+                  {filteredTickets.length} tickets
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-8 h-8 rounded-lg text-xs font-bold transition-colors ${
+                            currentPage === pageNum
+                              ? "bg-indigo-600 text-white"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Pie Charts Section */}
             <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
@@ -441,6 +596,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                 <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
                   <PieChartIcon className="w-4 h-4 text-indigo-500" />
                   Distribution Analysis
+                  <span className="text-[10px] font-normal text-slate-400 ml-2">
+                    (Click on chart or list to filter)
+                  </span>
                 </h4>
                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                   {[
@@ -474,14 +632,16 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                           cx="50%"
                           cy="50%"
                           labelLine={false}
-                          label={({ name, percent }) =>
+                          label={({ percent }) =>
                             percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ""
                           }
                           outerRadius={100}
                           fill="#8884d8"
                           dataKey="value"
+                          onClick={handlePieClick}
+                          style={{ cursor: "pointer" }}
                         >
-                          {pieChartData.map((entry, index) => (
+                          {pieChartData.map((_, index) => (
                             <Cell
                               key={`cell-${index}`}
                               fill={CHART_COLORS[index % CHART_COLORS.length]}
@@ -509,9 +669,10 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                   </h5>
                   <div className="space-y-2">
                     {pieChartData.slice(0, 15).map((item, index) => (
-                      <div
+                      <button
                         key={item.name}
-                        className="flex items-center justify-between p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                        onClick={() => handleLegendClick(item.name)}
+                        className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
                       >
                         <div className="flex items-center gap-2">
                           <div
@@ -521,7 +682,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                                 CHART_COLORS[index % CHART_COLORS.length],
                             }}
                           />
-                          <span className="text-sm text-slate-700 dark:text-slate-300 truncate max-w-[180px]">
+                          <span className="text-sm text-slate-700 dark:text-slate-300 truncate max-w-[180px] text-left">
                             {item.name}
                           </span>
                         </div>
@@ -533,7 +694,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                             ({((item.value / nocData.stats.total) * 100).toFixed(1)}%)
                           </span>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
