@@ -198,55 +198,63 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Productivity</p>
+        <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">Days Worked</p>
+            <p className="text-xl font-bold text-slate-800 dark:text-white">{userData.daysWorked}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">Solved</p>
+            <p className="text-xl font-bold text-emerald-600">{userData.solved}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">Productivity (30%)</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.productivityPercentile)}`}>
               {userData.productivityPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.productivity}/day</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">CSAT %</p>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">CSAT % (15%)</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.csatPercentPercentile)}`}>
               {userData.csatPercentPercentile ?? 0}%
             </p>
-            <p className="text-xs text-slate-400 mt-1">{userData.csatPercent}% rated</p>
+            <p className="text-xs text-slate-400 mt-1">{userData.csatPercent}%</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1"># CSATs</p>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1"># CSATs (10%)</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.positiveCSATPercentile)}`}>
               {userData.positiveCSATPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.positiveCSAT} positive</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">RWT</p>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">RWT (15%)</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.avgRWTPercentile)}`}>
               {userData.avgRWTPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.avgRWT}h avg</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Iterations</p>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">Iterations (15%)</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.avgIterationsPercentile)}`}>
               {userData.avgIterationsPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.avgIterations} avg</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">FRR %</p>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
+            <p className="text-xs text-slate-500 mb-1">FRR (15%)</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.frrPercentPercentile)}`}>
               {userData.frrPercentPercentile ?? 0}%
             </p>
-            <p className="text-xs text-slate-400 mt-1">{userData.frrPercent}% FRR</p>
+            <p className="text-xs text-slate-400 mt-1">{userData.frrPercent}%</p>
           </div>
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 text-center shadow border-2 border-indigo-300 dark:border-indigo-700">
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow border-2 border-indigo-300 dark:border-indigo-700">
             <p className="text-xs text-slate-500 mb-1">Final Percentile</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.percentile)}`}>
               {userData.percentile ?? 0}%
             </p>
-            <p className="text-xs text-slate-400 mt-1">weighted avg</p>
+            <p className="text-xs text-slate-400 mt-1">weighted</p>
           </div>
         </div>
       </div>
@@ -454,15 +462,16 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
                     {[
-                      { key: "rank", label: "#", width: "w-16" },
-                      { key: "name", label: "Engineer", width: "w-40" },
-                      { key: "team", label: "Team", width: "w-24" },
-                      { key: "productivityPercentile", label: "Productivity", width: "w-28" },
-                      { key: "csatPercentPercentile", label: "CSAT %", width: "w-24" },
-                      { key: "positiveCSATPercentile", label: "# CSATs", width: "w-24" },
-                      { key: "avgRWTPercentile", label: "RWT", width: "w-24" },
-                      { key: "avgIterationsPercentile", label: "Iterations", width: "w-24" },
-                      { key: "frrPercentPercentile", label: "FRR %", width: "w-24" },
+                      { key: "rank", label: "#", width: "w-14" },
+                      { key: "name", label: "Engineer", width: "w-36" },
+                      { key: "daysWorked", label: "Days", width: "w-16" },
+                      { key: "solved", label: "Solved", width: "w-18" },
+                      { key: "productivityPercentile", label: "Productivity (30%)", width: "w-32" },
+                      { key: "csatPercentPercentile", label: "CSAT % (15%)", width: "w-28" },
+                      { key: "positiveCSATPercentile", label: "# CSATs (10%)", width: "w-28" },
+                      { key: "avgRWTPercentile", label: "RWT (15%)", width: "w-24" },
+                      { key: "avgIterationsPercentile", label: "Iter (15%)", width: "w-24" },
+                      { key: "frrPercentPercentile", label: "FRR (15%)", width: "w-24" },
                       { key: "percentile", label: "Final %", width: "w-24" },
                     ].map((col) => (
                       <th
@@ -494,11 +503,12 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                           </div>
                           <div>
                             <p className="font-semibold text-slate-900 dark:text-white text-sm">{eng.name}</p>
-                            <p className="text-xs text-slate-400">{eng.designation}</p>
+                            <p className="text-xs text-slate-400">{eng.designation} • {eng.team}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{eng.team}</td>
+                      <td className="px-4 py-3 text-center font-mono text-sm text-slate-600 dark:text-slate-400">{eng.daysWorked}</td>
+                      <td className="px-4 py-3 text-center font-bold text-slate-900 dark:text-white">{eng.solved}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.productivityPercentile)}`}>
@@ -584,9 +594,9 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
               <span>&lt;40%</span>
             </div>
             <span className="text-slate-300 dark:text-slate-600">|</span>
-            <span>Percentile = ((Total Users - Rank + 1) / Total Users) × 100</span>
+            <span>Percentile = ((Total - Rank + 1) / Total) × 100</span>
             <span className="text-slate-300 dark:text-slate-600">|</span>
-            <span>Weights: Productivity(30%), CSAT%(15-20%), #CSATs(10%), RWT(15%), Iter(15%), FRR(15%)</span>
+            <span>L2 CSAT% weight: 20%</span>
           </div>
         </>
       )}
