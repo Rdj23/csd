@@ -2116,21 +2116,15 @@ const AnalyticsDashboard = ({
         let summary = `${ticketsForDate.length} tickets`;
 
         if (metricKey === "frrPercent" || metricKey === "frr") {
-          if (metricKey === "frrPercent" || metricKey === "frr") {
-            const frrMetCount = ticketsForDate.filter(
-              (t) => t.frr === 1,
-            ).length;
-            // FRR valid = tickets where frr is not null (0 or 1)
-            const frrValidCount = ticketsForDate.filter(
-              (t) => t.frr === 0 || t.frr === 1,
-            ).length;
-            const totalCount = ticketsForDate.length;
-            const pct =
-              totalSolved > 0
-                ? Math.round((frrMetCount / totalCount) * 100)
-                : 0;
-            summary = `FRR Met: ${frrMetCount} of ${totalCount} (${pct}%) | Total: ${ticketsForDate.length} tickets`;
-          }
+          const frrMetCount = ticketsForDate.filter(
+            (t) => t.frr === 1,
+          ).length;
+          const totalCount = ticketsForDate.length;
+          const pct =
+            totalCount > 0
+              ? Math.round((frrMetCount / totalCount) * 100)
+              : 0;
+          summary = `FRR Met: ${frrMetCount} of ${totalCount} (${pct}%) | Total: ${ticketsForDate.length} tickets`;
         } else if (metricKey === "csat" || metricKey === "positiveCSAT") {
           const good = ticketsForDate.filter((t) => t.csat === 2).length;
           const bad = ticketsForDate.filter((t) => t.csat === 1).length;
@@ -2944,7 +2938,7 @@ const AnalyticsDashboard = ({
             .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
             .map(([week, data]) => ({
               name: `Week ${week.split("W")[1]}`,
-              date: data.date,
+              date: week, // Use week key format (yyyy-Www) for drill-down
               value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
                 ? data.values.reduce((a, b) => a + b, 0) / data.values.length
                 : data.values.reduce((a, b) => a + b, 0),
@@ -2956,14 +2950,14 @@ const AnalyticsDashboard = ({
         filteredData.forEach((t) => {
           const monthKey = format(parseISO(t.date), "yyyy-MM");
           if (!months[monthKey])
-            months[monthKey] = { values: [], date: t.date };
+            months[monthKey] = { values: [], date: t.date, monthKey };
           months[monthKey].values.push(t[dataKey] || 0);
         });
         return Object.entries(months)
           .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-          .map(([month, data]) => ({
+          .map(([monthKey, data]) => ({
             name: format(parseISO(data.date), "MMM yyyy"),
-            date: data.date,
+            date: monthKey, // Use month key format (yyyy-MM) for drill-down
             value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
               ? data.values.reduce((a, b) => a + b, 0) / data.values.length
               : data.values.reduce((a, b) => a + b, 0),
@@ -3102,7 +3096,7 @@ const AnalyticsDashboard = ({
             return {
               name: `Week ${week.split("W")[1]}`,
               range: rangeLabel,
-              date: data.date,
+              date: week, // Use week key format (yyyy-Www) for drill-down
               value,
             };
           });
@@ -3121,12 +3115,11 @@ const AnalyticsDashboard = ({
 
         return Object.entries(months)
           .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-          .map(([month, data]) => {
-            // ✅ FIX: "sum is not defined" error fixed by adding braces
+          .map(([monthKey, data]) => {
             const sum = data.values.reduce((a, b) => a + b, 0);
             return {
               name: format(parseISO(data.date), "MMM yyyy"),
-              date: data.date,
+              date: monthKey, // Use month key format (yyyy-MM) for drill-down
               value: isSumMetric ? sum : sum / (data.values.length || 1), // Average for RWT/FRT
             };
           });

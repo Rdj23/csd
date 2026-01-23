@@ -1090,9 +1090,10 @@ app.get("/api/tickets/by-date", async (req, res) => {
       return res.json(cached);
     }
 
-    // Parse date logic (Weekly vs Daily)
+    // Parse date logic (Weekly vs Monthly vs Daily)
     let startOfDay, endOfDay;
     if (date.includes("W")) {
+      // Weekly format: 2026-W03
       const [year, weekPart] = date.split("-W");
       const weekNum = parseInt(weekPart);
       const simple = new Date(parseInt(year), 0, 1 + (weekNum - 1) * 7);
@@ -1106,7 +1107,14 @@ app.get("/api/tickets/by-date", async (req, res) => {
       endOfDay = new Date(startOfDay);
       endOfDay.setDate(startOfDay.getDate() + 6);
       endOfDay.setHours(23, 59, 59, 999);
+    } else if (date.length === 7 && date.match(/^\d{4}-\d{2}$/)) {
+      // Monthly format: 2026-01
+      const [year, month] = date.split("-").map(Number);
+      startOfDay = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+      // Last day of month
+      endOfDay = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
     } else {
+      // Daily format: 2026-01-15
       startOfDay = new Date(date + "T00:00:00.000Z");
       endOfDay = new Date(date + "T23:59:59.999Z");
     }
@@ -1127,18 +1135,14 @@ app.get("/api/tickets/by-date", async (req, res) => {
       };
     }
 
-    // ✅ METRIC SPECIFIC FILTERS (Exclude 0/Null values)
-   // ✅ METRIC SPECIFIC FILTERS
-    // For CSAT: Show only positive CSAT tickets
-    if (metric === "csat" || metric === "positiveCSAT") {
-      matchConditions.csat = 2;
-    }
-    // For FRR: Return ALL tickets (NOT filtered by frr=1)
-    // The response will include frr field so frontend can show "X of Y met"
-    // else if (metric === "frrPercent" || metric === "frr") { }  // ← REMOVED!
+    // ✅ METRIC SPECIFIC FILTERS
+    // For CSAT: Return ALL tickets so frontend can show "Good: X | Bad: Y | Total: Z"
+    // (Don't filter by csat=2, let frontend calculate the breakdown)
+    // For FRR: Return ALL tickets so frontend can show "X of Y met FRR"
+    // (Don't filter by frr=1, let frontend calculate the breakdown)
     
     // For Backlog: Tickets older than 15 days
-    else if (metric === "backlog") {
+    if (metric === "backlog") {
       matchConditions.$expr = {
         $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 86400000],
       };
