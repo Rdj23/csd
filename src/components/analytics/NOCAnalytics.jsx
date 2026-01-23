@@ -357,6 +357,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               onClick={() => {
                 setShowReporterDropdown(!showReporterDropdown);
                 setShowRcaDropdown(false);
+                setShowOwnerDropdown(false);
               }}
               className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
                 selectedReporter !== "all"
@@ -399,19 +400,54 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
             )}
           </div>
 
-          {/* Owner Filter (shown when filtered from pie chart) */}
-          {selectedOwner !== "all" && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg">
+          {/* Owner Filter Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowOwnerDropdown(!showOwnerDropdown);
+                setShowRcaDropdown(false);
+                setShowReporterDropdown(false);
+              }}
+              className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
+                selectedOwner !== "all"
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500"
+              }`}
+            >
               <UserCircle className="w-3.5 h-3.5" />
-              Owner: {selectedOwner.split(" ")[0]}
-              <button
-                onClick={() => setSelectedOwner("all")}
-                className="ml-1 hover:bg-emerald-700 rounded p-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          )}
+              Owner: {selectedOwner === "all" ? "All" : selectedOwner.split(" ")[0]}
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+            {showOwnerDropdown && (
+              <div className="absolute top-full left-0 mt-1 w-48 max-h-60 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
+                <button
+                  onClick={() => {
+                    setSelectedOwner("all");
+                    setShowOwnerDropdown(false);
+                  }}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
+                    selectedOwner === "all" ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : ""
+                  }`}
+                >
+                  All Owners
+                </button>
+                {ownerOptions.map((owner) => (
+                  <button
+                    key={owner}
+                    onClick={() => {
+                      setSelectedOwner(owner);
+                      setShowOwnerDropdown(false);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
+                      selectedOwner === owner ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : ""
+                    }`}
+                  >
+                    {owner}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Clear Filters */}
           {hasActiveFilters && (
