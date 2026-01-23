@@ -2,7 +2,7 @@
 // NOC ANALYTICS COMPONENT
 // Shows tickets reported to NOC with filtering and pie charts
 // ============================================================================
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Search,
   Download,
@@ -20,7 +20,6 @@ import {
   Cell,
   ResponsiveContainer,
   Tooltip,
-  Legend,
 } from "recharts";
 
 const CHART_COLORS = [
@@ -36,7 +35,7 @@ const CHART_COLORS = [
   "#84cc16", // lime
 ];
 
-const NOCAnalytics = ({ dateRange, isLoading: parentLoading }) => {
+const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const [nocData, setNocData] = useState({
     tickets: [],
     filters: { rcaOptions: [], reporterOptions: [] },
@@ -50,14 +49,12 @@ const NOCAnalytics = ({ dateRange, isLoading: parentLoading }) => {
   const [showReporterDropdown, setShowReporterDropdown] = useState(false);
   const [activePieChart, setActivePieChart] = useState("reporter"); // 'reporter', 'rca', 'owner'
 
-  // Fetch NOC data
+  // Fetch NOC data - no date filter, show all NOC tickets
   useEffect(() => {
     const fetchNocData = async () => {
       setIsLoading(true);
       try {
         const params = new URLSearchParams();
-        if (dateRange?.startDate) params.append("startDate", dateRange.startDate);
-        if (dateRange?.endDate) params.append("endDate", dateRange.endDate);
         if (selectedRca !== "all") params.append("rca", selectedRca);
         if (selectedReporter !== "all") params.append("reporter", selectedReporter);
 
@@ -72,7 +69,7 @@ const NOCAnalytics = ({ dateRange, isLoading: parentLoading }) => {
     };
 
     fetchNocData();
-  }, [dateRange, selectedRca, selectedReporter]);
+  }, [selectedRca, selectedReporter]);
 
   // Filter tickets based on search term
   const filteredTickets = useMemo(() => {

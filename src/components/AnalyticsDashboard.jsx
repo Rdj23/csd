@@ -3838,11 +3838,8 @@ const AnalyticsDashboard = ({
         ))}
       </div>
 
-      {/* NOC Analytics Section */}
-      <NOCAnalytics
-        dateRange={effectiveDateRange}
-        isLoading={analyticsLoading}
-      />
+      {/* NOC Analytics Section - Shows all NOC tickets raised by GST */}
+      <NOCAnalytics isLoading={analyticsLoading} />
 
       {/* CSAT + DSAT */}
       {/* Change: 'lg:grid-cols-2' -> 'grid-cols-1' to make them full width & stacked */}
