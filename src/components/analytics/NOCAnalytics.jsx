@@ -3,6 +3,8 @@
 // Shows tickets reported to NOC with filtering and pie charts
 // ============================================================================
 import { useState, useEffect, useMemo } from "react";
+
+const API_URL = import.meta.env.VITE_API_URL || "";
 import {
   Search,
   Download,
@@ -58,7 +60,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         if (selectedRca !== "all") params.append("rca", selectedRca);
         if (selectedReporter !== "all") params.append("reporter", selectedReporter);
 
-        const response = await fetch(`/api/tickets/noc?${params}`);
+        const response = await fetch(`${API_URL}/api/tickets/noc?${params}`);
         const data = await response.json();
         setNocData(data);
       } catch (error) {
