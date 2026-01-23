@@ -73,7 +73,8 @@ import {
 } from "./utils";
 
 const SUPER_ADMIN_EMAILS = [
-  "rohan.jadhav@clevertap.com"
+  "rohan.jadhav@clevertap.com",
+  "anmol.sawhney@clevertap.com"
   // Add other admin emails here
 ];
 const EMPTY_FILTERS = {
