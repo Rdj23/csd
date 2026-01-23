@@ -2386,6 +2386,7 @@ app.get("/api/gamification", async (req, res) => {
           avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
           avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } }, // DSAT count
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
         },
       },
@@ -2470,7 +2471,11 @@ app.get("/api/gamification", async (req, res) => {
       const team = TEAM_MAP[name] || "Unknown";
       const daysWorked = getDaysWorked(name);
       const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
-      const csatPercent = s.solved > 0 ? Math.round((s.positiveCSAT / s.solved) * 100) : 0;
+      // CSAT % is 100% by default. Only changes if DSAT (negativeCSAT) is absorbed and solved.
+      // Formula: If no DSAT → 100%, else → positiveCSAT / (positiveCSAT + negativeCSAT) * 100
+      const csatPercent = s.negativeCSAT > 0
+        ? Math.round((s.positiveCSAT / (s.positiveCSAT + s.negativeCSAT)) * 100)
+        : 100;
       const frrPercent = s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0;
 
       const entry = {
