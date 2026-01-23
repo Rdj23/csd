@@ -309,6 +309,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               onClick={() => {
                 setShowRcaDropdown(!showRcaDropdown);
                 setShowReporterDropdown(false);
+                setShowOwnerDropdown(false);
               }}
               className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
                 selectedRca !== "all"
