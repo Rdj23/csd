@@ -2409,18 +2409,53 @@ app.get("/api/gamification", async (req, res) => {
       "Abhishek": "Mashnu", "Adarsh": "Mashnu", "Vaibhav": "Mashnu", "Adish": "Adish",
     };
 
-    // Calculate days worked from roster - ONLY count actual shift days
+    // Map ticket owner names to roster names (for names that don't match exactly)
+    const NAME_TO_ROSTER_MAP = {
+      "Tuaha Khan": "Tuaha",
+      // Add more mappings here if needed
+    };
+
+    // Get today's date at midnight for comparison
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // End of today
+
+    // Calculate days worked from roster - ONLY count actual shift days up to today
     const getDaysWorked = (name) => {
-      const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === name.toLowerCase());
-      if (!row) return 0;
+      // First try to map the name to roster name
+      const rosterName = NAME_TO_ROSTER_MAP[name] || name;
+
+      const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
+      if (!row) {
+        console.log(`⚠️ getDaysWorked: No roster row found for "${name}" (searched as "${rosterName}")`);
+        return 0;
+      }
 
       let days = 0;
+      // ON CALL is NOT a working day - only count actual shifts
       const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4"];
 
-      for (let i = 2; i < row.length; i++) {
-        const val = (row[i] || "").toUpperCase().trim();
-        if (VALID_SHIFTS.includes(val)) {
-          days++;
+      // Iterate through date columns using DATE_COL_MAP
+      for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
+        // Parse the date from DATE_COL_MAP key (format: "01-Jan", "02-Jan", etc.)
+        // or it might be an Excel serial number
+        let colDate;
+        if (typeof dateKey === 'number' || !isNaN(Number(dateKey))) {
+          // Excel serial date (days since 1900-01-01, but Excel has a bug for dates before 1900-03-01)
+          const excelSerial = Number(dateKey);
+          colDate = new Date((excelSerial - 25569) * 86400 * 1000); // Convert Excel serial to JS Date
+        } else {
+          // Parse date string like "01-Jan"
+          const currentYear = today.getFullYear();
+          const parsed = new Date(`${dateKey}-${currentYear}`);
+          colDate = isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        // Only count if date is within the quarter range AND not in the future
+        if (colDate && colDate >= start && colDate <= today) {
+          const val = (row[colIdx] || "").toUpperCase().trim();
+          if (VALID_SHIFTS.includes(val)) {
+            days++;
+          }
         }
       }
       return days;
@@ -2576,7 +2611,7 @@ app.get("/api/roster/workload", async (req, res) => {
     };
 
     // Off-duty statuses
-    const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", "ON CALL"];
+    const OFF_STATUSES = ["Week Off", "WO", "EL", "NH", "PL", "OH", "L", "COMP OFF", "OH", "ON CALL"];
 
     // 2. Identify Active Engineers (Currently On Shift)
     const activeEngineers = ROSTER_ROWS.filter((row) => {
