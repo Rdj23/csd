@@ -1258,7 +1258,9 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick, groupBy = "gst" 
 
       switch (groupBy) {
         case "csm":
-          groupKey = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "No CSM";
+          const csmName = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "No CSM";
+          // Capitalize first letter of each word
+          groupKey = csmName === "No CSM" ? csmName : csmName.split(/[.\-_]/).map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(" ");
           break;
         case "tam":
           groupKey = t.tam && t.tam !== "Unknown" ? t.tam : "No TAM";
@@ -1694,8 +1696,9 @@ const AllTicketsView = ({
       const filtered = categorizedTickets[state].filter((t) => {
         switch (groupType) {
           case "csm":
-            const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "No CSM";
-            return csm === value;
+            const csmRaw = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "No CSM";
+            const csmFormatted = csmRaw === "No CSM" ? csmRaw : csmRaw.split(/[.\-_]/).map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(" ");
+            return csmFormatted === value;
           case "tam":
             const tam = t.tam && t.tam !== "Unknown" ? t.tam : "No TAM";
             return tam === value;

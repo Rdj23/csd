@@ -1229,7 +1229,8 @@ ${
               { id: "csd", icon: Star, label: "CSD Highlighted" },
               { id: "vistas", icon: Layout, label: "My Views" },
               { id: "analytics", icon: BarChart3, label: "Analytics" },
-              { id: "gamification", icon: Trophy, label: "Gamification" },
+              // Gamification tab only visible to SUPER_ADMIN
+              ...(SUPER_ADMIN_EMAILS.includes(currentUser?.email) ? [{ id: "gamification", icon: Trophy, label: "Gamification" }] : []),
             ].map((t) => (
               <button
                 key={t.id}

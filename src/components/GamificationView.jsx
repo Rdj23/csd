@@ -216,10 +216,10 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
             <p className="text-xs text-slate-500 mb-1">CSAT % (15%)</p>
-            <p className={`text-xl font-bold ${getPercentileColor(userData.csatPercentPercentile)}`}>
-              {userData.csatPercentPercentile ?? 0}%
+            <p className={`text-xl font-bold ${userData.csatPercent === 100 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {userData.csatPercent ?? 100}%
             </p>
-            <p className="text-xs text-slate-400 mt-1">{userData.csatPercent}%</p>
+            <p className="text-xs text-slate-400 mt-1">{userData.csatPercent === 100 ? 'No DSAT' : 'Has DSAT'}</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
             <p className="text-xs text-slate-500 mb-1"># CSATs (10%)</p>
@@ -519,10 +519,10 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${getPercentileBgColor(eng.csatPercentPercentile)}`}>
-                            {eng.csatPercentPercentile ?? 0}%
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${eng.csatPercent === 100 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400'}`}>
+                            {eng.csatPercent ?? 100}%
                           </span>
-                          <span className="text-xs text-slate-400 mt-0.5">{eng.csatPercent}%</span>
+                          <span className="text-xs text-slate-400 mt-0.5">{eng.csatPercent === 100 ? 'No DSAT' : 'Has DSAT'}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3">
