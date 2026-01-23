@@ -135,7 +135,7 @@ const TicketList = ({
                 {/* 9. RWT */}
                 <th className="p-4 w-[100px] align-middle text-center">RWT</th>
                 {/* 10. Iterations */}
-                <th className="p-4 w-[100px] align-middle text-center">Iterations</th>
+                <th className="p-4 w-[100px] align-middle text-center">Iter</th>
 
                 {/* 11. Age (Sticky Right 1) */}
                 <th
