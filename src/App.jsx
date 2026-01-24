@@ -93,7 +93,6 @@ const EMPTY_FILTERS = {
 
 const FILTER_CONFIG = [
   { key: "regions", label: "Region", icon: Globe },
-  { key: "teams", label: "Team", icon: Layers },
   { key: "owners", label: "Member", icon: Users },
   { key: "accounts", label: "Account", icon: Building2 },
   { key: "csms", label: "CSM", icon: Briefcase },
