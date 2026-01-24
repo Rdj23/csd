@@ -1037,7 +1037,7 @@ const AnalyticsDashboard = ({
       if (q === "Q4_25")
         return { start: new Date("2025-10-01"), end: new Date("2025-12-31") };
       if (q === "Q1_26")
-        return { start: new Date("2026-01-01"), end: new Date("2026-03-31") };
+        return { start: new Date("2025-12-29"), end: new Date("2026-03-31") }; // ✅ FIX: Start from Dec 29 (ISO Week 1)
       return { start: subDays(new Date(), 29), end: new Date() };
     };
 

@@ -123,7 +123,7 @@ export const CHART_COLORS = [
 export const getQuarterDates = (quarter) => {
   const quarters = {
     Q4_25: { start: new Date("2025-10-01"), end: new Date("2025-12-31") },
-    Q1_26: { start: new Date("2026-01-01"), end: new Date("2026-03-31") },
+    Q1_26: { start: new Date("2025-12-29"), end: new Date("2026-03-31") }, // ISO Week 1 starts Dec 29
     Q2_26: { start: new Date("2026-04-01"), end: new Date("2026-06-30") },
     Q3_26: { start: new Date("2026-07-01"), end: new Date("2026-09-30") },
     Q4_26: { start: new Date("2026-10-01"), end: new Date("2026-12-31") },
