@@ -1189,16 +1189,15 @@ const fetchAndCacheTickets = async (source = "auto") => {
     return;
   }
   isSyncing = true;
-  console.log("🔄 Syncing Active Tickets (Hot Data Only)...");
+  console.log("🔄 Syncing Active Tickets...");
 
   try {
     let collected = [],
       cursor = null,
       loop = 0;
 
-    // ✅ HOT DATA STRATEGY: Only last 24 hours for solved tickets
-    const NOW = new Date();
-    const RECENTLY_SOLVED_CUTOFF = new Date(NOW - 24 * 60 * 60 * 1000); // 24 hours ago
+    // ✅ Keep ALL active tickets + Solved tickets from Oct 2025 onwards
+    const SOLVED_CUTOFF_DATE = new Date("2025-12-01"); // Keep solved tickets from Oct 2025
 
     do {
       const response = await axios.get(
@@ -1224,25 +1223,23 @@ const fetchAndCacheTickets = async (source = "auto") => {
 
       collected = [...collected, ...newWorks];
 
-      // ✅ EARLY EXIT: Stop if we're only seeing old solved tickets
-      // If we have active tickets, keep going (they could be anywhere in the timeline)
-      // If no active tickets and oldest ticket in batch is > 7 days old, stop
+      // ✅ EARLY EXIT: Stop if we're past the cutoff date for solved tickets
+      // Keep going if we have active tickets (they could be old but still active)
       if (!hasActiveTickets) {
         const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
-        const sevenDaysAgo = new Date(NOW - 7 * 24 * 60 * 60 * 1000);
-        if (lastDate < sevenDaysAgo) break;
+        if (lastDate < SOLVED_CUTOFF_DATE) break;
       }
 
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 50);  // ✅ REDUCED: 50 max loops (was 100) - faster sync
+    } while (cursor && loop < 100);  // Keep at 100 to ensure we get all active tickets
 
-    // ✅ HOT DATA FILTER: Active tickets + Recently Solved (last 24h only)
+    // ✅ FILTER: ALL Active tickets + Solved tickets from Oct 2025 onwards
     const activeTickets = collected
       .filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
 
-        // ✅ Keep ALL active/open/pending tickets (no date filtering)
+        // ✅ Keep ALL active/open/pending/on-hold tickets (NO date filtering for active)
         const isActive = stage.includes("waiting on assignee") ||
                         stage.includes("awaiting customer reply") ||
                         stage.includes("waiting on clevertap") ||
@@ -1252,18 +1249,23 @@ const fetchAndCacheTickets = async (source = "auto") => {
 
         if (isActive) return true;
 
-        // ✅ HOT DATA: Only keep RECENTLY solved tickets (last 24 hours)
+        // ✅ Keep solved/closed tickets from Oct 2025 onwards (not just 24 hours)
         const isSolved = stage.includes("solved") ||
                         stage.includes("closed") ||
                         stage.includes("resolved");
 
         if (isSolved) {
-          const closedDate = t.actual_close_date ? parseISO(t.actual_close_date) : null;
-          // Only include if solved in last 24 hours
-          return closedDate && closedDate > RECENTLY_SOLVED_CUTOFF;
+          const createdDate = t.created_date ? parseISO(t.created_date) : null;
+          // Include solved tickets created after Oct 2025
+          return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
         }
 
         return false;
+      })
+      .filter((t) => {
+        // ✅ EXCLUDE Anmol Sawhney's tickets from all tickets view
+        const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
+        return !ownerName.includes("anmol sawhney");
       })
       .map((t) => ({
         id: t.id,
