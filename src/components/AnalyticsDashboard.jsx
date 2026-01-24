@@ -229,6 +229,10 @@ const DrillDownModal = ({
         aVal = new Date(a.created_date || 0).getTime();
         bVal = new Date(b.created_date || 0).getTime();
         break;
+      case "solved_date":
+        aVal = new Date(a.actual_close_date || a.closed_date || 0).getTime();
+        bVal = new Date(b.actual_close_date || b.closed_date || 0).getTime();
+        break;
       case "metric":
         aVal = getMetricValue(a);
         bVal = getMetricValue(b);
@@ -351,6 +355,12 @@ const DrillDownModal = ({
                 >
                   Created <SortIcon column="created_date" />
                 </th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("solved_date")}
+                >
+                  Solved <SortIcon column="solved_date" />
+                </th>
 
                 <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
@@ -380,7 +390,7 @@ const DrillDownModal = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {paginatedTickets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center gap-2">
                       <AlertCircle className="w-8 h-8 opacity-50" />
                       <span>No tickets found for this selection</span>
@@ -426,6 +436,14 @@ const DrillDownModal = ({
                       <td className="py-3 px-3 text-xs text-slate-500">
                         {t.created_date
                           ? format(parseISO(t.created_date), "MMM dd, yyyy")
+                          : "-"}
+                      </td>
+                      <td className="py-3 px-3 text-xs text-slate-500">
+                        {t.actual_close_date || t.closed_date
+                          ? format(
+                              parseISO(t.actual_close_date || t.closed_date),
+                              "MMM dd, yyyy"
+                            )
                           : "-"}
                       </td>
                       <td className="py-3 px-3 text-right text-xs font-semibold">
@@ -2210,12 +2228,28 @@ const AnalyticsDashboard = ({
         return Object.entries(weeks)
           .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
           .map(([week, data]) => {
-            // ✅ FIX: Calculate readable date range for the week
-            const dateObj = parseISO(data.date);
-            // Find Monday of this week
-            const day = dateObj.getDay();
-            const diff = dateObj.getDate() - day + (day === 0 ? -6 : 1);
-            const monday = new Date(dateObj.setDate(diff));
+            // ✅ FIX: Parse ISO week string (yyyy-Www) and calculate date range
+            const [year, weekPart] = week.split("-W");
+            const weekNum = parseInt(weekPart);
+
+            // Calculate Monday of this ISO week
+            const jan1 = new Date(parseInt(year), 0, 1);
+            const jan1Day = jan1.getDay() || 7; // 1=Mon, 7=Sun
+
+            // ISO week 1 is the first week with 4+ days in the new year
+            let daysToMonday;
+            if (jan1Day <= 4) {
+              // Jan 1 is Mon-Thu: Week 1 starts on the Monday of that week
+              daysToMonday = 1 - jan1Day;
+            } else {
+              // Jan 1 is Fri-Sun: Week 1 starts next Monday
+              daysToMonday = 8 - jan1Day;
+            }
+
+            const week1Monday = new Date(parseInt(year), 0, 1 + daysToMonday);
+            const monday = new Date(week1Monday);
+            monday.setDate(week1Monday.getDate() + (weekNum - 1) * 7);
+
             const sunday = new Date(monday);
             sunday.setDate(monday.getDate() + 6);
 

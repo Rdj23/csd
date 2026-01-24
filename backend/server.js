@@ -332,7 +332,7 @@ const getQuarterDateRange = (quarter) => {
       };
     case "Q1_26":
       return {
-        start: new Date("2026-01-01"),
+        start: new Date("2025-12-29"), // ✅ FIX: ISO Week 1 starts Dec 29
         end: new Date("2026-03-31T23:59:59Z"),
       };
 
@@ -669,13 +669,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
     }
 
     // 3. Compute fresh data
-    let { start, end } = getQuarterDateRange(quarter);
-
-    // ✅ FIX: When viewing Q1_26 with weekly grouping, start from Dec 29 (ISO Week 1)
-    if (quarter === "Q1_26" && groupBy === "weekly") {
-      start = new Date("2025-12-29");
-    }
-
+    const { start, end } = getQuarterDateRange(quarter);
     console.log(
       `📅 Date Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`,
     );
