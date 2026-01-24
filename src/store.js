@@ -27,7 +27,7 @@ export const useTicketStore = create(
       dependencies: {},
       dependenciesLoading: false,
 
-      // Socket connection
+      // ✅ OPTIMIZED: Socket connection with lightweight updates
       connectSocket: () => {
         const { socket } = get();
         if (socket) return;
@@ -36,8 +36,17 @@ export const useTicketStore = create(
         const newSocket = io(API_URL);
 
         newSocket.on("connect", () => console.log("🟢 Connected to Real-Time Server"));
+
+        // ✅ NEW: Lightweight signal-based updates (no data transfer)
+        newSocket.on("DATA_UPDATED", (signal) => {
+          console.log("📥 Live Update Signal Received:", signal);
+          // Re-fetch tickets when data changes (much smaller payload)
+          get().fetchTickets();
+        });
+
+        // ✅ DEPRECATED: Old REFRESH_TICKETS event (kept for backward compatibility)
         newSocket.on("REFRESH_TICKETS", (updatedTickets) => {
-          console.log("📥 Live Update Received!");
+          console.log("📥 Legacy Update Received (deprecated)");
           set({ tickets: updatedTickets, lastSync: new Date() });
         });
 
@@ -127,15 +136,38 @@ export const useTicketStore = create(
       },
 
       // ============================================================================
-      // ACTIVE TICKETS (Open/Pending/On-Hold for Dashboard)
+      // ✅ OPTIMIZED: ACTIVE TICKETS (Paginated & Lightweight)
       // ============================================================================
-      fetchTickets: async () => {
+      fetchTickets: async (page = 1, limit = 0) => {
         set({ isLoading: true });
         try {
           const API_URL = getApiUrl();
-          const response = await fetch(`${API_URL}/api/tickets`);
+
+          // ✅ Build query params for pagination (optional)
+          const params = new URLSearchParams();
+          if (page > 1) params.append('page', page);
+          if (limit > 0) params.append('limit', limit);
+
+          const url = `${API_URL}/api/tickets${params.toString() ? '?' + params.toString() : ''}`;
+          const response = await fetch(url);
           const data = await response.json();
-          set({ tickets: data.tickets || [], lastSync: new Date(), isLoading: false });
+
+          // ✅ Handle paginated response
+          if (data.pagination) {
+            set({
+              tickets: data.tickets || [],
+              lastSync: new Date(),
+              isLoading: false,
+              pagination: data.pagination // Store pagination metadata
+            });
+          } else {
+            // Non-paginated response (all tickets)
+            set({
+              tickets: data.tickets || [],
+              lastSync: new Date(),
+              isLoading: false
+            });
+          }
         } catch (error) {
           console.error("Sync failed:", error);
           set({ isLoading: false });

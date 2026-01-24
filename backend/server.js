@@ -7,7 +7,8 @@ import http from "http";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { Server } from "socket.io";
-import NodeCache from "node-cache";
+// ✅ REMOVED: NodeCache import - Using Redis only to prevent double-caching memory issues
+// import NodeCache from "node-cache";
 import { google } from "googleapis";
 import process from "process";
 import { OAuth2Client } from "google-auth-library";
@@ -31,7 +32,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const cache = new NodeCache({ stdTTL: 0 });
+// ✅ REMOVED: NodeCache instance - Using Redis only
+// const cache = new NodeCache({ stdTTL: 0 });
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -249,14 +251,22 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     noc_rca: { type: String, default: null }, // e.g., "Understanding Gap - CS"
     noc_reported_by: { type: String, default: null }, // e.g., "Sambhaavna A"
     noc_assignee: { type: String, default: null },
+    stage_name: { type: String, index: true }, // ✅ For filtering by ticket status
+    actual_close_date: Date, // ✅ For hot data filtering (last 24h)
   },
   { versionKey: false },
 );
 
+// ✅ EXISTING INDEXES
 AnalyticsTicketSchema.index({ closed_date: 1, owner: 1 });
 AnalyticsTicketSchema.index({ closed_date: 1, is_noc: 1 });
 AnalyticsTicketSchema.index({ closed_date: 1, is_zendesk: 1 });
 AnalyticsTicketSchema.index({ owner: 1, closed_date: 1, region: 1 });
+
+// ✅ NEW INDEXES FOR HOT/WARM/COLD DATA STRATEGY
+AnalyticsTicketSchema.index({ stage_name: 1, actual_close_date: -1 }); // For active vs solved filtering
+AnalyticsTicketSchema.index({ actual_close_date: -1 }); // For recent solved tickets queries
+AnalyticsTicketSchema.index({ created_date: -1, stage_name: 1 }); // For pagination by creation date
 
 const AnalyticsTicket = mongoose.model(
   "AnalyticsTicket",
@@ -973,9 +983,8 @@ app.get("/api/tickets/analytics", async (req, res) => {
   }
 });
 
-// Cache status endpoint for debugging
+// ✅ Cache status endpoint for debugging (Redis only)
 app.get("/api/cache/status", async (req, res) => {
-  const nodeKeys = cache.keys();
   let redisKeys = [];
 
   if (redis) {
@@ -987,23 +996,19 @@ app.get("/api/cache/status", async (req, res) => {
   }
 
   res.json({
-    nodeCache: {
-      keys: nodeKeys,
-      stats: cache.getStats(),
-    },
     redis: {
       status: redis?.status || "disconnected",
       keys: redisKeys.length,
       keyList: redisKeys.slice(0, 20), // First 20 keys
     },
+    memory: process.memoryUsage(),
   });
 });
 
-// Manual cache clear endpoint
+// ✅ Manual cache clear endpoint (Redis only)
 app.post("/api/cache/clear", async (req, res) => {
-  cache.flushAll();
   await redisDelete("*");
-  res.json({ success: true, message: "All caches cleared" });
+  res.json({ success: true, message: "Redis cache cleared" });
 });
 
 // ============================================================================
@@ -1184,13 +1189,16 @@ const fetchAndCacheTickets = async (source = "auto") => {
     return;
   }
   isSyncing = true;
-  console.log("🔄 Syncing Active Tickets...");
+  console.log("🔄 Syncing Active Tickets (Hot Data Only)...");
 
   try {
     let collected = [],
       cursor = null,
       loop = 0;
-    const TARGET_DATE_FOR_SOLVED = new Date("2025-10-01");  // Only for solved tickets
+
+    // ✅ HOT DATA STRATEGY: Only last 24 hours for solved tickets
+    const NOW = new Date();
+    const RECENTLY_SOLVED_CUTOFF = new Date(NOW - 24 * 60 * 60 * 1000); // 24 hours ago
 
     do {
       const response = await axios.get(
@@ -1216,23 +1224,25 @@ const fetchAndCacheTickets = async (source = "auto") => {
 
       collected = [...collected, ...newWorks];
 
-      // If we have active tickets, keep going regardless of date
-      // If no active tickets and we're past the cutoff date for solved tickets, stop
+      // ✅ EARLY EXIT: Stop if we're only seeing old solved tickets
+      // If we have active tickets, keep going (they could be anywhere in the timeline)
+      // If no active tickets and oldest ticket in batch is > 7 days old, stop
       if (!hasActiveTickets) {
         const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
-        if (lastDate < TARGET_DATE_FOR_SOLVED) break;
+        const sevenDaysAgo = new Date(NOW - 7 * 24 * 60 * 60 * 1000);
+        if (lastDate < sevenDaysAgo) break;
       }
 
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 100);  // Increased limit to ensure we get all active tickets
+    } while (cursor && loop < 50);  // ✅ REDUCED: 50 max loops (was 100) - faster sync
 
-    // ✅ FILTER: ALL Active tickets (no date restriction) + Solved tickets from Oct 2025 onwards
+    // ✅ HOT DATA FILTER: Active tickets + Recently Solved (last 24h only)
     const activeTickets = collected
       .filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
 
-        // Keep ALL active/open/pending tickets (no date filtering)
+        // ✅ Keep ALL active/open/pending tickets (no date filtering)
         const isActive = stage.includes("waiting on assignee") ||
                         stage.includes("awaiting customer reply") ||
                         stage.includes("waiting on clevertap") ||
@@ -1242,12 +1252,16 @@ const fetchAndCacheTickets = async (source = "auto") => {
 
         if (isActive) return true;
 
-        // Keep solved/closed tickets
+        // ✅ HOT DATA: Only keep RECENTLY solved tickets (last 24 hours)
         const isSolved = stage.includes("solved") ||
                         stage.includes("closed") ||
                         stage.includes("resolved");
 
-        if (isSolved) return true;
+        if (isSolved) {
+          const closedDate = t.actual_close_date ? parseISO(t.actual_close_date) : null;
+          // Only include if solved in last 24 hours
+          return closedDate && closedDate > RECENTLY_SOLVED_CUTOFF;
+        }
 
         return false;
       })
@@ -1274,16 +1288,21 @@ const fetchAndCacheTickets = async (source = "auto") => {
       return stage.includes("solved") || stage.includes("closed");
     }).length;
 
-    // Store in both NodeCache (fast local) and Redis (shared across restarts)
-    cache.set("tickets_active", activeTickets);
+    // ✅ STORE IN REDIS ONLY (removed NodeCache to prevent double caching)
     await redisSet("tickets:active", activeTickets, CACHE_TTL.TICKETS);
 
     collected = null;
     if (global.gc) global.gc();
     console.log(
-      `✅ ${activeTickets.length} tickets cached (${solvedCount} solved)`,
+      `✅ ${activeTickets.length} tickets cached (${activeTickets.length - solvedCount} active, ${solvedCount} recently solved)`,
     );
-    io.emit("REFRESH_TICKETS", activeTickets);
+
+    // ✅ FIX BROADCAST STORM: Send lightweight signal instead of full data array
+    io.emit("DATA_UPDATED", {
+      type: 'tickets',
+      count: activeTickets.length,
+      timestamp: new Date().toISOString()
+    });
   } catch (e) {
     console.error("❌ Sync Failed:", e.message);
   } finally {
@@ -1296,27 +1315,42 @@ const fetchAndCacheTickets = async (source = "auto") => {
 };
 
 // ============================================================================
-// ACTIVE TICKETS (Dashboard - Open/Pending only)
+// ✅ ACTIVE TICKETS (Dashboard) - With Pagination Support
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
   try {
+    // ✅ PAGINATION SUPPORT: Extract page and limit from query params
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 0; // 0 = no limit (return all)
+
     // 1. Try Redis first (fastest)
     const redisData = await redisGet("tickets:active");
     if (redisData) {
       console.log("⚡ Active Tickets: Redis HIT");
-      return res.json({ tickets: redisData });
+
+      // ✅ APPLY PAGINATION if requested
+      if (limit > 0) {
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedTickets = redisData.slice(startIndex, endIndex);
+
+        return res.json({
+          tickets: paginatedTickets,
+          pagination: {
+            page,
+            limit,
+            total: redisData.length,
+            totalPages: Math.ceil(redisData.length / limit),
+            hasMore: endIndex < redisData.length
+          }
+        });
+      }
+
+      // Return all tickets if no pagination requested
+      return res.json({ tickets: redisData, total: redisData.length });
     }
 
-    // 2. Try NodeCache (fast)
-    const cached = cache.get("tickets_active");
-    if (cached) {
-      console.log("⚡ Active Tickets: NodeCache HIT");
-      // Store in Redis async (don't wait)
-      redisSet("tickets:active", cached, CACHE_TTL.TICKETS).catch(() => {});
-      return res.json({ tickets: cached });
-    }
-
-    // 3. No cache - return empty immediately, sync in background
+    // 2. No cache - return empty immediately, sync in background
     console.log("⏳ No cache - starting background sync");
 
     // Start sync in background (non-blocking)
@@ -1326,7 +1360,8 @@ app.get("/api/tickets", async (req, res) => {
     res.json({
       tickets: [],
       syncing: true,
-      message: "Data is being loaded. Please refresh in a few seconds.",
+      total: 0,
+      message: "Loading configuration...",
     });
   } catch (e) {
     console.error("❌ /api/tickets error:", e.message);
@@ -2406,7 +2441,8 @@ app.get("/api/roster/backup", async (req, res) => {
     }
 
     // Calculate workload
-    const tickets = cache.get("tickets_active") || [];
+    // ✅ Get tickets from Redis instead of NodeCache
+    const tickets = await redisGet("tickets:active") || [];
     const workloadMap = {};
     activeEngineers.forEach((eng) => (workloadMap[eng.name.toLowerCase()] = 0));
 
@@ -2748,7 +2784,8 @@ app.get("/api/roster/workload", async (req, res) => {
     console.log(`✅ ${activeEngineers.length} engineers currently on shift`);
 
     // 3. Calculate Live Workload from Active Tickets Cache
-    const tickets = cache.get("tickets_active") || [];
+    // ✅ Get tickets from Redis instead of NodeCache
+    const tickets = await redisGet("tickets:active") || [];
     const workloadMap = {};
 
     // Initialize everyone with 0
