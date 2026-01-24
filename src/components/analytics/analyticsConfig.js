@@ -76,7 +76,7 @@ export const OVERVIEW_METRICS = {
     fullLabel: "Customer Satisfaction",
     icon: Smile,
     color: "#10b981",
-    unit: "",
+    unit: "Count",
     desc: "Positive customer feedback count",
     dataKey: "positiveCSAT",
   },

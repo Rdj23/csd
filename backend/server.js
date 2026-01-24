@@ -669,7 +669,13 @@ app.get("/api/tickets/analytics", async (req, res) => {
     }
 
     // 3. Compute fresh data
-    const { start, end } = getQuarterDateRange(quarter);
+    let { start, end } = getQuarterDateRange(quarter);
+
+    // ✅ FIX: When viewing Q1_26 with weekly grouping, start from Dec 29 (ISO Week 1)
+    if (quarter === "Q1_26" && groupBy === "weekly") {
+      start = new Date("2025-12-29");
+    }
+
     console.log(
       `📅 Date Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`,
     );

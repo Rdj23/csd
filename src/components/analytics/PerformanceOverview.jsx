@@ -23,14 +23,16 @@ import {
 } from "lucide-react";
 import { trackEvent } from "../../utils/clevertap";
 
-// Week definitions for Q1
+// Week definitions for Q1 (ISO 8601 - Monday to Sunday)
+// ISO Week 1 is the first week with 4+ days in the new year
+// Jan 1, 2026 = Wednesday, so Week 1 includes Dec 29-31 (2025) and Jan 1-4 (2026)
 const Q1_WEEKS = [
-  { id: 1, label: "W1", start: "2026-01-06", end: "2026-01-12", range: "Jan 6-12" },
-  { id: 2, label: "W2", start: "2026-01-13", end: "2026-01-19", range: "Jan 13-19" },
-  { id: 3, label: "W3", start: "2026-01-20", end: "2026-01-26", range: "Jan 20-26" },
-  { id: 4, label: "W4", start: "2026-01-27", end: "2026-02-02", range: "Jan 27 - Feb 2" },
-  { id: 5, label: "W5", start: "2026-02-03", end: "2026-02-09", range: "Feb 3-9" },
-  { id: 6, label: "W6", start: "2026-02-10", end: "2026-02-16", range: "Feb 10-16" },
+  { id: 1, label: "W1", start: "2025-12-29", end: "2026-01-04", range: "Dec 29 - Jan 4" },
+  { id: 2, label: "W2", start: "2026-01-05", end: "2026-01-11", range: "Jan 5-11" },
+  { id: 3, label: "W3", start: "2026-01-12", end: "2026-01-18", range: "Jan 12-18" },
+  { id: 4, label: "W4", start: "2026-01-19", end: "2026-01-25", range: "Jan 19-25" },
+  { id: 5, label: "W5", start: "2026-01-26", end: "2026-02-01", range: "Jan 26 - Feb 1" },
+  { id: 6, label: "W6", start: "2026-02-02", end: "2026-02-08", range: "Feb 2-8" },
 ];
 
 // Month definitions with week ranges
@@ -129,7 +131,7 @@ const PerformanceMetricsCards = ({
     const getValue = (t) => {
       if (metricKey === "avgRWT") return t.avgRWT || 0;
       if (metricKey === "csat") return t.positiveCSAT || 0;
-      if (metricKey === "frrPercent") return t.frrMet || 0;
+      if (metricKey === "frrPercent") return t.frrPercent || 0; // ✅ FIX: Use frrPercent, not frrMet
       if (metricKey === "avgIterations") return t.avgIterations || 0;
       if (metricKey === "avgFRT") return t.avgFRT || 0;
       return 0;

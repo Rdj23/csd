@@ -1896,7 +1896,7 @@ const AnalyticsDashboard = ({
       const dataKeyMap = {
         avgRWT: "avgRWT",
         csat: "positiveCSAT",
-        frrPercent: "frrMet",
+        frrPercent: "frrPercent", // ✅ FIX: Use frrPercent instead of frrMet
         avgIterations: "avgIterations",
         avgFRT: "avgFRT",
       };
@@ -2073,7 +2073,7 @@ const AnalyticsDashboard = ({
         const dataKeyMap = {
           avgRWT: "avgRWT",
           csat: "positiveCSAT",
-          frrPercent: "frrMet",
+          frrPercent: "frrPercent", // ✅ FIX: Use frrPercent instead of frrMet
           avgIterations: "avgIterations",
           avgFRT: "avgFRT",
         };
@@ -2146,7 +2146,7 @@ const AnalyticsDashboard = ({
       const dataKeyMap = {
         avgRWT: "avgRWT",
         csat: "positiveCSAT",
-        frrPercent: "frrMet",
+        frrPercent: "frrPercent", // ✅ FIX: Use frrPercent instead of frrMet
         avgIterations: "avgIterations",
         avgFRT: "avgFRT",
       };
@@ -2171,9 +2171,9 @@ const AnalyticsDashboard = ({
           if (metricKey === "frrPercent" && t.solved > 0) {
             value = Math.round((t.frrMet / t.solved) * 100);
           }
-          // For CSAT, calculate percentage: positiveCSAT / solved * 100
-          if (metricKey === "csat" && t.solved > 0) {
-            value = Math.round((t.positiveCSAT / t.solved) * 100);
+          // ✅ FIX: For CSAT, show count (not percentage) to match KPI card
+          if (metricKey === "csat") {
+            value = t.positiveCSAT || 0;
           }
 
           return {
@@ -2240,15 +2240,10 @@ const AnalyticsDashboard = ({
                   ? Math.round((totalFrrMet / totalSolved) * 100)
                   : 0;
             } else if (metricKey === "csat") {
-              // CSAT percentage
-              const totalSolved =
-                data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
+              // ✅ FIX: CSAT count (not percentage)
               const totalCSAT =
                 data.csatCounts?.reduce((a, b) => a + b, 0) || 0;
-              value =
-                totalSolved > 0
-                  ? Math.round((totalCSAT / totalSolved) * 100)
-                  : 0;
+              value = totalCSAT;
             } else {
               // Sum metrics (solved, volume, backlog)
               value = sum;
