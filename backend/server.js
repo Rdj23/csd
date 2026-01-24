@@ -336,36 +336,37 @@ const getQuarterDateRange = (quarter) => {
         end: new Date("2026-03-31T23:59:59Z"),
       };
 
-    // Q1 2026 Weeks (Monday to Sunday)
+    // ✅ FIXED: Q1 2026 Weeks (Monday to Sunday, ISO 8601)
+    // Jan 1, 2026 = Thursday. Week 1 includes Jan 1-4 (4 days in 2026)
     case "Q1_26_W1":
       return {
-        start: new Date("2026-01-06"),
-        end: new Date("2026-01-12T23:59:59Z"),
+        start: new Date("2025-12-29"), // Monday (includes Dec 29-31, Jan 1-4)
+        end: new Date("2026-01-04T23:59:59Z"),
       };
     case "Q1_26_W2":
       return {
-        start: new Date("2026-01-13"),
-        end: new Date("2026-01-19T23:59:59Z"),
+        start: new Date("2026-01-05"), // Monday
+        end: new Date("2026-01-11T23:59:59Z"), // Sunday
       };
     case "Q1_26_W3":
       return {
-        start: new Date("2026-01-20"),
-        end: new Date("2026-01-26T23:59:59Z"),
+        start: new Date("2026-01-12"), // Monday
+        end: new Date("2026-01-18T23:59:59Z"), // Sunday
       };
     case "Q1_26_W4":
       return {
-        start: new Date("2026-01-27"),
-        end: new Date("2026-02-02T23:59:59Z"),
+        start: new Date("2026-01-19"), // Monday
+        end: new Date("2026-01-25T23:59:59Z"), // Sunday
       };
     case "Q1_26_W5":
       return {
-        start: new Date("2026-02-03"),
-        end: new Date("2026-02-09T23:59:59Z"),
+        start: new Date("2026-01-26"), // Monday
+        end: new Date("2026-02-01T23:59:59Z"), // Sunday
       };
     case "Q1_26_W6":
       return {
-        start: new Date("2026-02-10"),
-        end: new Date("2026-02-16T23:59:59Z"),
+        start: new Date("2026-02-02"), // Monday
+        end: new Date("2026-02-08T23:59:59Z"), // Sunday
       };
 
     // Q1 2026 Months
@@ -512,10 +513,12 @@ app.get("/api/tickets/live-stats", async (req, res) => {
           countIter: 0,
           positiveCSAT: 0,
           frrMet: 0,
+          frrTotal: 0, // ✅ Add total count for FRR percentage
         };
       }
       const day = trendsMap[t.date];
       day.solved++;
+      day.frrTotal++; // ✅ Increment total for FRR percentage
       if (t.csat === 2) day.positiveCSAT++;
       if (t.frr === 1) day.frrMet++;
 
@@ -539,6 +542,7 @@ app.get("/api/tickets/live-stats", async (req, res) => {
         solved: day.solved,
         positiveCSAT: day.positiveCSAT,
         frrMet: day.frrMet,
+        frrPercent: day.frrTotal > 0 ? Math.round((day.frrMet / day.frrTotal) * 100) : 0, // ✅ FRR as percentage
         avgRWT: day.countRWT ? day.sumRWT / day.countRWT : 0,
         avgFRT: day.countFRT ? day.sumFRT / day.countFRT : 0,
         avgIterations: day.countIter ? day.sumIter / day.countIter : 0,
@@ -738,11 +742,24 @@ app.get("/api/tickets/analytics", async (req, res) => {
           avgIterations: { $avg: "$iterations" },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          frrTotal: { $sum: 1 }, // ✅ Add total count for FRR percentage calculation
         },
       },
       { $sort: { _id: 1 } },
       { $limit: 100 },
     ]);
+
+    // ✅ FIX: Calculate FRR percentage for each trend data point
+    const trendsWithFRRPercent = trends.map((t) => ({
+      _id: t._id,
+      solved: t.solved,
+      avgRWT: t.avgRWT,
+      avgFRT: t.avgFRT,
+      avgIterations: t.avgIterations,
+      positiveCSAT: t.positiveCSAT,
+      frrMet: t.frrMet,
+      frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0, // FRR as percentage
+    }));
 
     // Backlog Clearance (tickets >15 days old when closed) with same grouping
     const backlogCleared = await AnalyticsTicket.aggregate([
@@ -903,7 +920,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
             ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100)
             : 0,
       },
-      trends: trends.map((t) => {
+      trends: trendsWithFRRPercent.map((t) => {
         const backlog = backlogCleared.find((b) => b._id === t._id);
         return {
           date: t._id,
@@ -916,6 +933,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
           backlogCleared: backlog?.count || 0,
           positiveCSAT: t.positiveCSAT,
           frrMet: t.frrMet || 0,
+          frrPercent: t.frrPercent || 0, // ✅ Include FRR percentage for graph
         };
       }),
       leaderboard: leaderboard.map((l) => ({
@@ -1105,17 +1123,37 @@ app.get("/api/tickets/by-date", async (req, res) => {
     // Parse date logic (Weekly vs Monthly vs Daily)
     let startOfDay, endOfDay;
     if (date.includes("W")) {
+      // ✅ FIXED: Proper ISO Week calculation
       // Weekly format: 2026-W03
       const [year, weekPart] = date.split("-W");
       const weekNum = parseInt(weekPart);
-      const simple = new Date(parseInt(year), 0, 1 + (weekNum - 1) * 7);
-      const dow = simple.getDay();
-      const ISOweekStart = simple;
-      if (dow <= 4)
-        ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
-      else ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
 
-      startOfDay = new Date(ISOweekStart);
+      // ISO week calculation: Week 1 is the first week with 4+ days in the new year
+      // Weeks start on Monday
+      const jan1 = new Date(parseInt(year), 0, 1);
+      const jan1Day = jan1.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+
+      // Calculate the Monday of week 1
+      // If Jan 1 is Mon-Thu, week 1 starts on the Monday of that week
+      // If Jan 1 is Fri-Sun, week 1 starts on the next Monday
+      let week1Monday;
+      if (jan1Day === 0) { // Sunday
+        week1Monday = new Date(jan1);
+        week1Monday.setDate(jan1.getDate() + 1); // Next Monday
+      } else if (jan1Day <= 4) { // Monday-Thursday
+        week1Monday = new Date(jan1);
+        week1Monday.setDate(jan1.getDate() - (jan1Day - 1)); // Go back to Monday
+      } else { // Friday-Saturday
+        week1Monday = new Date(jan1);
+        week1Monday.setDate(jan1.getDate() + (8 - jan1Day)); // Next Monday
+      }
+
+      // Calculate the start of the requested week
+      startOfDay = new Date(week1Monday);
+      startOfDay.setDate(week1Monday.getDate() + (weekNum - 1) * 7);
+      startOfDay.setHours(0, 0, 0, 0);
+
+      // End of week is Sunday
       endOfDay = new Date(startOfDay);
       endOfDay.setDate(startOfDay.getDate() + 6);
       endOfDay.setHours(23, 59, 59, 999);
