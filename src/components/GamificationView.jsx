@@ -182,7 +182,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-900 dark:text-white">{userData.name}</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">{userData.designation} • {userData.team}</p>
+              {/* <p className="text-sm text-slate-500 dark:text-slate-400">{userData.designation} • {userData.team}</p> */}
             </div>
           </div>
           {showRank && (
@@ -503,7 +503,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                           </div>
                           <div>
                             <p className="font-semibold text-slate-900 dark:text-white text-sm">{eng.name}</p>
-                            <p className="text-xs text-slate-400">{eng.designation} • {eng.team}</p>
+                            {/* <p className="text-xs text-slate-400">{eng.designation} • {eng.team}</p> */}
                           </div>
                         </div>
                       </td>
