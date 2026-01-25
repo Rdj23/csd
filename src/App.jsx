@@ -2107,24 +2107,7 @@ ${
               ) : (
                 <>
                   {/* Progressive Loading Banner */}
-                  {isPartialData && syncProgress < 100 && (
-                    <div className="mb-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">
-                          Loading more tickets in background...
-                        </span>
-                        <span className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
-                          {syncProgress}%
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 transition-all duration-300 ease-out"
-                          style={{ width: `${syncProgress}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
+                
 
                   {activeTab === "vistas" && !selectedViewId ? (
                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
