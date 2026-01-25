@@ -973,6 +973,10 @@ app.get("/api/tickets/analytics", async (req, res) => {
           // Pass the Raw Counts
           positiveCSAT: item.positiveCSAT || 0,
           frrMet: item.frrMet || 0,
+          // ✅ FIX: Calculate FRR percentage for each user's daily data
+          frrPercent: item.solved > 0
+            ? Math.round((item.frrMet / item.solved) * 100)
+            : 0,
           // Pass Valid Counts for Frontend Weighting
           rwtValidCount: item.rwtValidCount || 0,
           frtValidCount: item.frtValidCount || 0,
@@ -1243,6 +1247,52 @@ const fetchAndCacheTickets = async (source = "auto") => {
     // ✅ Keep ALL active tickets + Solved tickets from Oct 2025 onwards
     const SOLVED_CUTOFF_DATE = new Date("2025-12-01"); // Keep solved tickets from Oct 2025
 
+    // Helper function to process and filter tickets
+    const processTickets = (tickets) => {
+      return tickets
+        .filter((t) => {
+          const stage = t.stage?.name?.toLowerCase() || "";
+          const isActive = stage.includes("waiting on assignee") ||
+                          stage.includes("awaiting customer reply") ||
+                          stage.includes("waiting on clevertap") ||
+                          stage.includes("on hold") ||
+                          stage.includes("pending") ||
+                          stage.includes("open");
+
+          if (isActive) return true;
+
+          const isSolved = stage.includes("solved") ||
+                          stage.includes("closed") ||
+                          stage.includes("resolved");
+
+          if (isSolved) {
+            const createdDate = t.created_date ? parseISO(t.created_date) : null;
+            return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
+          }
+          return false;
+        })
+        .filter((t) => {
+          const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
+          return !ownerName.includes("anmol sawhney");
+        })
+        .map((t) => ({
+          id: t.id,
+          display_id: t.display_id,
+          title: t.title,
+          priority: t.priority,
+          severity: t.severity,
+          account: t.account?.display_name || t.account,
+          stage: t.stage,
+          owned_by: t.owned_by,
+          created_date: t.created_date,
+          modified_date: t.modified_date,
+          custom_fields: t.custom_fields,
+          tags: t.tags,
+          isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+          actual_close_date: t.actual_close_date,
+        }));
+    };
+
     do {
       const response = await axios.get(
         `${DEVREV_API}/works.list?limit=50&type=ticket${
@@ -1267,6 +1317,31 @@ const fetchAndCacheTickets = async (source = "auto") => {
 
       collected = [...collected, ...newWorks];
 
+      // ✅ PROGRESSIVE LOADING: Cache first 3 batches (150 tickets) immediately for quick response
+      if (loop === 0 || loop === 1 || loop === 2) {
+        const processedSoFar = processTickets(collected);
+        await redisSet("tickets:active:initial", processedSoFar, 60); // Short TTL for initial cache
+
+        // Emit progress to frontend
+        io.emit("SYNC_PROGRESS", {
+          type: 'tickets',
+          count: processedSoFar.length,
+          progress: Math.min(30, (loop + 1) * 10), // Show 10%, 20%, 30% progress
+          status: 'loading'
+        });
+
+        console.log(`📦 Cached initial ${processedSoFar.length} tickets (batch ${loop + 1})`);
+      } else if (loop % 5 === 0) {
+        // Emit progress updates every 5 batches
+        const estimatedProgress = Math.min(90, 30 + Math.floor(loop / 5) * 10);
+        io.emit("SYNC_PROGRESS", {
+          type: 'tickets',
+          count: collected.length,
+          progress: estimatedProgress,
+          status: 'loading'
+        });
+      }
+
       // ✅ EARLY EXIT: Stop if we're past the cutoff date for solved tickets
       // Keep going if we have active tickets (they could be old but still active)
       if (!hasActiveTickets) {
@@ -1279,54 +1354,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
     } while (cursor && loop < 100);  // Keep at 100 to ensure we get all active tickets
 
     // ✅ FILTER: ALL Active tickets + Solved tickets from Oct 2025 onwards
-    const activeTickets = collected
-      .filter((t) => {
-        const stage = t.stage?.name?.toLowerCase() || "";
-
-        // ✅ Keep ALL active/open/pending/on-hold tickets (NO date filtering for active)
-        const isActive = stage.includes("waiting on assignee") ||
-                        stage.includes("awaiting customer reply") ||
-                        stage.includes("waiting on clevertap") ||
-                        stage.includes("on hold") ||
-                        stage.includes("pending") ||
-                        stage.includes("open");
-
-        if (isActive) return true;
-
-        // ✅ Keep solved/closed tickets from Oct 2025 onwards (not just 24 hours)
-        const isSolved = stage.includes("solved") ||
-                        stage.includes("closed") ||
-                        stage.includes("resolved");
-
-        if (isSolved) {
-          const createdDate = t.created_date ? parseISO(t.created_date) : null;
-          // Include solved tickets created after Oct 2025
-          return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
-        }
-
-        return false;
-      })
-      .filter((t) => {
-        // ✅ EXCLUDE Anmol Sawhney's tickets from all tickets view
-        const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
-        return !ownerName.includes("anmol sawhney");
-      })
-      .map((t) => ({
-        id: t.id,
-        display_id: t.display_id,
-        title: t.title,
-        priority: t.priority,
-        severity: t.severity,
-        account: t.account?.display_name || t.account,
-        stage: t.stage,
-        owned_by: t.owned_by,
-        created_date: t.created_date,
-        modified_date: t.modified_date,
-        custom_fields: t.custom_fields,
-        tags: t.tags,
-        isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
-        actual_close_date: t.actual_close_date,
-      }));
+    const activeTickets = processTickets(collected);
 
     // Log for debugging
     const solvedCount = activeTickets.filter((t) => {
@@ -1337,11 +1365,22 @@ const fetchAndCacheTickets = async (source = "auto") => {
     // ✅ STORE IN REDIS ONLY (removed NodeCache to prevent double caching)
     await redisSet("tickets:active", activeTickets, CACHE_TTL.TICKETS);
 
+    // Clear initial cache now that full cache is ready
+    await redisDelete("tickets:active:initial");
+
     collected = null;
     if (global.gc) global.gc();
     console.log(
       `✅ ${activeTickets.length} tickets cached (${activeTickets.length - solvedCount} active, ${solvedCount} recently solved)`,
     );
+
+    // ✅ PROGRESSIVE LOADING: Emit completion progress
+    io.emit("SYNC_PROGRESS", {
+      type: 'tickets',
+      count: activeTickets.length,
+      progress: 100,
+      status: 'complete'
+    });
 
     // ✅ FIX BROADCAST STORM: Send lightweight signal instead of full data array
     io.emit("DATA_UPDATED", {
@@ -1365,30 +1404,70 @@ const fetchAndCacheTickets = async (source = "auto") => {
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
   try {
-    // ✅ SIMPLE: Return from Redis cache, period
-    const cachedTickets = await redisGet("tickets:active");
+    // ✅ PROGRESSIVE LOADING: Try full cache first
+    let cachedTickets = await redisGet("tickets:active");
 
     if (cachedTickets && cachedTickets.length > 0) {
-      console.log(`⚡ Redis HIT: ${cachedTickets.length} tickets`);
-      return res.json({ tickets: cachedTickets, total: cachedTickets.length });
+      console.log(`⚡ Redis HIT (full): ${cachedTickets.length} tickets`);
+      return res.json({
+        tickets: cachedTickets,
+        total: cachedTickets.length,
+        isPartial: false
+      });
     }
 
-    // ✅ CACHE MISS: Trigger sync if not already running
+    // ✅ If full cache not available, try initial cache for quick response
+    cachedTickets = await redisGet("tickets:active:initial");
+
+    if (cachedTickets && cachedTickets.length > 0) {
+      console.log(`⚡ Redis HIT (initial): ${cachedTickets.length} tickets - loading more in background`);
+
+      // Start full sync in background if not already running
+      if (!isSyncing) {
+        fetchAndCacheTickets("background").catch(err =>
+          console.error("Background sync failed:", err)
+        );
+      }
+
+      return res.json({
+        tickets: cachedTickets,
+        total: cachedTickets.length,
+        isPartial: true, // Flag to indicate more data is loading
+        message: "Loading more tickets in background..."
+      });
+    }
+
+    // ✅ CACHE MISS: Trigger sync and wait for initial batch
     console.log("⏳ Cache miss - syncing now");
 
     if (!isSyncing) {
-      // Run sync and WAIT for it (only on cache miss)
-      await fetchAndCacheTickets("on_demand");
+      // Start sync (it will cache initial batch quickly)
+      fetchAndCacheTickets("on_demand").catch(err =>
+        console.error("Sync failed:", err)
+      );
 
-      // Get fresh data
-      const freshTickets = await redisGet("tickets:active");
-      if (freshTickets) {
-        return res.json({ tickets: freshTickets, total: freshTickets.length });
+      // Wait a moment for initial batch to be cached
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Try to get initial batch
+      const initialTickets = await redisGet("tickets:active:initial");
+      if (initialTickets && initialTickets.length > 0) {
+        return res.json({
+          tickets: initialTickets,
+          total: initialTickets.length,
+          isPartial: true,
+          message: "Loading more tickets in background..."
+        });
       }
     }
 
-    // Sync in progress, return empty
-    res.json({ tickets: [], total: 0 });
+    // Sync in progress, return empty but with loading indicator
+    res.json({
+      tickets: [],
+      total: 0,
+      isPartial: true,
+      message: "Loading tickets..."
+    });
   } catch (e) {
     console.error("❌ /api/tickets error:", e.message);
     res.status(500).json({ tickets: [], error: e.message });
@@ -2955,6 +3034,15 @@ server.listen(PORT, async () => {
 
   // Non-blocking: sync roster in background (don't wait)
   syncRoster().catch((err) => console.error("Roster sync failed:", err));
+
+  // ✅ PROGRESSIVE LOADING: Pre-warm cache on server startup (after 3 seconds)
+  setTimeout(() => {
+    console.log("🔥 Pre-warming ticket cache in background...");
+    fetchAndCacheTickets("startup").catch((err) =>
+      console.error("Cache pre-warm failed:", err)
+    );
+  }, 3000);
+
   console.log("✅ Server ready - background tasks running");
 });
 setInterval(

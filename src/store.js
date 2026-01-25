@@ -12,11 +12,13 @@ export const useTicketStore = create(
       // Active tickets (open/pending)
       tickets: [],
       isLoading: false,
-      
+      isPartialData: false, // ✅ NEW: Track if we're showing partial data
+      syncProgress: 0, // ✅ NEW: Track sync progress (0-100)
+
       // ✅ NEW: Pre-aggregated analytics data from server
       analyticsData: null, // { stats, trends, leaderboard, badTickets, individualTrends }
       analyticsLoading: false,
-      
+
       socket: null,
       lastSyncTime: null,
       myViews: [],
@@ -36,6 +38,20 @@ export const useTicketStore = create(
         const newSocket = io(API_URL);
 
         newSocket.on("connect", () => console.log("🟢 Connected to Real-Time Server"));
+
+        // ✅ PROGRESSIVE LOADING: Listen for sync progress updates
+        newSocket.on("SYNC_PROGRESS", (progressData) => {
+          console.log("📊 Sync Progress:", progressData);
+          set({
+            syncProgress: progressData.progress,
+            isPartialData: progressData.status === 'loading'
+          });
+
+          // When sync is complete, re-fetch to get all data
+          if (progressData.status === 'complete') {
+            get().fetchTickets();
+          }
+        });
 
         // ✅ NEW: Lightweight signal-based updates (no data transfer)
         newSocket.on("DATA_UPDATED", (signal) => {
@@ -136,7 +152,7 @@ export const useTicketStore = create(
       },
 
       // ============================================================================
-      // ✅ SIMPLIFIED: Just fetch tickets, no complex logic
+      // ✅ PROGRESSIVE LOADING: Fetch tickets with partial data support
       // ============================================================================
       fetchTickets: async () => {
         set({ isLoading: true });
@@ -145,25 +161,40 @@ export const useTicketStore = create(
           const response = await fetch(`${API_URL}/api/tickets`);
           const data = await response.json();
 
+          const hasTickets = data.tickets && data.tickets.length > 0;
+
           set({
             tickets: data.tickets || [],
             lastSync: new Date(),
-            isLoading: false
+            isLoading: false,
+            isPartialData: data.isPartial || false,
+            syncProgress: data.isPartial ? 30 : 100, // Show progress
           });
 
-          // ✅ If empty, retry ONCE after 15 seconds (cache is warming)
-          if ((!data.tickets || data.tickets.length === 0)) {
-            console.log("⏳ No data yet, will retry in 15s...");
+          console.log(`📦 Loaded ${data.tickets?.length || 0} tickets (${data.isPartial ? 'partial' : 'complete'})`);
+
+          // ✅ If empty or partial, retry after a short delay
+          if (!hasTickets || data.isPartial) {
+            console.log("⏳ Data loading... will retry in 3s");
             setTimeout(() => {
-              const currentTickets = get().tickets;
-              if (currentTickets.length === 0) {
+              const currentState = get();
+              // Only retry if we still have no data or partial data
+              if (currentState.tickets.length === 0 || currentState.isPartialData) {
                 get().fetchTickets();
               }
-            }, 15000);
+            }, 3000);
           }
         } catch (error) {
           console.error("Sync failed:", error);
-          set({ isLoading: false });
+          set({ isLoading: false, isPartialData: false });
+
+          // Retry on error after 5 seconds
+          setTimeout(() => {
+            if (get().tickets.length === 0) {
+              console.log("⏳ Retrying after error...");
+              get().fetchTickets();
+            }
+          }, 5000);
         }
       },
 

@@ -63,6 +63,7 @@ import MultiSelectFilter from "./components/MultiSelectFilter";
 import LoginScreen from "./components/LoginScreen";
 import { useTicketStore } from "./store";
 import ProfileStatsModal from "./components/ProfileStatsModal";
+import TicketSkeleton from "./components/TicketSkeleton";
 import {
   TEAM_GROUPS,
   FLAT_TEAM_MAP,
@@ -121,6 +122,8 @@ const App = () => {
   const {
     tickets,
     isLoading,
+    isPartialData,
+    syncProgress,
     fetchTickets,
     connectSocket,
     currentUser,
@@ -1296,15 +1299,19 @@ ${
               {/* ✅ SINGLE SYNC BUTTON */}
               <button
                 onClick={handleManualSync}
-                disabled={isLoading || isSyncing}
-                className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm text-slate-700 dark:text-slate-200"
+                disabled={isLoading || isSyncing || isPartialData}
+                className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm text-slate-700 dark:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCw
                   className={`w-4 h-4 ${
-                    isLoading || isSyncing ? "animate-spin" : ""
+                    isLoading || isSyncing || isPartialData ? "animate-spin" : ""
                   }`}
                 />
-                {isSyncing ? "Syncing..." : "Sync"}
+                {isPartialData
+                  ? `Loading... ${syncProgress}%`
+                  : isSyncing
+                  ? "Syncing..."
+                  : "Sync"}
               </button>
 
               <button
@@ -2063,18 +2070,7 @@ ${
             {/* SCROLLABLE CONTENT */}
             <div className="flex-1 overflow-y-auto pr-1 pt-2 pb-10 no-scrollbar">
               {isLoading && tickets.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-64 gap-4">
-                  <div className="relative">
-                    <div className="w-16 h-16 border-4 border-indigo-200 dark:border-indigo-900 rounded-full"></div>
-                    <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
-                  </div>
-                  <div className="text-slate-600 dark:text-slate-400 font-medium">
-                    Loading tickets...
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    This may take 30-60s on first load
-                  </div>
-                </div>
+                <TicketSkeleton count={8} showProgress={true} progress={syncProgress} />
               ) : activeTab === "analytics" ? (
                 <AnalyticsDashboard
                   tickets={tickets}
@@ -2110,6 +2106,26 @@ ${
                 />
               ) : (
                 <>
+                  {/* Progressive Loading Banner */}
+                  {isPartialData && syncProgress < 100 && (
+                    <div className="mb-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">
+                          Loading more tickets in background...
+                        </span>
+                        <span className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
+                          {syncProgress}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 transition-all duration-300 ease-out"
+                          style={{ width: `${syncProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {activeTab === "vistas" && !selectedViewId ? (
                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                       <Layout className="w-10 h-10 mb-2 opacity-50" />

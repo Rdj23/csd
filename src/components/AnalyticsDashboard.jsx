@@ -3105,12 +3105,25 @@ const AnalyticsDashboard = ({
         );
         if (expandedMetric === "solved") {
           dataPoint[user] = userDay?.solved || 0;
-        } else if (expandedMetric === "rwt") {
+        } else if (expandedMetric === "rwt" || expandedMetric === "avgRWT") {
           dataPoint[user] = userDay?.avgRWT
             ? Number(userDay.avgRWT.toFixed(2))
             : 0;
         } else if (expandedMetric === "backlog") {
           dataPoint[user] = userDay?.backlogCleared || 0;
+        } else if (expandedMetric === "frrPercent") {
+          // ✅ FIX: Use pre-calculated frrPercent from backend
+          dataPoint[user] = userDay?.frrPercent || 0;
+        } else if (expandedMetric === "csat") {
+          dataPoint[user] = userDay?.positiveCSAT || 0;
+        } else if (expandedMetric === "avgFRT") {
+          dataPoint[user] = userDay?.avgFRT
+            ? Number(userDay.avgFRT.toFixed(2))
+            : 0;
+        } else if (expandedMetric === "avgIterations") {
+          dataPoint[user] = userDay?.avgIterations
+            ? Number(userDay.avgIterations.toFixed(1))
+            : 0;
         }
       });
 
@@ -3132,11 +3145,19 @@ const AnalyticsDashboard = ({
             const val =
               expandedMetric === "solved"
                 ? dayData.solved
-                : expandedMetric === "rwt"
+                : expandedMetric === "rwt" || expandedMetric === "avgRWT"
                   ? dayData.avgRWT
                   : expandedMetric === "backlog"
                     ? dayData.backlogCleared
-                    : 0;
+                    : expandedMetric === "frrPercent"
+                      ? dayData.frrPercent
+                      : expandedMetric === "csat"
+                        ? dayData.positiveCSAT
+                        : expandedMetric === "avgFRT"
+                          ? dayData.avgFRT
+                          : expandedMetric === "avgIterations"
+                            ? dayData.avgIterations
+                            : 0;
             gstTotal += val || 0;
             if (teamMembers.includes(user)) {
               teamTotal += val || 0;
