@@ -890,6 +890,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
     // Bad CSAT (including all for DSAT)
     const dsatMatch = { closed_date: { $gte: start, $lte: end }, csat: 1 };
     if (excludeZendesk === "true") dsatMatch.is_zendesk = { $ne: true };
+    if (excludeNOC === "true") dsatMatch.is_noc = { $ne: true }; // Apply NOC filter to DSAT
     const badTickets = await AnalyticsTicket.find(dsatMatch, {
       ticket_id: 1,
       display_id: 1,

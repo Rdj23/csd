@@ -123,9 +123,11 @@ export const CHART_COLORS = [
 ];
 
 // Quarter date ranges
+// Note: Q1_26 starts Dec 29, 2025 (ISO Week 1) not Jan 1
+// "All Time" also starts from Dec 29, 2025 for consistency
 export const getQuarterDates = (quarter) => {
   const quarters = {
-    Q4_25: { start: new Date("2025-10-01"), end: new Date("2025-12-31") },
+    Q4_25: { start: new Date("2025-10-01"), end: new Date("2025-12-28") }, // Ends before Q1_26 starts
     Q1_26: { start: new Date("2025-12-29"), end: new Date("2026-03-31") }, // ISO Week 1 starts Dec 29
     Q2_26: { start: new Date("2026-04-01"), end: new Date("2026-06-30") },
     Q3_26: { start: new Date("2026-07-01"), end: new Date("2026-09-30") },
@@ -133,3 +135,6 @@ export const getQuarterDates = (quarter) => {
   };
   return quarters[quarter] || { start: new Date(), end: new Date() };
 };
+
+// All Time date range (starts from Q1_26)
+export const ALL_TIME_START_DATE = new Date("2025-12-29");

@@ -1029,10 +1029,10 @@ const AnalyticsDashboard = ({
       }
     }
 
-    // 2. "All Time"
+    // 2. "All Time" - Start from Dec 29, 2025 (ISO Week 1 of Q1_26)
     if (dateRange && dateRange.start === "" && dateRange.end === "") {
       return {
-        start: new Date("2025-10-01"),
+        start: new Date("2025-12-29"),
         end: new Date(),
         days: 999,
         isAllTime: true,
@@ -1061,9 +1061,9 @@ const AnalyticsDashboard = ({
   // Use global date range for expanded charts unless overridden
   const expandedEffectiveDateRange = useMemo(() => {
     if (expandedDateRange) {
-      // Handle "All Time" (empty strings)
+      // Handle "All Time" (empty strings) - Start from Dec 29, 2025 (ISO Week 1)
       if (expandedDateRange.start === "" && expandedDateRange.end === "") {
-        const allTimeStart = new Date("2025-10-01");
+        const allTimeStart = new Date("2025-12-29");
         const allTimeEnd = new Date();
         return {
           start: allTimeStart,
@@ -2637,27 +2637,34 @@ const AnalyticsDashboard = ({
     }
   }, [isGSTUser, resolvedCurrentUser]);
 
-  // Fetch server-side analytics
+  // Fetch server-side analytics with debouncing to prevent constant refreshes
   useEffect(() => {
-    fetchAnalyticsData({
-      quarter: currentQuarter,
-      excludeZendesk,
-      excludeNOC,
-      owner: filterOwner !== "All" ? filterOwner : null,
-      groupBy,
-    });
+    // Debounce the fetch to prevent rapid re-fetches on filter changes
+    const timeoutId = setTimeout(() => {
+      fetchAnalyticsData({
+        quarter: currentQuarter,
+        excludeZendesk,
+        excludeNOC,
+        owner: filterOwner !== "All" ? filterOwner : null,
+        groupBy,
+      });
+    }, 150); // 150ms debounce
+
+    return () => clearTimeout(timeoutId);
+    // Note: fetchAnalyticsData is stable from Zustand store, but we omit it to prevent potential loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     currentQuarter,
     excludeZendesk,
     excludeNOC,
     filterOwner,
-    fetchAnalyticsData,
     groupBy,
   ]);
+  // Fetch expanded trends only when modal is open, with debouncing
   useEffect(() => {
-    const fetchAllTrends = async () => {
-      if (!expandedOverviewMetric) return;
+    if (!expandedOverviewMetric) return;
 
+    const fetchAllTrends = async () => {
       setExpandedLoading(true);
       try {
         const API_BASE = import.meta.env.VITE_API_URL || "";
@@ -2713,14 +2720,16 @@ const AnalyticsDashboard = ({
       }
     };
 
-    fetchAllTrends();
+    // Debounce to prevent rapid re-fetches
+    const timeoutId = setTimeout(fetchAllTrends, 200);
+    return () => clearTimeout(timeoutId);
   }, [
     expandedOverviewMetric,
     excludeZendesk,
     filters?.teams,
     filters?.owners,
     excludeNOC,
-    currentQuarter, // ✅ FIX: Refetch when quarter changes
+    currentQuarter,
   ]);
 
   const handleQuarterChange = useCallback(
