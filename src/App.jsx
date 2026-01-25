@@ -143,6 +143,7 @@ const App = () => {
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedTeamLead, setSelectedTeamLead] = useState(null);
+  const [serverStatus, setServerStatus] = useState("connecting"); // connecting, ready, slow, error
   const shouldShowKPIs = activeTab === "tickets" || activeTab === "csd";
   const showDatePicker = useMemo(() => {
     return activeTab !== "vistas";
@@ -309,15 +310,50 @@ const App = () => {
 
   // -- Config & Theme --
   useEffect(() => {
-    const fetchConfig = async () => {
+    const fetchConfig = async (retryCount = 0) => {
+      const MAX_RETRIES = 6; // Up to 6 retries = ~60s total wait
+      const API_BASE =
+        import.meta.env.VITE_API_URL || "http://localhost:5000";
+
       try {
-        const API_BASE =
-          import.meta.env.VITE_API_URL || "http://localhost:5000";
-        const response = await fetch(`${API_BASE}/api/auth/config`);
+        // Update status based on retry count
+        if (retryCount === 0) {
+          setServerStatus("connecting");
+        } else if (retryCount >= 3) {
+          setServerStatus("slow"); // Show warning after 3 retries (~20s)
+        }
+
+        // ✅ PRODUCTION-SAFE: Intelligent retry with exponential backoff
+        const timeout = Math.min(10000 + retryCount * 2000, 20000); // 10s -> 20s
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        const startTime = Date.now();
+        const response = await fetch(`${API_BASE}/api/auth/config`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const loadTime = Date.now() - startTime;
+        console.log(`✅ Server responded in ${loadTime}ms`);
+
         const data = await response.json();
         setGoogleClientId(data.clientId);
+        setServerStatus("ready");
       } catch (error) {
-        console.error(error);
+        console.error(`Config fetch attempt ${retryCount + 1} failed:`, error);
+
+        if (retryCount < MAX_RETRIES) {
+          // Exponential backoff: 2s, 4s, 6s, 8s, 10s, 12s
+          const delay = Math.min(2000 * (retryCount + 1), 12000);
+          console.log(`Retrying in ${delay / 1000}s... (Render cold start expected)`);
+
+          setTimeout(() => fetchConfig(retryCount + 1), delay);
+        } else {
+          console.error("All retry attempts exhausted");
+          setGoogleClientId("error");
+          setServerStatus("error");
+        }
       }
     };
     fetchConfig();
@@ -1148,8 +1184,67 @@ ${
 
   if (!googleClientId)
     return (
-      <div className="flex h-screen items-center justify-center">
-        Loading Configuration...
+      <div className="flex h-screen items-center justify-center flex-col gap-6 bg-slate-50 dark:bg-slate-900 p-6">
+        <img
+          src="https://res.cloudinary.com/diwc3efjb/image/upload/v1766049455/clevertap_vtpmh8.jpg"
+          className="h-12 rounded-md"
+          alt="Logo"
+        />
+
+        {googleClientId === "error" ? (
+          <>
+            <div className="flex flex-col items-center gap-2">
+              <AlertTriangle className="w-12 h-12 text-rose-500" />
+              <div className="text-rose-600 dark:text-rose-400 font-semibold text-lg">
+                Unable to Connect
+              </div>
+              <div className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-md">
+                The server is not responding. This may be temporary. Please contact your admin if this persists.
+              </div>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-lg"
+            >
+              <RefreshCw className="w-4 h-4" /> Try Again
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="relative">
+              <div className="w-12 h-12 border-4 border-indigo-200 dark:border-indigo-900 rounded-full"></div>
+              <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+            </div>
+
+            <div className="flex flex-col items-center gap-2">
+              <div className="text-slate-700 dark:text-slate-300 font-semibold text-lg">
+                {serverStatus === "connecting" && "Waking up server..."}
+                {serverStatus === "slow" && "Almost there..."}
+                {serverStatus === "ready" && "Connected!"}
+              </div>
+
+              {serverStatus === "connecting" && (
+                <div className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-md">
+                  First access may take <strong>30-60 seconds</strong> on Render's free tier.
+                  <br />
+                  Please wait while the server initializes.
+                </div>
+              )}
+
+              {serverStatus === "slow" && (
+                <div className="text-amber-600 dark:text-amber-400 text-sm text-center max-w-md flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Server is starting up. This is normal for first access.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              Retry logic active
+            </div>
+          </>
+        )}
       </div>
     );
   if (!isAuthenticated)

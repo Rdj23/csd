@@ -79,7 +79,12 @@ const initRedis = async () => {
       redis = null;
     });
 
-    await redis.connect();
+    // ✅ OPTIMIZED: Connect in background - don't block server startup
+    redis.connect().catch((err) => {
+      console.error("Redis Init Failed:", err.message);
+      console.log("⚠️ Continuing without Redis cache");
+      redis = null;
+    });
   } catch (err) {
     console.error("Redis Init Failed:", err.message);
     console.log("⚠️ Continuing without Redis cache");
@@ -87,6 +92,7 @@ const initRedis = async () => {
   }
 };
 
+// ✅ Start Redis connection immediately (non-blocking)
 initRedis();
 
 // --- REDIS CACHE HELPERS ---
@@ -1970,18 +1976,51 @@ const syncHistoricalToDB = async (fullHistory = false) => {
   );
 };
 
-// Health check with Redis status
+// ✅ PRODUCTION MONITORING: Track server health and usage
+const serverMetrics = {
+  startTime: Date.now(),
+  requests: 0,
+  coldStarts: 0,
+  lastRequest: null,
+};
+
+// Health check with comprehensive monitoring
 app.get("/api/health", async (req, res) => {
+  serverMetrics.requests++;
+  serverMetrics.lastRequest = Date.now();
+
+  // Detect cold start (server started < 30s ago)
+  const isColdStart = process.uptime() < 30;
+  if (isColdStart && serverMetrics.requests === 1) {
+    serverMetrics.coldStarts++;
+  }
+
   const mongoStatus =
     mongoose.connection.readyState === 1 ? "connected" : "disconnected";
   const redisStatus = redis?.status || "disconnected";
 
   res.json({
     status: "ok",
-    mongo: mongoStatus,
-    redis: redisStatus,
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
+    server: {
+      uptime: process.uptime(),
+      startedAt: new Date(serverMetrics.startTime).toISOString(),
+      isColdStart,
+    },
+    services: {
+      mongodb: mongoStatus,
+      redis: redisStatus,
+    },
+    metrics: {
+      totalRequests: serverMetrics.requests,
+      coldStarts: serverMetrics.coldStarts,
+      lastRequest: serverMetrics.lastRequest
+        ? new Date(serverMetrics.lastRequest).toISOString()
+        : null,
+    },
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + " MB",
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + " MB",
+    },
   });
 });
 
@@ -2911,13 +2950,19 @@ setTimeout(warmCache, 5000);
 
 server.listen(PORT, async () => {
   console.log(`🚀 Server on port ${PORT}`);
-  const count = await AnalyticsTicket.countDocuments();
-  console.log(
-    count
-      ? `✅ ${count} tickets in MongoDB`
-      : "⚠️ MongoDB empty - run /api/admin/backfill",
-  );
-  await syncRoster();
+
+  // Non-blocking: count tickets in background
+  AnalyticsTicket.countDocuments().then((count) => {
+    console.log(
+      count
+        ? `✅ ${count} tickets in MongoDB`
+        : "⚠️ MongoDB empty - run /api/admin/backfill",
+    );
+  });
+
+  // Non-blocking: sync roster in background (don't wait)
+  syncRoster().catch((err) => console.error("Roster sync failed:", err));
+  console.log("✅ Server ready - background tasks running");
 });
 setInterval(
   () => {
