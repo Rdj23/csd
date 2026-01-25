@@ -16,30 +16,7 @@ import {
   Shield,
 } from "lucide-react";
 import axios from "axios";
-import { FLAT_TEAM_MAP } from "../utils";
-
-// Map email to GST name
-const EMAIL_TO_NAME_MAP = {
-  "rohan.jadhav@clevertap.com": "Rohan",
-  "archie@clevertap.com": "Archie",
-  "neha.yadav@clevertap.com": "Neha",
-  "shreya.khale@clevertap.com": "Shreya",
-  "vaibhav.agarwal@clevertap.com": "Vaibhav",
-  "adarsh@clevertap.com": "Adarsh",
-  "abhishek.vishwakarma@clevertap.com": "Abhishek",
-  "shubhankar@clevertap.com": "Shubhankar",
-  "musaveer.manekia@clevertap.com": "Musaveer",
-  "anurag.ghatge@clevertap.com": "Anurag",
-  "debashish.muni@clevertap.com": "Debashish",
-  "aditya.mishra@clevertap.com": "Aditya",
-  "shweta.more@clevertap.com": "Shweta",
-  "nikita.narwani@clevertap.com": "Nikita", 
-  "mohammed.khan@clevertap.com": "Tuaha Khan",
-  "harsh.singh@clevertap.com": "Harsh",
-  "tamanna@clevertap.com": "Tamanna",
-  "shreyas.naikwadi@clevertap.com": "Shreyas",
-  "adish@clevertap.com": "Adish",
-};
+import { EMAIL_TO_NAME_MAP } from "../utils";
 
 const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = false }) => {
   const [data, setData] = useState(null);
@@ -98,7 +75,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
     );
   };
 
-  const sortedData = () => {
+  const sortedData = useMemo(() => {
     if (!data?.data?.[activeTab]) return [];
     const list = [...data.data[activeTab]];
 
@@ -111,7 +88,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
     });
 
     return list;
-  };
+  }, [data, activeTab, sortBy, sortDir]);
 
   const handleSort = (col) => {
     if (sortBy === col) {
@@ -148,7 +125,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
     );
   }
 
-  const topThree = sortedData().slice(0, 3);
+  const topThree = sortedData.slice(0, 3);
 
   // Helper to get color class based on percentile
   const getPercentileColor = (percentile) => {
@@ -488,7 +465,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {sortedData().map((eng, idx) => (
+                  {sortedData.map((eng, idx) => (
                     <tr
                       key={eng.name}
                       className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${

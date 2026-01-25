@@ -72,12 +72,7 @@ import {
   formatRWT,
   TEAM_REGION_MAP,
 } from "./utils";
-
-const SUPER_ADMIN_EMAILS = [
-  "rohan.jadhav@clevertap.com",
-  "anmol.sawhney@clevertap.com"
-  // Add other admin emails here
-];
+import { SUPER_ADMIN_EMAILS } from "./components/analytics/analyticsConfig";
 const EMPTY_FILTERS = {
   teams: [],
   owners: [],

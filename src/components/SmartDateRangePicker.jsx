@@ -54,10 +54,10 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
         start: format(startOfMonth(subMonths(today, 1)), "yyyy-MM-dd"), 
         end: format(endOfMonth(subMonths(today, 1)), "yyyy-MM-dd") 
       }},
-      // Q1'26: Jan 1 - Mar 31, 2026
-      { label: "Q1'26", value: { 
-        start: "2026-01-01", 
-        end: "2026-03-31" 
+      // Q1'26: Dec 29, 2025 - Mar 31, 2026 (ISO Week 1 starts Dec 29)
+      { label: "Q1'26", value: {
+        start: "2025-12-29",
+        end: "2026-03-31"
       }},
       // Q4'25: Oct 1 - Dec 31, 2025
       // { label: "Q4'25", value: { 

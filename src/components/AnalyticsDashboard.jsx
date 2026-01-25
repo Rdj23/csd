@@ -2074,6 +2074,7 @@ const AnalyticsDashboard = ({
             agg.iterCount > 0 ? agg.avgIterations / agg.iterCount : 0,
           positiveCSAT: agg.positiveCSAT,
           frrMet: agg.frrMet,
+          frrPercent: agg.solved > 0 ? Math.round((agg.frrMet / agg.solved) * 100) : 0,
         }));
 
         // Continue with existing logic using filtered trends...

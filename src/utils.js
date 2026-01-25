@@ -22,6 +22,29 @@ export const TEAM_REGION_MAP = {
 // };
 export const FLAT_TEAM_MAP = Object.values(TEAM_GROUPS).reduce((acc, group) => ({ ...acc, ...group }), {});
 
+// Map email addresses to GST names
+export const EMAIL_TO_NAME_MAP = {
+  "rohan.jadhav@clevertap.com": "Rohan",
+  "archie@clevertap.com": "Archie",
+  "neha.yadav@clevertap.com": "Neha",
+  "shreya.khale@clevertap.com": "Shreya",
+  "vaibhav.agarwal@clevertap.com": "Vaibhav",
+  "adarsh@clevertap.com": "Adarsh",
+  "abhishek.vishwakarma@clevertap.com": "Abhishek",
+  "shubhankar@clevertap.com": "Shubhankar",
+  "musaveer.manekia@clevertap.com": "Musaveer",
+  "anurag.ghatge@clevertap.com": "Anurag",
+  "debashish.muni@clevertap.com": "Debashish",
+  "aditya.mishra@clevertap.com": "Aditya",
+  "shweta.more@clevertap.com": "Shweta",
+  "nikita.narwani@clevertap.com": "Nikita",
+  "mohammed.khan@clevertap.com": "Tuaha Khan",
+  "harsh.singh@clevertap.com": "Harsh",
+  "tamanna@clevertap.com": "Tamanna",
+  "shreyas.naikwadi@clevertap.com": "Shreyas",
+  "adish@clevertap.com": "Adish",
+};
+
 export const calculateResolutionTime = (createdISO, closedISO) => {
   if (!createdISO || !closedISO) return "N/A";
   

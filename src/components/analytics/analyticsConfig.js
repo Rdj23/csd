@@ -26,7 +26,10 @@ export const HIDDEN_USERS = [
 ];
 
 // Super admin emails for elevated access
-export const SUPER_ADMIN_EMAILS = ["rohan.jadhav@clevertap.com"];
+export const SUPER_ADMIN_EMAILS = [
+  "rohan.jadhav@clevertap.com",
+  "anmol.sawhney@clevertap.com",
+];
 
 // ============================================================================
 // CHART METRICS CONFIG
