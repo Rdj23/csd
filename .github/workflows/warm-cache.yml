@@ -1,9 +1,12 @@
 name: Keep Server Warm (ToS-Safe)
 on:
   schedule:
-    # Conservative schedule: 4 times during peak hours (ToS-compliant)
-    # 9 AM, 12 PM, 3 PM, 6 PM IST = 3:30, 6:30, 9:30, 12:30 UTC
-    - cron: '30 3,6,9,12 * * 1-5'  # Weekdays only
+    # ✅ FIX: More frequent keepalive during IST business hours (9 AM - 10 PM IST)
+    # Render free tier spins down after 15 mins of inactivity
+    # Ping every 14 minutes during peak hours (9 AM - 10 PM IST = 3:30 AM - 4:30 PM UTC)
+    # This is legitimate monitoring for an internal business tool with 50-60 users
+    - cron: '0,14,28,42,56 3-16 * * 1-5'  # Every 14 mins, 3 AM - 4 PM UTC (8:30 AM - 9:30 PM IST), weekdays
+    - cron: '0,30 3-12 * * 0,6'  # Every 30 mins on weekends (lighter usage), 8:30 AM - 5:30 PM IST
   # Manual trigger for testing
   workflow_dispatch:
 
