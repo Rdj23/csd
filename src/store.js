@@ -12,7 +12,6 @@ export const useTicketStore = create(
       // Active tickets (open/pending)
       tickets: [],
       isLoading: false,
-      isRefreshing: false, // Background refresh in progress
       
       // ✅ NEW: Pre-aggregated analytics data from server
       analyticsData: null, // { stats, trends, leaderboard, badTickets, individualTrends }
@@ -137,52 +136,34 @@ export const useTicketStore = create(
       },
 
       // ============================================================================
-      // ✅ OPTIMIZED: ACTIVE TICKETS (Paginated & Lightweight)
+      // ✅ SIMPLIFIED: Just fetch tickets, no complex logic
       // ============================================================================
-      fetchTickets: async (page = 1, limit = 0) => {
+      fetchTickets: async () => {
         set({ isLoading: true });
         try {
           const API_URL = getApiUrl();
-
-          // ✅ Build query params for pagination (optional)
-          const params = new URLSearchParams();
-          if (page > 1) params.append('page', page);
-          if (limit > 0) params.append('limit', limit);
-
-          const url = `${API_URL}/api/tickets${params.toString() ? '?' + params.toString() : ''}`;
-          const response = await fetch(url);
+          const response = await fetch(`${API_URL}/api/tickets`);
           const data = await response.json();
 
-          // ✅ Detect stale data being served
-          const isStale = data.stale === true || data.refreshing === true;
+          set({
+            tickets: data.tickets || [],
+            lastSync: new Date(),
+            isLoading: false
+          });
 
-          // ✅ Handle paginated response
-          if (data.pagination) {
-            set({
-              tickets: data.tickets || [],
-              lastSync: new Date(),
-              isLoading: false,
-              isRefreshing: isStale, // Track if background refresh happening
-              pagination: data.pagination // Store pagination metadata
-            });
-          } else {
-            // Non-paginated response (all tickets)
-            set({
-              tickets: data.tickets || [],
-              lastSync: new Date(),
-              isLoading: false,
-              isRefreshing: isStale
-            });
-          }
-
-          // ✅ If stale data, poll for fresh data
-          if (isStale) {
-            console.log("📊 Stale data served - will refresh in 5s");
-            setTimeout(() => get().fetchTickets(), 5000); // Retry in 5s
+          // ✅ If empty, retry ONCE after 15 seconds (cache is warming)
+          if ((!data.tickets || data.tickets.length === 0)) {
+            console.log("⏳ No data yet, will retry in 15s...");
+            setTimeout(() => {
+              const currentTickets = get().tickets;
+              if (currentTickets.length === 0) {
+                get().fetchTickets();
+              }
+            }, 15000);
           }
         } catch (error) {
           console.error("Sync failed:", error);
-          set({ isLoading: false, isRefreshing: false });
+          set({ isLoading: false });
         }
       },
 

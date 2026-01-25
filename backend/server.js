@@ -1361,90 +1361,34 @@ const fetchAndCacheTickets = async (source = "auto") => {
 };
 
 // ============================================================================
-// ✅ ACTIVE TICKETS (Dashboard) - Optimized for Cold Starts
+// ✅ ACTIVE TICKETS - SIMPLIFIED & FAST
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
   try {
-    // ✅ PAGINATION SUPPORT: Extract page and limit from query params
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 0; // 0 = no limit (return all)
+    // ✅ SIMPLE: Return from Redis cache, period
+    const cachedTickets = await redisGet("tickets:active");
 
-    // 1. Try Redis first (fastest)
-    const redisData = await redisGet("tickets:active");
-    if (redisData) {
-      console.log("⚡ Active Tickets: Redis HIT");
+    if (cachedTickets && cachedTickets.length > 0) {
+      console.log(`⚡ Redis HIT: ${cachedTickets.length} tickets`);
+      return res.json({ tickets: cachedTickets, total: cachedTickets.length });
+    }
 
-      // ✅ APPLY PAGINATION if requested
-      if (limit > 0) {
-        const startIndex = (page - 1) * limit;
-        const endIndex = startIndex + limit;
-        const paginatedTickets = redisData.slice(startIndex, endIndex);
+    // ✅ CACHE MISS: Trigger sync if not already running
+    console.log("⏳ Cache miss - syncing now");
 
-        return res.json({
-          tickets: paginatedTickets,
-          pagination: {
-            page,
-            limit,
-            total: redisData.length,
-            totalPages: Math.ceil(redisData.length / limit),
-            hasMore: endIndex < redisData.length
-          }
-        });
+    if (!isSyncing) {
+      // Run sync and WAIT for it (only on cache miss)
+      await fetchAndCacheTickets("on_demand");
+
+      // Get fresh data
+      const freshTickets = await redisGet("tickets:active");
+      if (freshTickets) {
+        return res.json({ tickets: freshTickets, total: freshTickets.length });
       }
-
-      // Return all tickets if no pagination requested
-      return res.json({ tickets: redisData, total: redisData.length });
     }
 
-    // 2. ✅ COLD START OPTIMIZATION: Check MongoDB for stale data
-    console.log("⏳ Redis miss - checking MongoDB for cached data...");
-
-    const mongoTickets = await AnalyticsTicket.find({}).lean().limit(1000);
-
-    if (mongoTickets && mongoTickets.length > 0) {
-      // ✅ SERVE STALE DATA IMMEDIATELY (better than empty)
-      console.log(`✅ Serving ${mongoTickets.length} tickets from MongoDB (may be stale)`);
-
-      // Map MongoDB format to expected format
-      const formattedTickets = mongoTickets.map(t => ({
-        id: t.id,
-        display_id: t.display_id,
-        title: t.title,
-        priority: t.priority,
-        severity: t.severity,
-        account: t.account,
-        stage: t.stage,
-        owned_by: t.owned_by,
-        created_date: t.created_date,
-        modified_date: t.modified_date,
-        custom_fields: t.custom_fields,
-        tags: t.tags,
-        isZendesk: t.isZendesk,
-        actual_close_date: t.actual_close_date,
-      }));
-
-      // Start background refresh (non-blocking)
-      fetchAndCacheTickets("cold_start_refresh").catch(console.error);
-
-      return res.json({
-        tickets: formattedTickets,
-        total: formattedTickets.length,
-        stale: true, // Indicate data may be outdated
-        refreshing: true, // Background sync in progress
-        message: "Data refreshing in background..."
-      });
-    }
-
-    // 3. No data anywhere - return empty, start sync
-    console.log("⚠️ No cached data found - starting first sync");
-    fetchAndCacheTickets("first_load").catch(console.error);
-
-    res.json({
-      tickets: [],
-      syncing: true,
-      total: 0,
-      message: "First-time data load in progress...",
-    });
+    // Sync in progress, return empty
+    res.json({ tickets: [], total: 0 });
   } catch (e) {
     console.error("❌ /api/tickets error:", e.message);
     res.status(500).json({ tickets: [], error: e.message });

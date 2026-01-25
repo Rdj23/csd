@@ -121,7 +121,6 @@ const App = () => {
   const {
     tickets,
     isLoading,
-    isRefreshing,
     fetchTickets,
     connectSocket,
     currentUser,
@@ -135,7 +134,6 @@ const App = () => {
     deleteView,
     dependencies,
     fetchDependencies,
-    dependenciesLoading,
   } = useTicketStore();
 
   const [googleClientId, setGoogleClientId] = useState(null);
@@ -2139,13 +2137,6 @@ ${
         </div>
       </div>
 
-      {/* DATA REFRESHING BANNER */}
-      {isRefreshing && tickets.length > 0 && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-white px-4 py-2 rounded-full shadow-xl flex items-center gap-2 text-xs font-bold animate-in slide-in-from-top">
-          <RefreshCw className="w-3 h-3 animate-spin" />
-          Refreshing latest data...
-        </div>
-      )}
 
       {/* TOAST */}
       {toastMessage && (
