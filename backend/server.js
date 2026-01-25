@@ -306,6 +306,16 @@ const AnalyticsCacheSchema = new mongoose.Schema({
 });
 const AnalyticsCache = mongoose.model("AnalyticsCache", AnalyticsCacheSchema);
 
+// ✅ NEW: Pre-computed Dashboard Cache - Updated every 15 minutes in background
+// This provides instant response times for users
+const PrecomputedDashboardSchema = new mongoose.Schema({
+  cache_type: { type: String, unique: true, index: true }, // 'default', 'q4_25', 'q1_26'
+  computed_at: { type: Date, default: Date.now },
+  data: Object, // Full analytics response
+  computing: { type: Boolean, default: false }, // Lock to prevent concurrent refreshes
+});
+const PrecomputedDashboard = mongoose.model("PrecomputedDashboard", PrecomputedDashboardSchema);
+
 // --- MIDDLEWARE ---
 app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
@@ -681,7 +691,24 @@ app.get("/api/tickets/analytics", async (req, res) => {
     } = req.query;
     const cacheKey = `analytics:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${groupBy}`;
 
-    // 1. Check Redis cache first (fastest)
+    // ✅ NEW: Check pre-computed cache first (FASTEST - instant response)
+    // Only for default queries without filters (most common case)
+    const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && groupBy === "daily";
+    if (isDefaultQuery && forceRefresh !== "true") {
+      const cacheType = quarter.toLowerCase().replace("_", "");
+      const precomputed = await PrecomputedDashboard.findOne({ cache_type: cacheType }).lean();
+
+      if (precomputed?.data && !precomputed.computing) {
+        const age = Date.now() - new Date(precomputed.computed_at).getTime();
+        // Serve if less than 20 minutes old
+        if (age < 20 * 60 * 1000) {
+          console.log(`⚡ PRECOMPUTED HIT: ${quarter} (${Math.round(age / 1000)}s old)`);
+          return res.json(precomputed.data);
+        }
+      }
+    }
+
+    // 1. Check Redis cache first (fastest for filtered queries)
     if (forceRefresh !== "true") {
       const redisData = await redisGet(cacheKey);
       if (redisData) {
@@ -3133,6 +3160,165 @@ mongoose.connection.once("open", () => {
   warmCache("mongodb-open");
 });
 
+// ============================================================================
+// ✅ NEW: BACKGROUND CACHE REFRESH - Updates pre-computed data every 15 minutes
+// This ensures users always get instant responses from cached data
+// ============================================================================
+const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
+
+const precomputeAnalytics = async (quarter) => {
+  const cacheType = quarter.toLowerCase().replace("_", "");
+
+  try {
+    // Check if already computing (prevent concurrent refreshes)
+    const existing = await PrecomputedDashboard.findOne({ cache_type: cacheType });
+    if (existing?.computing) {
+      console.log(`⏭️ Skipping ${quarter} - already computing`);
+      return;
+    }
+
+    // Mark as computing
+    await PrecomputedDashboard.findOneAndUpdate(
+      { cache_type: cacheType },
+      { $set: { computing: true } },
+      { upsert: true }
+    );
+
+    console.log(`🔄 Pre-computing ${quarter} analytics...`);
+
+    // Compute fresh analytics data
+    const { start, end } = getQuarterDateRange(quarter);
+    const matchConditions = {
+      closed_date: { $gte: start, $lte: end },
+    };
+
+    const [statsResult] = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      {
+        $group: {
+          _id: null,
+          totalTickets: { $sum: 1 },
+          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+          avgIterations: { $avg: { $cond: [{ $ne: ["$iterations", null] }, "$iterations", null] } },
+          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          frrMet: { $sum: "$frr" },
+          frrTotal: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const trends = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+          solved: { $sum: 1 },
+          avgRWT: { $avg: "$rwt" },
+          avgFRT: { $avg: "$frt" },
+          avgIterations: { $avg: "$iterations" },
+          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          frrTotal: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $limit: 100 },
+    ]);
+
+    const trendsWithFRRPercent = trends.map((t) => ({
+      date: t._id,
+      solved: t.solved,
+      avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
+      avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
+      avgIterations: t.avgIterations ? Number(t.avgIterations.toFixed(1)) : 0,
+      positiveCSAT: t.positiveCSAT,
+      frrMet: t.frrMet,
+      frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0,
+    }));
+
+    const leaderboard = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      {
+        $group: {
+          _id: "$owner",
+          totalTickets: { $sum: 1 },
+          goodCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          badCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          avgRWT: { $avg: "$rwt" },
+          avgFRT: { $avg: "$frt" },
+        },
+      },
+      { $match: { _id: { $ne: null }, totalTickets: { $gte: 3 } } },
+      { $sort: { goodCSAT: -1 } },
+      { $limit: 25 },
+    ]);
+
+    const response = {
+      quarter,
+      dateRange: { start, end },
+      stats: {
+        totalTickets: statsResult?.totalTickets || 0,
+        avgRWT: statsResult?.avgRWT ? Number(statsResult.avgRWT.toFixed(2)) : 0,
+        avgFRT: statsResult?.avgFRT ? Number(statsResult.avgFRT.toFixed(2)) : 0,
+        avgIterations: statsResult?.avgIterations ? Number(statsResult.avgIterations.toFixed(1)) : 0,
+        positiveCSAT: statsResult?.positiveCSAT || 0,
+        negativeCSAT: statsResult?.negativeCSAT || 0,
+        frrPercent: statsResult?.frrTotal > 0 ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100) : 0,
+      },
+      trends: trendsWithFRRPercent,
+      leaderboard: leaderboard.map((l) => ({
+        name: l._id,
+        totalTickets: l.totalTickets,
+        goodCSAT: l.goodCSAT,
+        badCSAT: l.badCSAT,
+        winRate: l.goodCSAT + l.badCSAT > 0 ? Math.round((l.goodCSAT / (l.goodCSAT + l.badCSAT)) * 100) : 0,
+        avgRWT: l.avgRWT ? Number(l.avgRWT.toFixed(2)) : 0,
+        avgFRT: l.avgFRT ? Number(l.avgFRT.toFixed(2)) : 0,
+      })),
+      computed_at: new Date(),
+      _isPrecomputed: true,
+    };
+
+    // Store pre-computed data
+    await PrecomputedDashboard.findOneAndUpdate(
+      { cache_type: cacheType },
+      { $set: { data: response, computed_at: new Date(), computing: false } },
+      { upsert: true }
+    );
+
+    console.log(`✅ Pre-computed ${quarter} analytics (${response.stats.totalTickets} tickets)`);
+    return response;
+  } catch (error) {
+    console.error(`❌ Pre-compute ${quarter} failed:`, error.message);
+    // Reset computing flag on error
+    await PrecomputedDashboard.findOneAndUpdate(
+      { cache_type: cacheType },
+      { $set: { computing: false } }
+    ).catch(() => {});
+  }
+};
+
+// Background refresh job
+const startBackgroundRefresh = () => {
+  console.log("🔄 Starting background cache refresh (every 15 min)...");
+
+  // Initial pre-compute after 10 seconds (let server stabilize first)
+  setTimeout(async () => {
+    console.log("🚀 Initial pre-computation starting...");
+    await precomputeAnalytics("Q4_25");
+    await precomputeAnalytics("Q1_26");
+  }, 10000);
+
+  // Schedule refresh every 15 minutes
+  setInterval(async () => {
+    console.log("⏰ Scheduled cache refresh...");
+    await precomputeAnalytics("Q4_25");
+    await precomputeAnalytics("Q1_26");
+  }, REFRESH_INTERVAL);
+};
+
 server.listen(PORT, async () => {
   console.log(`🚀 Server on port ${PORT}`);
 
@@ -3155,6 +3341,9 @@ server.listen(PORT, async () => {
       warmCache("server-listen-fallback");
     }
   }, 5000);
+
+  // ✅ NEW: Start background cache refresh for instant load times
+  startBackgroundRefresh();
 
   console.log("✅ Server ready - background tasks running");
 });
