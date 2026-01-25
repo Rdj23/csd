@@ -154,7 +154,18 @@ export const useTicketStore = create(
       // ============================================================================
       // ✅ PROGRESSIVE LOADING: Fetch tickets with partial data support
       // ============================================================================
+      _retryCount: 0, // Track retry attempts to prevent infinite loops
+      _maxRetries: 3, // Maximum retry attempts
+
       fetchTickets: async () => {
+        const state = get();
+
+        // Prevent multiple concurrent fetches
+        if (state.isLoading) {
+          console.log("⏭️ Fetch already in progress, skipping");
+          return;
+        }
+
         set({ isLoading: true });
         try {
           const API_URL = getApiUrl();
@@ -168,33 +179,43 @@ export const useTicketStore = create(
             lastSync: new Date(),
             isLoading: false,
             isPartialData: data.isPartial || false,
-            syncProgress: data.isPartial ? 30 : 100, // Show progress
+            syncProgress: data.isPartial ? 30 : 100,
+            _retryCount: hasTickets && !data.isPartial ? 0 : state._retryCount, // Reset on success
           });
 
           console.log(`📦 Loaded ${data.tickets?.length || 0} tickets (${data.isPartial ? 'partial' : 'complete'})`);
 
-          // ✅ If empty or partial, retry after a short delay
-          if (!hasTickets || data.isPartial) {
-            console.log("⏳ Data loading... will retry in 3s");
+          // Only retry if partial and under max retries
+          if ((!hasTickets || data.isPartial) && state._retryCount < state._maxRetries) {
+            const nextRetryCount = state._retryCount + 1;
+            const retryDelay = 3000 * nextRetryCount; // Exponential backoff
+            console.log(`⏳ Data loading... retry ${nextRetryCount}/${state._maxRetries} in ${retryDelay/1000}s`);
+
+            set({ _retryCount: nextRetryCount });
             setTimeout(() => {
               const currentState = get();
-              // Only retry if we still have no data or partial data
-              if (currentState.tickets.length === 0 || currentState.isPartialData) {
+              if ((currentState.tickets.length === 0 || currentState.isPartialData)
+                  && currentState._retryCount < currentState._maxRetries) {
                 get().fetchTickets();
               }
-            }, 3000);
+            }, retryDelay);
           }
         } catch (error) {
           console.error("Sync failed:", error);
+          const currentRetryCount = get()._retryCount;
           set({ isLoading: false, isPartialData: false });
 
-          // Retry on error after 5 seconds
-          setTimeout(() => {
-            if (get().tickets.length === 0) {
-              console.log("⏳ Retrying after error...");
-              get().fetchTickets();
-            }
-          }, 5000);
+          // Retry on error with exponential backoff, but respect max retries
+          if (currentRetryCount < get()._maxRetries) {
+            const retryDelay = 5000 * (currentRetryCount + 1);
+            console.log(`⏳ Retrying after error... attempt ${currentRetryCount + 1}/${get()._maxRetries}`);
+            set({ _retryCount: currentRetryCount + 1 });
+            setTimeout(() => {
+              if (get().tickets.length === 0 && get()._retryCount < get()._maxRetries) {
+                get().fetchTickets();
+              }
+            }, retryDelay);
+          }
         }
       },
 
