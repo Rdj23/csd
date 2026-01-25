@@ -2812,8 +2812,9 @@ app.get("/api/gamification", async (req, res) => {
       }
     });
 
-    // Helper: Calculate rank and percentile for a metric
-    // lowerIsBetter = true for RWT and Iterations
+    // =========================================================================
+    // STEP 1: Calculate per-metric PERCENTILES (for DISPLAY ONLY, not scoring)
+    // =========================================================================
     const calculateMetricPercentiles = (arr, metricKey, lowerIsBetter = false) => {
       const total = arr.length;
       if (total === 0) return;
@@ -2826,27 +2827,27 @@ app.get("/api/gamification", async (req, res) => {
         return b[metricKey] - a[metricKey]; // Higher is better = rank 1
       });
 
-      // Assign ranks
+      // Assign ranks and percentiles (FOR DISPLAY ONLY)
       sorted.forEach((entry, idx) => {
         const rank = idx + 1;
-        // Find original entry and add metric rank/percentile
         const original = arr.find(e => e.name === entry.name);
         if (original) {
           original[`${metricKey}Rank`] = rank;
+          // Percentile for display: ((Total - Rank + 1) / Total) × 100
           original[`${metricKey}Percentile`] = Math.round(((total - rank + 1) / total) * 100);
         }
       });
     };
 
-    // Calculate per-metric percentiles for L1
-    calculateMetricPercentiles(data.L1, "productivity", false);      // Higher is better
-    calculateMetricPercentiles(data.L1, "csatPercent", false);       // Higher is better
-    calculateMetricPercentiles(data.L1, "positiveCSAT", false);      // Higher is better (#CSATs)
-    calculateMetricPercentiles(data.L1, "avgRWT", true);             // Lower is better
-    calculateMetricPercentiles(data.L1, "avgIterations", true);      // Lower is better
-    calculateMetricPercentiles(data.L1, "frrPercent", false);        // Higher is better
+    // Calculate display percentiles for L1
+    calculateMetricPercentiles(data.L1, "productivity", false);
+    calculateMetricPercentiles(data.L1, "csatPercent", false);
+    calculateMetricPercentiles(data.L1, "positiveCSAT", false);
+    calculateMetricPercentiles(data.L1, "avgRWT", true);
+    calculateMetricPercentiles(data.L1, "avgIterations", true);
+    calculateMetricPercentiles(data.L1, "frrPercent", false);
 
-    // Calculate per-metric percentiles for L2
+    // Calculate display percentiles for L2
     calculateMetricPercentiles(data.L2, "productivity", false);
     calculateMetricPercentiles(data.L2, "csatPercent", false);
     calculateMetricPercentiles(data.L2, "positiveCSAT", false);
@@ -2854,28 +2855,101 @@ app.get("/api/gamification", async (req, res) => {
     calculateMetricPercentiles(data.L2, "avgIterations", true);
     calculateMetricPercentiles(data.L2, "frrPercent", false);
 
-    // Calculate Weighted Average using PERCENTILES
+    // =========================================================================
+    // STEP 2: Calculate NORMALIZED SCORES (0-100) using Min-Max normalization
+    // This is what MUST be used for weighted scoring (NOT percentiles)
+    // =========================================================================
+    const calculateNormalizedScores = (arr) => {
+      if (arr.length === 0) return;
+
+      // Define metrics with their normalization direction
+      const metrics = [
+        { key: "productivity", lowerIsBetter: false },
+        { key: "csatPercent", lowerIsBetter: false },
+        { key: "positiveCSAT", lowerIsBetter: false },
+        { key: "avgRWT", lowerIsBetter: true },
+        { key: "avgIterations", lowerIsBetter: true },
+        { key: "frrPercent", lowerIsBetter: false },
+      ];
+
+      metrics.forEach(({ key, lowerIsBetter }) => {
+        // Extract all values for this metric
+        const values = arr.map(e => e[key] || 0);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const range = max - min;
+
+        arr.forEach(e => {
+          const value = e[key] || 0;
+          let normalizedScore;
+
+          if (range === 0) {
+            // All values are the same - everyone gets 100 (equal performance)
+            normalizedScore = 100;
+          } else if (lowerIsBetter) {
+            // INVERTED: Lower raw value = Higher score
+            // Formula: ((max - value) / range) × 100
+            normalizedScore = ((max - value) / range) * 100;
+          } else {
+            // STANDARD: Higher raw value = Higher score
+            // Formula: ((value - min) / range) × 100
+            normalizedScore = ((value - min) / range) * 100;
+          }
+
+          // Store normalized score (0-100 scale)
+          e[`${key}NormScore`] = parseFloat(normalizedScore.toFixed(2));
+        });
+      });
+    };
+
+    // Calculate normalized scores for both L1 and L2
+    calculateNormalizedScores(data.L1);
+    calculateNormalizedScores(data.L2);
+
+    // =========================================================================
+    // STEP 3: Calculate FINAL SCORE using weighted sum of NORMALIZED SCORES
     // Weights: Productivity(30%), CSAT%(15%/20%), #CSATs(10%), RWT(15%), Iterations(15%), FRR%(15%)
-    const calculateWeightedAvg = (e, isL2) => {
+    // CRITICAL: Uses normalizedScores, NOT percentiles
+    // =========================================================================
+    const calculateFinalScore = (e, isL2) => {
       const csatWeight = isL2 ? 0.20 : 0.15;
 
       return (
-        (e.productivityPercentile || 0) * 0.30 +
-        (e.csatPercentPercentile || 0) * csatWeight +
-        (e.positiveCSATPercentile || 0) * 0.10 +
-        (e.avgRWTPercentile || 0) * 0.15 +
-        (e.avgIterationsPercentile || 0) * 0.15 +
-        (e.frrPercentPercentile || 0) * 0.15
+        (e.productivityNormScore || 0) * 0.30 +
+        (e.csatPercentNormScore || 0) * csatWeight +
+        (e.positiveCSATNormScore || 0) * 0.10 +
+        (e.avgRWTNormScore || 0) * 0.15 +
+        (e.avgIterationsNormScore || 0) * 0.15 +
+        (e.frrPercentNormScore || 0) * 0.15
       );
     };
 
-    // Calculate weighted avg
-    data.L1.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, false).toFixed(1)); });
-    data.L2.forEach(e => { e.weightedAvg = parseFloat(calculateWeightedAvg(e, true).toFixed(1)); });
+    // Calculate final scores
+    data.L1.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e, false).toFixed(2)); });
+    data.L2.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e, true).toFixed(2)); });
 
-    // Sort by weighted avg (higher is better) and assign final Stack Rank + Percentile
-    data.L1.sort((a, b) => b.weightedAvg - a.weightedAvg);
-    data.L2.sort((a, b) => b.weightedAvg - a.weightedAvg);
+    // Also keep weightedAvg for backward compatibility (now correctly calculated)
+    data.L1.forEach(e => { e.weightedAvg = e.finalScore; });
+    data.L2.forEach(e => { e.weightedAvg = e.finalScore; });
+
+    // =========================================================================
+    // STEP 4: Sort by finalScore with DETERMINISTIC tie-breaking (fixes rank instability)
+    // Primary: Higher finalScore first
+    // Secondary: Alphabetical by name (ensures stable, reproducible ranking)
+    // =========================================================================
+    data.L1.sort((a, b) => {
+      if (b.finalScore !== a.finalScore) {
+        return b.finalScore - a.finalScore; // Primary: higher score first
+      }
+      return a.name.localeCompare(b.name);  // Secondary: alphabetical (deterministic)
+    });
+
+    data.L2.sort((a, b) => {
+      if (b.finalScore !== a.finalScore) {
+        return b.finalScore - a.finalScore;
+      }
+      return a.name.localeCompare(b.name);
+    });
 
     const totalL1 = data.L1.length;
     const totalL2 = data.L2.length;
