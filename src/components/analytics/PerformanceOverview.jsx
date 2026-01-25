@@ -159,17 +159,18 @@ const PerformanceMetricsCards = ({
     };
   };
 
-  // Metric Card with Hover Insights
-  const MetricCard = ({ title, value, unit, color, sparkKey, icon: Icon, metricKey, onExpand }) => {
+  // Metric Card with Hover Insights - Enhanced with modern animations
+  const MetricCard = ({ title, value, unit, color, sparkKey, icon: Icon, metricKey, onExpand, index = 0 }) => {
     const [isHovered, setIsHovered] = useState(false);
     const insights = getInsights(metricKey, value);
 
     return (
       <div
-        className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:shadow-lg hover:border-indigo-500/50 transition-all h-44 group cursor-pointer"
+        className={`metric-card relative flex flex-col justify-between h-44 group cursor-pointer animate-slide-up stagger-${index + 1}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={() => onExpand && onExpand(metricKey)}
+        style={{ animationDelay: `${index * 0.05}s` }}
       >
         <div className="flex justify-between items-start">
           <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -387,7 +388,7 @@ const PerformanceMetricsCards = ({
         </div>
       </div>
 
-      {/* Metric Cards */}
+      {/* Metric Cards - Animated grid */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <MetricCard
           title="Avg RWT"
@@ -398,6 +399,7 @@ const PerformanceMetricsCards = ({
           icon={Clock}
           metricKey="avgRWT"
           onExpand={onExpandMetric}
+          index={0}
         />
         <MetricCard
           title="Positive CSAT"
@@ -408,6 +410,7 @@ const PerformanceMetricsCards = ({
           icon={Smile}
           metricKey="csat"
           onExpand={onExpandMetric}
+          index={1}
         />
         <MetricCard
           title="FRR Met"
@@ -418,6 +421,7 @@ const PerformanceMetricsCards = ({
           icon={Zap}
           metricKey="frrPercent"
           onExpand={onExpandMetric}
+          index={2}
         />
         <MetricCard
           title="Avg Iterations"
@@ -428,6 +432,7 @@ const PerformanceMetricsCards = ({
           icon={Layers}
           metricKey="avgIterations"
           onExpand={onExpandMetric}
+          index={3}
         />
         <MetricCard
           title="Avg FRT"
@@ -438,6 +443,7 @@ const PerformanceMetricsCards = ({
           icon={TrendingUp}
           metricKey="avgFRT"
           onExpand={onExpandMetric}
+          index={4}
         />
       </div>
     </div>

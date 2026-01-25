@@ -84,6 +84,14 @@ import {
   NOCAnalytics,
 } from "./analytics";
 
+// Import skeleton loaders for better perceived performance
+import {
+  PerformanceOverviewSkeleton,
+  ChartSkeleton,
+  LeaderboardSkeleton,
+  LoadingSpinner,
+} from "./SkeletonLoader";
+
 // ============================================================================
 // DRILL DOWN MODAL - Shows tickets for a specific data point
 // ============================================================================
@@ -2111,37 +2119,101 @@ const AnalyticsDashboard = ({
           const weeks = {};
           filteredData.forEach((t) => {
             const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
-            if (!weeks[weekKey]) weeks[weekKey] = { values: [], date: t.date };
+            if (!weeks[weekKey]) {
+              weeks[weekKey] = {
+                values: [],
+                date: t.date,
+                // ✅ FIX: Track raw counts for FRR percentage calculation
+                frrMetCount: 0,
+                solvedCount: 0,
+                csatCount: 0,
+              };
+            }
             weeks[weekKey].values.push(t[dataKey] || 0);
+            weeks[weekKey].frrMetCount += t.frrMet || 0;
+            weeks[weekKey].solvedCount += t.solved || 0;
+            weeks[weekKey].csatCount += t.positiveCSAT || 0;
           });
           return Object.entries(weeks)
             .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-            .map(([week, data]) => ({
-              name: `Week ${week.split("W")[1]}`,
-              date: week, // Use week key format (yyyy-Www) for drill-down
-              value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
-                ? data.values.reduce((a, b) => a + b, 0) / data.values.length
-                : data.values.reduce((a, b) => a + b, 0),
-            }));
+            .map(([week, data]) => {
+              // ✅ FIX: Calculate week date range for tooltip
+              const [year, weekPart] = week.split("-W");
+              const weekNum = parseInt(weekPart);
+              const jan1 = new Date(parseInt(year), 0, 1);
+              const jan1Day = jan1.getDay() || 7;
+              let daysToMonday = jan1Day <= 4 ? 1 - jan1Day : 8 - jan1Day;
+              const week1Monday = new Date(parseInt(year), 0, 1 + daysToMonday);
+              const monday = new Date(week1Monday);
+              monday.setDate(week1Monday.getDate() + (weekNum - 1) * 7);
+              const sunday = new Date(monday);
+              sunday.setDate(monday.getDate() + 6);
+              const rangeLabel = `${format(monday, "MMM dd")} - ${format(sunday, "MMM dd")}`;
+
+              // ✅ FIX: Calculate proper value - FRR needs special handling
+              let value;
+              if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
+                value = data.values.reduce((a, b) => a + b, 0) / data.values.length;
+              } else if (metricKey === "frrPercent") {
+                // ✅ FIX: Recalculate FRR % from raw counts, NOT sum of percentages
+                value = data.solvedCount > 0
+                  ? Math.round((data.frrMetCount / data.solvedCount) * 100)
+                  : 0;
+              } else {
+                value = data.values.reduce((a, b) => a + b, 0);
+              }
+
+              return {
+                name: `Week ${week.split("W")[1]}`,
+                range: rangeLabel, // ✅ Add date range for tooltip
+                date: week,
+                value,
+              };
+            });
         }
 
         // Monthly
         const months = {};
         filteredData.forEach((t) => {
           const monthKey = format(parseISO(t.date), "yyyy-MM");
-          if (!months[monthKey])
-            months[monthKey] = { values: [], date: t.date, monthKey };
+          if (!months[monthKey]) {
+            months[monthKey] = {
+              values: [],
+              date: t.date,
+              monthKey,
+              // ✅ FIX: Track raw counts for FRR percentage calculation
+              frrMetCount: 0,
+              solvedCount: 0,
+              csatCount: 0,
+            };
+          }
           months[monthKey].values.push(t[dataKey] || 0);
+          months[monthKey].frrMetCount += t.frrMet || 0;
+          months[monthKey].solvedCount += t.solved || 0;
+          months[monthKey].csatCount += t.positiveCSAT || 0;
         });
         return Object.entries(months)
           .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
-          .map(([monthKey, data]) => ({
-            name: format(parseISO(data.date), "MMM yyyy"),
-            date: monthKey, // Use month key format (yyyy-MM) for drill-down
-            value: ["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)
-              ? data.values.reduce((a, b) => a + b, 0) / data.values.length
-              : data.values.reduce((a, b) => a + b, 0),
-          }));
+          .map(([monthKey, data]) => {
+            // ✅ FIX: Calculate proper value - FRR needs special handling
+            let value;
+            if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
+              value = data.values.reduce((a, b) => a + b, 0) / data.values.length;
+            } else if (metricKey === "frrPercent") {
+              // ✅ FIX: Recalculate FRR % from raw counts, NOT sum of percentages
+              value = data.solvedCount > 0
+                ? Math.round((data.frrMetCount / data.solvedCount) * 100)
+                : 0;
+            } else {
+              value = data.values.reduce((a, b) => a + b, 0);
+            }
+
+            return {
+              name: format(parseISO(data.date), "MMM yyyy"),
+              date: monthKey, // Use month key format (yyyy-MM) for drill-down
+              value,
+            };
+          });
       }
 
       // Use expandedAllTrends instead of analyticsData?.trends
@@ -2171,14 +2243,14 @@ const AnalyticsDashboard = ({
       };
       const dataKey = dataKeyMap[metricKey] || "solved";
 
-      // ✅ IDENTIFY SUM METRICS (CSAT, Volume, Solved, FRR Count)
+      // ✅ IDENTIFY SUM METRICS (CSAT, Volume, Solved)
+      // NOTE: frrPercent is NOT a sum metric - it needs special handling (recalculate from counts)
       const isSumMetric = [
         "volume",
         "solved",
         "csat",
         "positiveCSAT",
         "backlog",
-        "frrPercent", // mapped to frrMet (count) above
       ].includes(metricKey);
 
       // 1. DAILY VIEW
@@ -2299,19 +2371,48 @@ const AnalyticsDashboard = ({
         filteredData.forEach((t) => {
           const monthKey = format(parseISO(t.date), "yyyy-MM");
           if (!months[monthKey]) {
-            months[monthKey] = { values: [], date: t.date };
+            months[monthKey] = {
+              values: [],
+              date: t.date,
+              // ✅ FIX: Track raw counts for FRR percentage calculation
+              solvedCounts: [],
+              frrMetCounts: [],
+              csatCounts: [],
+            };
           }
           months[monthKey].values.push(t[dataKey] || 0);
+          months[monthKey].solvedCounts.push(t.solved || 0);
+          months[monthKey].frrMetCounts.push(t.frrMet || 0);
+          months[monthKey].csatCounts.push(t.positiveCSAT || 0);
         });
 
         return Object.entries(months)
           .sort((a, b) => new Date(a[1].date) - new Date(b[1].date))
           .map(([monthKey, data]) => {
             const sum = data.values.reduce((a, b) => a + b, 0);
+
+            // ✅ FIX: Calculate proper value based on metric type
+            let value;
+            if (["avgRWT", "avgFRT", "avgIterations"].includes(metricKey)) {
+              // Average metrics
+              value = sum / (data.values.length || 1);
+            } else if (metricKey === "frrPercent") {
+              // ✅ FIX: FRR percentage - recalculate from raw counts, NOT sum percentages
+              const totalSolved = data.solvedCounts?.reduce((a, b) => a + b, 0) || 0;
+              const totalFrrMet = data.frrMetCounts?.reduce((a, b) => a + b, 0) || 0;
+              value = totalSolved > 0 ? Math.round((totalFrrMet / totalSolved) * 100) : 0;
+            } else if (metricKey === "csat") {
+              // CSAT count (not percentage)
+              value = data.csatCounts?.reduce((a, b) => a + b, 0) || 0;
+            } else {
+              // Sum metrics (solved, volume, backlog)
+              value = sum;
+            }
+
             return {
               name: format(parseISO(data.date), "MMM yyyy"),
               date: monthKey, // Use month key format (yyyy-MM) for drill-down
-              value: isSumMetric ? sum : sum / (data.values.length || 1), // Average for RWT/FRT
+              value,
             };
           });
       }
@@ -2619,10 +2720,16 @@ const AnalyticsDashboard = ({
     filters?.teams,
     filters?.owners,
     excludeNOC,
+    currentQuarter, // ✅ FIX: Refetch when quarter changes
   ]);
 
   const handleQuarterChange = useCallback(
-    (quarter) => setCurrentQuarter(quarter),
+    (quarter) => {
+      // ✅ FIX: Clear stale data when quarter changes
+      setExpandedAllTrends([]);
+      setExpandedDateRange(null);
+      setCurrentQuarter(quarter);
+    },
     [],
   );
   const handleRefresh = () =>
@@ -3742,53 +3849,66 @@ const AnalyticsDashboard = ({
         </div>
       )}
 
-      <PerformanceMetricsCards
-        stats={filteredStats}
-        trends={filteredTrends}
-        currentQuarter={currentQuarter}
-        currentGroupBy={groupBy}
-        onQuarterChange={handleQuarterChange}
-        excludeZendesk={excludeZendesk}
-        onExcludeZendeskChange={() => setExcludeZendesk(!excludeZendesk)}
-        excludeNOC={excludeNOC}
-        onExcludeNOCChange={() => setExcludeNOC(!excludeNOC)}
-        onRefresh={handleRefresh}
-        isRefreshing={analyticsLoading}
-        onExpandMetric={(metricKey) => {
-          trackEvent("Metric Expanded", { Metric: metricKey }); // ✅ Add this
-          setExpandedOverviewMetric(metricKey);
-        }}
-        onGroupByChange={(newGroupBy) => {
-          setGroupBy(newGroupBy);
-          // If it's a week selection like "Q1_26_W1", set quarter accordingly
-          if (
-            newGroupBy.startsWith("Q1_26_W") ||
-            newGroupBy.startsWith("Q1_26_M")
-          ) {
-            setCurrentQuarter("Q1_26");
-          }
-          fetchAnalyticsData({
-            quarter: newGroupBy.startsWith("Q1_26")
-              ? newGroupBy
-              : currentQuarter,
-            excludeZendesk,
-            owner: filterOwner !== "All" ? filterOwner : null,
-            groupBy: newGroupBy,
-          });
-        }}
-        isLoading={analyticsLoading}
-      />
+      {/* Show skeleton while loading, actual cards when data is ready */}
+      {analyticsLoading && !analyticsData ? (
+        <PerformanceOverviewSkeleton />
+      ) : (
+        <PerformanceMetricsCards
+          stats={filteredStats}
+          trends={filteredTrends}
+          currentQuarter={currentQuarter}
+          currentGroupBy={groupBy}
+          onQuarterChange={handleQuarterChange}
+          excludeZendesk={excludeZendesk}
+          onExcludeZendeskChange={() => setExcludeZendesk(!excludeZendesk)}
+          excludeNOC={excludeNOC}
+          onExcludeNOCChange={() => setExcludeNOC(!excludeNOC)}
+          onRefresh={handleRefresh}
+          isRefreshing={analyticsLoading}
+          onExpandMetric={(metricKey) => {
+            trackEvent("Metric Expanded", { Metric: metricKey }); // ✅ Add this
+            setExpandedOverviewMetric(metricKey);
+          }}
+          onGroupByChange={(newGroupBy) => {
+            setGroupBy(newGroupBy);
+            // If it's a week selection like "Q1_26_W1", set quarter accordingly
+            if (
+              newGroupBy.startsWith("Q1_26_W") ||
+              newGroupBy.startsWith("Q1_26_M")
+            ) {
+              setCurrentQuarter("Q1_26");
+            }
+            fetchAnalyticsData({
+              quarter: newGroupBy.startsWith("Q1_26")
+                ? newGroupBy
+                : currentQuarter,
+              excludeZendesk,
+              owner: filterOwner !== "All" ? filterOwner : null,
+              groupBy: newGroupBy,
+            });
+          }}
+          isLoading={analyticsLoading}
+        />
+      )}
 
       {/* 4 METRIC CHARTS */}
-      <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mt-8 mb-4 flex items-center gap-2">
+      <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mt-8 mb-4 flex items-center gap-2 animate-fade-in">
         <Activity className="w-5 h-5 text-indigo-500" /> Performance Analytics
       </h2>
 
+      {analyticsLoading && !analyticsData ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {[...Array(4)].map((_, i) => (
+            <ChartSkeleton key={i} height="200px" />
+          ))}
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {Object.entries(METRICS).map(([key, config]) => (
+        {Object.entries(METRICS).map(([key, config], index) => (
           <div
             key={key}
-            className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 relative group hover:border-indigo-500/30 transition-colors"
+            className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 relative group hover:border-indigo-500/30 hover:shadow-lg transition-all duration-300 animate-slide-up"
+            style={{ animationDelay: `${index * 0.1}s` }}
           >
             <div className="flex justify-between items-start mb-6">
               <div>
@@ -3857,8 +3977,17 @@ const AnalyticsDashboard = ({
                     formatter={(value) => [`${value}`, config.desc]}
                     contentStyle={{
                       backgroundColor: colors.tooltipBg,
-                      borderRadius: "8px",
+                      borderRadius: "12px",
                       border: "none",
+                      boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+                      padding: "12px 16px",
+                    }}
+                    labelFormatter={(label, payload) => {
+                      // ✅ Show date range if available (Weekly view)
+                      if (payload && payload[0] && payload[0].payload?.range) {
+                        return `${label} (${payload[0].payload.range})`;
+                      }
+                      return label;
                     }}
                   />
                   <Area
@@ -3888,6 +4017,7 @@ const AnalyticsDashboard = ({
           </div>
         ))}
       </div>
+      )}
 
       {/* NOC Analytics Section - Shows all NOC tickets raised by GST */}
       <NOCAnalytics isLoading={analyticsLoading} />
