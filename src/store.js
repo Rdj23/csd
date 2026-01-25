@@ -12,6 +12,7 @@ export const useTicketStore = create(
       // Active tickets (open/pending)
       tickets: [],
       isLoading: false,
+      isRefreshing: false, // Background refresh in progress
       
       // ✅ NEW: Pre-aggregated analytics data from server
       analyticsData: null, // { stats, trends, leaderboard, badTickets, individualTrends }
@@ -152,12 +153,16 @@ export const useTicketStore = create(
           const response = await fetch(url);
           const data = await response.json();
 
+          // ✅ Detect stale data being served
+          const isStale = data.stale === true || data.refreshing === true;
+
           // ✅ Handle paginated response
           if (data.pagination) {
             set({
               tickets: data.tickets || [],
               lastSync: new Date(),
               isLoading: false,
+              isRefreshing: isStale, // Track if background refresh happening
               pagination: data.pagination // Store pagination metadata
             });
           } else {
@@ -165,12 +170,19 @@ export const useTicketStore = create(
             set({
               tickets: data.tickets || [],
               lastSync: new Date(),
-              isLoading: false
+              isLoading: false,
+              isRefreshing: isStale
             });
+          }
+
+          // ✅ If stale data, poll for fresh data
+          if (isStale) {
+            console.log("📊 Stale data served - will refresh in 5s");
+            setTimeout(() => get().fetchTickets(), 5000); // Retry in 5s
           }
         } catch (error) {
           console.error("Sync failed:", error);
-          set({ isLoading: false });
+          set({ isLoading: false, isRefreshing: false });
         }
       },
 

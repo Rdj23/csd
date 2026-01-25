@@ -1361,7 +1361,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
 };
 
 // ============================================================================
-// ✅ ACTIVE TICKETS (Dashboard) - With Pagination Support
+// ✅ ACTIVE TICKETS (Dashboard) - Optimized for Cold Starts
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
   try {
@@ -1396,18 +1396,54 @@ app.get("/api/tickets", async (req, res) => {
       return res.json({ tickets: redisData, total: redisData.length });
     }
 
-    // 2. No cache - return empty immediately, sync in background
-    console.log("⏳ No cache - starting background sync");
+    // 2. ✅ COLD START OPTIMIZATION: Check MongoDB for stale data
+    console.log("⏳ Redis miss - checking MongoDB for cached data...");
 
-    // Start sync in background (non-blocking)
+    const mongoTickets = await AnalyticsTicket.find({}).lean().limit(1000);
+
+    if (mongoTickets && mongoTickets.length > 0) {
+      // ✅ SERVE STALE DATA IMMEDIATELY (better than empty)
+      console.log(`✅ Serving ${mongoTickets.length} tickets from MongoDB (may be stale)`);
+
+      // Map MongoDB format to expected format
+      const formattedTickets = mongoTickets.map(t => ({
+        id: t.id,
+        display_id: t.display_id,
+        title: t.title,
+        priority: t.priority,
+        severity: t.severity,
+        account: t.account,
+        stage: t.stage,
+        owned_by: t.owned_by,
+        created_date: t.created_date,
+        modified_date: t.modified_date,
+        custom_fields: t.custom_fields,
+        tags: t.tags,
+        isZendesk: t.isZendesk,
+        actual_close_date: t.actual_close_date,
+      }));
+
+      // Start background refresh (non-blocking)
+      fetchAndCacheTickets("cold_start_refresh").catch(console.error);
+
+      return res.json({
+        tickets: formattedTickets,
+        total: formattedTickets.length,
+        stale: true, // Indicate data may be outdated
+        refreshing: true, // Background sync in progress
+        message: "Data refreshing in background..."
+      });
+    }
+
+    // 3. No data anywhere - return empty, start sync
+    console.log("⚠️ No cached data found - starting first sync");
     fetchAndCacheTickets("first_load").catch(console.error);
 
-    // Return empty array immediately - frontend will retry or use websocket
     res.json({
       tickets: [],
       syncing: true,
       total: 0,
-      message: "Loading configuration...",
+      message: "First-time data load in progress...",
     });
   } catch (e) {
     console.error("❌ /api/tickets error:", e.message);
@@ -2925,28 +2961,41 @@ const PORT = process.env.PORT || 5000;
 const warmCache = async () => {
   console.log("🔥 Warming cache...");
   try {
-    const PORT = process.env.PORT || 5000;
-
-    // 1. Warm analytics cache
-    await axios.get(
-      `http://localhost:${PORT}/api/tickets/analytics?quarter=Q1_26`,
-    );
-    console.log("✅ Analytics cache warmed");
-
-    // 2. Start ticket sync in background (don't wait)
+    // ✅ OPTIMIZED: Start ticket sync IMMEDIATELY (most important)
     fetchAndCacheTickets("startup").catch(console.error);
     console.log("✅ Ticket sync started in background");
+
+    // Wait 2s then warm analytics (less critical)
+    setTimeout(async () => {
+      try {
+        const PORT = process.env.PORT || 5000;
+        await axios.get(
+          `http://localhost:${PORT}/api/tickets/analytics?quarter=Q1_26`,
+          { timeout: 10000 }
+        );
+        console.log("✅ Analytics cache warmed");
+      } catch (e) {
+        console.log("⚠️ Analytics warming skipped:", e.message);
+      }
+    }, 2000);
   } catch (e) {
-    console.log("⚠️ Cache warming skipped:", e.message);
+    console.log("⚠️ Cache warming failed:", e.message);
   }
 };
 
-// Wait for MongoDB before warming cache
+// ✅ OPTIMIZED: Warm cache immediately on MongoDB connection
 mongoose.connection.once("open", () => {
-  setTimeout(warmCache, 3000);
+  console.log("🍃 MongoDB Connected - starting cache warm");
+  warmCache();
 });
-// Warm cache 5 seconds after server starts
-setTimeout(warmCache, 5000);
+
+// ✅ FALLBACK: Also try after 2 seconds if MongoDB connection is slow
+setTimeout(() => {
+  if (mongoose.connection.readyState === 1) {
+    console.log("⏰ Backup cache warm trigger");
+    warmCache();
+  }
+}, 2000);
 
 server.listen(PORT, async () => {
   console.log(`🚀 Server on port ${PORT}`);
