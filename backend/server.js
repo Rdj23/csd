@@ -898,6 +898,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
           // ✅ FIX: Add CSAT and FRR data
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          frrTotal: { $sum: 1 }, // ✅ FIX: Total tickets for correct FRR% calculation
 
           backlogCleared: {
             $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] },
@@ -973,9 +974,10 @@ app.get("/api/tickets/analytics", async (req, res) => {
           // Pass the Raw Counts
           positiveCSAT: item.positiveCSAT || 0,
           frrMet: item.frrMet || 0,
-          // ✅ FIX: Calculate FRR percentage for each user's daily data
-          frrPercent: item.solved > 0
-            ? Math.round((item.frrMet / item.solved) * 100)
+          frrTotal: item.frrTotal || 0, // ✅ Pass total for frontend if needed
+          // ✅ FIX: Use frrTotal instead of solved for correct FRR calculation
+          frrPercent: item.frrTotal > 0
+            ? Math.round((item.frrMet / item.frrTotal) * 100)
             : 0,
           // Pass Valid Counts for Frontend Weighting
           rwtValidCount: item.rwtValidCount || 0,
