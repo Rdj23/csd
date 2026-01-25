@@ -1,0 +1,22 @@
+name: Warm Up Server Cache
+on:
+  schedule:
+    # Runs at 12:00 AM IST (18:30 UTC)
+    - cron: '30 18 * * *'
+    # Runs at 07:00 AM IST (01:30 UTC)
+    - cron: '30 1 * * *'
+  # Allows you to run it manually from GitHub Actions tab for testing
+  workflow_dispatch:
+
+jobs:
+  warm-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up server and trigger ticket sync
+        run: |
+          echo "Triggering Cache Sync..."
+          # Hitting /api/tickets triggers the 'fetchAndCacheTickets' function in your backend
+          curl -X GET "https://https://csd-backend-ljzq.onrender.com/api/tickets?limit=1" \
+          --header "Content-Type: application/json"
+          
+          echo "Request sent. Server should be syncing in background."
