@@ -44,11 +44,27 @@ const HEADERS = {
 };
 let syncTimeout = null;
 
+// --- SERVER READINESS STATE ---
+let isServerReady = false;
+let cacheWarmingStarted = false;
+
 // --- MONGODB CONNECTION ---
+// ✅ FIX: Added timeout options to prevent indefinite hangs on cold starts
 mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("🍃 MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Error:", err));
+  .connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 10000, // Fail fast if can't find server in 10s
+    connectTimeoutMS: 10000, // Connection timeout 10s
+    socketTimeoutMS: 30000, // Socket operations timeout 30s
+  })
+  .then(() => {
+    console.log("🍃 MongoDB Connected");
+    isServerReady = true;
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB Error:", err);
+    // Still mark as ready to allow health checks to work
+    isServerReady = true;
+  });
 
 // --- REDIS CONNECTION ---
 // Redis URL - internal URL only works on Render, external URL needed for local dev
@@ -323,6 +339,24 @@ app.use(
 );
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// ✅ FIX: Readiness check middleware - allow health/config checks even during startup
+app.use((req, res, next) => {
+  // Always allow health checks and config (needed for startup detection)
+  if (req.path === "/api/health" || req.path === "/api/auth/config") {
+    return next();
+  }
+
+  // For other routes, check if server is ready
+  if (!isServerReady) {
+    return res.status(503).json({
+      error: "Server starting up",
+      status: "initializing",
+      retryAfter: 5,
+    });
+  }
+  next();
+});
 
 let isSyncing = false;
 let syncQueued = false;
@@ -2061,11 +2095,13 @@ app.get("/api/health", async (req, res) => {
   const redisStatus = redis?.status || "disconnected";
 
   res.json({
-    status: "ok",
+    status: isServerReady ? "ok" : "starting",
     server: {
       uptime: process.uptime(),
       startedAt: new Date(serverMetrics.startTime).toISOString(),
       isColdStart,
+      isReady: isServerReady,
+      cacheWarming: cacheWarmingStarted,
     },
     services: {
       mongodb: mongoStatus,
@@ -2982,11 +3018,18 @@ app.post("/api/roster/sync", async (req, res) => {
 // Startup
 const PORT = process.env.PORT || 5000;
 
-// Pre-warm cache on server start
-const warmCache = async () => {
-  console.log("🔥 Warming cache...");
+// ✅ FIX: Pre-warm cache with deduplication flag to prevent multiple syncs
+const warmCache = async (source = "unknown") => {
+  // Prevent duplicate cache warming
+  if (cacheWarmingStarted) {
+    console.log(`⏭️ Cache warming already started, skipping (${source})`);
+    return;
+  }
+  cacheWarmingStarted = true;
+  console.log(`🔥 Warming cache (triggered by: ${source})...`);
+
   try {
-    // ✅ OPTIMIZED: Start ticket sync IMMEDIATELY (most important)
+    // Start ticket sync (most important)
     fetchAndCacheTickets("startup").catch(console.error);
     console.log("✅ Ticket sync started in background");
 
@@ -3005,22 +3048,16 @@ const warmCache = async () => {
     }, 2000);
   } catch (e) {
     console.log("⚠️ Cache warming failed:", e.message);
+    cacheWarmingStarted = false; // Reset on failure to allow retry
   }
 };
 
-// ✅ OPTIMIZED: Warm cache immediately on MongoDB connection
+// ✅ FIX: Single unified cache warming trigger - only when MongoDB is ready
 mongoose.connection.once("open", () => {
-  console.log("🍃 MongoDB Connected - starting cache warm");
-  warmCache();
+  console.log("🍃 MongoDB connection ready");
+  // Warm cache immediately when MongoDB connects
+  warmCache("mongodb-open");
 });
-
-// ✅ FALLBACK: Also try after 2 seconds if MongoDB connection is slow
-setTimeout(() => {
-  if (mongoose.connection.readyState === 1) {
-    console.log("⏰ Backup cache warm trigger");
-    warmCache();
-  }
-}, 2000);
 
 server.listen(PORT, async () => {
   console.log(`🚀 Server on port ${PORT}`);
@@ -3037,13 +3074,13 @@ server.listen(PORT, async () => {
   // Non-blocking: sync roster in background (don't wait)
   syncRoster().catch((err) => console.error("Roster sync failed:", err));
 
-  // ✅ PROGRESSIVE LOADING: Pre-warm cache on server startup (after 3 seconds)
+  // ✅ FIX: Fallback cache warming after 5s if MongoDB connection was slow
+  // This ensures cache is warmed even if MongoDB took longer to connect
   setTimeout(() => {
-    console.log("🔥 Pre-warming ticket cache in background...");
-    fetchAndCacheTickets("startup").catch((err) =>
-      console.error("Cache pre-warm failed:", err)
-    );
-  }, 3000);
+    if (!cacheWarmingStarted && mongoose.connection.readyState === 1) {
+      warmCache("server-listen-fallback");
+    }
+  }, 5000);
 
   console.log("✅ Server ready - background tasks running");
 });
