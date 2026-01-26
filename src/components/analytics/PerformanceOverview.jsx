@@ -166,7 +166,7 @@ const PerformanceMetricsCards = ({
 
     return (
       <div
-        className={`metric-card relative flex flex-col justify-between h-44 group cursor-pointer animate-slide-up stagger-${index + 1}`}
+        className={`metric-card relative flex flex-col justify-between h-44 group cursor-pointer animate-slide-up stagger-${index + 1} ${isHovered ? 'z-10' : ''}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={() => onExpand && onExpand(metricKey)}
