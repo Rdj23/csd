@@ -50,10 +50,21 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
         start: format(startOfMonth(today), "yyyy-MM-dd"), 
         end: format(endOfMonth(today), "yyyy-MM-dd") 
       }},
-      { label: "Previous Month", value: { 
-        start: format(startOfMonth(subMonths(today, 1)), "yyyy-MM-dd"), 
-        end: format(endOfMonth(subMonths(today, 1)), "yyyy-MM-dd") 
-      }},
+      // Previous Month: For January 2026, show Dec 29-31 (Q1_26 start) instead of full December
+      { label: "Previous Month", value: (() => {
+        const prevMonth = subMonths(today, 1);
+        // Special case: If current month is January 2026, previous month should start from Dec 29 (Q1_26 start)
+        if (today.getMonth() === 0 && today.getFullYear() === 2026) {
+          return {
+            start: "2025-12-29",
+            end: "2025-12-31"
+          };
+        }
+        return {
+          start: format(startOfMonth(prevMonth), "yyyy-MM-dd"),
+          end: format(endOfMonth(prevMonth), "yyyy-MM-dd")
+        };
+      })() },
       // Q1'26: Dec 29, 2025 - Mar 31, 2026 (ISO Week 1 starts Dec 29)
       { label: "Q1'26", value: {
         start: "2025-12-29",

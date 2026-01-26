@@ -1124,10 +1124,7 @@ const AnalyticsDashboard = ({
       const startMonth = range.start.getMonth();
       const endYear = range.end.getFullYear();
 
-      // Fetch Q4_25 if date range includes Oct-Dec 2025
-      if (startYear === 2025 && startMonth >= 9) {
-        fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk, excludeNOC });
-      }
+    
       // Fetch Q1_26 if date range includes Jan-Mar 2026
       if (endYear === 2026 || (startYear === 2025 && startMonth === 11)) {
         fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk, excludeNOC });
@@ -2118,7 +2115,8 @@ const AnalyticsDashboard = ({
         if (expandedGroupBy === "weekly") {
           const weeks = {};
           filteredData.forEach((t) => {
-            const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
+            // Use ISO week format: RRRR = ISO week-year, II = ISO week number
+            const weekKey = format(parseISO(t.date), "RRRR-'W'II");
             if (!weeks[weekKey]) {
               weeks[weekKey] = {
                 values: [],
@@ -2282,7 +2280,8 @@ const AnalyticsDashboard = ({
       if (expandedGroupBy === "weekly") {
         const weeks = {};
         filteredData.forEach((t) => {
-          const weekKey = format(parseISO(t.date), "yyyy-'W'ww");
+          // Use ISO week format: RRRR = ISO week-year, II = ISO week number
+          const weekKey = format(parseISO(t.date), "RRRR-'W'II");
           if (!weeks[weekKey]) {
             weeks[weekKey] = {
               values: [],

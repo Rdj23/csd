@@ -58,7 +58,7 @@ const PerformanceMetricsCards = ({
   isRefreshing,
   onExpandMetric,
 }) => {
-  const [selectedQuarter, setSelectedQuarter] = useState(currentQuarter || "Q4_25");
+  const [selectedQuarter, setSelectedQuarter] = useState(currentQuarter || "Q1_26");
   const [groupBy, setGroupBy] = useState(currentGroupBy || "daily");
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
