@@ -3256,6 +3256,61 @@ const precomputeAnalytics = async (quarter) => {
       { $limit: 25 },
     ]);
 
+    // Individual trends by owner and date (needed for Performance Analytics charts)
+    const individualTrends = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      {
+        $addFields: {
+          ticketAge: {
+            $divide: [
+              { $subtract: ["$closed_date", "$created_date"] },
+              1000 * 60 * 60 * 24,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+            owner: "$owner",
+          },
+          solved: { $sum: 1 },
+          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
+          rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
+          frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
+          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          frrTotal: { $sum: 1 },
+          backlogCleared: { $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] } },
+        },
+      },
+      { $sort: { "_id.date": 1 } },
+    ]);
+
+    // Transform individualTrends to grouped format
+    const individualTrendsGrouped = individualTrends.reduce((acc, item) => {
+      const { date, owner } = item._id;
+      if (!acc[owner]) acc[owner] = [];
+      acc[owner].push({
+        date,
+        solved: item.solved,
+        avgRWT: item.avgRWT ? Number(item.avgRWT.toFixed(2)) : 0,
+        avgFRT: item.avgFRT ? Number(item.avgFRT.toFixed(2)) : 0,
+        avgIterations: item.avgIterations ? Number(item.avgIterations.toFixed(1)) : 0,
+        iterValidCount: item.iterValidCount || 0,
+        rwtValidCount: item.rwtValidCount || 0,
+        frtValidCount: item.frtValidCount || 0,
+        positiveCSAT: item.positiveCSAT || 0,
+        frrMet: item.frrMet || 0,
+        backlogCleared: item.backlogCleared || 0,
+      });
+      return acc;
+    }, {});
+
     const response = {
       quarter,
       dateRange: { start, end },
@@ -3278,6 +3333,7 @@ const precomputeAnalytics = async (quarter) => {
         avgRWT: l.avgRWT ? Number(l.avgRWT.toFixed(2)) : 0,
         avgFRT: l.avgFRT ? Number(l.avgFRT.toFixed(2)) : 0,
       })),
+      individualTrends: individualTrendsGrouped,
       computed_at: new Date(),
       _isPrecomputed: true,
     };
