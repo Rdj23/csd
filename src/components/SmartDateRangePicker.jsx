@@ -26,7 +26,7 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
     const presetList = [];
 
     if (allowAllTime) {
-      presetList.push({ label: "All Time", value: { start: "", end: "" } });
+      presetList.push({ label: "All Time", value: { start: "2025-12-29", end: "" } });
     }
 
     presetList.push(
@@ -70,16 +70,6 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
         start: "2025-12-29",
         end: "2026-03-31"
       }},
-      // Q4'25: Oct 1 - Dec 31, 2025
-      // { label: "Q4'25", value: { 
-      //   start: "2025-10-01", 
-      //   end: "2025-12-31" 
-      // }},
-      // Q3'25: Jul 1 - Sep 30, 2025
-      // { label: "Q3'25", value: { 
-      //   start: "2025-07-01", 
-      //   end: "2025-09-30" 
-      // }}
     );
 
     return presetList;
@@ -238,7 +228,7 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
             <div className="p-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => {
-                  onChange({ start: "", end: "" });
+                  onChange({ start: "2025-12-29", end: "" });
                   setIsOpen(false);
                 }}
                 className="w-full text-xs text-rose-500 hover:text-rose-600 font-medium"
