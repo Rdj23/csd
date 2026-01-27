@@ -382,7 +382,7 @@ const getQuarterDateRange = (quarter) => {
       };
     case "Q1_26":
       return {
-        start: new Date("2025-12-29"), // ✅ FIX: ISO Week 1 starts Dec 29
+        start: new Date("2025-01-01"), // ✅ FIX: ISO Week 1 starts Dec 29
         end: new Date("2026-03-31T23:59:59Z"),
       };
 
@@ -390,7 +390,7 @@ const getQuarterDateRange = (quarter) => {
     // Jan 1, 2026 = Thursday. Week 1 includes Jan 1-4 (4 days in 2026)
     case "Q1_26_W1":
       return {
-        start: new Date("2025-12-29"), // Monday (includes Dec 29-31, Jan 1-4)
+        start: new Date("2025-01-01"), // Monday (includes Dec 29-31, Jan 1-4)
         end: new Date("2026-01-04T23:59:59Z"),
       };
     case "Q1_26_W2":
