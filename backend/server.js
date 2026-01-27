@@ -374,15 +374,10 @@ let syncQueued = false;
 const getQuarterDateRange = (quarter) => {
   const now = new Date();
   switch (quarter) {
-    // Quarters
-    case "Q4_25":
-      return {
-        start: new Date("2025-10-01"),
-        end: new Date("2025-12-31T23:59:59Z"),
-      };
+    
     case "Q1_26":
       return {
-        start: new Date("2025-01-01"), // ✅ FIX: ISO Week 1 starts Dec 29
+        start: new Date("2026-01-01"), // ✅ FIX: ISO Week 1 starts Dec 29
         end: new Date("2026-03-31T23:59:59Z"),
       };
 
@@ -390,7 +385,7 @@ const getQuarterDateRange = (quarter) => {
     // Jan 1, 2026 = Thursday. Week 1 includes Jan 1-4 (4 days in 2026)
     case "Q1_26_W1":
       return {
-        start: new Date("2025-01-01"), // Monday (includes Dec 29-31, Jan 1-4)
+        start: new Date("2026-01-01"), // Monday (includes Dec 29-31, Jan 1-4)
         end: new Date("2026-01-04T23:59:59Z"),
       };
     case "Q1_26_W2":
@@ -1309,7 +1304,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
       loop = 0;
 
     // ✅ Keep ALL active tickets + Solved tickets from Oct 2025 onwards
-    const SOLVED_CUTOFF_DATE = new Date("2025-12-01"); // Keep solved tickets from Oct 2025
+    const SOLVED_CUTOFF_DATE = new Date("2026-01-01"); // Keep solved tickets from Oct 2025
 
     // Helper function to process and filter tickets
     const processTickets = (tickets) => {
