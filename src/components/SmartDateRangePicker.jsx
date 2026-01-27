@@ -26,7 +26,7 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
     const presetList = [];
 
     if (allowAllTime) {
-      presetList.push({ label: "All Time", value: { start: "2025-12-29", end: "" } });
+      presetList.push({ label: "All Time", value: { start: "2026-01-01", end: "" } });
     }
 
     presetList.push(
@@ -50,24 +50,17 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
         start: format(startOfMonth(today), "yyyy-MM-dd"), 
         end: format(endOfMonth(today), "yyyy-MM-dd") 
       }},
-      // Previous Month: For January 2026, show Dec 29-31 (Q1_26 start) instead of full December
+      // Previous Month
       { label: "Previous Month", value: (() => {
         const prevMonth = subMonths(today, 1);
-        // Special case: If current month is January 2026, previous month should start from Dec 29 (Q1_26 start)
-        if (today.getMonth() === 0 && today.getFullYear() === 2026) {
-          return {
-            start: "2025-12-29",
-            end: "2025-12-31"
-          };
-        }
         return {
           start: format(startOfMonth(prevMonth), "yyyy-MM-dd"),
           end: format(endOfMonth(prevMonth), "yyyy-MM-dd")
         };
       })() },
-      // Q1'26: Dec 29, 2025 - Mar 31, 2026 (ISO Week 1 starts Dec 29)
+      // Q1'26: Jan 1, 2026 - Mar 31, 2026
       { label: "Q1'26", value: {
-        start: "2025-12-29",
+        start: "2026-01-01",
         end: "2026-03-31"
       }},
     );
@@ -228,7 +221,7 @@ const SmartDateRangePicker = ({ value, onChange, allowAllTime = true }) => {
             <div className="p-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => {
-                  onChange({ start: "2025-12-29", end: "" });
+                  onChange({ start: "2026-01-01", end: "" });
                   setIsOpen(false);
                 }}
                 className="w-full text-xs text-rose-500 hover:text-rose-600 font-medium"

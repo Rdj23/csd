@@ -23,11 +23,10 @@ import {
 } from "lucide-react";
 import { trackEvent } from "../../utils/clevertap";
 
-// Week definitions for Q1 (ISO 8601 - Monday to Sunday)
-// ISO Week 1 is the first week with 4+ days in the new year
-// Jan 1, 2026 = Wednesday, so Week 1 includes Dec 29-31 (2025) and Jan 1-4 (2026)
+// Week definitions for Q1
+// Week 1 starts from Jan 1, 2026
 const Q1_WEEKS = [
-  { id: 1, label: "W1", start: "2025-12-29", end: "2026-01-04", range: "Dec 29 - Jan 4" },
+  { id: 1, label: "W1", start: "2026-01-01", end: "2026-01-04", range: "Jan 1-4" },
   { id: 2, label: "W2", start: "2026-01-05", end: "2026-01-11", range: "Jan 5-11" },
   { id: 3, label: "W3", start: "2026-01-12", end: "2026-01-18", range: "Jan 12-18" },
   { id: 4, label: "W4", start: "2026-01-19", end: "2026-01-25", range: "Jan 19-25" },
