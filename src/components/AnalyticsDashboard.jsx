@@ -1029,10 +1029,10 @@ const AnalyticsDashboard = ({
       }
     }
 
-    // 2. "All Time" - Start from Dec 29, 2025 (ISO Week 1 of Q1_26)
+    // 2. "All Time" - Start from Jan 1, 2026
     if (dateRange && dateRange.start === "" && dateRange.end === "") {
       return {
-        start: new Date("2025-12-29"),
+        start: new Date("2026-01-01"),
         end: new Date(),
         days: 999,
         isAllTime: true,
@@ -1045,7 +1045,7 @@ const AnalyticsDashboard = ({
       if (q === "Q4_25")
         return { start: new Date("2025-10-01"), end: new Date("2025-12-31") };
       if (q === "Q1_26")
-        return { start: new Date("2025-12-29"), end: new Date("2026-03-31") }; // ✅ FIX: Start from Dec 29 (ISO Week 1)
+        return { start: new Date("2026-01-01"), end: new Date("2026-03-31") }; // ✅ FIX: Start from Jan 1, 2026
       return { start: subDays(new Date(), 29), end: new Date() };
     };
 
@@ -1061,9 +1061,9 @@ const AnalyticsDashboard = ({
   // Use global date range for expanded charts unless overridden
   const expandedEffectiveDateRange = useMemo(() => {
     if (expandedDateRange) {
-      // Handle "All Time" (empty strings) - Start from Dec 29, 2025 (ISO Week 1)
+      // Handle "All Time" (empty strings) - Start from Jan 1, 2026
       if (expandedDateRange.start === "" && expandedDateRange.end === "") {
-        const allTimeStart = new Date("2025-12-29");
+        const allTimeStart = new Date("2026-01-01");
         const allTimeEnd = new Date();
         return {
           start: allTimeStart,
