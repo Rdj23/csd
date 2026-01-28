@@ -44,6 +44,78 @@ const HEADERS = {
 };
 let syncTimeout = null;
 
+// --- SLACK ALERT CONFIGURATION ---
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+const SLACK_ADMIN_ID = "<@U06G06YQR6E>"; // Tuaha Khan - Admin to notify
+
+const GST_SLACK_MEMBER_IDS = {
+  "Tuaha Khan": "<@U06G06YQR6E>",
+  "Mashnu Kanurkar": "<@U02QSTABJ1Y>",
+  "Adish Gaikwad": "<@U03F46V6DLP>",
+  "Debashish Muni": "<@U05HCEX0M3N>",
+  "Shweta More": "<@U03GEG1D6HK>",
+  "Unnati Rawal": "<@U05PCDP5J3S>",
+  "Harsh Singh": "<@U087F8FEY04>",
+  "Tamanna Khan": "<@U06BKN9AP0A>",
+  "Adarsh Dubey": "<@U078D2NRPTM>",
+  "Aditya Mishra": "<@U07AYMGV4G7>",
+  "Anurag Ghatge": "<@U078FL0R57E>",
+  "Archie Bajaj": "<@U06FX94R7NH>",
+  "Musaveer Manekia": "<@U0864UQL50V>",
+  "Neha Yadav": "<@U06GP0FB06L>",
+  "Nikita Narwani": "<@U078D2P1FV1>",
+  "Rohan Jadhav": "<@U080N75F9GR>",
+  "Shreya Khale": "<@U0786GU2SDU>",
+  "Shubhankar Bhattacharya": "<@U078RRJRA9F>",
+  "Abhinav Srivastav": "<@U095564QECA>",
+  "Shreyas Naikwadi": "<@U095JJM3X97>",
+  "Vaibhav Agarwal": "<@U095434R8NR>",
+  "Abhishek Vishwakarma": "<@U095437RPKP>",
+};
+
+/**
+ * Send Slack alert for Understanding Gap NOC tickets
+ * @param {Array} tickets - Array of ticket objects to alert
+ */
+const sendSlackAlerts = async (tickets) => {
+  if (!SLACK_WEBHOOK_URL || tickets.length === 0) return;
+
+  const alertedTicketIds = [];
+
+  for (const ticket of tickets) {
+    const reporterMention = GST_SLACK_MEMBER_IDS[ticket.noc_reported_by] || ticket.noc_reported_by || "Unknown";
+
+    const payload = {
+      text:
+        `<!here> 🚨 The below NOC task was incorrectly created:\n\n` +
+        `• Jira Ticket: https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}\n` +
+        `• DevRev Ticket: ${ticket.ticket_id}\n` +
+        `• Account: ${ticket.account_name}\n` +
+        `• RCA: ${ticket.noc_rca}\n` +
+        `• Reported By: ${reporterMention}\n` +
+        `• Task Assignee: ${ticket.noc_assignee || "Unassigned"}\n` +
+        `FYI: ${SLACK_ADMIN_ID}`,
+    };
+
+    try {
+      await axios.post(SLACK_WEBHOOK_URL, payload);
+      alertedTicketIds.push(ticket.ticket_id);
+      console.log(`   📢 Slack alert sent for ${ticket.ticket_id}`);
+    } catch (err) {
+      console.error(`   ❌ Slack alert failed for ${ticket.ticket_id}:`, err.message);
+    }
+  }
+
+  // Mark tickets as alerted in DB
+  if (alertedTicketIds.length > 0) {
+    await AnalyticsTicket.updateMany(
+      { ticket_id: { $in: alertedTicketIds } },
+      { $set: { slack_alerted_at: new Date() } }
+    );
+    console.log(`   ✅ Marked ${alertedTicketIds.length} tickets as Slack-alerted`);
+  }
+};
+
 // --- SERVER READINESS STATE ---
 let isServerReady = false;
 let cacheWarmingStarted = false;
@@ -356,6 +428,7 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     noc_rca: { type: String, default: null }, // e.g., "Understanding Gap - CS"
     noc_reported_by: { type: String, default: null }, // e.g., "Sambhaavna A"
     noc_assignee: { type: String, default: null },
+    slack_alerted_at: { type: Date, default: null }, // Track when Slack alert was sent
     stage_name: { type: String, index: true }, // ✅ For filtering by ticket status
     actual_close_date: Date, // ✅ For hot data filtering (last 24h)
   },
@@ -2001,6 +2074,14 @@ const syncHistoricalToDB = async (fullHistory = false) => {
   const TARGET_DATE = new Date("2025-10-01");  // Extended to Oct 1 to catch more historical tickets
   const NOC_CHECK_DATE = new Date("2026-01-01"); // Only check NOC for tickets >= Jan 1, 2026
 
+  // Fetch already-alerted ticket IDs to avoid duplicate Slack alerts
+  const alertedTickets = await AnalyticsTicket.find(
+    { slack_alerted_at: { $ne: null } },
+    { ticket_id: 1 }
+  ).lean();
+  const alertedTicketIds = new Set(alertedTickets.map(t => t.ticket_id));
+  const ticketsToAlert = []; // Collect tickets needing Slack alerts
+
   do {
     try {
       const res = await axios.get(
@@ -2119,6 +2200,34 @@ const syncHistoricalToDB = async (fullHistory = false) => {
             }
           }
 
+          // Queue for Slack alert if:
+          // 1. Has Understanding Gap RCA
+          // 2. Reporter is a GST member
+          // 3. Not already alerted
+          // 4. Closed within last 48 hours (prevents flooding on restart)
+          const hoursSinceClosed = (Date.now() - closedDate.getTime()) / (1000 * 60 * 60);
+          const isReporterGST = nocReportedBy && GST_SLACK_MEMBER_IDS[nocReportedBy];
+
+          if (
+            nocRca &&
+            nocRca.toLowerCase().includes("understanding gap") &&
+            isReporterGST &&
+            !alertedTicketIds.has(t.display_id) &&
+            hoursSinceClosed <= 48
+          ) {
+            ticketsToAlert.push({
+              ticket_id: t.display_id,
+              noc_jira_key: nocJiraKey,
+              noc_rca: nocRca,
+              noc_reported_by: nocReportedBy,
+              noc_assignee: nocAssignee,
+              account_name:
+                t.custom_fields?.tnt__instance_account_name ||
+                t.account?.display_name ||
+                "Unknown",
+            });
+          }
+
           ops.push({
             updateOne: {
               filter: { ticket_id: t.display_id },
@@ -2172,6 +2281,12 @@ const syncHistoricalToDB = async (fullHistory = false) => {
       break;
     }
   } while (cursor && loop < 1000);
+
+  // Send Slack alerts for new Understanding Gap tickets
+  if (ticketsToAlert.length > 0) {
+    console.log(`📢 Sending Slack alerts for ${ticketsToAlert.length} Understanding Gap tickets...`);
+    await sendSlackAlerts(ticketsToAlert);
+  }
 
   // Clear all caches
   await Promise.all([
