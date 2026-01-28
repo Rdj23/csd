@@ -2529,6 +2529,8 @@ app.get("/api/roster/backup", async (req, res) => {
     const dateKey = format(today, "d-MMM");
     const colIdx = DATE_COL_MAP[dateKey];
     const currentHour = today.getHours();
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
     // Check if roster data is loaded
     if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
@@ -2557,26 +2559,61 @@ app.get("/api/roster/backup", async (req, res) => {
       "SHIFT 4": { start: 15, end: 24 },
       "ON CALL": { start: 0, end: 24 },
     };
-    const OFF_STATUSES = ["WEEK OFF", "WO", "EL", "NH", "PL", "PH", "L", "COMP OFF", "OH", ""];
 
-    // Helper to check if engineer is on shift
-    const isOnShift = (row) => {
+    // Off status reasons with friendly display names
+    const OFF_STATUS_MAP = {
+      "WEEK OFF": "Week Off",
+      "WO": "Week Off",
+      "EL": "On Leave (EL)",
+      "NH": "National Holiday",
+      "PL": "Planned Leave",
+      "PH": "Public Holiday",
+      "L": "On Leave",
+      "COMP OFF": "Comp Off",
+      "OH": "Optional Holiday",
+      "": "Away",
+    };
+    const OFF_STATUSES = Object.keys(OFF_STATUS_MAP);
+
+    // L1/L2 designation mapping
+    const DESIGNATION_MAP = {
+      "Debashish": "L2", "Anurag": "L1", "Musaveer": "L1", "Shubhankar": "L1",
+      "Tuaha Khan": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
+      "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
+      "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
+      "Abhishek": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
+    };
+
+    // Helper to get shift status details for a roster row
+    const getShiftStatus = (row) => {
       const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
-      if (OFF_STATUSES.includes(shift)) return false;
+
+      // Check if off
+      if (OFF_STATUSES.includes(shift)) {
+        return {
+          isOnShift: false,
+          shift: shift,
+          reason: OFF_STATUS_MAP[shift] || "Away"
+        };
+      }
 
       const shiftKey = shift.replace(/\s+/g, " ").trim();
       const hours = SHIFT_HOURS[shiftKey];
+
       if (hours) {
-        return currentHour >= hours.start && currentHour < hours.end;
+        const isActive = currentHour >= hours.start && currentHour < hours.end;
+        return {
+          isOnShift: isActive,
+          shift: shiftKey,
+          reason: isActive ? null : `Not in ${shiftKey} hours yet`
+        };
       }
-      return true;
+
+      // Unknown shift - assume active if not explicitly off
+      return { isOnShift: true, shift: shift, reason: null };
     };
 
-    // Find user's team from TEAM_GROUPS
-    let userTeam = null;
-    let teamMembers = [];
-
-    // Build FLAT_TEAM_MAP from TEAM_GROUPS (must be outside if block so it's available later)
+    // Build FLAT_TEAM_MAP from TEAM_GROUPS
     const FLAT_TEAM_MAP = {};
     Object.entries(TEAM_GROUPS).forEach(([lead, members]) => {
       Object.entries(members).forEach(([id, name]) => {
@@ -2584,99 +2621,173 @@ app.get("/api/roster/backup", async (req, res) => {
       });
     });
 
-    if (userName) {
-      // Import TEAM_GROUPS logic here or use a hardcoded mapping
-      const TEAM_MAPPING = {
-        "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-        "Anurag": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-        "Musaveer": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-        "Shubhankar": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-        
-        "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-        "Harsh": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-        "Tamanna": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-        "Shreyas": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-        
-        "Shweta": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-        "Aditya": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-        "Nikita": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-        
-        "Rohan": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-        "Archie": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-        "Neha": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-        "Shreya": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-        "Abhishek": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-        "Adarsh": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-        "Vaibhav": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-      };
+    // Team mapping
+    const TEAM_MAPPING = {
+      "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+      "Anurag": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+      "Musaveer": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+      "Shubhankar": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
 
+      "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+      "Harsh": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+      "Tamanna": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+      "Shreyas": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+
+      "Shweta": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+      "Aditya": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+      "Nikita": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+
+      "Rohan": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+      "Archie": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+      "Neha": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+      "Shreya": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+      "Abhishek": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+      "Adarsh": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+      "Vaibhav": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+    };
+
+    let userTeam = null;
+    let teamMembers = [];
+    let userRole = "L1";
+    let userShiftStatus = null;
+
+    if (userName) {
       const mapping = TEAM_MAPPING[userName];
       if (mapping) {
         userTeam = mapping.team;
         teamMembers = mapping.members.filter(m => m !== userName);
       }
+      userRole = DESIGNATION_MAP[userName] || "L1";
 
-   
-
+      // Find user's current shift status
+      const userRow = ROSTER_ROWS.find((r) =>
+        r[0]?.toLowerCase() === userName?.toLowerCase()
+      );
+      if (userRow) {
+        userShiftStatus = getShiftStatus(userRow);
+      }
     }
 
-    // Get active engineers
+    // If user is available (on shift), they don't need a backup
+    if (userShiftStatus?.isOnShift) {
+      // Get user's urgent ticket count for display
+      const tickets = await redisGet("tickets:active") || [];
+      let userUrgentCount = 0;
+
+      tickets.forEach((t) => {
+        const stageName = (t.stage?.name || "").toLowerCase();
+        // Only count OPEN tickets (Waiting on Assignee)
+        if (!stageName.includes("waiting on assignee") && !stageName.includes("open")) return;
+
+        const priority = (t.priority || "").toLowerCase();
+        // Only count blocker or high priority
+        if (priority !== "blocker" && priority !== "high") return;
+
+        const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+                          t.owned_by?.[0]?.display_name || "";
+        if (ownerName.toLowerCase() === userName.toLowerCase()) {
+          userUrgentCount++;
+        }
+      });
+
+      return res.json({
+        backup: null,
+        needsBackup: false,
+        userStatus: {
+          isAvailable: true,
+          shift: userShiftStatus.shift,
+          urgentTickets: userUrgentCount,
+        },
+        message: `${userName} is available and working.`,
+        team: userTeam,
+      });
+    }
+
+    // User is NOT available - find backup
+    // Get active engineers from same role (L1 -> L1, L2 -> L2)
     const activeEngineers = ROSTER_ROWS.filter((row) => {
       if (!row[0] || !row[1]) return false;
-      
+
       // If teamOnly, filter to team members
       if (teamOnly === "true" && teamMembers.length > 0) {
-        const isTeamMember = teamMembers.some(m => 
+        const isTeamMember = teamMembers.some(m =>
           m.toLowerCase() === row[0].toLowerCase()
         );
         if (!isTeamMember) return false;
       }
-      
-      return isOnShift(row);
+
+      // Check if on shift
+      const status = getShiftStatus(row);
+      if (!status.isOnShift) return false;
+
+      // On weekends, only include those explicitly working today
+      if (isWeekend) {
+        const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
+        // Must have an actual shift assignment (not off status)
+        if (OFF_STATUSES.includes(shift) || !shift) return false;
+      }
+
+      // Match role: L1 backup for L1, L2 backup for L2
+      const memberName = row[0];
+      const memberRole = DESIGNATION_MAP[memberName] || "L1";
+      return memberRole === userRole;
+
     }).map((row) => ({
       name: row[0],
       email: row[1],
-      role: LEVEL_COL_IDX >= 0 ? (row[LEVEL_COL_IDX] || "L1") : "L1",
+      role: DESIGNATION_MAP[row[0]] || "L1",
       shift: colIdx ? row[colIdx] : "Unknown",
     }));
 
     if (activeEngineers.length === 0) {
       return res.json({
         backup: null,
-        message: "No teammates currently on shift.",
+        needsBackup: true,
+        userStatus: {
+          isAvailable: false,
+          reason: userShiftStatus?.reason || "Away",
+          shift: userShiftStatus?.shift,
+        },
+        message: `No ${userRole} teammates currently on shift.`,
         team: userTeam,
       });
     }
 
-    // Calculate workload
-    // ✅ Get tickets from Redis instead of NodeCache
+    // Calculate workload - count OPEN tickets only
     const tickets = await redisGet("tickets:active") || [];
     const workloadMap = {};
-    activeEngineers.forEach((eng) => (workloadMap[eng.name.toLowerCase()] = 0));
+    const urgentWorkloadMap = {};
+    activeEngineers.forEach((eng) => {
+      workloadMap[eng.name.toLowerCase()] = 0;
+      urgentWorkloadMap[eng.name.toLowerCase()] = 0;
+    });
 
     tickets.forEach((t) => {
       const stageName = (t.stage?.name || "").toLowerCase();
-      if (stageName.includes("solved") || stageName.includes("closed")) return;
+      // Only count OPEN tickets (Waiting on Assignee)
+      const isOpen = stageName.includes("waiting on assignee") ||
+                     (stageName.includes("open") && !stageName.includes("closed"));
 
+      if (!isOpen) return;
 
-
-      const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || 
+      const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
                         t.owned_by?.[0]?.display_name || "";
       if (ownerName) {
         const nameKey = ownerName.toLowerCase();
         if (workloadMap.hasOwnProperty(nameKey)) {
+          workloadMap[nameKey]++;
+
+          // Track urgent tickets separately (blocker or high priority)
           const priority = (t.priority || "").toLowerCase();
-          workloadMap[nameKey] += (priority === "high" || priority === "urgent") ? 2 : 1;
+          if (priority === "blocker" || priority === "high") {
+            urgentWorkloadMap[nameKey]++;
+          }
         }
       }
     });
 
-    // Sort: L2 first (for complex issues), then by least load
+    // Sort by least open tickets first (smart backup selection)
     activeEngineers.sort((a, b) => {
-      // Prefer L2 for backup
-      if (a.role === "L2" && b.role === "L1") return -1;
-      if (a.role === "L1" && b.role === "L2") return 1;
-      // Then by least load
       return workloadMap[a.name.toLowerCase()] - workloadMap[b.name.toLowerCase()];
     });
 
@@ -2689,6 +2800,13 @@ app.get("/api/roster/backup", async (req, res) => {
         role: backup.role,
         shift: backup.shift,
         currentLoad: workloadMap[backup.name.toLowerCase()],
+        urgentTickets: urgentWorkloadMap[backup.name.toLowerCase()],
+      },
+      needsBackup: true,
+      userStatus: {
+        isAvailable: false,
+        reason: userShiftStatus?.reason || "Away",
+        shift: userShiftStatus?.shift,
       },
       team: userTeam,
       allCandidates: activeEngineers.map((e) => ({
@@ -2696,6 +2814,7 @@ app.get("/api/roster/backup", async (req, res) => {
         role: e.role,
         shift: e.shift,
         load: workloadMap[e.name.toLowerCase()],
+        urgentTickets: urgentWorkloadMap[e.name.toLowerCase()],
       })),
     });
   } catch (e) {

@@ -16,6 +16,7 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
   const [loading, setLoading] = useState(true);
 
   const [backup, setBackup] = useState(null);
+  const [backupData, setBackupData] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -26,25 +27,57 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
         // 1. Fetch backup from improved endpoint
         const backupRes = await axios.get(`${API_BASE}/api/roster/backup?userName=${encodeURIComponent(user.name)}&teamOnly=true`);
         setBackup(backupRes.data.backup);
+        setBackupData(backupRes.data);
 
-        // 2. Get profile status
-        const statusRes = await axios.post(`${API_BASE}/api/profile/status`, { userName: user.name });
+        // Determine status and AI summary based on backup response
+        const { needsBackup, userStatus, backup: backupInfo } = backupRes.data;
+
+        let aiSummary = "";
+        let isActive = false;
+        let status = "Away";
+        let timings = "";
+
+        if (needsBackup === false && userStatus?.isAvailable) {
+          // User is available - no backup needed
+          isActive = true;
+          status = "On Shift";
+          timings = userStatus.shift || "";
+          const urgentCount = userStatus.urgentTickets || 0;
+          aiSummary = urgentCount > 0
+            ? `${user.name} is available. Working on ${urgentCount} urgent ticket${urgentCount !== 1 ? 's' : ''} (blocker/high priority).`
+            : `${user.name} is available with no urgent tickets.`;
+        } else if (needsBackup === true) {
+          // User is NOT available - show backup
+          isActive = false;
+          status = userStatus?.reason || "Away";
+          timings = userStatus?.shift || "";
+
+          if (backupInfo) {
+            const urgentCount = backupInfo.urgentTickets || 0;
+            aiSummary = `${user.name} is ${status.toLowerCase()}. Best backup: ${backupInfo.name} (${backupInfo.role}) with ${backupInfo.currentLoad} open tickets${urgentCount > 0 ? ` (${urgentCount} urgent)` : ''}.`;
+          } else {
+            aiSummary = `${user.name} is ${status.toLowerCase()}. No ${backupRes.data.team ? 'teammates' : 'backup'} currently available.`;
+          }
+        } else {
+          // Fallback for old API response or errors
+          const statusRes = await axios.post(`${API_BASE}/api/profile/status`, { userName: user.name });
+          isActive = statusRes.data.isActive;
+          status = statusRes.data.status;
+          timings = statusRes.data.shift;
+          aiSummary = isActive
+            ? `${user.name} is on shift.`
+            : `${user.name} is off duty today.`;
+        }
 
         setData({
-         
-          isActive: statusRes.data.isActive,
-          status: statusRes.data.status,
-          timings: statusRes.data.shift,
-          aiSummary: backupRes.data.backup 
-            ? `${user.name} is working. Best backup: ${backupRes.data.backup.name} (${backupRes.data.backup.role}) with ${backupRes.data.backup.currentLoad} active tickets.`
-            : statusRes.data.isActive 
-              ? `${user.name} is on shift. No teammates currently available.`
-              : `${user.name} is off duty today.`,
+          isActive,
+          status,
+          timings,
+          aiSummary,
         });
       } catch (err) {
         console.error("Failed to load profile info", err);
         setData({
-         
           isActive: false,
           status: "Unknown",
         });
@@ -151,10 +184,25 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
           {/* BACKUP CARD */}
 <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-    Recommended Backup
+    {backupData?.needsBackup === false ? "Status" : "Recommended Backup"}
   </div>
-  
-  {backup ? (
+
+  {backupData?.needsBackup === false ? (
+    // User is available - no backup needed
+    <div className="flex items-center gap-2 py-1">
+      <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+        <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+      </div>
+      <div>
+        <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+          Available
+        </p>
+        <p className="text-[10px] text-slate-500">
+          No backup needed • {backupData?.userStatus?.shift || "On Shift"}
+        </p>
+      </div>
+    </div>
+  ) : backup ? (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
         <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs">
@@ -165,7 +213,10 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
             {backup.name}
           </p>
           <p className="text-[10px] text-slate-500">
-            {backup.role} • <span className="text-green-600 font-medium">{backup.load} Active Now</span>
+            {backup.role} • <span className="text-green-600 font-medium">{backup.currentLoad} Open</span>
+            {backup.urgentTickets > 0 && (
+              <span className="text-amber-600 ml-1">({backup.urgentTickets} urgent)</span>
+            )}
           </p>
         </div>
       </div>
@@ -176,7 +227,9 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
     </div>
   ) : (
     <div className="text-xs text-slate-400 italic py-2 text-center">
-      No teammates online 🌙
+      {backupData?.userStatus?.reason
+        ? `${user.name} is ${backupData.userStatus.reason.toLowerCase()}. No backup available.`
+        : "No teammates online"}
     </div>
   )}
 </div>
