@@ -1301,7 +1301,8 @@ const fetchAndCacheTickets = async (source = "auto") => {
   try {
     let collected = [],
       cursor = null,
-      loop = 0;
+      loop = 0,
+      consecutiveInactiveBatches = 0; // Track batches without active tickets
 
     // ✅ Keep ALL active tickets + Solved tickets from Oct 2025 onwards
     const SOLVED_CUTOFF_DATE = new Date("2026-01-01"); // Keep solved tickets from Oct 2025
@@ -1401,11 +1402,19 @@ const fetchAndCacheTickets = async (source = "auto") => {
         });
       }
 
-      // ✅ EARLY EXIT: Stop if we're past the cutoff date for solved tickets
-      // Keep going if we have active tickets (they could be old but still active)
+      // ✅ EARLY EXIT: Stop only after MANY consecutive batches without active tickets
+      // This ensures we don't miss old pending/on-hold tickets scattered in pagination
       if (!hasActiveTickets) {
+        consecutiveInactiveBatches++;
         const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
-        if (lastDate < SOLVED_CUTOFF_DATE) break;
+        // Only break after 10+ consecutive batches with no active tickets AND old dates
+        if (lastDate < SOLVED_CUTOFF_DATE && consecutiveInactiveBatches >= 10) {
+          console.log(`⏹️ Early exit after ${consecutiveInactiveBatches} consecutive inactive batches`);
+          break;
+        }
+      } else {
+        // Reset counter when we find active tickets
+        consecutiveInactiveBatches = 0;
       }
 
       cursor = response.data.next_cursor;
