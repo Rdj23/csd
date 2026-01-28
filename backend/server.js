@@ -2595,7 +2595,8 @@ app.get("/api/roster/backup", async (req, res) => {
 
     // Helper to get shift status details for a roster row
     const getShiftStatus = (row) => {
-      const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
+      const rawShift = colIdx ? (row[colIdx] || "").trim() : "";
+      const shift = rawShift.toUpperCase();
 
       // Check if off
       if (OFF_STATUSES.includes(shift)) {
@@ -2606,7 +2607,12 @@ app.get("/api/roster/backup", async (req, res) => {
         };
       }
 
-      const shiftKey = shift.replace(/\s+/g, " ").trim();
+      // Normalize shift name - extract shift number and build standard key
+      // Handles: "Shift 1", "SHIFT1", "S1", "1", "shift 1", etc.
+      const shiftMatch = shift.match(/(?:SHIFT\s*)?(\d)/i);
+      const shiftNum = shiftMatch ? shiftMatch[1] : null;
+      const shiftKey = shiftNum ? `SHIFT ${shiftNum}` : shift.replace(/\s+/g, " ").trim();
+
       const hours = SHIFT_HOURS[shiftKey];
 
       if (hours) {
@@ -2624,8 +2630,9 @@ app.get("/api/roster/backup", async (req, res) => {
         };
       }
 
-      // Unknown shift - assume active if not explicitly off
-      return { isOnShift: true, shift: shift, reason: null };
+      // Unknown shift format - NOT active (safer default)
+      console.log(`⚠️ Unknown shift format: "${rawShift}" for user in roster`);
+      return { isOnShift: false, shift: rawShift, reason: `Unknown shift: ${rawShift}` };
     };
 
     // Build FLAT_TEAM_MAP from TEAM_GROUPS
