@@ -217,6 +217,89 @@ const GST_MEMBERS = new Set([
   "Adish",
 ]);
 
+// ============================================================================
+// SHARED CONSTANTS FOR SHIFT & BACKUP LOGIC
+// ============================================================================
+
+// Shift timings in IST (decimal hours: 7.5 = 7:30 AM)
+const SHIFT_HOURS = {
+  "SHIFT 1": { start: 7.5, end: 16.5 },   // 7:30 AM - 4:30 PM
+  "SHIFT 2": { start: 10.5, end: 19.5 },  // 10:30 AM - 7:30 PM
+  "SHIFT 3": { start: 13.5, end: 22.5 },  // 1:30 PM - 10:30 PM
+  "SHIFT 4": { start: 22.5, end: 7.5, overnight: true }, // 10:30 PM - 7:30 AM
+  "ON CALL": { start: 0, end: 24 },
+};
+
+// Off status reasons with friendly display names
+const OFF_STATUS_MAP = {
+  "WEEK OFF": "Week Off",
+  "WO": "Week Off",
+  "EL": "On Leave (EL)",
+  "NH": "National Holiday",
+  "PL": "Planned Leave",
+  "PH": "Public Holiday",
+  "L": "On Leave",
+  "COMP OFF": "Comp Off",
+  "OH": "Optional Holiday",
+  "": "Away",
+};
+const OFF_STATUSES = Object.keys(OFF_STATUS_MAP);
+
+// L1/L2 designation mapping
+const DESIGNATION_MAP = {
+  "Debashish": "L2", "Anurag": "L1", "Musaveer": "L1", "Shubhankar": "L1",
+  "Tuaha Khan": "L2", "Tuaha": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
+  "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
+  "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
+  "Abhishek": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
+};
+
+// Map display names to roster names (for names that differ)
+const NAME_TO_ROSTER_MAP = {
+  "Tuaha Khan": "Tuaha",
+};
+
+// Team mapping for backup lookups
+const TEAM_MAPPING = {
+  "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+  "Anurag": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+  "Musaveer": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+  "Shubhankar": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+
+  "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+  "Tuaha": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+  "Harsh": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+  "Tamanna": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+  "Shreyas": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+
+  "Shweta": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+  "Aditya": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+  "Nikita": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+
+  "Rohan": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+  "Archie": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+  "Neha": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+  "Shreya": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+  "Abhishek": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+  "Adarsh": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+  "Vaibhav": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+};
+
+// Helper to get current IST time (handles server running in UTC)
+const getISTTime = () => {
+  const now = new Date();
+  // Convert to IST (UTC+5:30)
+  const istOffset = 5.5 * 60 * 60 * 1000; // 5.5 hours in ms
+  const utcTime = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
+  return new Date(utcTime + istOffset);
+};
+
+// Helper to get current hour in IST as decimal
+const getCurrentISTHour = () => {
+  const ist = getISTTime();
+  return ist.getHours() + ist.getMinutes() / 60;
+};
+
 const resolveOwnerName = (displayName) => {
   if (!displayName) return null; // Will be filtered out
   const resolved = GST_NAME_MAP[displayName];
@@ -2525,12 +2608,14 @@ app.post("/api/profile/status", (req, res) => {
 app.get("/api/roster/backup", async (req, res) => {
   try {
     const { userName, teamOnly = "true" } = req.query;
-    const today = new Date();
-    const dateKey = format(today, "d-MMM");
+    const istNow = getISTTime();
+    const dateKey = format(istNow, "d-MMM");
     const colIdx = DATE_COL_MAP[dateKey];
-    const currentHour = today.getHours() + today.getMinutes() / 60; // Decimal hours for 30-min precision
-    const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
+    const currentHour = getCurrentISTHour();
+    const dayOfWeek = istNow.getDay();
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    console.log(`🕐 Backup API: IST Time = ${istNow.toISOString()}, Hour = ${currentHour.toFixed(2)}, Date = ${dateKey}`);
 
     // Check if roster data is loaded
     if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
@@ -2551,48 +2636,6 @@ app.get("/api/roster/backup", async (req, res) => {
       });
     }
 
-    // Shift timings (decimal hours: 7.5 = 7:30 AM)
-    // SHIFT 1: 7:30 AM - 4:30 PM
-    // SHIFT 2: 10:30 AM - 7:30 PM
-    // SHIFT 3: 1:30 PM - 10:30 PM
-    // SHIFT 4: 10:30 PM - 7:30 AM (overnight)
-    const SHIFT_HOURS = {
-      "SHIFT 1": { start: 7.5, end: 16.5 },
-      "SHIFT 2": { start: 10.5, end: 19.5 },
-      "SHIFT 3": { start: 13.5, end: 22.5 },
-      "SHIFT 4": { start: 22.5, end: 7.5, overnight: true },
-      "ON CALL": { start: 0, end: 24 },
-    };
-
-    // Off status reasons with friendly display names
-    const OFF_STATUS_MAP = {
-      "WEEK OFF": "Week Off",
-      "WO": "Week Off",
-      "EL": "On Leave (EL)",
-      "NH": "National Holiday",
-      "PL": "Planned Leave",
-      "PH": "Public Holiday",
-      "L": "On Leave",
-      "COMP OFF": "Comp Off",
-      "OH": "Optional Holiday",
-      "": "Away",
-    };
-    const OFF_STATUSES = Object.keys(OFF_STATUS_MAP);
-
-    // L1/L2 designation mapping
-    const DESIGNATION_MAP = {
-      "Debashish": "L2", "Anurag": "L1", "Musaveer": "L1", "Shubhankar": "L1",
-      "Tuaha Khan": "L2", "Tuaha": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
-      "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
-      "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
-      "Abhishek": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
-    };
-
-    // Map display names to roster names (for names that differ in roster)
-    const NAME_TO_ROSTER_MAP = {
-      "Tuaha Khan": "Tuaha",
-    };
-
     // Helper to get shift status details for a roster row
     const getShiftStatus = (row) => {
       const rawShift = colIdx ? (row[colIdx] || "").trim() : "";
@@ -2607,8 +2650,7 @@ app.get("/api/roster/backup", async (req, res) => {
         };
       }
 
-      // Normalize shift name - extract shift number and build standard key
-      // Handles: "Shift 1", "SHIFT1", "S1", "1", "shift 1", etc.
+      // Normalize shift name - extract shift number
       const shiftMatch = shift.match(/(?:SHIFT\s*)?(\d)/i);
       const shiftNum = shiftMatch ? shiftMatch[1] : null;
       const shiftKey = shiftNum ? `SHIFT ${shiftNum}` : shift.replace(/\s+/g, " ").trim();
@@ -2618,11 +2660,11 @@ app.get("/api/roster/backup", async (req, res) => {
       if (hours) {
         let isActive;
         if (hours.overnight) {
-          // Overnight shift (e.g., 10:30 PM - 7:30 AM)
           isActive = currentHour >= hours.start || currentHour < hours.end;
         } else {
           isActive = currentHour >= hours.start && currentHour < hours.end;
         }
+        console.log(`   ${row[0]}: ${shiftKey} (${hours.start}-${hours.end}), currentHour=${currentHour.toFixed(2)}, isActive=${isActive}`);
         return {
           isOnShift: isActive,
           shift: shiftKey,
@@ -2630,8 +2672,7 @@ app.get("/api/roster/backup", async (req, res) => {
         };
       }
 
-      // Unknown shift format - NOT active (safer default)
-      console.log(`⚠️ Unknown shift format: "${rawShift}" for user in roster`);
+      console.log(`⚠️ Unknown shift format: "${rawShift}" for ${row[0]}`);
       return { isOnShift: false, shift: rawShift, reason: `Unknown shift: ${rawShift}` };
     };
 
@@ -2642,31 +2683,6 @@ app.get("/api/roster/backup", async (req, res) => {
         FLAT_TEAM_MAP[id] = name;
       });
     });
-
-    // Team mapping
-    const TEAM_MAPPING = {
-      "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-      "Anurag": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-      "Musaveer": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-      "Shubhankar": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-
-      "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-      "Harsh": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-      "Tamanna": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-      "Shreyas": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-
-      "Shweta": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-      "Aditya": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-      "Nikita": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-
-      "Rohan": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-      "Archie": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-      "Neha": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-      "Shreya": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-      "Abhishek": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-      "Adarsh": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-      "Vaibhav": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-    };
 
     let userTeam = null;
     let teamMembers = [];
@@ -2681,13 +2697,16 @@ app.get("/api/roster/backup", async (req, res) => {
       }
       userRole = DESIGNATION_MAP[userName] || "L1";
 
-      // Find user's current shift status (use roster name mapping if exists)
+      // Find user's current shift status
       const rosterName = NAME_TO_ROSTER_MAP[userName] || userName;
       const userRow = ROSTER_ROWS.find((r) =>
         r[0]?.toLowerCase() === rosterName?.toLowerCase()
       );
       if (userRow) {
         userShiftStatus = getShiftStatus(userRow);
+        console.log(`   User ${userName} (roster: ${rosterName}): shift=${userShiftStatus.shift}, isOnShift=${userShiftStatus.isOnShift}`);
+      } else {
+        console.log(`⚠️ User ${userName} not found in roster (tried: ${rosterName})`);
       }
     }
 
@@ -2878,16 +2897,7 @@ app.get("/api/gamification", async (req, res) => {
       },
     ]);
 
-    // L1/L2 designation mapping
-    const DESIGNATION_MAP = {
-      "Debashish": "L2", "Anurag": "L1", "Musaveer": "L1", "Shubhankar": "L1",
-      "Tuaha Khan": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
-      "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
-      "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
-      "Abhishek": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
-    };
-
-    // Team mapping
+    // Team mapping (for gamification display)
     const TEAM_MAP = {
       "Debashish": "Debashish", "Anurag": "Debashish", "Musaveer": "Debashish", "Shubhankar": "Debashish",
       "Tuaha Khan": "Tuaha", "Harsh": "Tuaha", "Tamanna": "Tuaha", "Shreyas": "Tuaha",
@@ -3152,52 +3162,44 @@ app.get("/api/gamification", async (req, res) => {
   }
 });
 
-// [server.js] - Add this new endpoint
 // ============================================================================
 // API: GET WORKLOAD FOR ALL ACTIVE ENGINEERS (With Proper Shift Detection)
 // ============================================================================
 app.get("/api/roster/workload", async (req, res) => {
   try {
-    // 1. Get Today's Date Key (e.g., "22-Jan") for Roster Check
-    const today = new Date();
-    const dateKey = format(today, "d-MMM");
+    // Use IST time
+    const istNow = getISTTime();
+    const dateKey = format(istNow, "d-MMM");
     const colIdx = DATE_COL_MAP[dateKey];
-    const currentHour = today.getHours();
+    const currentHour = getCurrentISTHour();
 
-    console.log(`🔍 Workload check for ${dateKey}, hour=${currentHour}`);
+    console.log(`🔍 Workload check for ${dateKey}, IST hour=${currentHour.toFixed(2)}`);
 
-    // Shift timings (IST hours)
-    const SHIFT_HOURS = {
-      "SHIFT 1": { start: 6, end: 15 },   // 6 AM - 3 PM
-      "SHIFT 2": { start: 9, end: 18 },   // 9 AM - 6 PM
-      "SHIFT 3": { start: 12, end: 21 },  // 12 PM - 9 PM
-      "SHIFT 4": { start: 15, end: 24 },  // 3 PM - 12 AM
-      "ON CALL": { start: 0, end: 24 },   // Always available
-    };
-
-    // Off-duty statuses
-    const OFF_STATUSES = ["Week Off", "WO", "EL", "NH", "PL", "OH", "L", "COMP OFF", "OH", "ON CALL"];
-
-    // 2. Identify Active Engineers (Currently On Shift)
+    // Identify Active Engineers (Currently On Shift)
     const activeEngineers = ROSTER_ROWS.filter((row) => {
-      if (!row[0] || !row[1]) return false; // Must have Name & Email
+      if (!row[0] || !row[1]) return false;
 
-      const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
-      
+      const shift = (row[colIdx] || "").toUpperCase().trim();
+
       // Check if off duty
       if (OFF_STATUSES.includes(shift)) return false;
-      
-      // Check if within shift hours
-      const shiftKey = shift.replace(/\s+/g, " ").trim();
+
+      // Normalize shift name
+      const shiftMatch = shift.match(/(?:SHIFT\s*)?(\d)/i);
+      const shiftNum = shiftMatch ? shiftMatch[1] : null;
+      const shiftKey = shiftNum ? `SHIFT ${shiftNum}` : shift.replace(/\s+/g, " ").trim();
+
       const hours = SHIFT_HOURS[shiftKey];
-      
+
       if (hours) {
-        // Check if current time is within shift
+        if (hours.overnight) {
+          return currentHour >= hours.start || currentHour < hours.end;
+        }
         return currentHour >= hours.start && currentHour < hours.end;
       }
-      
-      // If shift format not recognized, assume available
-      return true;
+
+      // Unknown format - not active
+      return false;
     }).map((row) => ({
       name: row[0],
       email: row[1],
