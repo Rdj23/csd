@@ -2562,6 +2562,146 @@ app.post("/api/admin/clear-cache", async (req, res) => {
   res.json({ message: "Cleared" });
 });
 
+// Single ticket sync - for testing Slack alerts
+app.post("/api/admin/sync-ticket", async (req, res) => {
+  const { ticketId } = req.body; // e.g., "TKT-305867"
+  if (!ticketId) {
+    return res.status(400).json({ error: "ticketId required" });
+  }
+
+  try {
+    console.log(`🔄 Single ticket sync: ${ticketId}`);
+
+    // Fetch ticket from DevRev
+    const ticketRes = await axios.post(
+      `${DEVREV_API}/works.get`,
+      { id: ticketId },
+      { headers: HEADERS }
+    );
+    const t = ticketRes.data.work;
+    if (!t) {
+      return res.status(404).json({ error: "Ticket not found" });
+    }
+
+    // Check if solved
+    const stage = t.stage?.name?.toLowerCase() || "";
+    const isSolved = stage.includes("solved") || stage.includes("closed") || stage.includes("resolved");
+
+    // Resolve owner
+    const ownerRaw = t.owned_by?.[0]?.display_name || "";
+    const owner = resolveOwnerName(ownerRaw);
+
+    // NOC Detection
+    let isNoc = false, nocIssueId = null, nocJiraKey = null, nocRca = null, nocReportedBy = null, nocAssignee = null;
+    const NOC_CHECK_DATE = new Date("2026-01-01");
+    const closedDate = t.actual_close_date ? new Date(t.actual_close_date) : null;
+
+    if (closedDate && closedDate >= NOC_CHECK_DATE) {
+      try {
+        const linksRes = await axios.post(
+          `${DEVREV_API}/links.list`,
+          { object: t.id, object_types: ["issue"], limit: 10 },
+          { headers: HEADERS }
+        );
+        for (const link of linksRes.data.links || []) {
+          const issueId = link.target?.display_id || link.source?.display_id;
+          if (!issueId || !issueId.startsWith("ISS-")) continue;
+
+          const issRes = await axios.post(
+            `${DEVREV_API}/works.get`,
+            { id: issueId },
+            { headers: HEADERS }
+          );
+          const issue = issRes.data.work;
+          if (issue?.custom_fields?.ctype__issuetype === "PSN Task") {
+            isNoc = true;
+            nocIssueId = issue.display_id;
+            nocJiraKey = issue.custom_fields?.ctype__key || null;
+            nocRca = issue.custom_fields?.ctype__customfield_10169 || null;
+            nocReportedBy = issue.reported_by?.[0]?.display_name || null;
+            nocAssignee = issue.owned_by?.[0]?.display_name || null;
+            break;
+          }
+        }
+      } catch (e) {
+        console.log("NOC detection error:", e.message);
+      }
+    }
+
+    // Check Slack alert conditions
+    const existingTicket = await AnalyticsTicket.findOne({ ticket_id: t.display_id });
+    const alreadyAlerted = existingTicket?.slack_alerted_at != null;
+    const hoursSinceClosed = closedDate ? (Date.now() - closedDate.getTime()) / (1000 * 60 * 60) : Infinity;
+    const isReporterGST = nocReportedBy && GST_SLACK_MEMBER_IDS[nocReportedBy];
+    const hasUnderstandingGap = nocRca && nocRca.toLowerCase().includes("understanding gap");
+
+    const alertConditions = {
+      isSolved,
+      isNoc,
+      hasUnderstandingGap,
+      isReporterGST: !!isReporterGST,
+      notAlreadyAlerted: !alreadyAlerted,
+      withinLast48Hours: hoursSinceClosed <= 48,
+      nocReportedBy,
+      nocRca,
+    };
+
+    const shouldAlert = isSolved && hasUnderstandingGap && isReporterGST && !alreadyAlerted && hoursSinceClosed <= 48;
+
+    // Send Slack alert if conditions met
+    let slackSent = false;
+    if (shouldAlert) {
+      await sendSlackAlerts([{
+        ticket_id: t.display_id,
+        noc_jira_key: nocJiraKey,
+        noc_rca: nocRca,
+        noc_reported_by: nocReportedBy,
+        noc_assignee: nocAssignee,
+        account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
+      }]);
+      slackSent = true;
+    }
+
+    // Update in MongoDB
+    await AnalyticsTicket.updateOne(
+      { ticket_id: t.display_id },
+      {
+        $set: {
+          ticket_id: t.display_id,
+          display_id: t.display_id,
+          title: t.title,
+          created_date: new Date(t.created_date),
+          closed_date: closedDate,
+          owner,
+          region: t.custom_fields?.tnt__region_salesforce || "Unknown",
+          priority: t.priority,
+          is_noc: isNoc,
+          noc_issue_id: nocIssueId,
+          noc_jira_key: nocJiraKey,
+          noc_rca: nocRca,
+          noc_reported_by: nocReportedBy,
+          noc_assignee: nocAssignee,
+          account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
+        },
+      },
+      { upsert: true }
+    );
+
+    res.json({
+      success: true,
+      ticketId: t.display_id,
+      stage: t.stage?.name,
+      alertConditions,
+      shouldAlert,
+      slackSent,
+      message: slackSent ? "✅ Slack alert sent!" : shouldAlert ? "Alert conditions met but send failed" : "Alert conditions not met",
+    });
+  } catch (e) {
+    console.error("Single ticket sync error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Auth
 app.post("/api/auth/google", async (req, res) => {
   try {
