@@ -52,10 +52,20 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
           status = userStatus?.reason || "Away";
           timings = userStatus?.shift || "";
 
+          // Format status with proper grammar (e.g., "on Week Off", "on EL")
+          const formatStatus = (s) => {
+            if (!s) return "away";
+            const lower = s.toLowerCase();
+            if (lower.includes("week off") || lower.includes("leave") || lower.includes("holiday") || lower.includes("comp off")) {
+              return `on ${s}`;
+            }
+            return lower;
+          };
+
           if (backupInfo) {
-            aiSummary = `${user.name} is ${status.toLowerCase()}. Best backup: ${backupInfo.name} (${backupInfo.role}).`;
+            aiSummary = `${user.name} is ${formatStatus(status)}. Best backup: ${backupInfo.name} (${backupInfo.role}).`;
           } else {
-            aiSummary = `${user.name} is ${status.toLowerCase()}. No backup available.`;
+            aiSummary = `${user.name} is ${formatStatus(status)}. No backup available.`;
           }
         } else {
           // Fallback for old API response or errors
@@ -167,18 +177,20 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
             </div>
           )}
 
-          {/* AI INSIGHT */}
-          <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-3 opacity-10">
-              <TrendingUp className="w-24 h-24 text-indigo-600" />
+          {/* AI INSIGHT - Only show Live Workload for available users */}
+          {data?.isActive && (
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/50 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-3 opacity-10">
+                <TrendingUp className="w-24 h-24 text-indigo-600" />
+              </div>
+              <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <ShieldAlert className="w-3.5 h-3.5" /> Live Workload
+              </h3>
+              <p className="text-sm font-medium text-slate-700 dark:text-indigo-100 leading-relaxed relative z-10">
+                {loading ? "Analyzing..." : data?.aiSummary}
+              </p>
             </div>
-            <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-              <ShieldAlert className="w-3.5 h-3.5" /> Live Workload
-            </h3>
-            <p className="text-sm font-medium text-slate-700 dark:text-indigo-100 leading-relaxed relative z-10">
-              {loading ? "Analyzing..." : data?.aiSummary}
-            </p>
-          </div>
+          )}
 
           {/* BACKUP CARD */}
 <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">

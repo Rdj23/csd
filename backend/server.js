@@ -2746,17 +2746,19 @@ app.get("/api/roster/backup", async (req, res) => {
     }
 
     // User is NOT available - find backup
-    // Get active engineers from same role (L1 -> L1, L2 -> L2)
+    // For L2: search ALL engineers (since teams usually have only one L2)
+    // For L1: search within team first, then all if none found
     const activeEngineers = ROSTER_ROWS.filter((row) => {
       if (!row[0] || !row[1]) return false;
 
-      // If teamOnly, filter to team members
-      if (teamOnly === "true" && teamMembers.length > 0) {
-        const isTeamMember = teamMembers.some(m =>
-          m.toLowerCase() === row[0].toLowerCase()
-        );
-        if (!isTeamMember) return false;
-      }
+      // Don't include the user themselves
+      const rosterName = NAME_TO_ROSTER_MAP[userName] || userName;
+      if (row[0].toLowerCase() === rosterName.toLowerCase()) return false;
+
+      // Match role first: L1 backup for L1, L2 backup for L2
+      const memberName = row[0];
+      const memberRole = DESIGNATION_MAP[memberName] || DESIGNATION_MAP[row[0]] || "L1";
+      if (memberRole !== userRole) return false;
 
       // Check if on shift
       const status = getShiftStatus(row);
@@ -2765,15 +2767,19 @@ app.get("/api/roster/backup", async (req, res) => {
       // On weekends, only include those explicitly working today
       if (isWeekend) {
         const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
-        // Must have an actual shift assignment (not off status)
         if (OFF_STATUSES.includes(shift) || !shift) return false;
       }
 
-      // Match role: L1 backup for L1, L2 backup for L2
-      const memberName = row[0];
-      const memberRole = DESIGNATION_MAP[memberName] || "L1";
-      return memberRole === userRole;
+      // For L1: prefer team members (teamOnly filter)
+      // For L2: search across all teams (L2s are usually team leads, only one per team)
+      if (userRole === "L1" && teamOnly === "true" && teamMembers.length > 0) {
+        const isTeamMember = teamMembers.some(m =>
+          m.toLowerCase() === row[0].toLowerCase()
+        );
+        if (!isTeamMember) return false;
+      }
 
+      return true;
     }).map((row) => ({
       name: row[0],
       email: row[1],
