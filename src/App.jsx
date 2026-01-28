@@ -746,7 +746,19 @@ const App = () => {
         if (!matchesSearch) return false;
 
         // ✅ FIX: Use 'currentFilters.dateRange' so each tab is independent
-        if (currentFilters.dateRange?.start && currentFilters.dateRange?.end) {
+        // ✅ Skip date filtering for pending/on-hold tickets - they should always show
+        const stageLower = t.stage?.name?.toLowerCase() || "";
+        const isPendingOrOnHold =
+          stageLower.includes("awaiting customer") ||
+          stageLower.includes("pending") ||
+          stageLower.includes("waiting on clevertap") ||
+          stageLower.includes("on hold");
+
+        if (
+          currentFilters.dateRange?.start &&
+          currentFilters.dateRange?.end &&
+          !isPendingOrOnHold
+        ) {
           if (
             !isWithinInterval(parseISO(t.created_date), {
               start: startOfDay(parseISO(currentFilters.dateRange.start)),
