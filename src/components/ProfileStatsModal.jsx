@@ -44,8 +44,8 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
           timings = userStatus.shift || "";
           const urgentCount = userStatus.urgentTickets || 0;
           aiSummary = urgentCount > 0
-            ? `${user.name} is available. Working on ${urgentCount} urgent ticket${urgentCount !== 1 ? 's' : ''} (blocker/high priority).`
-            : `${user.name} is available with no urgent tickets.`;
+            ? `${user.name} is working. ${urgentCount} urgent ticket${urgentCount !== 1 ? 's' : ''}.`
+            : `${user.name} is working.`;
         } else if (needsBackup === true) {
           // User is NOT available - show backup
           isActive = false;
@@ -53,10 +53,9 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
           timings = userStatus?.shift || "";
 
           if (backupInfo) {
-            const urgentCount = backupInfo.urgentTickets || 0;
-            aiSummary = `${user.name} is ${status.toLowerCase()}. Best backup: ${backupInfo.name} (${backupInfo.role}) with ${backupInfo.currentLoad} open tickets${urgentCount > 0 ? ` (${urgentCount} urgent)` : ''}.`;
+            aiSummary = `${user.name} is ${status.toLowerCase()}. Best backup: ${backupInfo.name} (${backupInfo.role}).`;
           } else {
-            aiSummary = `${user.name} is ${status.toLowerCase()}. No ${backupRes.data.team ? 'teammates' : 'backup'} currently available.`;
+            aiSummary = `${user.name} is ${status.toLowerCase()}. No backup available.`;
           }
         } else {
           // Fallback for old API response or errors

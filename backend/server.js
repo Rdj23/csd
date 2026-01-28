@@ -2528,7 +2528,7 @@ app.get("/api/roster/backup", async (req, res) => {
     const today = new Date();
     const dateKey = format(today, "d-MMM");
     const colIdx = DATE_COL_MAP[dateKey];
-    const currentHour = today.getHours();
+    const currentHour = today.getHours() + today.getMinutes() / 60; // Decimal hours for 30-min precision
     const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
@@ -2551,12 +2551,16 @@ app.get("/api/roster/backup", async (req, res) => {
       });
     }
 
-    // Shift timings
+    // Shift timings (decimal hours: 7.5 = 7:30 AM)
+    // SHIFT 1: 7:30 AM - 4:30 PM
+    // SHIFT 2: 10:30 AM - 7:30 PM
+    // SHIFT 3: 1:30 PM - 10:30 PM
+    // SHIFT 4: 10:30 PM - 7:30 AM (overnight)
     const SHIFT_HOURS = {
-      "SHIFT 1": { start: 6, end: 15 },
-      "SHIFT 2": { start: 9, end: 18 },
-      "SHIFT 3": { start: 12, end: 21 },
-      "SHIFT 4": { start: 15, end: 24 },
+      "SHIFT 1": { start: 7.5, end: 16.5 },
+      "SHIFT 2": { start: 10.5, end: 19.5 },
+      "SHIFT 3": { start: 13.5, end: 22.5 },
+      "SHIFT 4": { start: 22.5, end: 7.5, overnight: true },
       "ON CALL": { start: 0, end: 24 },
     };
 
@@ -2578,10 +2582,15 @@ app.get("/api/roster/backup", async (req, res) => {
     // L1/L2 designation mapping
     const DESIGNATION_MAP = {
       "Debashish": "L2", "Anurag": "L1", "Musaveer": "L1", "Shubhankar": "L1",
-      "Tuaha Khan": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
+      "Tuaha Khan": "L2", "Tuaha": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
       "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
       "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
       "Abhishek": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
+    };
+
+    // Map display names to roster names (for names that differ in roster)
+    const NAME_TO_ROSTER_MAP = {
+      "Tuaha Khan": "Tuaha",
     };
 
     // Helper to get shift status details for a roster row
@@ -2601,11 +2610,17 @@ app.get("/api/roster/backup", async (req, res) => {
       const hours = SHIFT_HOURS[shiftKey];
 
       if (hours) {
-        const isActive = currentHour >= hours.start && currentHour < hours.end;
+        let isActive;
+        if (hours.overnight) {
+          // Overnight shift (e.g., 10:30 PM - 7:30 AM)
+          isActive = currentHour >= hours.start || currentHour < hours.end;
+        } else {
+          isActive = currentHour >= hours.start && currentHour < hours.end;
+        }
         return {
           isOnShift: isActive,
           shift: shiftKey,
-          reason: isActive ? null : `Not in ${shiftKey} hours yet`
+          reason: isActive ? null : `Not in ${shiftKey} hours`
         };
       }
 
@@ -2659,9 +2674,10 @@ app.get("/api/roster/backup", async (req, res) => {
       }
       userRole = DESIGNATION_MAP[userName] || "L1";
 
-      // Find user's current shift status
+      // Find user's current shift status (use roster name mapping if exists)
+      const rosterName = NAME_TO_ROSTER_MAP[userName] || userName;
       const userRow = ROSTER_ROWS.find((r) =>
-        r[0]?.toLowerCase() === userName?.toLowerCase()
+        r[0]?.toLowerCase() === rosterName?.toLowerCase()
       );
       if (userRow) {
         userShiftStatus = getShiftStatus(userRow);
