@@ -3571,6 +3571,259 @@ app.get("/api/gamification", async (req, res) => {
 });
 
 // ============================================================================
+// GAMIFICATION - My Stats Only (Secure endpoint for GST users)
+// Returns ONLY the requesting user's stats - no access to other users' data
+// ============================================================================
+app.get("/api/gamification/my-stats", async (req, res) => {
+  try {
+    const { quarter = "Q1_26", email } = req.query;
+
+    // Email to GST name mapping (must match exactly with frontend)
+    const EMAIL_TO_NAME_MAP = {
+      "rohan.jadhav@clevertap.com": "Rohan",
+      "archie@clevertap.com": "Archie",
+      "neha.yadav@clevertap.com": "Neha",
+      "shreya.khale@clevertap.com": "Shreya",
+      "vaibhav.agarwal@clevertap.com": "Vaibhav",
+      "adarsh@clevertap.com": "Adarsh",
+      "abhishek.vishwakarma@clevertap.com": "Abhishek",
+      "shubhankar@clevertap.com": "Shubhankar",
+      "musaveer.manekia@clevertap.com": "Musaveer",
+      "anurag.ghatge@clevertap.com": "Anurag",
+      "debashish.muni@clevertap.com": "Debashish",
+      "aditya.mishra@clevertap.com": "Aditya",
+      "shweta.more@clevertap.com": "Shweta",
+      "nikita.narwani@clevertap.com": "Nikita",
+      "mohammed.khan@clevertap.com": "Tuaha Khan",
+      "harsh.singh@clevertap.com": "Harsh",
+      "tamanna@clevertap.com": "Tamanna",
+      "shreyas.naikwadi@clevertap.com": "Shreyas",
+      "adish@clevertap.com": "Adish",
+    };
+
+    // Validate email is provided and is a GST user
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const userName = EMAIL_TO_NAME_MAP[email.toLowerCase()];
+    if (!userName) {
+      return res.status(403).json({ error: "Unauthorized: Not a GST user" });
+    }
+
+    const { start, end } = getQuarterDateRange(quarter);
+    console.log(`🎮 My Stats: ${userName} (${email}) for ${quarter}`);
+
+    // Get stats ONLY for this user from MongoDB
+    const stats = await AnalyticsTicket.aggregate([
+      {
+        $match: {
+          closed_date: { $gte: start, $lte: end },
+          owner: userName,
+          is_noc: { $ne: true }
+        }
+      },
+      {
+        $group: {
+          _id: "$owner",
+          solved: { $sum: 1 },
+          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    // Team mapping
+    const TEAM_MAP = {
+      "Debashish": "Debashish", "Anurag": "Debashish", "Musaveer": "Debashish", "Shubhankar": "Debashish",
+      "Tuaha Khan": "Tuaha", "Harsh": "Tuaha", "Tamanna": "Tuaha", "Shreyas": "Tuaha",
+      "Shweta": "Shweta", "Aditya": "Shweta", "Nikita": "Shweta",
+      "Rohan": "Mashnu", "Archie": "Mashnu", "Neha": "Mashnu", "Shreya": "Mashnu",
+      "Abhishek": "Mashnu", "Adarsh": "Mashnu", "Vaibhav": "Mashnu", "Adish": "Adish",
+    };
+
+    const NAME_TO_ROSTER_MAP = { "Tuaha Khan": "Tuaha" };
+
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    // Calculate days worked for this user
+    const getDaysWorked = (name) => {
+      const rosterName = NAME_TO_ROSTER_MAP[name] || name;
+      const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
+      if (!row) return 0;
+
+      let days = 0;
+      const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4"];
+
+      for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
+        let colDate;
+        if (typeof dateKey === 'number' || !isNaN(Number(dateKey))) {
+          const excelSerial = Number(dateKey);
+          colDate = new Date((excelSerial - 25569) * 86400 * 1000);
+        } else {
+          const currentYear = today.getFullYear();
+          const parsed = new Date(`${dateKey}-${currentYear}`);
+          colDate = isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        if (colDate && colDate >= start && colDate <= today) {
+          const val = (row[colIdx] || "").toUpperCase().trim();
+          if (VALID_SHIFTS.includes(val)) {
+            days++;
+          }
+        }
+      }
+      return days;
+    };
+
+    // Build user data
+    if (stats.length === 0) {
+      // No tickets solved yet - return empty stats
+      return res.json({
+        quarter,
+        dateRange: { start: start.toISOString(), end: end.toISOString() },
+        userData: {
+          name: userName,
+          team: TEAM_MAP[userName] || "Unknown",
+          designation: DESIGNATION_MAP[userName] || "L1",
+          daysWorked: getDaysWorked(userName),
+          solved: 0,
+          productivity: 0,
+          csatPercent: 100,
+          positiveCSAT: 0,
+          avgRWT: 0,
+          avgIterations: 0,
+          frrPercent: 0,
+          productivityPercentile: 0,
+          csatPercentPercentile: 100,
+          positiveCSATPercentile: 0,
+          avgRWTPercentile: 0,
+          avgIterationsPercentile: 0,
+          frrPercentPercentile: 0,
+          percentile: 0,
+        },
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    const s = stats[0];
+    const daysWorked = getDaysWorked(userName);
+    const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
+    const csatPercent = s.negativeCSAT > 0
+      ? Math.round((s.positiveCSAT / (s.positiveCSAT + s.negativeCSAT)) * 100)
+      : 100;
+    const frrPercent = s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0;
+
+    // For percentiles, we need to compare with team - fetch minimal team data
+    const designation = DESIGNATION_MAP[userName] || "L1";
+    const allStats = await AnalyticsTicket.aggregate([
+      {
+        $match: {
+          closed_date: { $gte: start, $lte: end },
+          owner: { $nin: [null, ""] },
+          is_noc: { $ne: true }
+        }
+      },
+      {
+        $group: {
+          _id: "$owner",
+          solved: { $sum: 1 },
+          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    // Filter to same designation only
+    const teamData = allStats.filter(stat => (DESIGNATION_MAP[stat._id] || "L1") === designation);
+
+    // Calculate percentiles by comparing with team
+    const calculatePercentile = (value, allValues, lowerIsBetter = false) => {
+      if (allValues.length === 0) return 0;
+      const sorted = [...allValues].sort((a, b) => lowerIsBetter ? a - b : b - a);
+      const rank = sorted.findIndex(v => v === value) + 1;
+      return Math.round(((allValues.length - rank + 1) / allValues.length) * 100);
+    };
+
+    // Build arrays of metric values for percentile calculation
+    const productivityValues = teamData.map(t => {
+      const days = getDaysWorked(t._id);
+      return days > 0 ? t.solved / days : 0;
+    });
+    const csatPercentValues = teamData.map(t => t.negativeCSAT > 0
+      ? Math.round((t.positiveCSAT / (t.positiveCSAT + t.negativeCSAT)) * 100)
+      : 100);
+    const positiveCSATValues = teamData.map(t => t.positiveCSAT || 0);
+    const avgRWTValues = teamData.map(t => t.avgRWT ? parseFloat(t.avgRWT.toFixed(1)) : 0);
+    const avgIterationsValues = teamData.map(t => t.avgIterations ? parseFloat(t.avgIterations.toFixed(2)) : 0);
+    const frrPercentValues = teamData.map(t => t.solved > 0 ? Math.round((t.frrMet / t.solved) * 100) : 0);
+
+    const productivityPercentile = calculatePercentile(productivity, productivityValues);
+    const csatPercentPercentile = calculatePercentile(csatPercent, csatPercentValues);
+    const positiveCSATPercentile = calculatePercentile(s.positiveCSAT, positiveCSATValues);
+    const avgRWTPercentile = calculatePercentile(parseFloat((s.avgRWT || 0).toFixed(1)), avgRWTValues, true); // Lower is better
+    const avgIterationsPercentile = calculatePercentile(parseFloat((s.avgIterations || 0).toFixed(2)), avgIterationsValues, true); // Lower is better
+    const frrPercentPercentile = calculatePercentile(frrPercent, frrPercentValues);
+
+    // Calculate weighted final score (same as main endpoint)
+    const isL2 = designation === "L2";
+    const weights = {
+      productivity: 30,
+      csatPercent: isL2 ? 20 : 15,
+      positiveCSAT: 10,
+      avgRWT: 15,
+      avgIterations: 15,
+      frrPercent: 15,
+    };
+
+    const finalPercentile = Math.round(
+      (productivityPercentile * weights.productivity +
+       csatPercentPercentile * weights.csatPercent +
+       positiveCSATPercentile * weights.positiveCSAT +
+       avgRWTPercentile * weights.avgRWT +
+       avgIterationsPercentile * weights.avgIterations +
+       frrPercentPercentile * weights.frrPercent) / 100
+    );
+
+    res.json({
+      quarter,
+      dateRange: { start: start.toISOString(), end: end.toISOString() },
+      userData: {
+        name: userName,
+        team: TEAM_MAP[userName] || "Unknown",
+        designation,
+        daysWorked,
+        solved: s.solved,
+        productivity,
+        csatPercent,
+        positiveCSAT: s.positiveCSAT,
+        avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(1)) : 0,
+        avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
+        frrPercent,
+        productivityPercentile,
+        csatPercentPercentile,
+        positiveCSATPercentile,
+        avgRWTPercentile,
+        avgIterationsPercentile,
+        frrPercentPercentile,
+        percentile: finalPercentile,
+      },
+      lastUpdated: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("❌ My Stats Error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================================
 // API: GET WORKLOAD FOR ALL ACTIVE ENGINEERS (With Proper Shift Detection)
 // ============================================================================
 app.get("/api/roster/workload", async (req, res) => {
