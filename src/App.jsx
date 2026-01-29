@@ -73,6 +73,7 @@ import {
   TEAM_REGION_MAP,
 } from "./utils";
 import { SUPER_ADMIN_EMAILS } from "./components/analytics/analyticsConfig";
+import { EMAIL_TO_NAME_MAP } from "./utils";
 const EMPTY_FILTERS = {
   teams: [],
   owners: [],
@@ -1338,8 +1339,8 @@ ${
               { id: "csd", icon: Star, label: "CSD Highlighted" },
               { id: "vistas", icon: Layout, label: "My Views" },
               { id: "analytics", icon: BarChart3, label: "Analytics" },
-              // Gamification tab only visible to SUPER_ADMIN
-              ...(SUPER_ADMIN_EMAILS.includes(currentUser?.email) ? [{ id: "gamification", icon: Trophy, label: "Gamification" }] : []),
+              // Gamification tab visible to SUPER_ADMIN and GST users
+              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? [{ id: "gamification", icon: Trophy, label: "Gamification" }] : []),
             ].map((t) => (
               <button
                 key={t.id}
@@ -2092,7 +2093,7 @@ ${
                   }}
                   isDark={theme === "dark"}
                 />
-              ) : activeTab === "gamification" && SUPER_ADMIN_EMAILS.includes(currentUser?.email) ? (
+              ) : activeTab === "gamification" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
   <GamificationView
     quarter={tabFilters.analytics?.quarter || "Q1_26"}
     currentUser={currentUser}
