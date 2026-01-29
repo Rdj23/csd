@@ -29,7 +29,7 @@ export const EMAIL_TO_NAME_MAP = {
   "neha.yadav@clevertap.com": "Neha",
   "shreya.khale@clevertap.com": "Shreya",
   "vaibhav.agarwal@clevertap.com": "Vaibhav",
-  "adarsh@clevertap.com": "Adarsh",
+  "adarsh.dubey@clevertap.com": "Adarsh",
   "abhishek.vishwakarma@clevertap.com": "Abhishek",
   "shubhankar@clevertap.com": "Shubhankar",
   "musaveer@clevertap.com": "Musaveer",
