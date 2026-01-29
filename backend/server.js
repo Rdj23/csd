@@ -2562,6 +2562,57 @@ app.post("/api/admin/clear-cache", async (req, res) => {
   res.json({ message: "Cleared" });
 });
 
+// Verify GST name mappings - find any mismatches
+app.get("/api/admin/verify-gst-names", async (req, res) => {
+  try {
+    // Get all configured GST members
+    const configuredGSTMembers = Object.keys(GST_SLACK_MEMBER_IDS);
+
+    // Find all unique noc_reported_by names from Understanding Gap tickets
+    const understandingGapTickets = await AnalyticsTicket.find({
+      noc_rca: { $regex: /understanding gap/i }
+    }).select({ noc_reported_by: 1, ticket_id: 1, closed_date: 1 }).lean();
+
+    // Get unique reporter names
+    const uniqueReporters = [...new Set(understandingGapTickets.map(t => t.noc_reported_by).filter(Boolean))];
+
+    // Find matches and mismatches
+    const matched = uniqueReporters.filter(name => configuredGSTMembers.includes(name));
+    const notMatched = uniqueReporters.filter(name => !configuredGSTMembers.includes(name));
+
+    // Count tickets per unmatched reporter
+    const unmatchedWithCounts = notMatched.map(name => {
+      const tickets = understandingGapTickets.filter(t => t.noc_reported_by === name);
+      return {
+        name,
+        ticketCount: tickets.length,
+        sampleTickets: tickets.slice(0, 3).map(t => t.ticket_id)
+      };
+    }).sort((a, b) => b.ticketCount - a.ticketCount);
+
+    // GST members who haven't reported any Understanding Gap tickets
+    const gstWithNoTickets = configuredGSTMembers.filter(name => !uniqueReporters.includes(name));
+
+    res.json({
+      summary: {
+        totalConfiguredGST: configuredGSTMembers.length,
+        totalUniqueReporters: uniqueReporters.length,
+        matchedReporters: matched.length,
+        unmatchedReporters: notMatched.length,
+        potentialMissedAlerts: unmatchedWithCounts.reduce((sum, r) => sum + r.ticketCount, 0)
+      },
+      configuredGSTMembers: configuredGSTMembers.sort(),
+      matchedReporters: matched.sort(),
+      unmatchedReporters: unmatchedWithCounts,
+      gstMembersWithNoTickets: gstWithNoTickets.sort(),
+      note: "Unmatched reporters will NOT trigger Slack alerts. Add them to GST_SLACK_MEMBER_IDS if they should."
+    });
+  } catch (err) {
+    console.error("Error verifying GST names:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // List tickets pending Slack alerts (closed after Jan 25, Understanding Gap, not yet alerted)
 app.get("/api/admin/pending-alerts", async (req, res) => {
   try {
