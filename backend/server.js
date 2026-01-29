@@ -2073,6 +2073,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
     skippedCount = 0;
   const TARGET_DATE = new Date("2025-10-01");  // Extended to Oct 1 to catch more historical tickets
   const NOC_CHECK_DATE = new Date("2026-01-01"); // Only check NOC for tickets >= Jan 1, 2026
+  const SLACK_ALERT_START_DATE = new Date("2026-01-25"); // Only alert for tickets closed >= Jan 25, 2026
 
   // Fetch already-alerted ticket IDs to avoid duplicate Slack alerts
   const alertedTickets = await AnalyticsTicket.find(
@@ -2204,8 +2205,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
           // 1. Has Understanding Gap RCA
           // 2. Reporter is a GST member
           // 3. Not already alerted
-          // 4. Closed within last 48 hours (prevents flooding on restart)
-          const hoursSinceClosed = (Date.now() - closedDate.getTime()) / (1000 * 60 * 60);
+          // 4. Closed on or after Jan 25, 2026
           const isReporterGST = nocReportedBy && GST_SLACK_MEMBER_IDS[nocReportedBy];
 
           if (
@@ -2213,7 +2213,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
             nocRca.toLowerCase().includes("understanding gap") &&
             isReporterGST &&
             !alertedTicketIds.has(t.display_id) &&
-            hoursSinceClosed <= 48
+            closedDate >= SLACK_ALERT_START_DATE
           ) {
             ticketsToAlert.push({
               ticket_id: t.display_id,
@@ -2594,6 +2594,7 @@ app.post("/api/admin/sync-ticket", async (req, res) => {
     // NOC Detection
     let isNoc = false, nocIssueId = null, nocJiraKey = null, nocRca = null, nocReportedBy = null, nocAssignee = null;
     const NOC_CHECK_DATE = new Date("2026-01-01");
+    const SLACK_ALERT_START_DATE = new Date("2026-01-25"); // Only alert for tickets closed >= Jan 25, 2026
     const closedDate = t.actual_close_date ? new Date(t.actual_close_date) : null;
 
     if (closedDate && closedDate >= NOC_CHECK_DATE) {
@@ -2631,7 +2632,7 @@ app.post("/api/admin/sync-ticket", async (req, res) => {
     // Check Slack alert conditions
     const existingTicket = await AnalyticsTicket.findOne({ ticket_id: t.display_id });
     const alreadyAlerted = existingTicket?.slack_alerted_at != null;
-    const hoursSinceClosed = closedDate ? (Date.now() - closedDate.getTime()) / (1000 * 60 * 60) : Infinity;
+    const closedAfterStartDate = closedDate && closedDate >= SLACK_ALERT_START_DATE;
     const isReporterGST = nocReportedBy && GST_SLACK_MEMBER_IDS[nocReportedBy];
     const hasUnderstandingGap = nocRca && nocRca.toLowerCase().includes("understanding gap");
 
@@ -2641,12 +2642,12 @@ app.post("/api/admin/sync-ticket", async (req, res) => {
       hasUnderstandingGap,
       isReporterGST: !!isReporterGST,
       notAlreadyAlerted: !alreadyAlerted,
-      withinLast48Hours: hoursSinceClosed <= 48,
+      closedAfterJan25: closedAfterStartDate,
       nocReportedBy,
       nocRca,
     };
 
-    const shouldAlert = isSolved && hasUnderstandingGap && isReporterGST && !alreadyAlerted && hoursSinceClosed <= 48;
+    const shouldAlert = isSolved && hasUnderstandingGap && isReporterGST && !alreadyAlerted && closedAfterStartDate;
 
     // Send Slack alert if conditions met
     let slackSent = false;
