@@ -2562,6 +2562,101 @@ app.post("/api/admin/clear-cache", async (req, res) => {
   res.json({ message: "Cleared" });
 });
 
+// List tickets pending Slack alerts (closed after Jan 25, Understanding Gap, not yet alerted)
+app.get("/api/admin/pending-alerts", async (req, res) => {
+  try {
+    const SLACK_ALERT_START_DATE = new Date("2026-01-25");
+
+    // Find tickets that meet alert criteria but haven't been alerted
+    const pendingTickets = await AnalyticsTicket.find({
+      closed_date: { $gte: SLACK_ALERT_START_DATE },
+      noc_rca: { $regex: /understanding gap/i },
+      slack_alerted_at: null
+    }).select({
+      ticket_id: 1,
+      title: 1,
+      closed_date: 1,
+      noc_rca: 1,
+      noc_reported_by: 1,
+      noc_jira_key: 1,
+      account_name: 1
+    }).sort({ closed_date: -1 }).lean();
+
+    // Find already alerted tickets for reference
+    const alertedTickets = await AnalyticsTicket.find({
+      closed_date: { $gte: SLACK_ALERT_START_DATE },
+      noc_rca: { $regex: /understanding gap/i },
+      slack_alerted_at: { $ne: null }
+    }).select({
+      ticket_id: 1,
+      closed_date: 1,
+      slack_alerted_at: 1,
+      noc_reported_by: 1
+    }).sort({ slack_alerted_at: -1 }).lean();
+
+    // Check which pending tickets have GST reporters
+    const GST_MEMBERS = Object.keys(GST_SLACK_MEMBER_IDS);
+    const pendingWithGST = pendingTickets.filter(t => GST_MEMBERS.includes(t.noc_reported_by));
+    const pendingNonGST = pendingTickets.filter(t => !GST_MEMBERS.includes(t.noc_reported_by));
+
+    res.json({
+      summary: {
+        pendingAlerts: pendingWithGST.length,
+        pendingNonGST: pendingNonGST.length,
+        alreadyAlerted: alertedTickets.length,
+        slackWebhookConfigured: !!SLACK_WEBHOOK_URL
+      },
+      pendingTickets: pendingWithGST.map(t => ({
+        ...t,
+        isGSTReporter: true,
+        willAlert: true
+      })),
+      pendingNonGST: pendingNonGST.map(t => ({
+        ...t,
+        isGSTReporter: false,
+        willAlert: false,
+        reason: "Reporter not in GST team"
+      })),
+      alreadyAlerted: alertedTickets
+    });
+  } catch (err) {
+    console.error("Error fetching pending alerts:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Test Slack webhook connectivity
+app.post("/api/admin/test-slack", async (req, res) => {
+  if (!SLACK_WEBHOOK_URL) {
+    return res.status(400).json({
+      success: false,
+      error: "SLACK_WEBHOOK_URL not configured in environment variables"
+    });
+  }
+
+  try {
+    const payload = {
+      text: `✅ *Slack Webhook Test*\n\nThis is a test message from the Support Dashboard.\nTimestamp: ${new Date().toISOString()}\n\nIf you see this, your webhook is working correctly!`
+    };
+
+    await axios.post(SLACK_WEBHOOK_URL, payload);
+    console.log("📢 Test Slack message sent successfully");
+
+    res.json({
+      success: true,
+      message: "Test message sent to Slack! Check your channel.",
+      webhookConfigured: true
+    });
+  } catch (err) {
+    console.error("❌ Slack test failed:", err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      hint: "Check if your SLACK_WEBHOOK_URL is correct and the webhook is not disabled"
+    });
+  }
+});
+
 // Single ticket sync - for testing Slack alerts
 app.post("/api/admin/sync-ticket", async (req, res) => {
   const { ticketId } = req.body; // e.g., "TKT-305867"
