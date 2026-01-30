@@ -20,6 +20,7 @@ import { EMAIL_TO_NAME_MAP } from "../utils";
 
 const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = false }) => {
   const [data, setData] = useState(null);
+  const [myStatsData, setMyStatsData] = useState(null); // Separate state for GST user's own stats
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("L1");
   const [sortBy, setSortBy] = useState("rank");
@@ -39,8 +40,16 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
     setLoading(true);
     try {
       const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-      const res = await axios.get(`${API_BASE}/api/gamification?quarter=${quarter}`);
-      setData(res.data);
+
+      if (isAdmin) {
+        // Admins get full leaderboard data
+        const res = await axios.get(`${API_BASE}/api/gamification?quarter=${quarter}`);
+        setData(res.data);
+      } else {
+        // GST users only get their own stats via secure endpoint
+        const res = await axios.get(`${API_BASE}/api/gamification/my-stats?quarter=${quarter}&email=${encodeURIComponent(currentUser?.email || '')}`);
+        setMyStatsData(res.data.userData);
+      }
     } catch (e) {
       console.error("Failed to load gamification data", e);
     } finally {
@@ -50,7 +59,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
 
   useEffect(() => {
     fetchData();
-  }, [quarter]);
+  }, [quarter, isAdmin, currentUser?.email]);
 
   const getRankBadge = (rank) => {
     if (rank === 1) return (
@@ -108,11 +117,16 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
 
   // Get current user's data
   const currentUserData = useMemo(() => {
+    // For non-admin users, use the secure my-stats data
+    if (!isAdmin && myStatsData) {
+      return myStatsData;
+    }
+    // For admins, find from the full leaderboard
     if (!currentUserName || !data) return null;
     return [...(data?.data?.L1 || []), ...(data?.data?.L2 || [])].find(
       (eng) => eng.name === currentUserName
     );
-  }, [currentUserName, data]);
+  }, [currentUserName, data, isAdmin, myStatsData]);
 
   if (loading) {
     return (
@@ -239,6 +253,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
   };
 
   // GST User View (non-admin) - Only show their own card
+  // Uses secure endpoint that only returns their own data - no access to other users' stats
   if (!isAdmin) {
     return (
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -251,7 +266,17 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
               </div>
               My Performance
             </h1>
-            <p className="text-sm text-slate-500 mt-1">Your individual stats for {quarter.replace("_", " ")}</p>
+            <p className="text-sm text-slate-500 mt-1">Viewing as: {currentUserName || currentUser?.email}</p>
+          </div>
+
+          {/* My Stats button (always selected for GST users - no toggle available) */}
+          <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
+            <button
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
+            >
+              <User className="w-4 h-4" />
+              My Stats
+            </button>
           </div>
         </div>
 
