@@ -750,30 +750,28 @@ app.get("/api/tickets/live-stats", async (req, res) => {
       }))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Cache response
-    await redisSet(cacheKey, responseData, CACHE_TTL.DRILLDOWN);
-
-    res.json({
+    // Build response object
+    const responseData = {
       stats: {
         totalSolved: data.totalSolved,
         avgRWT: data.avgRWT || 0,
         avgFRT: data.avgFRT || 0,
         avgIterations: data.avgIterations || 0,
-
-        // ✅ FIX: VALID COUNTS (Needed for Weighted Average on Frontend)
-        rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
-        frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
-        iterValidCount: {
-          $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] },
-        },
-
+        rwtValidCount: data.rwtValidCount || 0,
+        frtValidCount: data.frtValidCount || 0,
+        iterValidCount: data.iterValidCount || 0,
         positiveCSAT: data.positiveCSAT,
         frrPercent: data.totalSolved
           ? Math.round((data.frrMet / data.totalSolved) * 100)
           : 0,
       },
       trends,
-    });
+    };
+
+    // Cache response
+    await redisSet(cacheKey, responseData, CACHE_TTL.DRILLDOWN);
+
+    res.json(responseData);
   } catch (e) {
     console.error("Live Stats Error:", e);
     res.status(500).json({ error: e.message });
