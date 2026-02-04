@@ -3743,17 +3743,34 @@ app.get("/api/gamification/my-stats", async (req, res) => {
     const teamData = allStats.filter(stat => (DESIGNATION_MAP[stat._id] || "L1") === designation);
 
     // Calculate percentiles by comparing with team
+    // FIX: Use tolerance-based comparison to handle floating point precision issues
     const calculatePercentile = (value, allValues, lowerIsBetter = false) => {
       if (allValues.length === 0) return 0;
       const sorted = [...allValues].sort((a, b) => lowerIsBetter ? a - b : b - a);
-      const rank = sorted.findIndex(v => v === value) + 1;
-      return Math.round(((allValues.length - rank + 1) / allValues.length) * 100);
+
+      // Use tolerance for floating point comparison (fixes 108% bug)
+      const tolerance = 0.001;
+      let rank = sorted.findIndex(v => Math.abs(v - value) < tolerance) + 1;
+
+      // If still not found, find position by value comparison
+      if (rank === 0) {
+        if (lowerIsBetter) {
+          rank = sorted.filter(v => v < value).length + 1;
+        } else {
+          rank = sorted.filter(v => v > value).length + 1;
+        }
+      }
+
+      // Ensure percentile is capped at 100%
+      const percentile = Math.round(((allValues.length - rank + 1) / allValues.length) * 100);
+      return Math.min(percentile, 100);
     };
 
     // Build arrays of metric values for percentile calculation
+    // FIX: Apply same toFixed(2) precision as user's value to avoid floating point mismatch
     const productivityValues = teamData.map(t => {
       const days = getDaysWorked(t._id);
-      return days > 0 ? t.solved / days : 0;
+      return days > 0 ? parseFloat((t.solved / days).toFixed(2)) : 0;
     });
     const csatPercentValues = teamData.map(t => t.negativeCSAT > 0
       ? Math.round((t.positiveCSAT / (t.positiveCSAT + t.negativeCSAT)) * 100)
