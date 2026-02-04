@@ -2948,18 +2948,25 @@ const syncRoster = async () => {
     const rows = resp.data.values || [];
 
     // Find ALL header rows (supports multiple month sections like Jan + Feb)
+    // A header row must: 1) contain "Designation" AND 2) have date columns like "1-Jan", "2-Feb"
     const headerIndices = [];
+    const datePattern = /^\d{1,2}-[A-Za-z]{3}$/; // Matches "1-Jan", "15-Feb", etc.
+
     rows.forEach((r, idx) => {
-      if (r.some((c) =>
+      const hasDesignation = r.some((c) =>
         String(c).toLowerCase().includes("designation") ||
         String(c).toLowerCase().includes("level")
-      )) {
+      );
+      const hasDateColumns = r.some((c) => datePattern.test(String(c).trim()));
+
+      // Only consider it a header row if it has BOTH Designation AND date columns
+      if (hasDesignation && hasDateColumns) {
         headerIndices.push(idx);
       }
     });
 
     if (headerIndices.length === 0) {
-      console.log("⚠️ Could not find header row in Roster");
+      console.log("⚠️ Could not find header row in Roster (need rows with Designation + date columns)");
       return;
     }
 
