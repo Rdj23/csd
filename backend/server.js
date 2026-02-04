@@ -2947,44 +2947,121 @@ const syncRoster = async () => {
     });
     const rows = resp.data.values || [];
 
-    // Find Header Row
-    let headerIdx = rows.findIndex((r) =>
-      r.some(
-        (c) =>
-          String(c).toLowerCase().includes("designation") ||
-          String(c).toLowerCase().includes("level"),
-      ),
-    );
-    if (headerIdx === -1) {
+    // Find ALL header rows (supports multiple month sections like Jan + Feb)
+    const headerIndices = [];
+    rows.forEach((r, idx) => {
+      if (r.some((c) =>
+        String(c).toLowerCase().includes("designation") ||
+        String(c).toLowerCase().includes("level")
+      )) {
+        headerIndices.push(idx);
+      }
+    });
+
+    if (headerIndices.length === 0) {
       console.log("⚠️ Could not find header row in Roster");
       return;
     }
 
-    // Map Columns
+    console.log(`📅 Found ${headerIndices.length} month section(s) in roster`);
+
+    // Reset and build DATE_COL_MAP from ALL header rows
     DATE_COL_MAP = {};
-    const headerRow = rows[headerIdx];
+    LEVEL_COL_IDX = -1;
 
-    // ✅ FIX: Loop through columns correctly
-    headerRow.forEach((col, i) => {
-      const colName = String(col).trim(); // Define colName here!
+    // Process each month section
+    // engineerDataMap: { "engineerName": { "1-Jan": "Shift 1", "1-Feb": "Shift 2", ... } }
+    const engineerDataMap = {};
 
-      // Map Dates (e.g., "01-Jan")
-      if (colName.includes("-") || colName.includes("Jan")) {
-        DATE_COL_MAP[colName] = i;
-      }
+    headerIndices.forEach((headerIdx, sectionIndex) => {
+      const headerRow = rows[headerIdx];
 
-      // Map Level/Designation
-      if (
-        colName.toLowerCase().includes("designation") ||
-        colName.toLowerCase().includes("level")
-      ) {
-        LEVEL_COL_IDX = i;
-        console.log(`✅ Level/Designation found at column ${i}`);
-      }
+      // Build date-to-column mapping for THIS section
+      const sectionDateMap = {};
+      headerRow.forEach((col, i) => {
+        const colName = String(col).trim();
+
+        // Map Dates (e.g., "1-Jan", "2-Feb") - look for date patterns
+        // Match patterns like "1-Jan", "01-Feb", "15-Mar" etc.
+        if (/^\d{1,2}-[A-Za-z]{3}$/.test(colName)) {
+          sectionDateMap[colName] = i;
+          // Also add to global DATE_COL_MAP with section prefix to avoid conflicts
+          // Store as "sectionIndex:colIdx" so we can look it up later
+          DATE_COL_MAP[colName] = { section: sectionIndex, colIdx: i };
+        }
+
+        // Map Level/Designation (use first occurrence)
+        if (LEVEL_COL_IDX === -1 && (
+          colName.toLowerCase().includes("designation") ||
+          colName.toLowerCase().includes("level")
+        )) {
+          LEVEL_COL_IDX = i;
+          console.log(`✅ Level/Designation found at column ${i}`);
+        }
+      });
+
+      // Find the end of this section (next header or end of data)
+      const nextHeaderIdx = headerIndices[sectionIndex + 1];
+      const sectionEndIdx = nextHeaderIdx ? nextHeaderIdx : rows.length;
+
+      // Get engineer rows for this section (skip empty rows)
+      const sectionDataRows = rows.slice(headerIdx + 1, sectionEndIdx)
+        .filter((r) => r[0]?.length > 2);
+
+      console.log(`  📊 Section ${sectionIndex + 1}: ${Object.keys(sectionDateMap).length} dates, ${sectionDataRows.length} engineers`);
+
+      // Merge engineer data from this section
+      sectionDataRows.forEach((row) => {
+        const name = row[0]?.trim();
+        if (!name) return;
+
+        if (!engineerDataMap[name]) {
+          engineerDataMap[name] = {
+            level: row[LEVEL_COL_IDX] || "L1",
+            shifts: {}
+          };
+        }
+
+        // Add shifts from this section
+        Object.entries(sectionDateMap).forEach(([dateKey, colIdx]) => {
+          const shiftValue = row[colIdx] || "";
+          if (shiftValue.trim()) {
+            engineerDataMap[name].shifts[dateKey] = shiftValue.trim();
+          }
+        });
+      });
     });
 
-    ROSTER_ROWS = rows.slice(headerIdx + 1).filter((r) => r[0]?.length > 2);
-    console.log(`✅ ${ROSTER_ROWS.length} engineers loaded`);
+    // Convert engineerDataMap to ROSTER_ROWS format
+    // ROSTER_ROWS will be an array where each row has: [name, level, ...all date values...]
+    // Build a sorted list of all unique dates
+    const allDates = Object.keys(DATE_COL_MAP).sort((a, b) => {
+      // Sort by date: parse "d-Mon" format
+      const parseDate = (d) => {
+        const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+        const [day, mon] = d.split("-");
+        return new Date(2025, months[mon] || 0, parseInt(day));
+      };
+      return parseDate(a) - parseDate(b);
+    });
+
+    // Rebuild DATE_COL_MAP with sequential column indices (name=col0, level=col1, dates start at col2)
+    DATE_COL_MAP = {};
+    allDates.forEach((dateKey, i) => {
+      DATE_COL_MAP[dateKey] = i + 2; // +2 because col0=name, col1=level
+    });
+    LEVEL_COL_IDX = 1;
+
+    // Build ROSTER_ROWS
+    ROSTER_ROWS = Object.entries(engineerDataMap).map(([name, data]) => {
+      const row = [name, data.level];
+      allDates.forEach((dateKey) => {
+        row.push(data.shifts[dateKey] || "");
+      });
+      return row;
+    });
+
+    console.log(`✅ ${ROSTER_ROWS.length} engineers loaded with ${allDates.length} total days (${headerIndices.length} months)`);
   } catch (e) {
     console.error("Roster error:", e.message);
   }
