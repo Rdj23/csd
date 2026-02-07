@@ -2196,14 +2196,13 @@ const syncHistoricalToDB = async (fullHistory = false) => {
               );
               const links = linksRes.data.links || [];
 
-              // Step 2: Check ALL linked issues (don't break early)
+              // Step 2: Check each linked ISS for PSN Task and L2 NOC Confirmation
               for (const link of links) {
                 const issueId =
                   link.target?.display_id || link.source?.display_id;
                 if (!issueId || !issueId.startsWith("ISS-")) continue;
 
                 try {
-                  // Step 3: Get issue details using works.get
                   const issRes = await axios.post(
                     `${DEVREV_API}/works.get`,
                     { id: issueId },
@@ -2211,7 +2210,9 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                   );
                   const issue = issRes.data.work;
 
-                  // Check if it's a NOC issue (PSN Task)
+                  console.log(`   🔍 ${t.display_id} → ${issueId} | issuetype: ${issue?.custom_fields?.ctype__issuetype || 'N/A'} | team_involved: ${issue?.custom_fields?.ctype__team_involved || 'N/A'}`);
+
+                  // Check 1: Is it a NOC issue (PSN Task)?
                   if (!isNoc && issue?.custom_fields?.ctype__issuetype === "PSN Task") {
                     isNoc = true;
                     nocIssueId = issue.display_id;
@@ -2225,61 +2226,24 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                     console.log(
                       `   ✓ NOC: ${t.display_id} → ${nocIssueId}, Assignee: ${nocAssignee}, RCA: ${nocRca}`,
                     );
-
-                    // Second-level: Check the PSN Task ISS's linked issues for L2 NOC Confirmation
-                    try {
-                      const issLinksRes = await axios.post(
-                        `${DEVREV_API}/links.list`,
-                        { object: issue.id, object_types: ["issue"], limit: 10 },
-                        { headers: HEADERS },
-                      );
-                      const issLinks = issLinksRes.data.links || [];
-
-                      for (const issLink of issLinks) {
-                        const l2IssueId = issLink.target?.display_id || issLink.source?.display_id;
-                        if (!l2IssueId || !l2IssueId.startsWith("ISS-") || l2IssueId === nocIssueId) continue;
-
-                        try {
-                          const l2Res = await axios.post(
-                            `${DEVREV_API}/works.get`,
-                            { id: l2IssueId },
-                            { headers: HEADERS },
-                          );
-                          const l2Issue = l2Res.data.work;
-
-                          if (l2Issue?.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
-                            hasL2NocConfirmation = true;
-                            nocConfirmationBy =
-                              l2Issue.modified_by?.display_name ||
-                              l2Issue.owned_by?.[0]?.display_name || null;
-                            nocConfirmationIssId = l2Issue.display_id;
-                            console.log(
-                              `   ✓ L2 NOC Confirmation: ${t.display_id} → ${nocConfirmationIssId}, By: ${nocConfirmationBy}`,
-                            );
-                            break;
-                          }
-                        } catch (e) {
-                          // Ignore L2 issue fetch errors
-                        }
-                      }
-                    } catch (e) {
-                      // Ignore L2 links fetch errors
-                    }
                   }
 
-                  // Also check direct link for L2 NOC Confirmation (in case it's directly linked to ticket)
+                  // Check 2: Is it an L2 NOC Confirmation issue?
                   if (!hasL2NocConfirmation && issue?.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
                     hasL2NocConfirmation = true;
                     nocConfirmationBy =
-                      issue.modified_by?.display_name ||
-                      issue.owned_by?.[0]?.display_name || null;
+                      issue.owned_by?.[0]?.display_name ||
+                      issue.modified_by?.display_name || null;
                     nocConfirmationIssId = issue.display_id;
                     console.log(
-                      `   ✓ L2 NOC Confirmation (direct): ${t.display_id} → ${nocConfirmationIssId}, By: ${nocConfirmationBy}`,
+                      `   ✓ L2 NOC Confirmation: ${t.display_id} → ${nocConfirmationIssId}, By: ${nocConfirmationBy}`,
                     );
                   }
+
+                  // Found both, no need to check more links
+                  if (isNoc && hasL2NocConfirmation) break;
                 } catch (e) {
-                  // Ignore individual issue fetch errors
+                  console.log(`   ⚠️ ${t.display_id} → ${issueId} fetch error: ${e.message}`);
                 }
               }
             } catch (e) {
