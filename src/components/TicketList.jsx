@@ -44,6 +44,11 @@ const TicketList = ({
       const valB = b.rwt || 0;
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
+    if (sortConfig.key === "modified_date") {
+      const valA = new Date(a.custom_fields?.tnt__last_devu_message_ts || a.modified_date || 0).getTime();
+      const valB = new Date(b.custom_fields?.tnt__last_devu_message_ts || b.modified_date || 0).getTime();
+      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
+    }
 
     return b.priority - a.priority || a.days - b.days;
   });
@@ -139,7 +144,7 @@ const TicketList = ({
 
                 {/* 11. Age (Sticky Right 1) */}
                 <th
-                  className="p-4 w-[100px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] cursor-pointer"
+                  className="p-4 w-[100px] align-middle sticky right-[320px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] cursor-pointer"
                   onClick={() => handleSort("days")}
                 >
                   <div className="flex items-center gap-1">
@@ -147,7 +152,17 @@ const TicketList = ({
                   </div>
                 </th>
 
-                {/* 10. Status (Sticky Right 2) */}
+                {/* 12. Last Updated (Sticky Right 2) */}
+                <th
+                  className="p-4 w-[140px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 cursor-pointer"
+                  onClick={() => handleSort("modified_date")}
+                >
+                  <div className="flex items-center gap-1">
+                    Last Updated <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                  </div>
+                </th>
+
+                {/* 13. Status (Sticky Right 3) */}
                 <th className="p-4 w-[180px] min-w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-5px_0_5px_-5px_rgba(0,0,0,0.1)]">
                   Status
                 </th>
@@ -321,11 +336,30 @@ const TicketList = ({
                     </td>
 
                     {/* 11. Age (Sticky Right 1) */}
-                    <td className="px-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
+                    <td className="px-2 align-middle sticky right-[320px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-sm font-medium">{t.days} Days</span>
                     </td>
 
-                    {/* 10. Status (Sticky Right 2) */}
+                    {/* 12. Last Updated (Sticky Right 2) */}
+                    <td className="px-3 py-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
+                      <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {(() => {
+                          const ts = t.custom_fields?.tnt__last_devu_message_ts || t.modified_date;
+                          return ts
+                            ? new Date(ts).toLocaleString("en-IN", {
+                                timeZone: "Asia/Kolkata",
+                                day: "2-digit",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                hour12: true,
+                              })
+                            : "-";
+                        })()}
+                      </span>
+                    </td>
+
+                    {/* 13. Status (Sticky Right 3) */}
                     <td className="p-4 align-middle min-w-[180px] w-[180px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent">
                       <div className="flex items-center gap-2 relative">
                         <span
