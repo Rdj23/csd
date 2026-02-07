@@ -489,7 +489,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "https://clevertapintel.globalsupportteam.com",
+      "https://clevertapintel.globalsupportteam.com"
     ],
     credentials: true,
     maxAge: 86400,
@@ -3147,6 +3147,11 @@ app.post("/api/profile/status", (req, res) => {
 app.get("/api/roster/backup", async (req, res) => {
   try {
     const { userName, teamOnly = "true" } = req.query;
+
+    if (!userName) {
+      return res.status(400).json({ error: "userName query parameter is required", backup: null, needsBackup: false });
+    }
+
     const istNow = getISTTime();
     const dateKey = format(istNow, "d-MMM");
     const colIdx = DATE_COL_MAP[dateKey];

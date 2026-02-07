@@ -183,14 +183,15 @@ const App = () => {
   const [backupInfo, setBackupInfo] = useState(null);
 
   const fetchBackup = async () => {
+    if (!currentUser?.name) return;
     try {
-      const res = await fetch("/api/roster/backup");
+      const res = await fetch(`/api/roster/backup?userName=${encodeURIComponent(currentUser.name)}`);
       const data = await res.json();
       if (data.backup) {
         setBackupInfo(data.backup);
       }
     } catch (e) {
-      console.error("Failed to fetch sbackup", e);
+      console.error("Failed to fetch backup", e);
     }
   };
 
@@ -199,7 +200,7 @@ const App = () => {
     fetchBackup();
     const interval = setInterval(fetchBackup, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentUser?.name]);
 
   // --- PERSONAL PULSE LOGIC (Moved to App.jsx) ---
   const myStats = useMemo(() => {
