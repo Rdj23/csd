@@ -2,7 +2,7 @@
 // NOC ANALYTICS COMPONENT
 // Shows tickets reported to NOC with filtering and pie charts
 // ============================================================================
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -19,6 +19,10 @@ import {
   ChevronRight,
   X,
   UserCircle,
+  CheckCircle,
+  XCircle,
+  Check,
+  ShieldCheck,
 } from "lucide-react";
 import {
   PieChart,
@@ -43,31 +47,225 @@ const CHART_COLORS = [
 
 const ITEMS_PER_PAGE = 15;
 
+// ============================================================================
+// Multi-Select Dropdown with Checkboxes and Search
+// ============================================================================
+const MultiSelectDropdown = ({
+  label,
+  icon: Icon,
+  options,
+  selected, // array of selected values, empty = all
+  onSelectionChange,
+  colorClass, // e.g., "indigo", "violet", "emerald", "cyan"
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const dropdownRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  const colorMap = {
+    indigo: {
+      active: "bg-indigo-600 text-white border-indigo-600",
+      hover: "hover:border-indigo-500",
+      highlight: "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600",
+      check: "text-indigo-600",
+    },
+    violet: {
+      active: "bg-violet-600 text-white border-violet-600",
+      hover: "hover:border-violet-500",
+      highlight: "bg-violet-50 dark:bg-violet-900/30 text-violet-600",
+      check: "text-violet-600",
+    },
+    emerald: {
+      active: "bg-emerald-600 text-white border-emerald-600",
+      hover: "hover:border-emerald-500",
+      highlight: "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600",
+      check: "text-emerald-600",
+    },
+    cyan: {
+      active: "bg-cyan-600 text-white border-cyan-600",
+      hover: "hover:border-cyan-500",
+      highlight: "bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600",
+      check: "text-cyan-600",
+    },
+    amber: {
+      active: "bg-amber-600 text-white border-amber-600",
+      hover: "hover:border-amber-500",
+      highlight: "bg-amber-50 dark:bg-amber-900/30 text-amber-600",
+      check: "text-amber-600",
+    },
+  };
+
+  const colors = colorMap[colorClass] || colorMap.indigo;
+  const isActive = selected.length > 0;
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+        setSearchTerm("");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Auto-focus search when dropdown opens
+  useEffect(() => {
+    if (isOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const filteredOptions = useMemo(() => {
+    if (!searchTerm) return options;
+    const term = searchTerm.toLowerCase();
+    return options.filter((opt) => opt.toLowerCase().includes(term));
+  }, [options, searchTerm]);
+
+  const toggleOption = (value) => {
+    if (selected.includes(value)) {
+      onSelectionChange(selected.filter((v) => v !== value));
+    } else {
+      onSelectionChange([...selected, value]);
+    }
+  };
+
+  const selectAll = () => {
+    onSelectionChange([]);
+    setIsOpen(false);
+    setSearchTerm("");
+  };
+
+  const getButtonLabel = () => {
+    if (selected.length === 0) return "All";
+    if (selected.length === 1) {
+      const name = selected[0];
+      return name.length > 15 ? name.slice(0, 15) + "..." : name;
+    }
+    return `${selected.length} selected`;
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
+          isActive
+            ? colors.active
+            : `bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 ${colors.hover}`
+        }`}
+      >
+        <Icon className="w-3.5 h-3.5" />
+        {label}: {getButtonLabel()}
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
+          {/* Search input */}
+          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="max-h-52 overflow-y-auto">
+            {/* All option */}
+            <button
+              onClick={selectAll}
+              className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
+                selected.length === 0 ? colors.highlight : ""
+              }`}
+            >
+              <div
+                className={`w-4 h-4 rounded border flex items-center justify-center ${
+                  selected.length === 0
+                    ? `border-current ${colors.check} bg-current`
+                    : "border-slate-300 dark:border-slate-600"
+                }`}
+              >
+                {selected.length === 0 && <Check className="w-3 h-3 text-white" />}
+              </div>
+              <span>All {label}</span>
+            </button>
+
+            {/* Options */}
+            {filteredOptions.map((option) => {
+              const isChecked = selected.includes(option);
+              return (
+                <button
+                  key={option}
+                  onClick={() => toggleOption(option)}
+                  className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
+                    isChecked ? colors.highlight : ""
+                  }`}
+                >
+                  <div
+                    className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                      isChecked
+                        ? `border-current ${colors.check} bg-current`
+                        : "border-slate-300 dark:border-slate-600"
+                    }`}
+                  >
+                    {isChecked && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                  <span className="truncate text-left">{option}</span>
+                </button>
+              );
+            })}
+
+            {filteredOptions.length === 0 && (
+              <div className="px-4 py-3 text-xs text-slate-400 text-center">No results found</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// Main NOCAnalytics Component
+// ============================================================================
 const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const [nocData, setNocData] = useState({
     tickets: [],
-    filters: { rcaOptions: [], reporterOptions: [] },
-    stats: { total: 0, byReporter: [], byRca: [], byOwner: [] },
+    filters: { rcaOptions: [], reporterOptions: [], ownerOptions: [], confirmationByOptions: [] },
+    stats: { total: 0, byReporter: [], byRca: [], byOwner: [], byConfirmation: [] },
   });
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedRca, setSelectedRca] = useState("all");
-  const [selectedReporter, setSelectedReporter] = useState("all");
-  const [selectedOwner, setSelectedOwner] = useState("all");
-  const [showRcaDropdown, setShowRcaDropdown] = useState(false);
-  const [showReporterDropdown, setShowReporterDropdown] = useState(false);
-  const [showOwnerDropdown, setShowOwnerDropdown] = useState(false);
-  const [activePieChart, setActivePieChart] = useState("reporter"); // 'reporter', 'rca', 'owner'
+
+  // Multi-select: empty array means "All"
+  const [selectedRca, setSelectedRca] = useState([]);
+  const [selectedReporter, setSelectedReporter] = useState([]);
+  const [selectedOwner, setSelectedOwner] = useState([]);
+  const [selectedConfirmationBy, setSelectedConfirmationBy] = useState([]);
+  const [showL2Only, setShowL2Only] = useState(false);
+
+  const [activePieChart, setActivePieChart] = useState("reporter");
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Fetch NOC data - no date filter, show all NOC tickets
+  // Fetch NOC data
   useEffect(() => {
     const fetchNocData = async () => {
       setIsLoading(true);
       try {
         const params = new URLSearchParams();
-        if (selectedRca !== "all") params.append("rca", selectedRca);
-        if (selectedReporter !== "all") params.append("reporter", selectedReporter);
+        if (selectedRca.length > 0) params.append("rca", selectedRca.join(","));
+        if (selectedReporter.length > 0) params.append("reporter", selectedReporter.join(","));
+        if (selectedOwner.length > 0) params.append("owner", selectedOwner.join(","));
+        if (selectedConfirmationBy.length > 0) params.append("confirmationBy", selectedConfirmationBy.join(","));
+        if (showL2Only) params.append("showL2Only", "true");
 
         const response = await fetch(`${API_URL}/api/tickets/noc?${params}`);
         const data = await response.json();
@@ -80,32 +278,17 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     };
 
     fetchNocData();
-  }, [selectedRca, selectedReporter]);
+  }, [selectedRca, selectedReporter, selectedOwner, selectedConfirmationBy, showL2Only]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedRca, selectedReporter, selectedOwner]);
+  }, [searchTerm, selectedRca, selectedReporter, selectedOwner, selectedConfirmationBy, showL2Only]);
 
-  // Compute owner options from tickets
-  const ownerOptions = useMemo(() => {
-    const owners = new Set();
-    (nocData.tickets || []).forEach(t => {
-      if (t.owner) owners.add(t.owner);
-    });
-    return Array.from(owners).sort();
-  }, [nocData.tickets]);
-
-  // Filter tickets based on search term and owner (for pie chart click)
+  // Filter tickets based on search term (server already handles other filters)
   const filteredTickets = useMemo(() => {
     let tickets = nocData.tickets || [];
 
-    // Filter by owner (from pie chart click)
-    if (selectedOwner !== "all") {
-      tickets = tickets.filter(t => t.owner === selectedOwner);
-    }
-
-    // Filter by search term
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       tickets = tickets.filter(
@@ -116,12 +299,13 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           t.noc_assignee?.toLowerCase().includes(term) ||
           t.noc_rca?.toLowerCase().includes(term) ||
           t.noc_reported_by?.toLowerCase().includes(term) ||
+          t.noc_confirmation_by?.toLowerCase().includes(term) ||
           t.title?.toLowerCase().includes(term)
       );
     }
 
     return tickets;
-  }, [nocData.tickets, searchTerm, selectedOwner]);
+  }, [nocData.tickets, searchTerm]);
 
   // Pagination
   const totalPages = Math.ceil(filteredTickets.length / ITEMS_PER_PAGE);
@@ -141,6 +325,8 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       "NOC Assignee",
       "RCA",
       "SUC Link",
+      "NOC Confirmation",
+      "Confirmed By",
       "Closed Date",
     ];
     const rows = filteredTickets.map((t) => [
@@ -152,12 +338,14 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       t.noc_assignee || "",
       t.noc_rca || "",
       t.noc_jira_key ? `https://wizrocket.atlassian.net/browse/${t.noc_jira_key}` : "",
+      t.has_l2_noc_confirmation
+        ? t.is_noc ? "Confirmed" : "Rejected"
+        : t.is_noc ? "N/A" : "-",
+      t.noc_confirmation_by || "",
       t.closed_date ? new Date(t.closed_date).toLocaleDateString() : "",
     ]);
 
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join(
-      "\n"
-    );
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -174,6 +362,8 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         return nocData.stats.byRca || [];
       case "owner":
         return nocData.stats.byOwner || [];
+      case "confirmation":
+        return nocData.stats.byConfirmation || [];
       default:
         return [];
     }
@@ -181,19 +371,21 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
 
   const pieChartData = getPieChartData();
 
-  // Handle pie chart slice click
+  // Handle pie chart slice click - adds to multi-select
   const handlePieClick = (data) => {
     if (!data || !data.name) return;
-
     switch (activePieChart) {
       case "reporter":
-        setSelectedReporter(data.name);
+        if (!selectedReporter.includes(data.name)) setSelectedReporter([...selectedReporter, data.name]);
         break;
       case "rca":
-        setSelectedRca(data.name);
+        if (!selectedRca.includes(data.name)) setSelectedRca([...selectedRca, data.name]);
         break;
       case "owner":
-        setSelectedOwner(data.name);
+        if (!selectedOwner.includes(data.name)) setSelectedOwner([...selectedOwner, data.name]);
+        break;
+      case "confirmation":
+        if (!selectedConfirmationBy.includes(data.name)) setSelectedConfirmationBy([...selectedConfirmationBy, data.name]);
         break;
     }
   };
@@ -202,13 +394,16 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const handleLegendClick = (name) => {
     switch (activePieChart) {
       case "reporter":
-        setSelectedReporter(name);
+        if (!selectedReporter.includes(name)) setSelectedReporter([...selectedReporter, name]);
         break;
       case "rca":
-        setSelectedRca(name);
+        if (!selectedRca.includes(name)) setSelectedRca([...selectedRca, name]);
         break;
       case "owner":
-        setSelectedOwner(name);
+        if (!selectedOwner.includes(name)) setSelectedOwner([...selectedOwner, name]);
+        break;
+      case "confirmation":
+        if (!selectedConfirmationBy.includes(name)) setSelectedConfirmationBy([...selectedConfirmationBy, name]);
         break;
     }
   };
@@ -237,7 +432,36 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
   };
 
   // Check if any filter is active
-  const hasActiveFilters = selectedRca !== "all" || selectedReporter !== "all" || selectedOwner !== "all" || searchTerm;
+  const hasActiveFilters =
+    selectedRca.length > 0 ||
+    selectedReporter.length > 0 ||
+    selectedOwner.length > 0 ||
+    selectedConfirmationBy.length > 0 ||
+    showL2Only ||
+    searchTerm;
+
+  const clearAllFilters = useCallback(() => {
+    setSelectedRca([]);
+    setSelectedReporter([]);
+    setSelectedOwner([]);
+    setSelectedConfirmationBy([]);
+    setShowL2Only(false);
+    setSearchTerm("");
+  }, []);
+
+  // Get NOC confirmation status for display
+  const getConfirmationStatus = (ticket) => {
+    if (ticket.has_l2_noc_confirmation) {
+      if (ticket.is_noc) {
+        return { label: "Confirmed", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" };
+      }
+      return { label: "Rejected", color: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" };
+    }
+    if (ticket.is_noc) {
+      return { label: "N/A", color: "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400" };
+    }
+    return null;
+  };
 
   if (parentLoading || isLoading) {
     return (
@@ -304,161 +528,62 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           </div>
 
           {/* RCA Filter */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowRcaDropdown(!showRcaDropdown);
-                setShowReporterDropdown(false);
-                setShowOwnerDropdown(false);
-              }}
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
-                selectedRca !== "all"
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-500"
-              }`}
-            >
-              <Filter className="w-3.5 h-3.5" />
-              RCA: {selectedRca === "all" ? "All" : selectedRca.slice(0, 20) + (selectedRca.length > 20 ? "..." : "")}
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-            {showRcaDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-64 max-h-60 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
-                <button
-                  onClick={() => {
-                    setSelectedRca("all");
-                    setShowRcaDropdown(false);
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
-                    selectedRca === "all" ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600" : ""
-                  }`}
-                >
-                  All RCA
-                </button>
-                {nocData.filters.rcaOptions.map((rca) => (
-                  <button
-                    key={rca}
-                    onClick={() => {
-                      setSelectedRca(rca);
-                      setShowRcaDropdown(false);
-                    }}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
-                      selectedRca === rca ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600" : ""
-                    }`}
-                  >
-                    {rca}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <MultiSelectDropdown
+            label="RCA"
+            icon={Filter}
+            options={nocData.filters.rcaOptions || []}
+            selected={selectedRca}
+            onSelectionChange={setSelectedRca}
+            colorClass="indigo"
+          />
 
           {/* Reporter Filter */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowReporterDropdown(!showReporterDropdown);
-                setShowRcaDropdown(false);
-                setShowOwnerDropdown(false);
-              }}
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
-                selectedReporter !== "all"
-                  ? "bg-violet-600 text-white border-violet-600"
-                  : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-violet-500"
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              Reporter: {selectedReporter === "all" ? "All" : selectedReporter.split(" ")[0]}
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-            {showReporterDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-48 max-h-60 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
-                <button
-                  onClick={() => {
-                    setSelectedReporter("all");
-                    setShowReporterDropdown(false);
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
-                    selectedReporter === "all" ? "bg-violet-50 dark:bg-violet-900/30 text-violet-600" : ""
-                  }`}
-                >
-                  All Reporters
-                </button>
-                {nocData.filters.reporterOptions.map((reporter) => (
-                  <button
-                    key={reporter}
-                    onClick={() => {
-                      setSelectedReporter(reporter);
-                      setShowReporterDropdown(false);
-                    }}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
-                      selectedReporter === reporter ? "bg-violet-50 dark:bg-violet-900/30 text-violet-600" : ""
-                    }`}
-                  >
-                    {reporter}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <MultiSelectDropdown
+            label="Reporter"
+            icon={Users}
+            options={nocData.filters.reporterOptions || []}
+            selected={selectedReporter}
+            onSelectionChange={setSelectedReporter}
+            colorClass="violet"
+          />
 
-          {/* Owner Filter Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowOwnerDropdown(!showOwnerDropdown);
-                setShowRcaDropdown(false);
-                setShowReporterDropdown(false);
-              }}
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
-                selectedOwner !== "all"
-                  ? "bg-emerald-600 text-white border-emerald-600"
-                  : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500"
-              }`}
-            >
-              <UserCircle className="w-3.5 h-3.5" />
-              Owner: {selectedOwner === "all" ? "All" : selectedOwner.split(" ")[0]}
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-            {showOwnerDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-48 max-h-60 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
-                <button
-                  onClick={() => {
-                    setSelectedOwner("all");
-                    setShowOwnerDropdown(false);
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
-                    selectedOwner === "all" ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : ""
-                  }`}
-                >
-                  All Owners
-                </button>
-                {ownerOptions.map((owner) => (
-                  <button
-                    key={owner}
-                    onClick={() => {
-                      setSelectedOwner(owner);
-                      setShowOwnerDropdown(false);
-                    }}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
-                      selectedOwner === owner ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : ""
-                    }`}
-                  >
-                    {owner}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Owner Filter */}
+          <MultiSelectDropdown
+            label="Owner"
+            icon={UserCircle}
+            options={nocData.filters.ownerOptions || []}
+            selected={selectedOwner}
+            onSelectionChange={setSelectedOwner}
+            colorClass="emerald"
+          />
+
+          {/* NOC Confirmation By Filter */}
+          <MultiSelectDropdown
+            label="NOC Confirmation"
+            icon={ShieldCheck}
+            options={nocData.filters.confirmationByOptions || []}
+            selected={selectedConfirmationBy}
+            onSelectionChange={setSelectedConfirmationBy}
+            colorClass="cyan"
+          />
+
+          {/* L2 Only Toggle */}
+          <button
+            onClick={() => setShowL2Only(!showL2Only)}
+            className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
+              showL2Only
+                ? "bg-amber-600 text-white border-amber-600"
+                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-amber-500"
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            L2 NOC Only
+          </button>
 
           {/* Clear Filters */}
           {hasActiveFilters && (
             <button
-              onClick={() => {
-                setSelectedRca("all");
-                setSelectedReporter("all");
-                setSelectedOwner("all");
-                setSearchTerm("");
-              }}
+              onClick={clearAllFilters}
               className="text-xs text-rose-500 hover:text-rose-600 font-medium"
             >
               Clear all filters
@@ -504,93 +629,134 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                     <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
                       SUC Link
                     </th>
+                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
+                      NOC Confirmation
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {paginatedTickets.map((ticket) => (
-                    <tr
-                      key={ticket.display_id}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <a
-                          href={`https://app.devrev.ai/clevertapsupport/works/${ticket.display_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-indigo-600 hover:text-indigo-800 font-mono font-bold text-xs flex items-center gap-1"
-                        >
-                          {ticket.display_id}
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                        {ticket.owner || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {ticket.noc_reported_by ? (
-                          <button
-                            onClick={() => setSelectedReporter(ticket.noc_reported_by)}
-                            className="text-violet-600 hover:text-violet-800 hover:underline text-sm"
-                          >
-                            {ticket.noc_reported_by}
-                          </button>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {ticket.noc_issue_id ? (
+                  {paginatedTickets.map((ticket) => {
+                    const confirmStatus = getConfirmationStatus(ticket);
+                    return (
+                      <tr
+                        key={ticket.display_id}
+                        className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      >
+                        <td className="px-4 py-3">
                           <a
-                            href={`https://app.devrev.ai/clevertapsupport/works/${ticket.noc_issue_id}`}
+                            href={`https://app.devrev.ai/clevertapsupport/works/${ticket.display_id}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-cyan-600 hover:text-cyan-800 font-mono font-bold text-xs flex items-center gap-1"
+                            className="text-indigo-600 hover:text-indigo-800 font-mono font-bold text-xs flex items-center gap-1"
                           >
-                            {ticket.noc_issue_id}
+                            {ticket.display_id}
                             <ExternalLink className="w-3 h-3" />
                           </a>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                        {ticket.noc_assignee || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {ticket.noc_rca ? (
-                          <button
-                            onClick={() => setSelectedRca(ticket.noc_rca)}
-                            className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer hover:opacity-80 ${
-                              ticket.noc_rca.toLowerCase().includes("understanding")
-                                ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                : ticket.noc_rca.toLowerCase().includes("non")
-                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
-                                  : "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
-                            }`}
-                          >
-                            {ticket.noc_rca}
-                          </button>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {ticket.noc_jira_key ? (
-                          <a
-                            href={`https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-emerald-600 hover:text-emerald-800 font-mono text-xs flex items-center gap-1"
-                          >
-                            {ticket.noc_jira_key}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                          {ticket.owner || "-"}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ticket.noc_reported_by ? (
+                            <button
+                              onClick={() => {
+                                if (!selectedReporter.includes(ticket.noc_reported_by))
+                                  setSelectedReporter([...selectedReporter, ticket.noc_reported_by]);
+                              }}
+                              className="text-violet-600 hover:text-violet-800 hover:underline text-sm"
+                            >
+                              {ticket.noc_reported_by}
+                            </button>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ticket.noc_issue_id ? (
+                            <a
+                              href={`https://app.devrev.ai/clevertapsupport/works/${ticket.noc_issue_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-cyan-600 hover:text-cyan-800 font-mono font-bold text-xs flex items-center gap-1"
+                            >
+                              {ticket.noc_issue_id}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                          {ticket.noc_assignee || "-"}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ticket.noc_rca ? (
+                            <button
+                              onClick={() => {
+                                if (!selectedRca.includes(ticket.noc_rca))
+                                  setSelectedRca([...selectedRca, ticket.noc_rca]);
+                              }}
+                              className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer hover:opacity-80 ${
+                                ticket.noc_rca.toLowerCase().includes("understanding")
+                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                  : ticket.noc_rca.toLowerCase().includes("non")
+                                    ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                                    : "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
+                              }`}
+                            >
+                              {ticket.noc_rca}
+                            </button>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ticket.noc_jira_key ? (
+                            <a
+                              href={`https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-600 hover:text-emerald-800 font-mono text-xs flex items-center gap-1"
+                            >
+                              {ticket.noc_jira_key}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {confirmStatus ? (
+                            <div className="flex flex-col gap-1">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold w-fit ${confirmStatus.color}`}
+                              >
+                                {confirmStatus.label === "Confirmed" ? (
+                                  <CheckCircle className="w-3 h-3" />
+                                ) : confirmStatus.label === "Rejected" ? (
+                                  <XCircle className="w-3 h-3" />
+                                ) : null}
+                                {confirmStatus.label}
+                              </span>
+                              {ticket.noc_confirmation_by && (
+                                <button
+                                  onClick={() => {
+                                    if (!selectedConfirmationBy.includes(ticket.noc_confirmation_by))
+                                      setSelectedConfirmationBy([...selectedConfirmationBy, ticket.noc_confirmation_by]);
+                                  }}
+                                  className="text-cyan-600 hover:text-cyan-800 hover:underline text-xs"
+                                >
+                                  {ticket.noc_confirmation_by}
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -664,6 +830,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                     { id: "reporter", label: "By Reporter" },
                     { id: "rca", label: "By RCA" },
                     { id: "owner", label: "By Owner" },
+                    { id: "confirmation", label: "By Confirmation" },
                   ].map((opt) => (
                     <button
                       key={opt.id}
@@ -724,7 +891,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                       ? "Top Reporters"
                       : activePieChart === "rca"
                         ? "RCA Categories"
-                        : "Top Owners"}
+                        : activePieChart === "owner"
+                          ? "Top Owners"
+                          : "NOC Confirmation By"}
                   </h5>
                   <div className="space-y-2">
                     {pieChartData.slice(0, 15).map((item, index) => (

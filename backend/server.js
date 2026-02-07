@@ -428,6 +428,9 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     noc_rca: { type: String, default: null }, // e.g., "Understanding Gap - CS"
     noc_reported_by: { type: String, default: null }, // e.g., "Sambhaavna A"
     noc_assignee: { type: String, default: null },
+    noc_confirmation_by: { type: String, default: null }, // Who gave L2 NOC Confirmation
+    has_l2_noc_confirmation: { type: Boolean, default: false }, // Was L2 NOC Confirmation raised
+    noc_confirmation_iss_id: { type: String, default: null }, // ISS ID of L2 NOC Confirmation
     slack_alerted_at: { type: Date, default: null }, // Track when Slack alert was sent
     stage_name: { type: String, index: true }, // ✅ For filtering by ticket status
     actual_close_date: Date, // ✅ For hot data filtering (last 24h)
@@ -1701,11 +1704,11 @@ app.get("/api/tickets", async (req, res) => {
 // ============================================================================
 app.get("/api/tickets/noc", async (req, res) => {
   try {
-    const { startDate, endDate, rca, reporter } = req.query;
+    const { startDate, endDate, rca, reporter, owner, confirmationBy, showL2Only } = req.query;
 
-    // Build match conditions
+    // Base: show tickets that are NOC OR have L2 NOC confirmation raised
     const matchConditions = {
-      is_noc: true,
+      $or: [{ is_noc: true }, { has_l2_noc_confirmation: true }],
     };
 
     // Date range filter
@@ -1716,14 +1719,33 @@ app.get("/api/tickets/noc", async (req, res) => {
       };
     }
 
-    // RCA filter
+    // RCA filter (supports comma-separated multi-values)
     if (rca && rca !== "all") {
-      matchConditions.noc_rca = rca;
+      const rcaArr = rca.split(",").map(r => r.trim());
+      matchConditions.noc_rca = rcaArr.length === 1 ? rcaArr[0] : { $in: rcaArr };
     }
 
-    // Reporter filter
+    // Reporter filter (supports comma-separated multi-values)
     if (reporter && reporter !== "all") {
-      matchConditions.noc_reported_by = reporter;
+      const reporterArr = reporter.split(",").map(r => r.trim());
+      matchConditions.noc_reported_by = reporterArr.length === 1 ? reporterArr[0] : { $in: reporterArr };
+    }
+
+    // Owner filter (supports comma-separated multi-values)
+    if (owner && owner !== "all") {
+      const ownerArr = owner.split(",").map(r => r.trim());
+      matchConditions.owner = ownerArr.length === 1 ? ownerArr[0] : { $in: ownerArr };
+    }
+
+    // NOC Confirmation By filter (supports comma-separated multi-values)
+    if (confirmationBy && confirmationBy !== "all") {
+      const confirmArr = confirmationBy.split(",").map(r => r.trim());
+      matchConditions.noc_confirmation_by = confirmArr.length === 1 ? confirmArr[0] : { $in: confirmArr };
+    }
+
+    // Show only tickets where L2 NOC Confirmation was raised
+    if (showL2Only === "true") {
+      matchConditions.has_l2_noc_confirmation = true;
     }
 
     // Fetch NOC tickets
@@ -1737,56 +1759,69 @@ app.get("/api/tickets/noc", async (req, res) => {
         noc_rca: 1,
         noc_reported_by: 1,
         noc_assignee: 1,
+        noc_confirmation_by: 1,
+        has_l2_noc_confirmation: 1,
+        noc_confirmation_iss_id: 1,
+        is_noc: 1,
         closed_date: 1,
         created_date: 1,
       })
       .sort({ closed_date: -1 })
       .lean();
 
-    // Get unique RCA values for filter dropdown
-    const rcaValues = await AnalyticsTicket.distinct("noc_rca", { is_noc: true });
-    const filteredRcaValues = rcaValues.filter(r => r != null && r !== "");
+    // Base filter for dropdown options: all NOC or L2 tickets
+    const baseFilter = { $or: [{ is_noc: true }, { has_l2_noc_confirmation: true }] };
 
-    // Get unique reporters for filter dropdown
-    const reporterValues = await AnalyticsTicket.distinct("noc_reported_by", { is_noc: true });
-    const filteredReporterValues = reporterValues.filter(r => r != null && r !== "");
+    // Get unique values for filter dropdowns
+    const [rcaValues, reporterValues, ownerValues, confirmationByValues] = await Promise.all([
+      AnalyticsTicket.distinct("noc_rca", baseFilter),
+      AnalyticsTicket.distinct("noc_reported_by", baseFilter),
+      AnalyticsTicket.distinct("owner", baseFilter),
+      AnalyticsTicket.distinct("noc_confirmation_by", baseFilter),
+    ]);
 
     // Aggregate stats for pie charts
-    // 1. By Reporter (who created more NOC)
-    const byReporter = await AnalyticsTicket.aggregate([
-      { $match: matchConditions },
-      { $group: { _id: "$noc_reported_by", count: { $sum: 1 } } },
-      { $match: { _id: { $ne: null } } },
-      { $sort: { count: -1 } },
-    ]);
-
-    // 2. By RCA category
-    const byRca = await AnalyticsTicket.aggregate([
-      { $match: matchConditions },
-      { $group: { _id: "$noc_rca", count: { $sum: 1 } } },
-      { $match: { _id: { $ne: null } } },
-      { $sort: { count: -1 } },
-    ]);
-
-    // 3. By Owner (who got more NOC tickets)
-    const byOwner = await AnalyticsTicket.aggregate([
-      { $match: matchConditions },
-      { $group: { _id: "$owner", count: { $sum: 1 } } },
-      { $match: { _id: { $ne: null } } },
-      { $sort: { count: -1 } },
+    const [byReporter, byRca, byOwner, byConfirmation] = await Promise.all([
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        { $group: { _id: "$noc_reported_by", count: { $sum: 1 } } },
+        { $match: { _id: { $ne: null } } },
+        { $sort: { count: -1 } },
+      ]),
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        { $group: { _id: "$noc_rca", count: { $sum: 1 } } },
+        { $match: { _id: { $ne: null } } },
+        { $sort: { count: -1 } },
+      ]),
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        { $group: { _id: "$owner", count: { $sum: 1 } } },
+        { $match: { _id: { $ne: null } } },
+        { $sort: { count: -1 } },
+      ]),
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        { $group: { _id: "$noc_confirmation_by", count: { $sum: 1 } } },
+        { $match: { _id: { $ne: null } } },
+        { $sort: { count: -1 } },
+      ]),
     ]);
 
     res.json({
       tickets: nocTickets,
       filters: {
-        rcaOptions: filteredRcaValues,
-        reporterOptions: filteredReporterValues,
+        rcaOptions: rcaValues.filter(r => r != null && r !== "").sort(),
+        reporterOptions: reporterValues.filter(r => r != null && r !== "").sort(),
+        ownerOptions: ownerValues.filter(r => r != null && r !== "").sort(),
+        confirmationByOptions: confirmationByValues.filter(r => r != null && r !== "").sort(),
       },
       stats: {
         total: nocTickets.length,
         byReporter: byReporter.map(r => ({ name: r._id, value: r.count })),
         byRca: byRca.map(r => ({ name: r._id, value: r.count })),
         byOwner: byOwner.map(r => ({ name: r._id, value: r.count })),
+        byConfirmation: byConfirmation.map(r => ({ name: r._id, value: r.count })),
       },
     });
   } catch (e) {
@@ -2141,7 +2176,10 @@ const syncHistoricalToDB = async (fullHistory = false) => {
           let nocJiraKey = null;
           let nocRca = null;
           let nocReportedBy = null;
-          let nocAssignee = null; // NEW
+          let nocAssignee = null;
+          let nocConfirmationBy = null;
+          let hasL2NocConfirmation = false;
+          let nocConfirmationIssId = null;
 
           const closedDate = new Date(t.actual_close_date);
           if (closedDate >= NOC_CHECK_DATE) {
@@ -2158,7 +2196,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
               );
               const links = linksRes.data.links || [];
 
-              // Step 2: Check each linked issue
+              // Step 2: Check ALL linked issues (don't break early)
               for (const link of links) {
                 const issueId =
                   link.target?.display_id || link.source?.display_id;
@@ -2174,8 +2212,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                   const issue = issRes.data.work;
 
                   // Check if it's a NOC issue (PSN Task)
-                  // Check if it's a NOC issue (PSN Task)
-                  if (issue?.custom_fields?.ctype__issuetype === "PSN Task") {
+                  if (!isNoc && issue?.custom_fields?.ctype__issuetype === "PSN Task") {
                     isNoc = true;
                     nocIssueId = issue.display_id;
                     nocJiraKey = issue.custom_fields?.ctype__key || null;
@@ -2183,13 +2220,25 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                       issue.custom_fields?.ctype__customfield_10169 || null;
                     nocReportedBy =
                       issue.reported_by?.[0]?.display_name || null;
-                    nocAssignee = issue.owned_by?.[0]?.display_name || null; // NEW: Get assignee
+                    nocAssignee = issue.owned_by?.[0]?.display_name || null;
                     nocCount++;
                     console.log(
                       `   ✓ NOC: ${t.display_id} → ${nocIssueId}, Assignee: ${nocAssignee}, RCA: ${nocRca}`,
                     );
-                    break;
                   }
+
+                  // Check if it's an L2 NOC Confirmation issue
+                  if (!hasL2NocConfirmation && issue?.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
+                    hasL2NocConfirmation = true;
+                    nocConfirmationBy = issue.owned_by?.[0]?.display_name || null;
+                    nocConfirmationIssId = issue.display_id;
+                    console.log(
+                      `   ✓ L2 NOC Confirmation: ${t.display_id} → ${nocConfirmationIssId}, By: ${nocConfirmationBy}`,
+                    );
+                  }
+
+                  // If we found both, no need to check more
+                  if (isNoc && hasL2NocConfirmation) break;
                 } catch (e) {
                   // Ignore individual issue fetch errors
                 }
@@ -2248,6 +2297,9 @@ const syncHistoricalToDB = async (fullHistory = false) => {
                   noc_rca: nocRca,
                   noc_reported_by: nocReportedBy,
                   noc_assignee: nocAssignee,
+                  noc_confirmation_by: nocConfirmationBy,
+                  has_l2_noc_confirmation: hasL2NocConfirmation,
+                  noc_confirmation_iss_id: nocConfirmationIssId,
                   rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
                   frt: t.custom_fields?.tnt__frt_hours ?? null,
                   iterations: iterations ?? null,
