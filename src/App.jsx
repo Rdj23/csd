@@ -6,6 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
+import { authFetch } from "./utils/authFetch";
 import GroupedTicketList from "./components/GroupedTicketList";
 import AllTicketsView from "./components/Allticketsview";
 
@@ -185,7 +186,7 @@ const App = () => {
   const fetchBackup = async () => {
     if (!currentUser?.name) return;
     try {
-      const res = await fetch(`/api/roster/backup?userName=${encodeURIComponent(currentUser.name)}`);
+      const res = await authFetch(`/api/roster/backup?userName=${encodeURIComponent(currentUser.name)}`);
       const data = await res.json();
       if (data.backup) {
         setBackupInfo(data.backup);
@@ -406,8 +407,8 @@ const App = () => {
 
       // Run both syncs in parallel
       await Promise.all([
-        fetch(`${API_BASE}/api/tickets/sync`, { method: "POST" }),
-        fetch(`${API_BASE}/api/roster/sync`, { method: "POST" }),
+        authFetch(`${API_BASE}/api/tickets/sync`, { method: "POST" }),
+        authFetch(`${API_BASE}/api/roster/sync`, { method: "POST" }),
       ]);
 
       showToast("✅ Full Sync Complete!");

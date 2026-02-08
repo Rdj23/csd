@@ -16,6 +16,8 @@ import { parseISO, format, subDays } from "date-fns";
 import mongoose from "mongoose";
 import compression from "compression";
 import Redis from "ioredis";
+import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 
 // Memory management for Render
 if (process.env.NODE_ENV === "production") {
@@ -43,6 +45,64 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 let syncTimeout = null;
+
+// --- SECURITY CONFIGURATION ---
+const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret-in-production";
+const ADMIN_EMAILS = ["rohan.jadhav@clevertap.com"];
+
+// --- SECURITY MIDDLEWARE ---
+
+// JWT verification - skips auth/webhook/health endpoints
+const verifyToken = (req, res, next) => {
+  if (
+    req.path.startsWith("/api/auth/") ||
+    req.path.startsWith("/api/webhooks/") ||
+    req.path === "/api/health"
+  ) {
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.log(
+      `[401] Unauthorized: path=${req.path} ip=${req.ip}`
+    );
+    return res.status(401).json({ error: "Unauthorized: No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    console.log(
+      `[401] Invalid token: path=${req.path} ip=${req.ip} reason=${err.message}`
+    );
+    return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
+  }
+};
+
+// RBAC - Admin-only access
+const requireAdmin = (req, res, next) => {
+  if (!req.user || !ADMIN_EMAILS.includes(req.user.email)) {
+    console.log(
+      `[403] Forbidden: email=${req.user?.email || "unknown"} path=${req.path}`
+    );
+    return res.status(403).json({ error: "Forbidden: Admin access required" });
+  }
+  next();
+};
+
+// Rate limiting - excludes webhooks to prevent blocking legitimate bursts
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300, // generous for office NAT traffic
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path.startsWith("/api/webhooks/"),
+  message: { error: "Too many requests, please try again later" },
+});
 
 // --- SLACK ALERT CONFIGURATION ---
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
@@ -550,6 +610,11 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// --- SECURITY LAYER ---
+app.use("/api", apiLimiter);
+app.use("/api", verifyToken);
+app.use("/api/admin", requireAdmin);
 
 let isSyncing = false;
 let syncQueued = false;
@@ -2976,7 +3041,13 @@ app.post("/api/auth/google", async (req, res) => {
       idToken: req.body.credential,
       audience: GOOGLE_CLIENT_ID,
     });
-    res.json({ success: true, user: ticket.getPayload(), token: "jwt" });
+    const payload = ticket.getPayload();
+    const token = jwt.sign(
+      { email: payload.email, name: payload.name },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+    res.json({ success: true, user: payload, token });
   } catch (e) {
     res.status(400).json({ error: "Invalid Token" });
   }

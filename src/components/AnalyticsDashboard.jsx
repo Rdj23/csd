@@ -70,6 +70,7 @@ import { useTicketStore } from "../store";
 import SmartDateRangePicker from "./SmartDateRangePicker";
 import MultiSelectFilter from "./MultiSelectFilter";
 import { trackEvent } from "../utils/clevertap";
+import { authFetch } from "../utils/authFetch";
 
 // Import split analytics components
 import {
@@ -1284,7 +1285,7 @@ const AnalyticsDashboard = ({
       );
 
       try {
-        const response = await fetch(
+        const response = await authFetch(
           `${API_BASE}/api/tickets/by-date?${queryParams}`,
         );
 
@@ -1698,7 +1699,7 @@ const AnalyticsDashboard = ({
 
       console.log("🔍 Executing Query:", queryToSend);
 
-      const res = await fetch(
+      const res = await authFetch(
         `${import.meta.env.VITE_API_URL || ""}/api/admin/search`,
         {
           method: "POST",
@@ -2692,10 +2693,10 @@ const AnalyticsDashboard = ({
         };
 
         const [q4Res, q1Res] = await Promise.all([
-          fetch(
+          authFetch(
             `${API_BASE}/api/tickets/analytics?${buildParams("Q4_25")}`,
           ).then((r) => r.json()),
-          fetch(
+          authFetch(
             `${API_BASE}/api/tickets/analytics?${buildParams("Q1_26")}`,
           ).then((r) => r.json()),
         ]);

@@ -4,6 +4,8 @@
 // ============================================================================
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
+import { authFetch } from "../../utils/authFetch";
+
 const API_URL = import.meta.env.VITE_API_URL || "";
 
 import {
@@ -270,7 +272,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         if (selectedConfirmationBy.length > 0)
           params.append("confirmationBy", selectedConfirmationBy.join(","));
         if (showL2Only) params.append("showL2Only", "true");
-        const response = await fetch(`${API_URL}/api/tickets/noc?${params}`);
+        const response = await authFetch(`${API_URL}/api/tickets/noc?${params}`);
         const data = await response.json();
         setNocData(data);
       } catch (error) {

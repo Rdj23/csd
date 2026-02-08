@@ -5,6 +5,22 @@ import { trackEvent } from "./utils/clevertap";
 
 const getApiUrl = () => import.meta.env.VITE_API_URL;
 
+// Authenticated fetch — injects Bearer token, auto-logout on 401
+// Defined as a lazy ref so it can access the store after creation
+let _storeRef = null;
+const _authFetch = async (url, options = {}) => {
+  const state = _storeRef?.getState?.();
+  const headers = { ...options.headers };
+  if (state?.token) {
+    headers["Authorization"] = `Bearer ${state.token}`;
+  }
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401) {
+    console.warn("[Auth] 401 received — session expired, logging out");
+    state?.logout?.();
+  }
+  return response;
+};
 
 export const useTicketStore = create(
   persist(
@@ -111,7 +127,7 @@ export const useTicketStore = create(
         if (!currentUser?.email) return;
         try {
           const API_URL = getApiUrl();
-          const res = await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`);
+          const res = await _authFetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`);
           set({ myViews: await res.json() });
         } catch (e) {
           console.error("Failed to fetch views", e);
@@ -123,7 +139,7 @@ export const useTicketStore = create(
         if (!currentUser?.email) return false;
         try {
           const API_URL = getApiUrl();
-          const res = await fetch(`${API_URL}/api/views`, {
+          const res = await _authFetch(`${API_URL}/api/views`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: currentUser.email, name, filters: currentFilters })
@@ -144,7 +160,7 @@ export const useTicketStore = create(
         if (!currentUser?.email) return;
         try {
           const API_URL = getApiUrl();
-          await fetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}/${viewId}`, { method: "DELETE" });
+          await _authFetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}/${viewId}`, { method: "DELETE" });
           set({ myViews: myViews.filter(v => v._id !== viewId) });
         } catch (e) {
           console.error("Failed to delete view", e);
@@ -169,7 +185,7 @@ export const useTicketStore = create(
         set({ isLoading: true });
         try {
           const API_URL = getApiUrl();
-          const response = await fetch(`${API_URL}/api/tickets`);
+          const response = await _authFetch(`${API_URL}/api/tickets`);
           const data = await response.json();
 
           const hasTickets = data.tickets && data.tickets.length > 0;
@@ -234,7 +250,7 @@ fetchDependencies: async (ticketIds) => {
   set({ dependenciesLoading: true });
   try {
     const API_URL = getApiUrl();
-    const res = await fetch(`${API_URL}/api/tickets/dependencies`, {
+    const res = await _authFetch(`${API_URL}/api/tickets/dependencies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticketIds }),
@@ -270,7 +286,7 @@ fetchAnalyticsData: async (filters = {}) => {
     const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
     console.log("📊 [Store] Fetching analytics:", url);
 
-    const res = await fetch(url);
+    const res = await _authFetch(url);
     const data = await res.json();
 
     console.log("📊 [Store] Analytics received:", {
@@ -299,7 +315,7 @@ fetchAnalyticsData: async (filters = {}) => {
       fetchTicketTimeline: async (ticketId) => {
         try {
           const API_URL = getApiUrl();
-          const response = await fetch(`${API_URL}/timeline?ticket_id=${encodeURIComponent(ticketId)}`);
+          const response = await _authFetch(`${API_URL}/timeline?ticket_id=${encodeURIComponent(ticketId)}`);
           if (!response.ok) return [];
           return await response.json() || [];
         } catch (error) {
@@ -314,7 +330,7 @@ fetchAnalyticsData: async (filters = {}) => {
 
         try {
           // Local sync
-          await fetch(`${API_URL}/api/remarks`, {
+          await _authFetch(`${API_URL}/api/remarks`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -325,7 +341,7 @@ fetchAnalyticsData: async (filters = {}) => {
           });
 
           // DevRev sync
-          const response = await fetch(`${API_URL}/api/comments`, {
+          const response = await _authFetch(`${API_URL}/api/comments`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ticketId: internalId, body: text }),
@@ -353,3 +369,6 @@ fetchAnalyticsData: async (filters = {}) => {
     }
   )
 );
+
+// Wire up the lazy store ref for _authFetch
+_storeRef = useTicketStore;
