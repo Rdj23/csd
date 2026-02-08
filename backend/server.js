@@ -73,8 +73,19 @@ const GST_SLACK_MEMBER_IDS = {
   "Abhishek Vishwakarma": "<@U095437RPKP>",
 };
 
+// Lookup GST member by full name or first name fallback
+const findGSTMember = (name) => {
+  if (!name) return null;
+  if (GST_SLACK_MEMBER_IDS[name]) return GST_SLACK_MEMBER_IDS[name];
+  const nameLower = name.toLowerCase();
+  const match = Object.entries(GST_SLACK_MEMBER_IDS).find(
+    ([fullName]) => fullName.toLowerCase().split(" ")[0] === nameLower
+  );
+  return match ? match[1] : null;
+};
+
 /**
- * Send Slack alert for Understanding Gap NOC tickets
+ * Send Slack alert for Understanding Gap - CS NOC tickets
  * @param {Array} tickets - Array of ticket objects to alert
  */
 const sendSlackAlerts = async (tickets) => {
@@ -83,16 +94,19 @@ const sendSlackAlerts = async (tickets) => {
   const alertedTicketIds = [];
 
   for (const ticket of tickets) {
-    const reporterMention = GST_SLACK_MEMBER_IDS[ticket.noc_reported_by] || ticket.noc_reported_by || "Unknown";
+    const reporterMention = findGSTMember(ticket.noc_reported_by) || ticket.noc_reported_by || "Unknown";
+    const confirmationMention = findGSTMember(ticket.noc_confirmation_by) || ticket.noc_confirmation_by || "N/A";
+    const ticketLink = `<https://app.devrev.ai/clevertapsupport/works/${ticket.ticket_id}|${ticket.ticket_id}>`;
 
     const payload = {
       text:
         `<!here> 🚨 The below NOC task was incorrectly created:\n\n` +
         `• Jira Ticket: https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}\n` +
-        `• DevRev Ticket: ${ticket.ticket_id}\n` +
+        `• DevRev Ticket: ${ticketLink}\n` +
         `• Account: ${ticket.account_name}\n` +
         `• RCA: ${ticket.noc_rca}\n` +
         `• Reported By: ${reporterMention}\n` +
+        `• Noc confirmation By: ${confirmationMention}\n` +
         `• Task Assignee: ${ticket.noc_assignee || "Unassigned"}\n` +
         `FYI: ${SLACK_ADMIN_ID}`,
     };
@@ -2252,15 +2266,15 @@ const syncHistoricalToDB = async (fullHistory = false) => {
           }
 
           // Queue for Slack alert if:
-          // 1. Has Understanding Gap RCA
-          // 2. Reporter is a GST member
+          // 1. Has "Understanding Gap - CS" RCA
+          // 2. Reporter is a GST member (full name or first name match)
           // 3. Not already alerted
           // 4. Closed on or after Jan 25, 2026
-          const isReporterGST = nocReportedBy && GST_SLACK_MEMBER_IDS[nocReportedBy];
+          const isReporterGST = nocReportedBy && findGSTMember(nocReportedBy);
 
           if (
             nocRca &&
-            nocRca.toLowerCase().includes("understanding gap") &&
+            nocRca.toLowerCase().includes("understanding gap - cs") &&
             isReporterGST &&
             !alertedTicketIds.has(t.display_id) &&
             closedDate >= SLACK_ALERT_START_DATE
@@ -2271,6 +2285,7 @@ const syncHistoricalToDB = async (fullHistory = false) => {
               noc_rca: nocRca,
               noc_reported_by: nocReportedBy,
               noc_assignee: nocAssignee,
+              noc_confirmation_by: nocConfirmationBy,
               account_name:
                 t.custom_fields?.tnt__instance_account_name ||
                 t.account?.display_name ||
@@ -2629,9 +2644,9 @@ app.get("/api/admin/verify-gst-names", async (req, res) => {
     // Get unique reporter names
     const uniqueReporters = [...new Set(understandingGapTickets.map(t => t.noc_reported_by).filter(Boolean))];
 
-    // Find matches and mismatches
-    const matched = uniqueReporters.filter(name => configuredGSTMembers.includes(name));
-    const notMatched = uniqueReporters.filter(name => !configuredGSTMembers.includes(name));
+    // Find matches and mismatches (supports first name fallback)
+    const matched = uniqueReporters.filter(name => findGSTMember(name));
+    const notMatched = uniqueReporters.filter(name => !findGSTMember(name));
 
     // Count tickets per unmatched reporter
     const unmatchedWithCounts = notMatched.map(name => {
@@ -2674,7 +2689,7 @@ app.get("/api/admin/pending-alerts", async (req, res) => {
     // Find tickets that meet alert criteria but haven't been alerted
     const pendingTickets = await AnalyticsTicket.find({
       closed_date: { $gte: SLACK_ALERT_START_DATE },
-      noc_rca: { $regex: /understanding gap/i },
+      noc_rca: { $regex: /understanding gap - cs/i },
       slack_alerted_at: null
     }).select({
       ticket_id: 1,
@@ -2689,7 +2704,7 @@ app.get("/api/admin/pending-alerts", async (req, res) => {
     // Find already alerted tickets for reference
     const alertedTickets = await AnalyticsTicket.find({
       closed_date: { $gte: SLACK_ALERT_START_DATE },
-      noc_rca: { $regex: /understanding gap/i },
+      noc_rca: { $regex: /understanding gap - cs/i },
       slack_alerted_at: { $ne: null }
     }).select({
       ticket_id: 1,
@@ -2698,10 +2713,9 @@ app.get("/api/admin/pending-alerts", async (req, res) => {
       noc_reported_by: 1
     }).sort({ slack_alerted_at: -1 }).lean();
 
-    // Check which pending tickets have GST reporters
-    const GST_MEMBERS = Object.keys(GST_SLACK_MEMBER_IDS);
-    const pendingWithGST = pendingTickets.filter(t => GST_MEMBERS.includes(t.noc_reported_by));
-    const pendingNonGST = pendingTickets.filter(t => !GST_MEMBERS.includes(t.noc_reported_by));
+    // Check which pending tickets have GST reporters (full name or first name match)
+    const pendingWithGST = pendingTickets.filter(t => findGSTMember(t.noc_reported_by));
+    const pendingNonGST = pendingTickets.filter(t => !findGSTMember(t.noc_reported_by));
 
     res.json({
       summary: {
@@ -2725,6 +2739,46 @@ app.get("/api/admin/pending-alerts", async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching pending alerts:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Send Slack alerts for all pending Understanding Gap - CS tickets
+app.post("/api/admin/send-pending-alerts", async (req, res) => {
+  try {
+    const SLACK_ALERT_START_DATE = new Date("2026-01-25");
+
+    const pendingTickets = await AnalyticsTicket.find({
+      closed_date: { $gte: SLACK_ALERT_START_DATE },
+      noc_rca: { $regex: /understanding gap - cs/i },
+      slack_alerted_at: null,
+    }).lean();
+
+    const eligible = pendingTickets.filter(t => findGSTMember(t.noc_reported_by));
+
+    if (eligible.length === 0) {
+      return res.json({ message: "No pending alerts to send", sent: 0 });
+    }
+
+    const alertPayload = eligible.map(t => ({
+      ticket_id: t.ticket_id,
+      noc_jira_key: t.noc_jira_key,
+      noc_rca: t.noc_rca,
+      noc_reported_by: t.noc_reported_by,
+      noc_assignee: t.noc_assignee,
+      noc_confirmation_by: t.noc_confirmation_by || null,
+      account_name: t.account_name || "Unknown",
+    }));
+
+    await sendSlackAlerts(alertPayload);
+
+    res.json({
+      message: `Sent ${eligible.length} Slack alerts`,
+      sent: eligible.length,
+      tickets: eligible.map(t => t.ticket_id),
+    });
+  } catch (err) {
+    console.error("Error sending pending alerts:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2832,13 +2886,13 @@ app.post("/api/admin/sync-ticket", async (req, res) => {
     const existingTicket = await AnalyticsTicket.findOne({ ticket_id: t.display_id });
     const alreadyAlerted = existingTicket?.slack_alerted_at != null;
     const closedAfterStartDate = closedDate && closedDate >= SLACK_ALERT_START_DATE;
-    const isReporterGST = nocReportedBy && GST_SLACK_MEMBER_IDS[nocReportedBy];
-    const hasUnderstandingGap = nocRca && nocRca.toLowerCase().includes("understanding gap");
+    const isReporterGST = nocReportedBy && findGSTMember(nocReportedBy);
+    const hasUnderstandingGapCS = nocRca && nocRca.toLowerCase().includes("understanding gap - cs");
 
     const alertConditions = {
       isSolved,
       isNoc,
-      hasUnderstandingGap,
+      hasUnderstandingGapCS,
       isReporterGST: !!isReporterGST,
       notAlreadyAlerted: !alreadyAlerted,
       closedAfterJan25: closedAfterStartDate,
@@ -2846,17 +2900,19 @@ app.post("/api/admin/sync-ticket", async (req, res) => {
       nocRca,
     };
 
-    const shouldAlert = isSolved && hasUnderstandingGap && isReporterGST && !alreadyAlerted && closedAfterStartDate;
+    const shouldAlert = isSolved && hasUnderstandingGapCS && isReporterGST && !alreadyAlerted && closedAfterStartDate;
 
     // Send Slack alert if conditions met
     let slackSent = false;
     if (shouldAlert) {
+      const existingDoc = await AnalyticsTicket.findOne({ ticket_id: t.display_id });
       await sendSlackAlerts([{
         ticket_id: t.display_id,
         noc_jira_key: nocJiraKey,
         noc_rca: nocRca,
         noc_reported_by: nocReportedBy,
         noc_assignee: nocAssignee,
+        noc_confirmation_by: existingDoc?.noc_confirmation_by || null,
         account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
       }]);
       slackSent = true;
@@ -4379,6 +4435,42 @@ setInterval(
   },
   6 * 60 * 60 * 1000,
 );
+
+// Daily alert check - pick up any Understanding Gap - CS tickets missed by sync
+const runDailyAlertCheck = async () => {
+  try {
+    const SLACK_ALERT_START_DATE = new Date("2026-01-25");
+    const pending = await AnalyticsTicket.find({
+      closed_date: { $gte: SLACK_ALERT_START_DATE },
+      noc_rca: { $regex: /understanding gap - cs/i },
+      slack_alerted_at: null,
+    }).lean();
+
+    const eligible = pending.filter(t => findGSTMember(t.noc_reported_by));
+    if (eligible.length === 0) {
+      console.log("📢 Daily alert check: No pending alerts");
+      return;
+    }
+
+    console.log(`📢 Daily alert check: Sending ${eligible.length} pending alerts...`);
+    await sendSlackAlerts(
+      eligible.map(t => ({
+        ticket_id: t.ticket_id,
+        noc_jira_key: t.noc_jira_key,
+        noc_rca: t.noc_rca,
+        noc_reported_by: t.noc_reported_by,
+        noc_assignee: t.noc_assignee,
+        noc_confirmation_by: t.noc_confirmation_by || null,
+        account_name: t.account_name || "Unknown",
+      }))
+    );
+  } catch (err) {
+    console.error("❌ Daily alert check failed:", err.message);
+  }
+};
+
+// Run daily alert check every 24 hours
+setInterval(runDailyAlertCheck, 24 * 60 * 60 * 1000);
 
 // Also run on startup after 1 minute delay
 // setTimeout(() => {
