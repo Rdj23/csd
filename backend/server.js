@@ -511,7 +511,9 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "https://clevertapintel.globalsupportteam.com"
+      "https://clevertapintel.globalsupportteam.com",
+      "https://csd-sigma.vercel.app",
+      "https://supportintel.clevertap.com"
     ],
     credentials: true,
     maxAge: 86400,
