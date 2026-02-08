@@ -1,6 +1,6 @@
 // ============================================================================
 // NOC ANALYTICS COMPONENT
-// Shows tickets reported to NOC with filtering and pie charts
+// Table first, then L2 confirmation insights below
 // ============================================================================
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
@@ -23,40 +23,37 @@ import {
   XCircle,
   Check,
   ShieldCheck,
+  BarChart3,
+  Target,
+  ArrowRight,
 } from "lucide-react";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 const CHART_COLORS = [
-  "#6366f1", // indigo
-  "#10b981", // emerald
-  "#f59e0b", // amber
-  "#f43f5e", // rose
-  "#06b6d4", // cyan
-  "#8b5cf6", // violet
-  "#ec4899", // pink
-  "#14b8a6", // teal
-  "#f97316", // orange
-  "#84cc16", // lime
+  "#6366f1",
+  "#10b981",
+  "#f59e0b",
+  "#f43f5e",
+  "#06b6d4",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+  "#f97316",
+  "#84cc16",
 ];
 
 const ITEMS_PER_PAGE = 15;
 
 // ============================================================================
-// Multi-Select Dropdown with Checkboxes and Search
+// Multi-Select Dropdown
 // ============================================================================
 const MultiSelectDropdown = ({
   label,
   icon: Icon,
   options,
-  selected, // array of selected values, empty = all
+  selected,
   onSelectionChange,
-  colorClass, // e.g., "indigo", "violet", "emerald", "cyan"
+  colorClass,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -99,7 +96,6 @@ const MultiSelectDropdown = ({
   const colors = colorMap[colorClass] || colorMap.indigo;
   const isActive = selected.length > 0;
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -111,11 +107,8 @@ const MultiSelectDropdown = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Auto-focus search when dropdown opens
   useEffect(() => {
-    if (isOpen && searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
+    if (isOpen && searchInputRef.current) searchInputRef.current.focus();
   }, [isOpen]);
 
   const filteredOptions = useMemo(() => {
@@ -125,11 +118,9 @@ const MultiSelectDropdown = ({
   }, [options, searchTerm]);
 
   const toggleOption = (value) => {
-    if (selected.includes(value)) {
+    if (selected.includes(value))
       onSelectionChange(selected.filter((v) => v !== value));
-    } else {
-      onSelectionChange([...selected, value]);
-    }
+    else onSelectionChange([...selected, value]);
   };
 
   const selectAll = () => {
@@ -159,11 +150,12 @@ const MultiSelectDropdown = ({
       >
         <Icon className="w-3.5 h-3.5" />
         {label}: {getButtonLabel()}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <ChevronDown
+          className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`}
+        />
       </button>
       {isOpen && (
         <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
-          {/* Search input */}
           <div className="p-2 border-b border-slate-100 dark:border-slate-700">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -177,9 +169,7 @@ const MultiSelectDropdown = ({
               />
             </div>
           </div>
-
           <div className="max-h-52 overflow-y-auto">
-            {/* All option */}
             <button
               onClick={selectAll}
               className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
@@ -193,21 +183,19 @@ const MultiSelectDropdown = ({
                     : "border-slate-300 dark:border-slate-600"
                 }`}
               >
-                {selected.length === 0 && <Check className="w-3 h-3 text-white" />}
+                {selected.length === 0 && (
+                  <Check className="w-3 h-3 text-white" />
+                )}
               </div>
               <span>All {label}</span>
             </button>
-
-            {/* Options */}
             {filteredOptions.map((option) => {
               const isChecked = selected.includes(option);
               return (
                 <button
                   key={option}
                   onClick={() => toggleOption(option)}
-                  className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${
-                    isChecked ? colors.highlight : ""
-                  }`}
+                  className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${isChecked ? colors.highlight : ""}`}
                 >
                   <div
                     className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
@@ -222,9 +210,10 @@ const MultiSelectDropdown = ({
                 </button>
               );
             })}
-
             {filteredOptions.length === 0 && (
-              <div className="px-4 py-3 text-xs text-slate-400 text-center">No results found</div>
+              <div className="px-4 py-3 text-xs text-slate-400 text-center">
+                No results found
+              </div>
             )}
           </div>
         </div>
@@ -239,56 +228,147 @@ const MultiSelectDropdown = ({
 const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const [nocData, setNocData] = useState({
     tickets: [],
-    filters: { rcaOptions: [], reporterOptions: [], ownerOptions: [], confirmationByOptions: [] },
-    stats: { total: 0, byReporter: [], byRca: [], byOwner: [], byConfirmation: [] },
+    filters: {
+      rcaOptions: [],
+      reporterOptions: [],
+      ownerOptions: [],
+      confirmationByOptions: [],
+    },
+    stats: {
+      total: 0,
+      byReporter: [],
+      byRca: [],
+      byOwner: [],
+      byConfirmation: [],
+    },
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-
-  // Multi-select: empty array means "All"
   const [selectedRca, setSelectedRca] = useState([]);
   const [selectedReporter, setSelectedReporter] = useState([]);
   const [selectedOwner, setSelectedOwner] = useState([]);
   const [selectedConfirmationBy, setSelectedConfirmationBy] = useState([]);
   const [showL2Only, setShowL2Only] = useState(false);
-
   const [activePieChart, setActivePieChart] = useState("reporter");
   const [currentPage, setCurrentPage] = useState(1);
+  const [activeView, setActiveView] = useState("table");
 
-  // Fetch NOC data
+  // Fetch NOC data - only show skeleton on initial load, subtle indicator on filter changes
   useEffect(() => {
     const fetchNocData = async () => {
-      setIsLoading(true);
+      if (isInitialLoad) setIsRefreshing(false);
+      else setIsRefreshing(true);
+
       try {
         const params = new URLSearchParams();
         if (selectedRca.length > 0) params.append("rca", selectedRca.join(","));
-        if (selectedReporter.length > 0) params.append("reporter", selectedReporter.join(","));
-        if (selectedOwner.length > 0) params.append("owner", selectedOwner.join(","));
-        if (selectedConfirmationBy.length > 0) params.append("confirmationBy", selectedConfirmationBy.join(","));
+        if (selectedReporter.length > 0)
+          params.append("reporter", selectedReporter.join(","));
+        if (selectedOwner.length > 0)
+          params.append("owner", selectedOwner.join(","));
+        if (selectedConfirmationBy.length > 0)
+          params.append("confirmationBy", selectedConfirmationBy.join(","));
         if (showL2Only) params.append("showL2Only", "true");
-
         const response = await fetch(`${API_URL}/api/tickets/noc?${params}`);
         const data = await response.json();
         setNocData(data);
       } catch (error) {
         console.error("Error fetching NOC data:", error);
       } finally {
-        setIsLoading(false);
+        setIsInitialLoad(false);
+        setIsRefreshing(false);
       }
     };
-
     fetchNocData();
-  }, [selectedRca, selectedReporter, selectedOwner, selectedConfirmationBy, showL2Only]);
+  }, [
+    selectedRca,
+    selectedReporter,
+    selectedOwner,
+    selectedConfirmationBy,
+    showL2Only,
+  ]);
 
-  // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedRca, selectedReporter, selectedOwner, selectedConfirmationBy, showL2Only]);
+  }, [
+    searchTerm,
+    selectedRca,
+    selectedReporter,
+    selectedOwner,
+    selectedConfirmationBy,
+    showL2Only,
+  ]);
 
-  // Filter tickets based on search term (server already handles other filters)
+  // ========== COMPUTED INSIGHTS (L2 confirmation raised tickets only) ==========
+  const insights = useMemo(() => {
+    const tickets = nocData.tickets || [];
+    let confirmed = 0;
+    let rejected = 0;
+    let understandingGapCS = 0;
+    let l2PersonMap = {};
+
+    tickets.forEach((t) => {
+      if (t.has_l2_noc_confirmation) {
+        if (t.is_noc) confirmed++;
+        else rejected++;
+      }
+
+      // Track Understanding Gap - CS only
+      if (
+        t.noc_rca &&
+        t.noc_rca.toLowerCase().includes("understanding gap") &&
+        t.noc_rca.toLowerCase().includes("cs")
+      ) {
+        understandingGapCS++;
+      }
+
+      // Per-person L2 scorecard
+      if (t.noc_confirmation_by && t.has_l2_noc_confirmation) {
+        if (!l2PersonMap[t.noc_confirmation_by]) {
+          l2PersonMap[t.noc_confirmation_by] = { confirmed: 0, rejected: 0 };
+        }
+        if (t.is_noc) {
+          l2PersonMap[t.noc_confirmation_by].confirmed++;
+        } else {
+          l2PersonMap[t.noc_confirmation_by].rejected++;
+        }
+      }
+    });
+
+    const l2Total = confirmed + rejected;
+    // Rejection rate: how much got rejected out of total L2 raised
+    const rejectionRate =
+      l2Total > 0 ? ((rejected / l2Total) * 100).toFixed(1) : 0;
+
+    // Sort L2 persons by total activity, rate = rejection rate
+    const l2Scorecard = Object.entries(l2PersonMap)
+      .map(([name, stats]) => {
+        const total = stats.confirmed + stats.rejected;
+        return {
+          name,
+          confirmed: stats.confirmed,
+          rejected: stats.rejected,
+          total,
+          rejectionRate:
+            total > 0 ? ((stats.rejected / total) * 100).toFixed(0) : 0,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    return {
+      confirmed,
+      rejected,
+      l2Total,
+      rejectionRate,
+      understandingGapCS,
+      l2Scorecard,
+    };
+  }, [nocData.tickets]);
+
+  // Filter tickets based on search
   const filteredTickets = useMemo(() => {
     let tickets = nocData.tickets || [];
-
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       tickets = tickets.filter(
@@ -300,21 +380,18 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           t.noc_rca?.toLowerCase().includes(term) ||
           t.noc_reported_by?.toLowerCase().includes(term) ||
           t.noc_confirmation_by?.toLowerCase().includes(term) ||
-          t.title?.toLowerCase().includes(term)
+          t.title?.toLowerCase().includes(term),
       );
     }
-
     return tickets;
   }, [nocData.tickets, searchTerm]);
 
-  // Pagination
   const totalPages = Math.ceil(filteredTickets.length / ITEMS_PER_PAGE);
   const paginatedTickets = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredTickets.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredTickets, currentPage]);
 
-  // Download CSV
   const downloadCSV = () => {
     const headers = [
       "Ticket ID",
@@ -337,15 +414,17 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       t.noc_issue_id || "",
       t.noc_assignee || "",
       t.noc_rca || "",
-      t.noc_jira_key ? `https://wizrocket.atlassian.net/browse/${t.noc_jira_key}` : "",
-      t.has_l2_noc_confirmation
-        ? t.is_noc ? "Confirmed" : "Rejected"
-        : t.is_noc ? "N/A" : "-",
+      t.noc_jira_key
+        ? `https://wizrocket.atlassian.net/browse/${t.noc_jira_key}`
+        : "",
+      t.has_l2_noc_confirmation ? (t.is_noc ? "Confirmed" : "Rejected") : "-",
       t.noc_confirmation_by || "",
       t.closed_date ? new Date(t.closed_date).toLocaleDateString() : "",
     ]);
-
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((r) => r.join(",")),
+    ].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -353,7 +432,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     link.click();
   };
 
-  // Get pie chart data based on active selection
+  // Pie chart
   const getPieChartData = () => {
     switch (activePieChart) {
       case "reporter":
@@ -368,58 +447,61 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         return [];
     }
   };
-
   const pieChartData = getPieChartData();
 
-  // Handle pie chart slice click - adds to multi-select
   const handlePieClick = (data) => {
     if (!data || !data.name) return;
     switch (activePieChart) {
       case "reporter":
-        if (!selectedReporter.includes(data.name)) setSelectedReporter([...selectedReporter, data.name]);
+        if (!selectedReporter.includes(data.name))
+          setSelectedReporter([...selectedReporter, data.name]);
         break;
       case "rca":
-        if (!selectedRca.includes(data.name)) setSelectedRca([...selectedRca, data.name]);
+        if (!selectedRca.includes(data.name))
+          setSelectedRca([...selectedRca, data.name]);
         break;
       case "owner":
-        if (!selectedOwner.includes(data.name)) setSelectedOwner([...selectedOwner, data.name]);
+        if (!selectedOwner.includes(data.name))
+          setSelectedOwner([...selectedOwner, data.name]);
         break;
       case "confirmation":
-        if (!selectedConfirmationBy.includes(data.name)) setSelectedConfirmationBy([...selectedConfirmationBy, data.name]);
+        if (!selectedConfirmationBy.includes(data.name))
+          setSelectedConfirmationBy([...selectedConfirmationBy, data.name]);
         break;
     }
   };
 
-  // Handle legend item click
   const handleLegendClick = (name) => {
     switch (activePieChart) {
       case "reporter":
-        if (!selectedReporter.includes(name)) setSelectedReporter([...selectedReporter, name]);
+        if (!selectedReporter.includes(name))
+          setSelectedReporter([...selectedReporter, name]);
         break;
       case "rca":
         if (!selectedRca.includes(name)) setSelectedRca([...selectedRca, name]);
         break;
       case "owner":
-        if (!selectedOwner.includes(name)) setSelectedOwner([...selectedOwner, name]);
+        if (!selectedOwner.includes(name))
+          setSelectedOwner([...selectedOwner, name]);
         break;
       case "confirmation":
-        if (!selectedConfirmationBy.includes(name)) setSelectedConfirmationBy([...selectedConfirmationBy, name]);
+        if (!selectedConfirmationBy.includes(name))
+          setSelectedConfirmationBy([...selectedConfirmationBy, name]);
         break;
     }
   };
 
-  // Custom tooltip for pie chart
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const data = payload[0];
       return (
-        <div className="bg-slate-900 text-white px-3 py-2 rounded-lg shadow-xl text-xs">
+        <div className="bg-slate-900 text-white px-3 py-2 rounded-lg shadow-xl text-xs border border-slate-700">
           <p className="font-bold">{data.name}</p>
           <p>
             Count: <span className="text-indigo-400">{data.value}</span>
           </p>
           <p>
-            Percentage:{" "}
+            Share:{" "}
             <span className="text-emerald-400">
               {((data.value / nocData.stats.total) * 100).toFixed(1)}%
             </span>
@@ -431,7 +513,6 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     return null;
   };
 
-  // Check if any filter is active
   const hasActiveFilters =
     selectedRca.length > 0 ||
     selectedReporter.length > 0 ||
@@ -449,396 +530,435 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     setSearchTerm("");
   }, []);
 
-  // Get NOC confirmation status for display
+  // Only show Confirmed / Rejected (no Pending)
   const getConfirmationStatus = (ticket) => {
     if (ticket.has_l2_noc_confirmation) {
       if (ticket.is_noc) {
-        return { label: "Confirmed", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" };
+        return {
+          label: "Confirmed",
+          color:
+            "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-500/20",
+        };
       }
-      return { label: "Rejected", color: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" };
-    }
-    if (ticket.is_noc) {
-      return { label: "N/A", color: "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400" };
+      return {
+        label: "Rejected",
+        color:
+          "bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 ring-1 ring-rose-200 dark:ring-rose-500/20",
+      };
     }
     return null;
   };
 
-  if (parentLoading || isLoading) {
+  // Initial skeleton only
+  if (parentLoading || isInitialLoad) {
     return (
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200 dark:border-slate-800 animate-pulse">
-        <div className="h-8 bg-slate-200 dark:bg-slate-700 rounded w-1/3 mb-4"></div>
-        <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded"></div>
+      <div className="space-y-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200 dark:border-slate-800 animate-pulse">
+          <div className="h-8 bg-slate-200 dark:bg-slate-700 rounded w-1/3 mb-4"></div>
+          <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded"></div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-orange-50 to-transparent dark:from-orange-900/20">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
+    <div className="space-y-5">
+      {/* ================================================================ */}
+      {/* NOC TICKETS - TABLE / DISTRIBUTION (FIRST) */}
+      {/* ================================================================ */}
+      <div
+        className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-opacity duration-200 ${isRefreshing ? "opacity-60" : "opacity-100"}`}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4">
+          <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-500" />
             NOC Tickets
-            <span className="text-sm font-normal text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+            <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full">
               {nocData.stats.total} total
             </span>
             {filteredTickets.length !== nocData.stats.total && (
-              <span className="text-sm font-normal text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-normal text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2.5 py-1 rounded-full">
                 {filteredTickets.length} filtered
               </span>
             )}
+            {isRefreshing && (
+              <span className="text-[10px] text-slate-400 animate-pulse">
+                updating...
+              </span>
+            )}
           </h3>
-
-          {/* Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+              <button
+                onClick={() => setActiveView("table")}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                  activeView === "table"
+                    ? "bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5 inline mr-1.5" />
+                Table
+              </button>
+              <button
+                onClick={() => setActiveView("insights")}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                  activeView === "insights"
+                    ? "bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                }`}
+              >
+                <PieChartIcon className="w-3.5 h-3.5 inline mr-1.5" />
+                Distribution
+              </button>
+            </div>
             <button
               onClick={downloadCSV}
               disabled={filteredTickets.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs font-bold rounded-lg transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
-              Export CSV
+              Export
             </button>
           </div>
         </div>
-      </div>
 
-      {/* Filters Bar */}
-      <div className="px-6 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Search */}
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search tickets, owners, RCA..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+        {/* Filters */}
+        <div className="px-6 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search tickets, owners, RCA..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <MultiSelectDropdown
+              label="RCA"
+              icon={Filter}
+              options={nocData.filters.rcaOptions || []}
+              selected={selectedRca}
+              onSelectionChange={setSelectedRca}
+              colorClass="indigo"
             />
-            {searchTerm && (
+            <MultiSelectDropdown
+              label="Reporter"
+              icon={Users}
+              options={nocData.filters.reporterOptions || []}
+              selected={selectedReporter}
+              onSelectionChange={setSelectedReporter}
+              colorClass="violet"
+            />
+            <MultiSelectDropdown
+              label="Owner"
+              icon={UserCircle}
+              options={nocData.filters.ownerOptions || []}
+              selected={selectedOwner}
+              onSelectionChange={setSelectedOwner}
+              colorClass="emerald"
+            />
+            <MultiSelectDropdown
+              label="Confirmation"
+              icon={ShieldCheck}
+              options={nocData.filters.confirmationByOptions || []}
+              selected={selectedConfirmationBy}
+              onSelectionChange={setSelectedConfirmationBy}
+              colorClass="cyan"
+            />
+            <button
+              onClick={() => setShowL2Only(!showL2Only)}
+              className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
+                showL2Only
+                  ? "bg-amber-600 text-white border-amber-600"
+                  : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-amber-500"
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              L2 Only
+            </button>
+            {hasActiveFilters && (
               <button
-                onClick={() => setSearchTerm("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                onClick={clearAllFilters}
+                className="text-xs text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 font-medium"
               >
-                <X className="w-4 h-4" />
+                Clear all
               </button>
             )}
           </div>
-
-          {/* RCA Filter */}
-          <MultiSelectDropdown
-            label="RCA"
-            icon={Filter}
-            options={nocData.filters.rcaOptions || []}
-            selected={selectedRca}
-            onSelectionChange={setSelectedRca}
-            colorClass="indigo"
-          />
-
-          {/* Reporter Filter */}
-          <MultiSelectDropdown
-            label="Reporter"
-            icon={Users}
-            options={nocData.filters.reporterOptions || []}
-            selected={selectedReporter}
-            onSelectionChange={setSelectedReporter}
-            colorClass="violet"
-          />
-
-          {/* Owner Filter */}
-          <MultiSelectDropdown
-            label="Owner"
-            icon={UserCircle}
-            options={nocData.filters.ownerOptions || []}
-            selected={selectedOwner}
-            onSelectionChange={setSelectedOwner}
-            colorClass="emerald"
-          />
-
-          {/* NOC Confirmation By Filter */}
-          <MultiSelectDropdown
-            label="NOC Confirmation"
-            icon={ShieldCheck}
-            options={nocData.filters.confirmationByOptions || []}
-            selected={selectedConfirmationBy}
-            onSelectionChange={setSelectedConfirmationBy}
-            colorClass="cyan"
-          />
-
-          {/* L2 Only Toggle */}
-          <button
-            onClick={() => setShowL2Only(!showL2Only)}
-            className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg border transition-all ${
-              showL2Only
-                ? "bg-amber-600 text-white border-amber-600"
-                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-amber-500"
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            L2 NOC Only
-          </button>
-
-          {/* Clear Filters */}
-          {hasActiveFilters && (
-            <button
-              onClick={clearAllFilters}
-              className="text-xs text-rose-500 hover:text-rose-600 font-medium"
-            >
-              Clear all filters
-            </button>
-          )}
         </div>
-      </div>
 
-      {/* Content */}
-      <div className="p-6">
-        {filteredTickets.length === 0 ? (
-          <div className="text-center py-12">
-            <AlertTriangle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-500 dark:text-slate-400">
-              No NOC tickets found for the selected filters
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Table */}
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/50">
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      Ticket ID
-                    </th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      Owner
-                    </th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      Reported By
-                    </th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      ISS ID
-                    </th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      NOC Assignee
-                    </th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      RCA
-                    </th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      SUC Link
-                    </th>
-                    <th className="text-left px-4 py-3 font-bold text-slate-600 dark:text-slate-300">
-                      NOC Confirmation
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {paginatedTickets.map((ticket) => {
-                    const confirmStatus = getConfirmationStatus(ticket);
-                    return (
-                      <tr
-                        key={ticket.display_id}
-                        className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                      >
-                        <td className="px-4 py-3">
-                          <a
-                            href={`https://app.devrev.ai/clevertapsupport/works/${ticket.display_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-600 hover:text-indigo-800 font-mono font-bold text-xs flex items-center gap-1"
-                          >
-                            {ticket.display_id}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                          {ticket.owner || "-"}
-                        </td>
-                        <td className="px-4 py-3">
-                          {ticket.noc_reported_by ? (
-                            <button
-                              onClick={() => {
-                                if (!selectedReporter.includes(ticket.noc_reported_by))
-                                  setSelectedReporter([...selectedReporter, ticket.noc_reported_by]);
-                              }}
-                              className="text-violet-600 hover:text-violet-800 hover:underline text-sm"
-                            >
-                              {ticket.noc_reported_by}
-                            </button>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {ticket.noc_issue_id ? (
+        {/* Content */}
+        <div className="p-6">
+          {filteredTickets.length === 0 ? (
+            <div className="text-center py-16">
+              <AlertTriangle className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+              <p className="text-slate-500">
+                No NOC tickets found for the selected filters
+              </p>
+            </div>
+          ) : activeView === "table" ? (
+            /* ============ TABLE VIEW ============ */
+            <div className="space-y-4">
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-800/50">
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        Ticket
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        Owner
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        Reporter
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        RCA
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        Reviewer
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        SUC Link
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {paginatedTickets.map((ticket) => {
+                      const confirmStatus = getConfirmationStatus(ticket);
+                      return (
+                        <tr
+                          key={ticket.display_id}
+                          className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
+                        >
+                          <td className="px-4 py-3">
                             <a
-                              href={`https://app.devrev.ai/clevertapsupport/works/${ticket.noc_issue_id}`}
+                              href={`https://app.devrev.ai/clevertapsupport/works/${ticket.display_id}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-cyan-600 hover:text-cyan-800 font-mono font-bold text-xs flex items-center gap-1"
+                              className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-mono font-bold text-xs flex items-center gap-1"
                             >
-                              {ticket.noc_issue_id}
+                              {ticket.display_id}
                               <ExternalLink className="w-3 h-3" />
                             </a>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                          {ticket.noc_assignee || "-"}
-                        </td>
-                        <td className="px-4 py-3">
-                          {ticket.noc_rca ? (
-                            <button
-                              onClick={() => {
-                                if (!selectedRca.includes(ticket.noc_rca))
-                                  setSelectedRca([...selectedRca, ticket.noc_rca]);
-                              }}
-                              className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer hover:opacity-80 ${
-                                ticket.noc_rca.toLowerCase().includes("understanding")
-                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                  : ticket.noc_rca.toLowerCase().includes("non")
-                                    ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
-                                    : "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
-                              }`}
-                            >
-                              {ticket.noc_rca}
-                            </button>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {ticket.noc_jira_key ? (
-                            <a
-                              href={`https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-emerald-600 hover:text-emerald-800 font-mono text-xs flex items-center gap-1"
-                            >
-                              {ticket.noc_jira_key}
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {confirmStatus ? (
-                            <div className="flex flex-col gap-1">
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300 text-xs">
+                            {ticket.owner || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ticket.noc_reported_by ? (
+                              <button
+                                onClick={() => {
+                                  if (
+                                    !selectedReporter.includes(
+                                      ticket.noc_reported_by,
+                                    )
+                                  )
+                                    setSelectedReporter([
+                                      ...selectedReporter,
+                                      ticket.noc_reported_by,
+                                    ]);
+                                }}
+                                className="text-violet-600 dark:text-violet-400 hover:text-violet-800 dark:hover:text-violet-300 text-xs hover:underline"
+                              >
+                                {ticket.noc_reported_by}
+                              </button>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ticket.noc_rca ? (
+                              <button
+                                onClick={() => {
+                                  if (!selectedRca.includes(ticket.noc_rca))
+                                    setSelectedRca([
+                                      ...selectedRca,
+                                      ticket.noc_rca,
+                                    ]);
+                                }}
+                                className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer hover:opacity-80 ring-1 ${
+                                  ticket.noc_rca
+                                    .toLowerCase()
+                                    .includes("understanding")
+                                    ? "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20"
+                                    : ticket.noc_rca
+                                          .toLowerCase()
+                                          .includes("non")
+                                      ? "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:ring-rose-500/20"
+                                      : "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-500/10 dark:text-slate-400 dark:ring-slate-500/20"
+                                }`}
+                              >
+                                {ticket.noc_rca}
+                              </button>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ticket.noc_jira_key ? (
+                              <a
+                                href={`https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 font-mono text-xs flex items-center gap-1"
+                              >
+                                {ticket.noc_jira_key}
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-600">
+                                -
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {confirmStatus ? (
                               <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold w-fit ${confirmStatus.color}`}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold ${confirmStatus.color}`}
                               >
                                 {confirmStatus.label === "Confirmed" ? (
                                   <CheckCircle className="w-3 h-3" />
-                                ) : confirmStatus.label === "Rejected" ? (
+                                ) : (
                                   <XCircle className="w-3 h-3" />
-                                ) : null}
+                                )}
                                 {confirmStatus.label}
                               </span>
-                              {ticket.noc_confirmation_by && (
-                                <button
-                                  onClick={() => {
-                                    if (!selectedConfirmationBy.includes(ticket.noc_confirmation_by))
-                                      setSelectedConfirmationBy([...selectedConfirmationBy, ticket.noc_confirmation_by]);
-                                  }}
-                                  className="text-cyan-600 hover:text-cyan-800 hover:underline text-xs"
-                                >
-                                  {ticket.noc_confirmation_by}
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-2">
-                <p className="text-xs text-slate-500">
-                  Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{" "}
-                  {Math.min(currentPage * ITEMS_PER_PAGE, filteredTickets.length)} of{" "}
-                  {filteredTickets.length} tickets
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum;
-                      if (totalPages <= 5) {
-                        pageNum = i + 1;
-                      } else if (currentPage <= 3) {
-                        pageNum = i + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = currentPage - 2 + i;
-                      }
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
-                          className={`w-8 h-8 rounded-lg text-xs font-bold transition-colors ${
-                            currentPage === pageNum
-                              ? "bg-indigo-600 text-white"
-                              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-600">
+                                -
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ticket.noc_confirmation_by ? (
+                              <button
+                                onClick={() => {
+                                  if (
+                                    !selectedConfirmationBy.includes(
+                                      ticket.noc_confirmation_by,
+                                    )
+                                  )
+                                    setSelectedConfirmationBy([
+                                      ...selectedConfirmationBy,
+                                      ticket.noc_confirmation_by,
+                                    ]);
+                                }}
+                                className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 text-xs hover:underline"
+                              >
+                                {ticket.noc_confirmation_by}
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-600">
+                                -
+                              </span>
+                            )}
+                          </td>
+                        </tr>
                       );
                     })}
-                  </div>
-                  <button
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+                  </tbody>
+                </table>
               </div>
-            )}
 
-            {/* Pie Charts Section */}
-            <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-2">
+                  <p className="text-xs text-slate-500">
+                    Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{" "}
+                    {Math.min(
+                      currentPage * ITEMS_PER_PAGE,
+                      filteredTickets.length,
+                    )}{" "}
+                    of {filteredTickets.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 disabled:opacity-30 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-1">
+                      {Array.from(
+                        { length: Math.min(5, totalPages) },
+                        (_, i) => {
+                          let pageNum;
+                          if (totalPages <= 5) pageNum = i + 1;
+                          else if (currentPage <= 3) pageNum = i + 1;
+                          else if (currentPage >= totalPages - 2)
+                            pageNum = totalPages - 4 + i;
+                          else pageNum = currentPage - 2 + i;
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => setCurrentPage(pageNum)}
+                              className={`w-8 h-8 rounded-lg text-xs font-bold transition-colors ${
+                                currentPage === pageNum
+                                  ? "bg-indigo-600 text-white"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        },
+                      )}
+                    </div>
+                    <button
+                      onClick={() =>
+                        setCurrentPage((p) => Math.min(totalPages, p + 1))
+                      }
+                      disabled={currentPage === totalPages}
+                      className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 disabled:opacity-30 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ============ DISTRIBUTION VIEW ============ */
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                   <PieChartIcon className="w-4 h-4 text-indigo-500" />
                   Distribution Analysis
                   <span className="text-[10px] font-normal text-slate-400 ml-2">
-                    (Click on chart or list to filter)
+                    (Click to filter)
                   </span>
                 </h4>
                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                   {[
-                    { id: "reporter", label: "By Reporter" },
-                    { id: "rca", label: "By RCA" },
-                    { id: "owner", label: "By Owner" },
-                    { id: "confirmation", label: "By Confirmation" },
+                    { id: "reporter", label: "Reporter" },
+                    { id: "rca", label: "RCA" },
+                    { id: "owner", label: "Owner" },
+                    { id: "confirmation", label: "Reviewer" },
                   ].map((opt) => (
                     <button
                       key={opt.id}
                       onClick={() => setActivePieChart(opt.id)}
                       className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
                         activePieChart === opt.id
-                          ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
+                          ? "bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm"
+                          : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                       }`}
                     >
                       {opt.label}
@@ -848,8 +968,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Pie Chart */}
-                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 h-80">
+                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 h-80 border border-slate-200 dark:border-slate-800">
                   {pieChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -857,15 +976,19 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                           data={pieChartData}
                           cx="50%"
                           cy="50%"
+                          innerRadius={45}
+                          outerRadius={100}
+                          paddingAngle={2}
                           labelLine={false}
                           label={({ percent }) =>
-                            percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ""
+                            percent > 0.05
+                              ? `${(percent * 100).toFixed(0)}%`
+                              : ""
                           }
-                          outerRadius={100}
-                          fill="#8884d8"
                           dataKey="value"
                           onClick={handlePieClick}
                           style={{ cursor: "pointer" }}
+                          strokeWidth={0}
                         >
                           {pieChartData.map((_, index) => (
                             <Cell
@@ -878,39 +1001,38 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                       </PieChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="h-full flex items-center justify-center text-slate-400">
-                      No data available
+                    <div className="h-full flex items-center justify-center text-slate-500">
+                      No data
                     </div>
                   )}
                 </div>
 
-                {/* Legend / Stats List */}
-                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 h-80 overflow-y-auto">
-                  <h5 className="text-xs font-bold text-slate-500 uppercase mb-3">
+                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 h-80 overflow-y-auto border border-slate-200 dark:border-slate-800">
+                  <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
                     {activePieChart === "reporter"
                       ? "Top Reporters"
                       : activePieChart === "rca"
                         ? "RCA Categories"
                         : activePieChart === "owner"
                           ? "Top Owners"
-                          : "NOC Confirmation By"}
+                          : "Top Reviewers"}
                   </h5>
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     {pieChartData.slice(0, 15).map((item, index) => (
                       <button
                         key={item.name}
                         onClick={() => handleLegendClick(item.name)}
-                        className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-white dark:hover:bg-slate-700/50 transition-colors cursor-pointer group"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           <div
-                            className="w-3 h-3 rounded-full"
+                            className="w-3 h-3 rounded-full shrink-0"
                             style={{
                               backgroundColor:
                                 CHART_COLORS[index % CHART_COLORS.length],
                             }}
                           />
-                          <span className="text-sm text-slate-700 dark:text-slate-300 truncate max-w-[180px] text-left">
+                          <span className="text-sm text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white truncate max-w-[180px] text-left transition-colors">
                             {item.name}
                           </span>
                         </div>
@@ -918,9 +1040,13 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                           <span className="text-sm font-bold text-slate-800 dark:text-white">
                             {item.value}
                           </span>
-                          <span className="text-[10px] text-slate-400">
-                            ({((item.value / nocData.stats.total) * 100).toFixed(1)}%)
+                          <span className="text-[10px] text-slate-400 w-12 text-right">
+                            {((item.value / nocData.stats.total) * 100).toFixed(
+                              1,
+                            )}
+                            %
                           </span>
+                          <ArrowRight className="w-3 h-3 text-slate-300 dark:text-slate-600 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors" />
                         </div>
                       </button>
                     ))}
@@ -928,8 +1054,208 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                 </div>
               </div>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* ================================================================ */}
+      {/* L2 NOC CONFIRMATION STATS (BELOW TABLE) */}
+      {/* ================================================================ */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* L2 Raised */}
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-500/5 dark:bg-indigo-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldCheck className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                L2 Raised
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-slate-800 dark:text-white mt-2">
+              {insights.l2Total}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              NOC confirmations raised
+            </div>
           </div>
-        )}
+        </div>
+
+        {/* Confirmed */}
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-2xl p-5 border border-emerald-100 dark:border-slate-800 shadow-sm">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-1">
+              <CheckCircle className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400/70 uppercase tracking-wider">
+                Confirmed
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-2">
+              {insights.confirmed}
+            </div>
+            <div className="mt-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5">
+              <div
+                className="bg-emerald-500 h-1.5 rounded-full transition-all duration-700"
+                style={{
+                  width: `${insights.l2Total > 0 ? (insights.confirmed / insights.l2Total) * 100 : 0}%`,
+                }}
+              />
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              {insights.l2Total > 0
+                ? ((insights.confirmed / insights.l2Total) * 100).toFixed(1)
+                : 0}
+              % of L2 raised
+            </div>
+          </div>
+        </div>
+
+        {/* Rejected */}
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-2xl p-5 border border-rose-100 dark:border-slate-800 shadow-sm">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-rose-500/5 dark:bg-rose-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-1">
+              <XCircle className="w-4 h-4 text-rose-500 dark:text-rose-400" />
+              <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400/70 uppercase tracking-wider">
+                Rejected
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-rose-600 dark:text-rose-400 mt-2">
+              {insights.rejected}
+            </div>
+            <div className="mt-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5">
+              <div
+                className="bg-rose-500 h-1.5 rounded-full transition-all duration-700"
+                style={{
+                  width: `${insights.l2Total > 0 ? (insights.rejected / insights.l2Total) * 100 : 0}%`,
+                }}
+              />
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              {insights.l2Total > 0
+                ? ((insights.rejected / insights.l2Total) * 100).toFixed(1)
+                : 0}
+              % of L2 raised
+            </div>
+          </div>
+        </div>
+
+        {/* Rejection Rate */}
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-2xl p-5 border border-amber-100 dark:border-slate-800 shadow-sm">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/5 dark:bg-amber-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-1">
+              <Target className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400/70 uppercase tracking-wider">
+                Rejection Rate
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-amber-600 dark:text-amber-400 mt-2">
+              {insights.rejectionRate}
+              <span className="text-lg">%</span>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              of L2 confirmations rejected
+            </div>
+          </div>
+        </div>
+
+        {/* Understanding Gap - CS */}
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-2xl p-5 border border-violet-100 dark:border-slate-800 shadow-sm">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-violet-500/5 dark:bg-violet-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="w-4 h-4 text-violet-500 dark:text-violet-400" />
+              <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400/70 uppercase tracking-wider">
+                Gap - CS
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-violet-600 dark:text-violet-400 mt-2">
+              {insights.understandingGapCS}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              Understanding Gap - CS
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ================================================================ */}
+      {/* L2 CONFIRMATION SCORECARD (BELOW STATS) */}
+      {/* ================================================================ */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+          <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+            NOC Confirmation Scorecard
+            <span className="text-[10px] font-normal text-slate-400 ml-auto">
+              Rejection rate per reviewer
+            </span>
+          </h4>
+        </div>
+        <div className="p-5 space-y-3 max-h-[400px] overflow-y-auto">
+          {insights.l2Scorecard.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 text-sm">
+              No L2 confirmations yet
+            </div>
+          ) : (
+            insights.l2Scorecard.map((person) => (
+              <div key={person.name} className="group">
+                <div className="flex items-center justify-between mb-1.5">
+                  <button
+                    onClick={() => {
+                      if (!selectedConfirmationBy.includes(person.name))
+                        setSelectedConfirmationBy([
+                          ...selectedConfirmationBy,
+                          person.name,
+                        ]);
+                    }}
+                    className="text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors truncate max-w-[200px]"
+                  >
+                    {person.name}
+                  </button>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                      {person.confirmed}
+                    </span>
+                    <span className="text-slate-300 dark:text-slate-600">
+                      /
+                    </span>
+                    <span className="text-rose-600 dark:text-rose-400 font-bold">
+                      {person.rejected}
+                    </span>
+                    <span
+                      className={`font-extrabold text-xs px-2 py-0.5 rounded-full ${
+                        Number(person.rejectionRate) <= 30
+                          ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"
+                          : Number(person.rejectionRate) <= 60
+                            ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
+                            : "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400"
+                      }`}
+                    >
+                      {person.rejectionRate}%
+                    </span>
+                  </div>
+                </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 flex overflow-hidden">
+                  <div
+                    className="bg-emerald-500 h-full transition-all duration-500 rounded-l-full"
+                    style={{
+                      width: `${person.total > 0 ? (person.confirmed / person.total) * 100 : 0}%`,
+                    }}
+                  />
+                  <div
+                    className="bg-rose-500 h-full transition-all duration-500 rounded-r-full"
+                    style={{
+                      width: `${person.total > 0 ? (person.rejected / person.total) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
