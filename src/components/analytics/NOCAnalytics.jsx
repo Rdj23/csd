@@ -1069,7 +1069,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
             <div className="flex items-center gap-2 mb-1">
               <ShieldCheck className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
               <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                L2 Raised
+                NOC Raised
               </span>
             </div>
             <div className="text-3xl font-extrabold text-slate-800 dark:text-white mt-2">
@@ -1106,7 +1106,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               {insights.l2Total > 0
                 ? ((insights.confirmed / insights.l2Total) * 100).toFixed(1)
                 : 0}
-              % of L2 raised
+              % of NOC raised
             </div>
           </div>
         </div>
@@ -1136,7 +1136,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               {insights.l2Total > 0
                 ? ((insights.rejected / insights.l2Total) * 100).toFixed(1)
                 : 0}
-              % of L2 raised
+              % of NOC raised
             </div>
           </div>
         </div>

@@ -135,6 +135,7 @@ const sendSlackAlerts = async (tickets) => {
   if (sentCount > 0) {
     console.log(`   ✅ Total ${sentCount} Slack alerts sent`);
   }
+  return sentCount;
 };
 
 // --- SERVER READINESS STATE ---
@@ -2777,11 +2778,12 @@ app.post("/api/admin/send-pending-alerts", async (req, res) => {
       account_name: t.account_name || "Unknown",
     }));
 
-    await sendSlackAlerts(alertPayload);
+    const sentCount = await sendSlackAlerts(alertPayload) || 0;
 
     res.json({
-      message: `Sent ${eligible.length} Slack alerts`,
-      sent: eligible.length,
+      message: `Sent ${sentCount} Slack alerts (${eligible.length - sentCount} skipped as already alerted)`,
+      sent: sentCount,
+      skipped: eligible.length - sentCount,
       tickets: eligible.map(t => t.ticket_id),
     });
   } catch (err) {
