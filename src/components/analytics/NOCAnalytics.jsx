@@ -728,7 +728,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                         RCA
                       </th>
                       <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
-                        Reviewer
+                        Confirmation
                       </th>
                       <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
                         Status
@@ -811,16 +811,23 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {ticket.noc_jira_key ? (
-                              <a
-                                href={`https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 font-mono text-xs flex items-center gap-1"
+                            {ticket.noc_confirmation_by ? (
+                              <button
+                                onClick={() => {
+                                  if (
+                                    !selectedConfirmationBy.includes(
+                                      ticket.noc_confirmation_by,
+                                    )
+                                  )
+                                    setSelectedConfirmationBy([
+                                      ...selectedConfirmationBy,
+                                      ticket.noc_confirmation_by,
+                                    ]);
+                                }}
+                                className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 text-xs hover:underline"
                               >
-                                {ticket.noc_jira_key}
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
+                                {ticket.noc_confirmation_by}
+                              </button>
                             ) : (
                               <span className="text-slate-400 dark:text-slate-600">
                                 -
@@ -846,23 +853,16 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {ticket.noc_confirmation_by ? (
-                              <button
-                                onClick={() => {
-                                  if (
-                                    !selectedConfirmationBy.includes(
-                                      ticket.noc_confirmation_by,
-                                    )
-                                  )
-                                    setSelectedConfirmationBy([
-                                      ...selectedConfirmationBy,
-                                      ticket.noc_confirmation_by,
-                                    ]);
-                                }}
-                                className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 text-xs hover:underline"
+                            {ticket.noc_jira_key ? (
+                              <a
+                                href={`https://wizrocket.atlassian.net/browse/${ticket.noc_jira_key}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 font-mono text-xs flex items-center gap-1"
                               >
-                                {ticket.noc_confirmation_by}
-                              </button>
+                                {ticket.noc_jira_key}
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
                             ) : (
                               <span className="text-slate-400 dark:text-slate-600">
                                 -
