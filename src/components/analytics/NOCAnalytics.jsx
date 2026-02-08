@@ -725,6 +725,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                         Reporter
                       </th>
                       <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        ISS Link
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
                         RCA
                       </th>
                       <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
@@ -781,6 +784,24 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                             ) : (
                               "-"
                             )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {(() => {
+                              const issId = ticket.is_noc ? ticket.noc_issue_id : ticket.noc_confirmation_iss_id;
+                              return issId ? (
+                                <a
+                                  href={`https://app.devrev.ai/clevertapsupport/works/${issId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-mono font-bold text-xs flex items-center gap-1"
+                                >
+                                  {issId}
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 dark:text-slate-600">-</span>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-3">
                             {ticket.noc_rca ? (
