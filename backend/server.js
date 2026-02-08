@@ -91,9 +91,16 @@ const findGSTMember = (name) => {
 const sendSlackAlerts = async (tickets) => {
   if (!SLACK_WEBHOOK_URL || tickets.length === 0) return;
 
-  const alertedTicketIds = [];
+  let sentCount = 0;
 
   for (const ticket of tickets) {
+    // Double-check: skip if already alerted (prevents duplicates from concurrent runs)
+    const existing = await AnalyticsTicket.findOne({ ticket_id: ticket.ticket_id, slack_alerted_at: { $ne: null } });
+    if (existing) {
+      console.log(`   ⏭️ Skipping ${ticket.ticket_id} - already alerted`);
+      continue;
+    }
+
     const reporterMention = findGSTMember(ticket.noc_reported_by) || ticket.noc_reported_by || "Unknown";
     const confirmationMention = findGSTMember(ticket.noc_confirmation_by) || ticket.noc_confirmation_by || "N/A";
     const ticketLink = `<https://app.devrev.ai/clevertapsupport/works/${ticket.ticket_id}|${ticket.ticket_id}>`;
@@ -106,27 +113,27 @@ const sendSlackAlerts = async (tickets) => {
         `• Account: ${ticket.account_name}\n` +
         `• RCA: ${ticket.noc_rca}\n` +
         `• Reported By: ${reporterMention}\n` +
-        `• Noc confirmation By: ${confirmationMention}\n` +
+        `• Confirmed By: ${confirmationMention}\n` +
         `• Task Assignee: ${ticket.noc_assignee || "Unassigned"}\n` +
         `FYI: ${SLACK_ADMIN_ID}`,
     };
 
     try {
       await axios.post(SLACK_WEBHOOK_URL, payload);
-      alertedTicketIds.push(ticket.ticket_id);
-      console.log(`   📢 Slack alert sent for ${ticket.ticket_id}`);
+      // Mark as alerted IMMEDIATELY after successful send
+      await AnalyticsTicket.updateOne(
+        { ticket_id: ticket.ticket_id },
+        { $set: { slack_alerted_at: new Date() } }
+      );
+      sentCount++;
+      console.log(`   📢 Slack alert sent & marked for ${ticket.ticket_id}`);
     } catch (err) {
       console.error(`   ❌ Slack alert failed for ${ticket.ticket_id}:`, err.message);
     }
   }
 
-  // Mark tickets as alerted in DB
-  if (alertedTicketIds.length > 0) {
-    await AnalyticsTicket.updateMany(
-      { ticket_id: { $in: alertedTicketIds } },
-      { $set: { slack_alerted_at: new Date() } }
-    );
-    console.log(`   ✅ Marked ${alertedTicketIds.length} tickets as Slack-alerted`);
+  if (sentCount > 0) {
+    console.log(`   ✅ Total ${sentCount} Slack alerts sent`);
   }
 };
 
@@ -4436,41 +4443,7 @@ setInterval(
   6 * 60 * 60 * 1000,
 );
 
-// Daily alert check - pick up any Understanding Gap - CS tickets missed by sync
-const runDailyAlertCheck = async () => {
-  try {
-    const SLACK_ALERT_START_DATE = new Date("2026-01-25");
-    const pending = await AnalyticsTicket.find({
-      closed_date: { $gte: SLACK_ALERT_START_DATE },
-      noc_rca: { $regex: /understanding gap - cs/i },
-      slack_alerted_at: null,
-    }).lean();
-
-    const eligible = pending.filter(t => findGSTMember(t.noc_reported_by));
-    if (eligible.length === 0) {
-      console.log("📢 Daily alert check: No pending alerts");
-      return;
-    }
-
-    console.log(`📢 Daily alert check: Sending ${eligible.length} pending alerts...`);
-    await sendSlackAlerts(
-      eligible.map(t => ({
-        ticket_id: t.ticket_id,
-        noc_jira_key: t.noc_jira_key,
-        noc_rca: t.noc_rca,
-        noc_reported_by: t.noc_reported_by,
-        noc_assignee: t.noc_assignee,
-        noc_confirmation_by: t.noc_confirmation_by || null,
-        account_name: t.account_name || "Unknown",
-      }))
-    );
-  } catch (err) {
-    console.error("❌ Daily alert check failed:", err.message);
-  }
-};
-
-// Run daily alert check every 24 hours
-setInterval(runDailyAlertCheck, 24 * 60 * 60 * 1000);
+// Alert check is handled by the 6-hour sync and /api/admin/send-pending-alerts endpoint
 
 // Also run on startup after 1 minute delay
 // setTimeout(() => {
