@@ -1278,8 +1278,6 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick, groupBy = "gst" 
             FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
             t.owned_by?.[0]?.display_name ||
             "Unassigned";
-          // Exclude anmol-sawhney for GST view
-          if (groupKey.toLowerCase().includes("anmol")) return;
           break;
       }
 
@@ -1518,6 +1516,18 @@ const AllTicketsView = ({
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
   const [groupBy, setGroupBy] = useState("gst"); // gst, csm, tam, region
 
+  // Filter out anmol-sawhney tickets from all calculations
+  const cleanTickets = useMemo(() => {
+    return tickets.filter((t) => {
+      const ownerDisplayId = t.owned_by?.[0]?.display_id || "";
+      const ownerName =
+        FLAT_TEAM_MAP[ownerDisplayId] ||
+        t.owned_by?.[0]?.display_name ||
+        "";
+      return !ownerName.toLowerCase().includes("anmol");
+    });
+  }, [tickets]);
+
   // Categorize tickets by state (with dependency filtering)
   const categorizedTickets = useMemo(() => {
     const result = {
@@ -1526,15 +1536,6 @@ const AllTicketsView = ({
       onhold: [],
       solved: [],
     };
-
-    // Use filters.dateRange for solved tickets (solved date, not created date)
-    const hasDateFilter = filters?.dateRange?.start && filters?.dateRange?.end;
-    const filterStart = hasDateFilter
-      ? new Date(filters.dateRange.start)
-      : null;
-    const filterEnd = hasDateFilter
-      ? new Date(filters.dateRange.end + "T23:59:59")
-      : null;
 
     // Dependency filter settings
     const depFilter = filters?.dependency || [];
@@ -1545,7 +1546,7 @@ const AllTicketsView = ({
       depTeamsFilter.length > 0 &&
       depTeamsFilter.length < 6;
 
-    tickets.forEach((t) => {
+    cleanTickets.forEach((t) => {
       // Apply dependency filter first
       if (hasDepFilter) {
         const ticketId = t.display_id?.replace("TKT-", "");
@@ -1582,36 +1583,14 @@ const AllTicketsView = ({
       }
 
       const stageName = t.stage?.name?.toLowerCase() || "";
-      const owner =
-        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-        t.owned_by?.[0]?.display_name ||
-        "Unassigned";
 
       if (
         stageName.includes("solved") ||
         stageName.includes("closed") ||
         stageName.includes("resolved")
       ) {
-        // For solved: filter by SOLVED DATE (not created date), exclude Unassigned
-        if (owner !== "Unassigned") {
-          // Get solved/closed date
-          const solvedDate = t.actual_close_date
-            ? new Date(t.actual_close_date)
-            : t.closed_date
-              ? new Date(t.closed_date)
-              : t.modified_date
-                ? new Date(t.modified_date)
-                : null;
-          if (hasDateFilter && solvedDate) {
-            // Only include if solved within date range
-            if (solvedDate >= filterStart && solvedDate <= filterEnd) {
-              result.solved.push(t);
-            }
-          } else if (!hasDateFilter) {
-            // No date filter = include all solved
-            result.solved.push(t);
-          }
-        }
+        // Date filtering already handled by allTicketsFiltered in App.jsx
+        result.solved.push(t);
       } else if (
         stageName.includes("awaiting customer") ||
         stageName.includes("pending")
@@ -1629,8 +1608,7 @@ const AllTicketsView = ({
 
     return result;
   }, [
-    tickets,
-    filters?.dateRange,
+    cleanTickets,
     filters?.dependency,
     filters?.dependencyTeams,
     dependencies,
@@ -1639,25 +1617,25 @@ const AllTicketsView = ({
   // Account distribution data
   const accountDistribution = useMemo(() => {
     const groups = {};
-    tickets.forEach((t) => {
+    cleanTickets.forEach((t) => {
       const account = t.accountName || "Unknown";
       groups[account] = (groups[account] || 0) + 1;
     });
 
-    const total = tickets.length;
+    const total = cleanTickets.length;
     return Object.entries(groups)
       .map(([name, value]) => ({
         name,
         value,
-        percentage: Math.round((value / total) * 100),
+        percentage: total > 0 ? Math.round((value / total) * 100) : 0,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [tickets]);
+  }, [cleanTickets]);
 
   // Region distribution data (merge India/IN1)
   const regionDistribution = useMemo(() => {
     const groups = {};
-    tickets.forEach((t) => {
+    cleanTickets.forEach((t) => {
       let region = t.region || "Unknown";
       // Normalize IN1/In1 to India
       if (region === "IN1" || region === "In1" || region === "in1") {
@@ -1666,7 +1644,7 @@ const AllTicketsView = ({
       groups[region] = (groups[region] || 0) + 1;
     });
 
-    const total = tickets.length;
+    const total = cleanTickets.length;
     return Object.entries(groups)
       .map(([name, value]) => ({
         name,
@@ -1674,7 +1652,7 @@ const AllTicketsView = ({
         percentage: total > 0 ? Math.round((value / total) * 100) : 0,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [tickets]);
+  }, [cleanTickets]);
 
   // Handle card click - open drill down for entire state
   const handleCardClick = useCallback(
@@ -1739,24 +1717,24 @@ const AllTicketsView = ({
   // Handle distribution click
   const handleAccountClick = useCallback(
     (account) => {
-      const filtered = tickets.filter((t) => t.accountName === account);
+      const filtered = cleanTickets.filter((t) => t.accountName === account);
       setDrillDown({
         title: `Tickets for ${account}`,
         tickets: filtered,
       });
     },
-    [tickets],
+    [cleanTickets],
   );
 
   const handleRegionClick = useCallback(
     (region) => {
-      const filtered = tickets.filter((t) => t.region === region);
+      const filtered = cleanTickets.filter((t) => t.region === region);
       setDrillDown({
         title: `Tickets in ${region}`,
         tickets: filtered,
       });
     },
-    [tickets],
+    [cleanTickets],
   );
 
   // Outer download function - professional report
