@@ -15,7 +15,7 @@ import {
   User,
   Shield,
 } from "lucide-react";
-import axios from "axios";
+import authAxios from "../utils/authAxios";
 import { EMAIL_TO_NAME_MAP } from "../utils";
 
 const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = false }) => {
@@ -43,11 +43,11 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
 
       if (isAdmin) {
         // Admins get full leaderboard data
-        const res = await axios.get(`${API_BASE}/api/gamification?quarter=${quarter}`);
+        const res = await authAxios.get(`${API_BASE}/api/gamification?quarter=${quarter}`);
         setData(res.data);
       } else {
         // GST users only get their own stats via secure endpoint
-        const res = await axios.get(`${API_BASE}/api/gamification/my-stats?quarter=${quarter}&email=${encodeURIComponent(currentUser?.email || '')}`);
+        const res = await authAxios.get(`${API_BASE}/api/gamification/my-stats?quarter=${quarter}&email=${encodeURIComponent(currentUser?.email || '')}`);
         setMyStatsData(res.data.userData);
       }
     } catch (e) {

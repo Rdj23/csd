@@ -7,7 +7,7 @@ import {
   BellRing,
   CheckCircle,
 } from "lucide-react";
-import axios from "axios";
+import authAxios from "../utils/authAxios";
 import { differenceInMinutes, parseISO } from "date-fns";
 import { TEAM_GROUPS } from "../utils";
 
@@ -25,7 +25,7 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
         const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
         // 1. Fetch backup from improved endpoint
-        const backupRes = await axios.get(`${API_BASE}/api/roster/backup?userName=${encodeURIComponent(user.name)}&teamOnly=true`);
+        const backupRes = await authAxios.get(`${API_BASE}/api/roster/backup?userName=${encodeURIComponent(user.name)}&teamOnly=true`);
         setBackup(backupRes.data.backup);
         setBackupData(backupRes.data);
 
@@ -69,7 +69,7 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
           }
         } else {
           // Fallback for old API response or errors
-          const statusRes = await axios.post(`${API_BASE}/api/profile/status`, { userName: user.name });
+          const statusRes = await authAxios.post(`${API_BASE}/api/profile/status`, { userName: user.name });
           isActive = statusRes.data.isActive;
           status = statusRes.data.status;
           timings = statusRes.data.shift;

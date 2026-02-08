@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import axios from "axios";
+import authAxios from "../utils/authAxios";
 import { format, parseISO } from "date-fns";
 
 import { toZonedTime } from "date-fns-tz"; // Added toZonedTime
@@ -50,9 +50,9 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
         // To this (Force localhost if you are on a dev machine):
         const API_URL = import.meta.env.VITE_API_URL;
           
-        const res = await axios.get(`${API_URL}/api/users`);
+        const res = await authAxios.get(`${API_URL}/api/users`);
 
-        // Ensure we handle the data property from axios correctly
+        // Ensure we handle the data property from authAxios correctly
         const formattedUsers = res.data.map((u) => ({
           name: u.full_name || u.display_name || "Unknown User",
           id: u.id,
@@ -74,7 +74,7 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
       setLoadingHistory(true);
       try {
         const API_URL = import.meta.env.VITE_API_URL;
-        const res = await axios.get(
+        const res = await authAxios.get(
           `${API_URL}/api/remarks/${ticket.display_id}`
         );
 

@@ -55,9 +55,9 @@ const ADMIN_EMAILS = ["rohan.jadhav@clevertap.com"];
 // JWT verification - skips auth/webhook/health endpoints
 const verifyToken = (req, res, next) => {
   if (
-    req.path.startsWith("/api/auth/") ||
-    req.path.startsWith("/api/webhooks/") ||
-    req.path === "/api/health"
+    req.path.startsWith("/auth/") ||
+    req.path.startsWith("/webhooks/") ||
+    req.path === "/health"
   ) {
     return next();
   }
@@ -100,7 +100,7 @@ const apiLimiter = rateLimit({
   max: 300, // generous for office NAT traffic
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path.startsWith("/api/webhooks/"),
+  skip: (req) => req.path.startsWith("/webhooks/"),
   message: { error: "Too many requests, please try again later" },
 });
 
