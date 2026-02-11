@@ -1599,12 +1599,24 @@ const fetchAndCacheTickets = async (source = "auto") => {
         }));
     };
 
+    const fetchWithRetry = async (url, options, retries = 3) => {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          return await axios.get(url, options);
+        } catch (err) {
+          if (attempt === retries) throw err;
+          console.warn(`⚠️ API call attempt ${attempt}/${retries} failed: ${err.message}. Retrying in ${attempt * 2}s...`);
+          await new Promise((r) => setTimeout(r, attempt * 2000));
+        }
+      }
+    };
+
     do {
-      const response = await axios.get(
+      const response = await fetchWithRetry(
         `${DEVREV_API}/works.list?limit=50&type=ticket${
           cursor ? `&cursor=${cursor}` : ""
         }`,
-        { headers: HEADERS, timeout: 30000 },
+        { headers: HEADERS, timeout: 60000 },
       );
 
       const newWorks = response.data.works || [];
