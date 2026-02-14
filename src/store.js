@@ -419,7 +419,6 @@ fetchAnalyticsData: async (filters = {}) => {
         isAuthenticated: s.isAuthenticated,
         token: s.token,
         dependencies: s.dependencies,
-        timelineReplies: s.timelineReplies,
       }),
     }
   )

@@ -235,25 +235,32 @@ const initRedis = async () => {
   try {
     redis = new Redis(REDIS_URL, {
       maxRetriesPerRequest: 3,
-      retryDelayOnFailover: 100,
       enableReadyCheck: true,
-      connectTimeout: 5000,
+      connectTimeout: 10000,
       lazyConnect: true,
+      retryStrategy(times) {
+        if (times > 10) {
+          console.error("🔴 Redis: giving up after 10 retries");
+          return null; // stop retrying
+        }
+        const delay = Math.min(times * 1000, 15000);
+        console.log(`🔄 Redis: reconnecting in ${delay}ms (attempt ${times})`);
+        return delay;
+      },
     });
 
-    redis.on("connect", () => console.log("🔴 Redis Connected"));
+    redis.on("connect", () => console.log("🟢 Redis Connected"));
+    redis.on("ready", () => console.log("🟢 Redis Ready"));
+    redis.on("close", () => console.log("🔴 Redis Connection Closed"));
     redis.on("error", (err) => {
       console.error("Redis Error:", err.message);
-      // Don't keep retrying if it fails
-      redis.disconnect();
-      redis = null;
+      // ioredis will auto-retry via retryStrategy — don't disconnect here
     });
 
     // ✅ OPTIMIZED: Connect in background - don't block server startup
     redis.connect().catch((err) => {
       console.error("Redis Init Failed:", err.message);
-      console.log("⚠️ Continuing without Redis cache");
-      redis = null;
+      console.log("⚠️ Will keep retrying via retryStrategy");
     });
   } catch (err) {
     console.error("Redis Init Failed:", err.message);
@@ -273,8 +280,10 @@ const CACHE_TTL = {
   DRILLDOWN: 600, // 10 minutes
 };
 
+const isRedisReady = () => redis && redis.status === "ready";
+
 const redisGet = async (key) => {
-  if (!redis) return null;
+  if (!isRedisReady()) return null;
   try {
     const data = await redis.get(key);
     return data ? JSON.parse(data) : null;
@@ -285,7 +294,7 @@ const redisGet = async (key) => {
 };
 
 const redisSet = async (key, data, ttl = 1800) => {
-  if (!redis) return false;
+  if (!isRedisReady()) return false;
   try {
     await redis.setex(key, ttl, JSON.stringify(data));
     return true;
@@ -296,7 +305,7 @@ const redisSet = async (key, data, ttl = 1800) => {
 };
 
 const redisDelete = async (pattern) => {
-  if (!redis) return;
+  if (!isRedisReady()) return;
   try {
     const keys = await redis.keys(pattern);
     if (keys.length > 0) {
