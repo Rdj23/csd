@@ -170,17 +170,14 @@ export const useTicketStore = create(
       // ============================================================================
       // ✅ PROGRESSIVE LOADING: Fetch tickets with partial data support
       // ============================================================================
-      _retryCount: 0, // Track retry attempts to prevent infinite loops
-      _maxRetries: 3, // Maximum retry attempts
+
+      _syncPollTimer: null, // Timer for polling during incremental sync
 
       fetchTickets: async () => {
         const state = get();
 
         // Prevent multiple concurrent fetches
-        if (state.isLoading) {
-          console.log("⏭️ Fetch already in progress, skipping");
-          return;
-        }
+        if (state.isLoading) return;
 
         set({ isLoading: true });
         try {
@@ -188,50 +185,49 @@ export const useTicketStore = create(
           const response = await _authFetch(`${API_URL}/api/tickets`);
           const data = await response.json();
 
-          const hasTickets = data.tickets && data.tickets.length > 0;
+          const tickets = data.tickets || [];
+          const isPartial = data.isPartial || false;
 
           set({
-            tickets: data.tickets || [],
+            tickets,
             lastSync: new Date(),
             isLoading: false,
-            isPartialData: data.isPartial || false,
-            syncProgress: data.isPartial ? 30 : 100,
-            _retryCount: hasTickets && !data.isPartial ? 0 : state._retryCount, // Reset on success
+            isPartialData: isPartial,
+            syncProgress: isPartial ? Math.max(state.syncProgress, 20) : 100,
           });
 
-          console.log(`📦 Loaded ${data.tickets?.length || 0} tickets (${data.isPartial ? 'partial' : 'complete'})`);
+          console.log(`📦 Loaded ${tickets.length} tickets (${isPartial ? 'partial - more loading' : 'complete'})`);
 
-          // Only retry if partial and under max retries
-          if ((!hasTickets || data.isPartial) && state._retryCount < state._maxRetries) {
-            const nextRetryCount = state._retryCount + 1;
-            const retryDelay = 3000 * nextRetryCount; // Exponential backoff
-            console.log(`⏳ Data loading... retry ${nextRetryCount}/${state._maxRetries} in ${retryDelay/1000}s`);
+          // ✅ INCREMENTAL POLLING: If backend is still syncing, poll every 4s for updated data
+          // This works even if socket events fail
+          if (isPartial) {
+            // Clear any existing poll timer
+            if (state._syncPollTimer) clearTimeout(state._syncPollTimer);
 
-            set({ _retryCount: nextRetryCount });
-            setTimeout(() => {
-              const currentState = get();
-              if ((currentState.tickets.length === 0 || currentState.isPartialData)
-                  && currentState._retryCount < currentState._maxRetries) {
+            const timer = setTimeout(() => {
+              const current = get();
+              if (current.isPartialData) {
+                console.log("🔄 Polling for incremental ticket updates...");
                 get().fetchTickets();
               }
-            }, retryDelay);
+            }, 4000);
+
+            set({ _syncPollTimer: timer });
+          } else {
+            // Sync complete — clear poll timer
+            if (state._syncPollTimer) {
+              clearTimeout(state._syncPollTimer);
+              set({ _syncPollTimer: null });
+            }
           }
         } catch (error) {
           console.error("Sync failed:", error);
-          const currentRetryCount = get()._retryCount;
-          set({ isLoading: false, isPartialData: false });
+          set({ isLoading: false });
 
-          // Retry on error with exponential backoff, but respect max retries
-          if (currentRetryCount < get()._maxRetries) {
-            const retryDelay = 5000 * (currentRetryCount + 1);
-            console.log(`⏳ Retrying after error... attempt ${currentRetryCount + 1}/${get()._maxRetries}`);
-            set({ _retryCount: currentRetryCount + 1 });
-            setTimeout(() => {
-              if (get().tickets.length === 0 && get()._retryCount < get()._maxRetries) {
-                get().fetchTickets();
-              }
-            }, retryDelay);
-          }
+          // Retry once after 5s on error
+          setTimeout(() => {
+            if (get().tickets.length === 0) get().fetchTickets();
+          }, 5000);
         }
       },
 

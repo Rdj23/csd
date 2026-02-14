@@ -1599,25 +1599,67 @@ const fetchAndCacheTickets = async (source = "auto") => {
         }));
     };
 
-    const fetchWithRetry = async (url, options, retries = 3) => {
+    // Retry helper for individual API calls
+    const fetchWithRetry = async (url, options, retries = 2) => {
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           return await axios.get(url, options);
         } catch (err) {
           if (attempt === retries) throw err;
-          console.warn(`⚠️ API call attempt ${attempt}/${retries} failed: ${err.message}. Retrying in ${attempt * 2}s...`);
+          console.warn(`⚠️ API attempt ${attempt}/${retries} failed: ${err.message}. Retrying in ${attempt * 2}s...`);
           await new Promise((r) => setTimeout(r, attempt * 2000));
         }
       }
     };
 
+    // Helper: save whatever we have so far to Redis + notify frontend
+    const saveProgress = async (ticketsRaw, isComplete) => {
+      const processed = processTickets(ticketsRaw);
+      if (!processed.length) return processed;
+
+      // Always save to the main cache so /api/tickets serves data immediately
+      await redisSet("tickets:active", processed, isComplete ? CACHE_TTL.TICKETS : 120);
+
+      if (isComplete) {
+        await redisDelete("tickets:active:initial");
+      }
+
+      io.emit("SYNC_PROGRESS", {
+        type: "tickets",
+        count: processed.length,
+        progress: isComplete ? 100 : Math.min(90, 10 + Math.floor((loop / 100) * 80)),
+        status: isComplete ? "complete" : "loading",
+      });
+
+      if (isComplete) {
+        io.emit("DATA_UPDATED", {
+          type: "tickets",
+          count: processed.length,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return processed;
+    };
+
     do {
-      const response = await fetchWithRetry(
-        `${DEVREV_API}/works.list?limit=50&type=ticket${
-          cursor ? `&cursor=${cursor}` : ""
-        }`,
-        { headers: HEADERS, timeout: 60000 },
-      );
+      let response;
+      try {
+        response = await fetchWithRetry(
+          `${DEVREV_API}/works.list?limit=50&type=ticket${
+            cursor ? `&cursor=${cursor}` : ""
+          }`,
+          { headers: HEADERS, timeout: 60000 },
+        );
+      } catch (batchErr) {
+        // Single batch failed after retries — save what we have and stop pagination
+        console.warn(`⚠️ Batch ${loop} failed: ${batchErr.message}. Saving ${collected.length} tickets collected so far.`);
+        if (collected.length > 0) {
+          const saved = await saveProgress(collected, true);
+          console.log(`✅ Partial sync saved: ${saved.length} tickets cached despite error`);
+        }
+        break;
+      }
 
       const newWorks = response.data.works || [];
       if (!newWorks.length) break;
@@ -1635,85 +1677,45 @@ const fetchAndCacheTickets = async (source = "auto") => {
 
       collected = [...collected, ...newWorks];
 
-      // ✅ PROGRESSIVE LOADING: Cache first 3 batches (150 tickets) immediately for quick response
-      if (loop === 0 || loop === 1 || loop === 2) {
-        const processedSoFar = processTickets(collected);
-        await redisSet("tickets:active:initial", processedSoFar, 60); // Short TTL for initial cache
-
-        // Emit progress to frontend
-        io.emit("SYNC_PROGRESS", {
-          type: 'tickets',
-          count: processedSoFar.length,
-          progress: Math.min(30, (loop + 1) * 10), // Show 10%, 20%, 30% progress
-          status: 'loading'
-        });
-
-        console.log(`📦 Cached initial ${processedSoFar.length} tickets (batch ${loop + 1})`);
-      } else if (loop % 5 === 0) {
-        // Emit progress updates every 5 batches
-        const estimatedProgress = Math.min(90, 30 + Math.floor(loop / 5) * 10);
-        io.emit("SYNC_PROGRESS", {
-          type: 'tickets',
-          count: collected.length,
-          progress: estimatedProgress,
-          status: 'loading'
-        });
+      // ✅ INCREMENTAL CACHING: Save to Redis every 3 batches so data is always available
+      if (loop < 3 || loop % 3 === 0) {
+        await saveProgress(collected, false);
+        console.log(`📦 Incrementally cached ${processTickets(collected).length} tickets (batch ${loop + 1})`);
       }
 
       // ✅ EARLY EXIT: Stop only after MANY consecutive batches without active tickets
-      // This ensures we don't miss old pending/on-hold tickets scattered in pagination
       if (!hasActiveTickets) {
         consecutiveInactiveBatches++;
         const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
-        // Only break after 10+ consecutive batches with no active tickets AND old dates
         if (lastDate < SOLVED_CUTOFF_DATE && consecutiveInactiveBatches >= 10) {
           console.log(`⏹️ Early exit after ${consecutiveInactiveBatches} consecutive inactive batches`);
           break;
         }
       } else {
-        // Reset counter when we find active tickets
         consecutiveInactiveBatches = 0;
       }
 
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 100);  // Keep at 100 to ensure we get all active tickets
+    } while (cursor && loop < 100);
 
-    // ✅ FILTER: ALL Active tickets + Solved tickets from Oct 2025 onwards
-    const activeTickets = processTickets(collected);
+    // ✅ FINAL SAVE: Cache complete dataset
+    if (collected.length > 0) {
+      const activeTickets = await saveProgress(collected, true);
 
-    // Log for debugging
-    const solvedCount = activeTickets.filter((t) => {
-      const stage = t.stage?.name?.toLowerCase() || "";
-      return stage.includes("solved") || stage.includes("closed");
-    }).length;
+      const solvedCount = activeTickets.filter((t) => {
+        const stage = t.stage?.name?.toLowerCase() || "";
+        return stage.includes("solved") || stage.includes("closed");
+      }).length;
 
-    // ✅ STORE IN REDIS ONLY (removed NodeCache to prevent double caching)
-    await redisSet("tickets:active", activeTickets, CACHE_TTL.TICKETS);
-
-    // Clear initial cache now that full cache is ready
-    await redisDelete("tickets:active:initial");
-
-    collected = null;
-    if (global.gc) global.gc();
-    console.log(
-      `✅ ${activeTickets.length} tickets cached (${activeTickets.length - solvedCount} active, ${solvedCount} recently solved)`,
-    );
-
-    // ✅ PROGRESSIVE LOADING: Emit completion progress
-    io.emit("SYNC_PROGRESS", {
-      type: 'tickets',
-      count: activeTickets.length,
-      progress: 100,
-      status: 'complete'
-    });
-
-    // ✅ FIX BROADCAST STORM: Send lightweight signal instead of full data array
-    io.emit("DATA_UPDATED", {
-      type: 'tickets',
-      count: activeTickets.length,
-      timestamp: new Date().toISOString()
-    });
+      collected = null;
+      if (global.gc) global.gc();
+      console.log(
+        `✅ ${activeTickets.length} tickets cached (${activeTickets.length - solvedCount} active, ${solvedCount} recently solved)`,
+      );
+    } else {
+      console.warn("⚠️ Sync completed with 0 tickets collected");
+    }
   } catch (e) {
     console.error("❌ Sync Failed:", e.message);
   } finally {
@@ -1730,64 +1732,42 @@ const fetchAndCacheTickets = async (source = "auto") => {
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
   try {
-    // ✅ PROGRESSIVE LOADING: Try full cache first
-    let cachedTickets = await redisGet("tickets:active");
+    // ✅ INCREMENTAL: tickets:active is updated every 3 batches during sync
+    // So even mid-sync, this will return whatever tickets have been collected so far
+    const cachedTickets = await redisGet("tickets:active");
 
     if (cachedTickets && cachedTickets.length > 0) {
-      console.log(`⚡ Redis HIT (full): ${cachedTickets.length} tickets`);
+      console.log(`⚡ Redis HIT: ${cachedTickets.length} tickets (syncing: ${isSyncing})`);
       return res.json({
         tickets: cachedTickets,
         total: cachedTickets.length,
-        isPartial: false
+        isPartial: isSyncing, // partial if sync is still running
       });
     }
 
-    // ✅ If full cache not available, try initial cache for quick response
-    cachedTickets = await redisGet("tickets:active:initial");
-
-    if (cachedTickets && cachedTickets.length > 0) {
-      console.log(`⚡ Redis HIT (initial): ${cachedTickets.length} tickets - loading more in background`);
-
-      // Start full sync in background if not already running
-      if (!isSyncing) {
-        fetchAndCacheTickets("background").catch(err =>
-          console.error("Background sync failed:", err)
-        );
-      }
-
-      return res.json({
-        tickets: cachedTickets,
-        total: cachedTickets.length,
-        isPartial: true, // Flag to indicate more data is loading
-        message: "Loading more tickets in background..."
-      });
-    }
-
-    // ✅ CACHE MISS: Trigger sync and wait for initial batch
-    console.log("⏳ Cache miss - syncing now");
+    // ✅ CACHE MISS: Trigger sync and wait briefly for first batch
+    console.log("⏳ Cache miss - starting sync");
 
     if (!isSyncing) {
-      // Start sync (it will cache initial batch quickly)
       fetchAndCacheTickets("on_demand").catch(err =>
         console.error("Sync failed:", err)
       );
 
-      // Wait a moment for initial batch to be cached
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Try to get initial batch
-      const initialTickets = await redisGet("tickets:active:initial");
-      if (initialTickets && initialTickets.length > 0) {
-        return res.json({
-          tickets: initialTickets,
-          total: initialTickets.length,
-          isPartial: true,
-          message: "Loading more tickets in background..."
-        });
+      // Wait up to 5s for first batch to land in Redis
+      for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const earlyTickets = await redisGet("tickets:active");
+        if (earlyTickets && earlyTickets.length > 0) {
+          return res.json({
+            tickets: earlyTickets,
+            total: earlyTickets.length,
+            isPartial: true,
+          });
+        }
       }
     }
 
-    // Sync in progress, return empty but with loading indicator
+    // Sync in progress but no data yet
     res.json({
       tickets: [],
       total: 0,
