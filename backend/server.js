@@ -1049,6 +1049,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
           avgFRT: { $avg: "$frt" },
           avgIterations: { $avg: "$iterations" },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
           frrTotal: { $sum: 1 }, // ✅ Add total count for FRR percentage calculation
         },
@@ -1065,6 +1066,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
       avgFRT: t.avgFRT,
       avgIterations: t.avgIterations,
       positiveCSAT: t.positiveCSAT,
+      negativeCSAT: t.negativeCSAT,
       frrMet: t.frrMet,
       frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0, // FRR as percentage
     }));
@@ -1242,6 +1244,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
             : 0,
           backlogCleared: backlog?.count || 0,
           positiveCSAT: t.positiveCSAT,
+          negativeCSAT: t.negativeCSAT || 0,
           frrMet: t.frrMet || 0,
           frrPercent: t.frrPercent || 0, // ✅ Include FRR percentage for graph
         };

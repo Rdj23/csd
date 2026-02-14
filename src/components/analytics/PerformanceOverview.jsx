@@ -13,6 +13,7 @@ import {
   Layers,
   ListFilter,
   Maximize2,
+  Percent,
   RefreshCw,
   Smile,
   TrendingUp,
@@ -388,7 +389,7 @@ const PerformanceMetricsCards = ({
       </div>
 
       {/* Metric Cards - Animated grid */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <MetricCard
           title="Avg RWT"
           value={stats?.avgRWT || "0.0"}
@@ -412,7 +413,18 @@ const PerformanceMetricsCards = ({
           index={1}
         />
         <MetricCard
-          title="FRR Met"
+          title="CSAT %"
+          value={`${stats?.csatPercent || 0}`}
+          unit="%"
+          color="#34d399"
+          sparkKey="csat"
+          icon={Percent}
+          metricKey="csat"
+          onExpand={onExpandMetric}
+          index={2}
+        />
+        <MetricCard
+          title="FRR"
           value={`${stats?.frrPercent || 0}`}
           unit="%"
           color="#f59e0b"
@@ -420,7 +432,7 @@ const PerformanceMetricsCards = ({
           icon={Zap}
           metricKey="frrPercent"
           onExpand={onExpandMetric}
-          index={2}
+          index={3}
         />
         <MetricCard
           title="Avg Iterations"
@@ -431,18 +443,25 @@ const PerformanceMetricsCards = ({
           icon={Layers}
           metricKey="avgIterations"
           onExpand={onExpandMetric}
-          index={3}
+          index={4}
         />
         <MetricCard
           title="Avg FRT"
-          value={stats?.avgFRT || "0.0"}
-          unit="Hrs"
-          color="#f43f5e"
+          value={(() => {
+            const frt = parseFloat(stats?.avgFRT) || 0;
+            if (frt > 0 && frt < 1) return Math.round(frt * 60);
+            return stats?.avgFRT || "0.0";
+          })()}
+          unit={(() => {
+            const frt = parseFloat(stats?.avgFRT) || 0;
+            return frt > 0 && frt < 1 ? "Mins" : "Hrs";
+          })()}
+          color="#06b6d4"
           sparkKey="avgFRT"
           icon={TrendingUp}
           metricKey="avgFRT"
           onExpand={onExpandMetric}
-          index={4}
+          index={5}
         />
       </div>
     </div>

@@ -85,7 +85,7 @@ export const OVERVIEW_METRICS = {
     dataKey: "positiveCSAT",
   },
   frrPercent: {
-    label: "FRR Met",
+    label: "FRR",
     fullLabel: "First Response Rate",
     icon: Zap,
     color: "#f59e0b",
@@ -106,7 +106,7 @@ export const OVERVIEW_METRICS = {
     label: "Avg FRT",
     fullLabel: "Average First Response Time",
     icon: TrendingUp,
-    color: "#f43f5e",
+    color: "#06b6d4",
     unit: "Hrs",
     desc: "Time to first response",
     dataKey: "avgFRT",

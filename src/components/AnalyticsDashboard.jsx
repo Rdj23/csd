@@ -993,7 +993,7 @@ const AnalyticsDashboard = ({
   const [expandedOverviewMetric, setExpandedOverviewMetric] = useState(null);
 
   const [excludeZendesk, setExcludeZendesk] = useState(false);
-  const [excludeNOC, setExcludeNOC] = useState(false);
+  const [excludeNOC, setExcludeNOC] = useState(true);
 
   // Drill-down state
   const [drillDownData, setDrillDownData] = useState(null);
@@ -2928,6 +2928,9 @@ const AnalyticsDashboard = ({
       const positiveCSAT = filteredSolved.filter(
         (t) => Number(t.custom_fields?.tnt__csatrating) === 2,
       ).length;
+      const negativeCSAT = filteredSolved.filter(
+        (t) => Number(t.custom_fields?.tnt__csatrating) === 1,
+      ).length;
       const frrMet = filteredSolved.filter(
         (t) =>
           t.custom_fields?.tnt__frr === true ||
@@ -2956,6 +2959,11 @@ const AnalyticsDashboard = ({
               ).toFixed(1)
             : "0.0",
         positiveCSAT,
+        negativeCSAT,
+        csatPercent:
+          positiveCSAT + negativeCSAT > 0
+            ? Math.round((positiveCSAT / (positiveCSAT + negativeCSAT)) * 100)
+            : 0,
         frrPercent:
           totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
         _source: "devrev_region_filtered",
@@ -3007,6 +3015,7 @@ const AnalyticsDashboard = ({
       let weightedIter = 0,
         validIterCount = 0;
       let positiveCSAT = 0;
+      let negativeCSAT = 0;
       let frrMet = 0;
 
       ownersToInclude.forEach((owner) => {
@@ -3022,6 +3031,7 @@ const AnalyticsDashboard = ({
 
           totalSolved += day.solved || 0;
           positiveCSAT += day.positiveCSAT || 0;
+          negativeCSAT += day.negativeCSAT || 0;
           frrMet += day.frrMet || 0;
 
           // Weighted Averages
@@ -3052,6 +3062,11 @@ const AnalyticsDashboard = ({
             ? (weightedIter / validIterCount).toFixed(1)
             : "0.0",
         positiveCSAT,
+        negativeCSAT,
+        csatPercent:
+          positiveCSAT + negativeCSAT > 0
+            ? Math.round((positiveCSAT / (positiveCSAT + negativeCSAT)) * 100)
+            : 0,
         frrPercent:
           totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
       };
@@ -3064,6 +3079,7 @@ const AnalyticsDashboard = ({
 
     let totalSolved = 0;
     let positiveCSAT = 0;
+    let negativeCSAT = 0;
     let frrMet = 0;
 
     // Variables for Global Calculation
@@ -3086,6 +3102,7 @@ const AnalyticsDashboard = ({
 
       totalSolved += day.solved || 0;
       positiveCSAT += day.positiveCSAT || 0;
+      negativeCSAT += day.negativeCSAT || 0;
       frrMet += day.frrMet || 0;
 
       if (day.avgRWT > 0) {
@@ -3119,6 +3136,11 @@ const AnalyticsDashboard = ({
       avgFRT,
       avgIterations,
       positiveCSAT,
+      negativeCSAT,
+      csatPercent:
+        positiveCSAT + negativeCSAT > 0
+          ? Math.round((positiveCSAT / (positiveCSAT + negativeCSAT)) * 100)
+          : 0,
       frrPercent,
       frrMet,
       _source: "mongodb_global_calc",

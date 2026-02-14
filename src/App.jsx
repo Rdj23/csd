@@ -296,7 +296,7 @@ const App = () => {
     alltickets: { ...EMPTY_FILTERS, dateRange: { start: "", end: "" } },
     csd: { ...EMPTY_FILTERS },
     vistas: { ...EMPTY_FILTERS },
-    analytics: { ...EMPTY_FILTERS }, // ADD THIS LINE
+    analytics: { ...EMPTY_FILTERS, dateRange: { start: "2026-01-01", end: "2026-03-31" } },
   });
   const [visibleFilterKeys, setVisibleFilterKeys] = useState([]);
   const hasAutoAppliedRole = useRef(false);
@@ -585,6 +585,9 @@ const App = () => {
         ...prev,
         [activeTab]: {
           ...EMPTY_FILTERS,
+          ...(activeTab === "analytics"
+            ? { dateRange: { start: "2026-01-01", end: "2026-03-31" } }
+            : {}),
         },
       }));
     }

@@ -347,6 +347,9 @@ export const calculateTicketStats = (tickets) => {
   const positiveCSAT = tickets.filter(
     (t) => Number(t.custom_fields?.tnt__csatrating || t.csat) === 2,
   ).length;
+  const negativeCSAT = tickets.filter(
+    (t) => Number(t.custom_fields?.tnt__csatrating || t.csat) === 1,
+  ).length;
   const frrMet = tickets.filter(
     (t) =>
       t.custom_fields?.tnt__frr === true ||
@@ -370,6 +373,11 @@ export const calculateTicketStats = (tickets) => {
         ? (iterValues.reduce((a, b) => a + b, 0) / iterValues.length).toFixed(1)
         : "0.0",
     positiveCSAT,
+    negativeCSAT,
+    csatPercent:
+      positiveCSAT + negativeCSAT > 0
+        ? Math.round((positiveCSAT / (positiveCSAT + negativeCSAT)) * 100)
+        : 0,
     frrPercent: totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
   };
 };
