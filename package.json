@@ -16,6 +16,7 @@
     "@nivo/line": "^0.85.0",
     "@nivo/pie": "^0.85.0",
     "@react-oauth/google": "^0.13.0",
+    "@vercel/analytics": "^1.6.1",
     "axios": "^1.13.2",
     "clevertap-web-sdk": "^2.3.3",
     "csv-parser": "^3.2.0",
