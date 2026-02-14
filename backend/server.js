@@ -1750,6 +1750,11 @@ const fetchAndCacheTickets = async (source = "auto") => {
       console.log(
         `✅ ${activeTickets.length} tickets cached (${activeTickets.length - solvedCount} active, ${solvedCount} recently solved)`,
       );
+
+      // Pre-warm timeline reply cache in the background (non-blocking)
+      enrichTimelineReplies().catch((e) =>
+        console.error("❌ Timeline enrichment failed:", e.message),
+      );
     } else {
       console.warn("⚠️ Sync completed with 0 tickets collected");
     }
@@ -2194,94 +2199,168 @@ app.post("/api/tickets/dependencies", async (req, res) => {
 });
 
 // ============================================================================
-// TIMELINE REPLIES - Last CT & Customer reply timestamps via timeline-entries.list
+// TIMELINE REPLIES - Last CT & Customer reply timestamps (Redis-cached)
 // ============================================================================
+
+// Helper: fetch timeline replies for a single ticket from DevRev
+const fetchTimelineForTicket = async (ticketId) => {
+  const objectDon = `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
+  let lastCtReply = null;
+  let lastCustomerReply = null;
+  let cursor = undefined;
+
+  do {
+    const body = {
+      object: objectDon,
+      collections: ["discussions"],
+      visibility: ["external"],
+      limit: 50,
+    };
+    if (cursor) body.cursor = cursor;
+
+    const tlRes = await axios.post(
+      `${DEVREV_API}/timeline-entries.list`,
+      body,
+      { headers: HEADERS, timeout: 15000 },
+    );
+
+    const entries = tlRes.data.timeline_entries || [];
+
+    for (const te of entries) {
+      if (te.type !== "timeline_comment") continue;
+
+      let replyTime = te.created_date;
+      if (te.snap_widget_body && Array.isArray(te.snap_widget_body)) {
+        const emailWidget = te.snap_widget_body.find(
+          (w) => w.type === "email_preview",
+        );
+        if (emailWidget && emailWidget.sent_timestamp) {
+          replyTime = emailWidget.sent_timestamp;
+        }
+      }
+
+      const actorType = te.created_by?.type;
+
+      if (actorType === "dev_user" || actorType === "service_account") {
+        if (!lastCtReply || new Date(replyTime) > new Date(lastCtReply)) {
+          lastCtReply = replyTime;
+        }
+      }
+
+      if (actorType === "rev_user") {
+        if (!lastCustomerReply || new Date(replyTime) > new Date(lastCustomerReply)) {
+          lastCustomerReply = replyTime;
+        }
+      }
+    }
+
+    cursor = tlRes.data.next_cursor || null;
+  } while (cursor);
+
+  return { last_ct_reply: lastCtReply, last_customer_reply: lastCustomerReply };
+};
+
+// Background job: pre-warm timeline cache for all active tickets after sync
+const enrichTimelineReplies = async () => {
+  const tickets = await redisGet("tickets:active");
+  if (!tickets || !tickets.length) return;
+
+  const ticketIds = tickets
+    .map((t) => t.display_id?.replace("TKT-", ""))
+    .filter(Boolean);
+
+  // Load existing cache
+  const cached = (await redisGet("timeline:replies")) || {};
+  const uncachedIds = ticketIds.filter((id) => !cached[id]);
+
+  if (!uncachedIds.length) {
+    console.log("✅ Timeline cache already warm for all tickets");
+    return;
+  }
+
+  console.log(`🔄 Enriching timeline replies for ${uncachedIds.length} tickets...`);
+  let enriched = 0;
+
+  // Process 3 at a time with 1s delay between batches to avoid DevRev 429
+  const BATCH = 3;
+  for (let i = 0; i < uncachedIds.length; i += BATCH) {
+    const batch = uncachedIds.slice(i, i + BATCH);
+
+    await Promise.all(
+      batch.map(async (ticketId) => {
+        try {
+          cached[ticketId] = await fetchTimelineForTicket(ticketId);
+          enriched++;
+        } catch (e) {
+          cached[ticketId] = { last_ct_reply: null, last_customer_reply: null };
+        }
+      }),
+    );
+
+    // Save progress every 15 tickets
+    if (enriched % 15 === 0 || i + BATCH >= uncachedIds.length) {
+      await redisSet("timeline:replies", cached, 1800); // 30 min TTL
+    }
+
+    // Rate limit: 1s pause between batches
+    if (i + BATCH < uncachedIds.length) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  console.log(`✅ Timeline enrichment done: ${enriched} tickets enriched`);
+};
+
 app.post("/api/tickets/timeline-replies", async (req, res) => {
   try {
-    const { ticketIds } = req.body; // Array of numeric ticket IDs like ["304218", "305713"]
+    const { ticketIds } = req.body;
     if (!ticketIds || !ticketIds.length) {
       return res.json({});
     }
 
+    // Check Redis cache first
+    const cached = (await redisGet("timeline:replies")) || {};
     const results = {};
-    const BATCH_SIZE = 5;
+    const uncachedIds = [];
 
-    for (let i = 0; i < ticketIds.length; i += BATCH_SIZE) {
-      const batch = ticketIds.slice(i, i + BATCH_SIZE);
+    for (const id of ticketIds) {
+      if (cached[id]) {
+        results[id] = cached[id];
+      } else {
+        uncachedIds.push(id);
+      }
+    }
 
-      await Promise.all(
-        batch.map(async (ticketId) => {
-          try {
-            const objectDon = `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
-            let lastCtReply = null;
-            let lastCustomerReply = null;
-            let cursor = undefined;
+    // Fetch only uncached tickets from DevRev (max 3 concurrent, with delay)
+    if (uncachedIds.length > 0) {
+      const BATCH_SIZE = 3;
+      for (let i = 0; i < uncachedIds.length; i += BATCH_SIZE) {
+        const batch = uncachedIds.slice(i, i + BATCH_SIZE);
 
-            // Paginate through all timeline entries
-            do {
-              const body = {
-                object: objectDon,
-                collections: ["discussions"],
-                visibility: ["external"],
-                limit: 50,
+        await Promise.all(
+          batch.map(async (ticketId) => {
+            try {
+              const data = await fetchTimelineForTicket(ticketId);
+              results[ticketId] = data;
+              cached[ticketId] = data;
+            } catch (e) {
+              results[ticketId] = {
+                last_ct_reply: null,
+                last_customer_reply: null,
+                error: e.message,
               };
-              if (cursor) body.cursor = cursor;
+            }
+          }),
+        );
 
-              const tlRes = await axios.post(
-                `${DEVREV_API}/timeline-entries.list`,
-                body,
-                { headers: HEADERS, timeout: 15000 },
-              );
+        // Rate limit between batches
+        if (i + BATCH_SIZE < uncachedIds.length) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
 
-              const entries = tlRes.data.timeline_entries || [];
-
-              for (const te of entries) {
-                if (te.type !== "timeline_comment") continue;
-
-                // Check for email sent_timestamp first, fallback to created_date
-                let replyTime = te.created_date;
-                if (te.snap_widget_body && Array.isArray(te.snap_widget_body)) {
-                  const emailWidget = te.snap_widget_body.find(
-                    (w) => w.type === "email_preview",
-                  );
-                  if (emailWidget && emailWidget.sent_timestamp) {
-                    replyTime = emailWidget.sent_timestamp;
-                  }
-                }
-
-                const actorType = te.created_by?.type;
-
-                // dev_user or service_account = CleverTap (CT) reply
-                if (actorType === "dev_user" || actorType === "service_account") {
-                  if (!lastCtReply || new Date(replyTime) > new Date(lastCtReply)) {
-                    lastCtReply = replyTime;
-                  }
-                }
-
-                // rev_user = Customer reply
-                if (actorType === "rev_user") {
-                  if (!lastCustomerReply || new Date(replyTime) > new Date(lastCustomerReply)) {
-                    lastCustomerReply = replyTime;
-                  }
-                }
-              }
-
-              cursor = tlRes.data.next_cursor || null;
-            } while (cursor);
-
-            results[ticketId] = {
-              last_ct_reply: lastCtReply,
-              last_customer_reply: lastCustomerReply,
-            };
-          } catch (e) {
-            results[ticketId] = {
-              last_ct_reply: null,
-              last_customer_reply: null,
-              error: e.message,
-            };
-          }
-        }),
-      );
+      // Update cache with newly fetched data
+      await redisSet("timeline:replies", cached, 1800);
     }
 
     res.json(results);
