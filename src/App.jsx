@@ -434,7 +434,7 @@ const App = () => {
   // ✅ EXPORT TO CSV FUNCTION
   const handleExportCSV = () => {
     const ticketsToExport =
-      activeTab === "alltickets" ? allTicketsFiltered : filteredTickets;
+      activeTab === "alltickets" ? allTicketsFiltered : displayTickets;
 
     if (!ticketsToExport.length) return showToast("❌ No tickets to export");
 
@@ -735,13 +735,6 @@ const App = () => {
         };
       })
       .filter((t) => {
-        // Exclude tickets owned by Anmol Sawhney
-        const ownerForExclusion =
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-          t.owned_by?.[0]?.display_name ||
-          "";
-        if (ownerForExclusion.toLowerCase().includes("anmol")) return false;
-
         if (activeTab === "csd") {
           if (!t.isCSD) return false;
           // For CSD, show all non-closed tickets
@@ -903,6 +896,17 @@ const App = () => {
     selectedViewId,
     dependencies, // ADD THIS
   ]);
+
+  // Exclude tickets owned by Anmol Sawhney from ongoing views
+  const displayTickets = useMemo(() => {
+    return filteredTickets.filter((t) => {
+      const ownerName =
+        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+        t.owned_by?.[0]?.display_name ||
+        "";
+      return !ownerName.toLowerCase().includes("anmol");
+    });
+  }, [filteredTickets]);
 
   const shouldShowFilter = useMemo(() => {
     return activeTab !== "vistas" && activeTab !== "analytics";
@@ -1160,9 +1164,9 @@ const App = () => {
 
   // ✅ KPI STATS LOGIC (Moved here to stay fixed)
   const stats = {
-    red: filteredTickets.filter((t) => t.priority === 1).length,
-    yellow: filteredTickets.filter((t) => t.priority === 2).length,
-    green: filteredTickets.filter((t) => t.priority === 3).length,
+    red: displayTickets.filter((t) => t.priority === 1).length,
+    yellow: displayTickets.filter((t) => t.priority === 2).length,
+    green: displayTickets.filter((t) => t.priority === 3).length,
   };
 
   const labels =
@@ -2136,13 +2140,13 @@ ${
                     </div>
                   ) : activeTab === "vistas" ? (
                     <GroupedTicketList
-                      tickets={filteredTickets}
+                      tickets={displayTickets}
                       onProfileClick={setSelectedUserProfile}
                       dependencies={dependencies}
                     />
                   ) : (
                     <TicketList
-                      tickets={filteredTickets}
+                      tickets={displayTickets}
                       isCSDView={activeTab === "csd"}
                       onCardClick={handleKPIFilter}
                       onProfileClick={setSelectedUserProfile}
