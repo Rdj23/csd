@@ -1202,6 +1202,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
 
           // ✅ FIX: Add CSAT and FRR data
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
           frrTotal: { $sum: 1 }, // ✅ FIX: Total tickets for correct FRR% calculation
 
@@ -1227,6 +1228,11 @@ app.get("/api/tickets/analytics", async (req, res) => {
           : 0,
         positiveCSAT: statsResult?.positiveCSAT || 0,
         negativeCSAT: statsResult?.negativeCSAT || 0,
+        csatPercent: (() => {
+          const pos = statsResult?.positiveCSAT || 0;
+          const neg = statsResult?.negativeCSAT || 0;
+          return pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0;
+        })(),
         frrPercent:
           statsResult?.frrTotal > 0
             ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100)
@@ -1279,6 +1285,7 @@ app.get("/api/tickets/analytics", async (req, res) => {
             : 0,
           // Pass the Raw Counts
           positiveCSAT: item.positiveCSAT || 0,
+          negativeCSAT: item.negativeCSAT || 0,
           frrMet: item.frrMet || 0,
           frrTotal: item.frrTotal || 0, // ✅ Pass total for frontend if needed
           // ✅ FIX: Use frrTotal instead of solved for correct FRR calculation
@@ -4321,6 +4328,7 @@ const precomputeAnalytics = async (quarter) => {
           avgFRT: { $avg: "$frt" },
           avgIterations: { $avg: "$iterations" },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
           frrTotal: { $sum: 1 },
         },
@@ -4336,6 +4344,7 @@ const precomputeAnalytics = async (quarter) => {
       avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
       avgIterations: t.avgIterations ? Number(t.avgIterations.toFixed(1)) : 0,
       positiveCSAT: t.positiveCSAT,
+      negativeCSAT: t.negativeCSAT || 0,
       frrMet: t.frrMet,
       frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0,
     }));
@@ -4384,6 +4393,7 @@ const precomputeAnalytics = async (quarter) => {
           rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
           frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
           positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
           frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
           frrTotal: { $sum: 1 },
           backlogCleared: { $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] } },
@@ -4406,6 +4416,7 @@ const precomputeAnalytics = async (quarter) => {
         rwtValidCount: item.rwtValidCount || 0,
         frtValidCount: item.frtValidCount || 0,
         positiveCSAT: item.positiveCSAT || 0,
+        negativeCSAT: item.negativeCSAT || 0,
         frrMet: item.frrMet || 0,
         backlogCleared: item.backlogCleared || 0,
       });
@@ -4422,6 +4433,11 @@ const precomputeAnalytics = async (quarter) => {
         avgIterations: statsResult?.avgIterations ? Number(statsResult.avgIterations.toFixed(1)) : 0,
         positiveCSAT: statsResult?.positiveCSAT || 0,
         negativeCSAT: statsResult?.negativeCSAT || 0,
+        csatPercent: (() => {
+          const pos = statsResult?.positiveCSAT || 0;
+          const neg = statsResult?.negativeCSAT || 0;
+          return pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0;
+        })(),
         frrPercent: statsResult?.frrTotal > 0 ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100) : 0,
       },
       trends: trendsWithFRRPercent,

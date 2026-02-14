@@ -3063,10 +3063,15 @@ const AnalyticsDashboard = ({
             : "0.0",
         positiveCSAT,
         negativeCSAT,
-        csatPercent:
-          positiveCSAT + negativeCSAT > 0
-            ? Math.round((positiveCSAT / (positiveCSAT + negativeCSAT)) * 100)
-            : 0,
+        csatPercent: (() => {
+          // Use accumulated values, fall back to backend stats if trends lack negativeCSAT
+          const effectiveNeg = negativeCSAT > 0 ? negativeCSAT : (analyticsData?.stats?.negativeCSAT || 0);
+          const effectivePos = positiveCSAT > 0 ? positiveCSAT : (analyticsData?.stats?.positiveCSAT || 0);
+          if (effectivePos + effectiveNeg > 0) {
+            return Math.round((effectivePos / (effectivePos + effectiveNeg)) * 100);
+          }
+          return analyticsData?.stats?.csatPercent || 0;
+        })(),
         frrPercent:
           totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
       };
@@ -3137,10 +3142,16 @@ const AnalyticsDashboard = ({
       avgIterations,
       positiveCSAT,
       negativeCSAT,
-      csatPercent:
-        positiveCSAT + negativeCSAT > 0
-          ? Math.round((positiveCSAT / (positiveCSAT + negativeCSAT)) * 100)
-          : 0,
+      csatPercent: (() => {
+        // Use trend-accumulated negativeCSAT if available, otherwise fall back to backend stats
+        const effectiveNeg = negativeCSAT > 0 ? negativeCSAT : (analyticsData?.stats?.negativeCSAT || 0);
+        const effectivePos = positiveCSAT > 0 ? positiveCSAT : (analyticsData?.stats?.positiveCSAT || 0);
+        // Also use backend-computed csatPercent as ultimate fallback
+        if (effectivePos + effectiveNeg > 0) {
+          return Math.round((effectivePos / (effectivePos + effectiveNeg)) * 100);
+        }
+        return analyticsData?.stats?.csatPercent || 0;
+      })(),
       frrPercent,
       frrMet,
       _source: "mongodb_global_calc",
