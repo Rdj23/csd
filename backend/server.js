@@ -1623,15 +1623,20 @@ const fetchAndCacheTickets = async (source = "auto") => {
     };
 
     // Helper: save whatever we have so far to Redis + notify frontend
+    // DOUBLE-BUFFER: writes go to tickets:syncing during sync.
+    // tickets:active is only overwritten on completion (atomic promote).
     const saveProgress = async (ticketsRaw, isComplete) => {
       const processed = processTickets(ticketsRaw);
       if (!processed.length) return processed;
 
-      // Always save to the main cache so /api/tickets serves data immediately
-      await redisSet("tickets:active", processed, isComplete ? CACHE_TTL.TICKETS : 600);
-
       if (isComplete) {
+        // PROMOTE: write to the stable serving key and remove staging
+        await redisSet("tickets:active", processed, CACHE_TTL.TICKETS);
+        await redisDelete("tickets:syncing");
         await redisDelete("tickets:active:initial");
+      } else {
+        // STAGE: write to staging key only — tickets:active stays untouched
+        await redisSet("tickets:syncing", processed, 1800);
       }
 
       io.emit("SYNC_PROGRESS", {
@@ -1742,42 +1747,52 @@ const fetchAndCacheTickets = async (source = "auto") => {
 // ============================================================================
 app.get("/api/tickets", async (req, res) => {
   try {
-    // ✅ INCREMENTAL: tickets:active is updated every 3 batches during sync
-    // So even mid-sync, this will return whatever tickets have been collected so far
-    const cachedTickets = await redisGet("tickets:active");
-
-    if (cachedTickets && cachedTickets.length > 0) {
-      console.log(`⚡ Redis HIT: ${cachedTickets.length} tickets (syncing: ${isSyncing})`);
+    // ─── LAYER 1: Stable cache (last completed sync) ───
+    const stableTickets = await redisGet("tickets:active");
+    if (stableTickets && stableTickets.length > 0) {
+      console.log(`⚡ Serving ${stableTickets.length} stable tickets (syncing: ${isSyncing})`);
       return res.json({
-        tickets: cachedTickets,
-        total: cachedTickets.length,
-        isPartial: isSyncing, // partial if sync is still running
+        tickets: stableTickets,
+        total: stableTickets.length,
+        isPartial: false,       // stable data = complete snapshot
+        isSyncing: isSyncing,   // tells frontend a bg refresh is running
       });
     }
 
-    // ✅ CACHE MISS: Trigger sync and wait briefly for first batch
-    console.log("⏳ Cache miss - starting sync");
+    // ─── LAYER 2: Staging cache (sync in progress) ───
+    const stagingTickets = await redisGet("tickets:syncing");
+    if (stagingTickets && stagingTickets.length > 0) {
+      console.log(`📦 Serving ${stagingTickets.length} staging tickets (sync in progress)`);
+      return res.json({
+        tickets: stagingTickets,
+        total: stagingTickets.length,
+        isPartial: true,
+      });
+    }
+
+    // ─── LAYER 3: Cold start — trigger sync, wait for first chunk ───
+    console.log("⏳ Cold start - no cache, triggering sync");
 
     if (!isSyncing) {
       fetchAndCacheTickets("on_demand").catch(err =>
         console.error("Sync failed:", err)
       );
+    }
 
-      // Wait up to 5s for first batch to land in Redis
-      for (let i = 0; i < 5; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const earlyTickets = await redisGet("tickets:active");
-        if (earlyTickets && earlyTickets.length > 0) {
-          return res.json({
-            tickets: earlyTickets,
-            total: earlyTickets.length,
-            isPartial: true,
-          });
-        }
+    // Wait up to 5s for first batch to land in staging
+    for (let i = 0; i < 5; i++) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const earlyTickets = await redisGet("tickets:syncing");
+      if (earlyTickets && earlyTickets.length > 0) {
+        return res.json({
+          tickets: earlyTickets,
+          total: earlyTickets.length,
+          isPartial: true,
+        });
       }
     }
 
-    // Sync in progress but no data yet
+    // Nothing yet — let frontend show skeleton
     res.json({
       tickets: [],
       total: 0,

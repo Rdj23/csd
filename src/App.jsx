@@ -1331,11 +1331,11 @@ ${
                     isLoading || isSyncing || isPartialData ? "animate-spin" : ""
                   }`}
                 />
-                {isPartialData
-                  ? `Loading... ${syncProgress}%`
-                  : isSyncing
+                {isSyncing
                   ? "Syncing..."
-                  : "Sync"}
+                  : isPartialData
+                    ? "Refreshing..."
+                    : "Sync"}
               </button>
 
               <button

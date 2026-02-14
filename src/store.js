@@ -45,7 +45,7 @@ export const useTicketStore = create(
       dependencies: {},
       dependenciesLoading: false,
 
-      // ✅ OPTIMIZED: Socket connection with lightweight updates
+      // ✅ Socket connection — drives all real-time updates
       connectSocket: () => {
         const { socket } = get();
         if (socket) return;
@@ -53,33 +53,36 @@ export const useTicketStore = create(
         const API_URL = getApiUrl();
         const newSocket = io(API_URL);
 
-        newSocket.on("connect", () => console.log("🟢 Connected to Real-Time Server"));
+        newSocket.on("connect", () => console.log("[Socket] Connected"));
 
-        // ✅ PROGRESSIVE LOADING: Listen for sync progress updates
+        // Progress updates during background sync
+        // Only updates the progress indicator — does NOT trigger a fetch on every tick.
+        // Fetches only when new chunks land (count increased) so tickets accumulate.
         newSocket.on("SYNC_PROGRESS", (progressData) => {
-          console.log("📊 Sync Progress:", progressData);
-          set({
-            syncProgress: progressData.progress,
-            isPartialData: progressData.status === 'loading'
-          });
+          const prev = get();
+          set({ syncProgress: progressData.progress });
 
-          // When sync is complete, re-fetch to get all data
-          if (progressData.status === 'complete') {
+          if (progressData.status === "complete") {
+            // Sync finished — authoritative fetch for the promoted stable data
+            set({ isPartialData: false, syncProgress: 100 });
+            get().fetchTickets();
+          } else if (progressData.count > (prev.tickets?.length || 0)) {
+            // New chunk saved — fetch to merge the larger dataset
+            set({ isPartialData: true });
             get().fetchTickets();
           }
         });
 
-        // ✅ NEW: Lightweight signal-based updates (no data transfer)
-        newSocket.on("DATA_UPDATED", (signal) => {
-          console.log("📥 Live Update Signal Received:", signal);
-          // Re-fetch tickets when data changes (much smaller payload)
+        // Final signal after sync completion (webhook / manual / cron)
+        newSocket.on("DATA_UPDATED", () => {
           get().fetchTickets();
         });
 
-        // ✅ DEPRECATED: Old REFRESH_TICKETS event (kept for backward compatibility)
+        // Legacy compat
         newSocket.on("REFRESH_TICKETS", (updatedTickets) => {
-          console.log("📥 Legacy Update Received (deprecated)");
-          set({ tickets: updatedTickets, lastSync: new Date() });
+          if (Array.isArray(updatedTickets) && updatedTickets.length > 0) {
+            set({ tickets: updatedTickets, lastSync: new Date() });
+          }
         });
 
         set({ socket: newSocket });
@@ -168,83 +171,93 @@ export const useTicketStore = create(
       },
 
       // ============================================================================
-      // ✅ PROGRESSIVE LOADING: Fetch tickets with partial data support
+      // TICKET FETCH — merge-based, socket-driven, never wipes data
       // ============================================================================
 
-      _syncPollTimer: null, // Timer for polling during incremental sync
-      _lastFetchTime: 0, // Timestamp of last fetch start (for debounce)
+      _lastFetchTime: 0,
+      _coldStartTimer: null,
 
       fetchTickets: async () => {
         const now = Date.now();
-        const state = get();
+        const prev = get();
 
-        // Debounce: skip if a fetch started less than 2s ago
-        if (state.isLoading && now - state._lastFetchTime < 2000) return;
-
-        // If a previous fetch is stuck (>15s), allow override
-        if (state.isLoading && now - state._lastFetchTime < 15000) return;
+        // Debounce: 2 s between fetches, but allow override if stuck > 15 s
+        if (prev.isLoading) {
+          if (now - prev._lastFetchTime < 15000) return;
+          console.warn("[Fetch] Previous fetch stuck >15 s — forcing new fetch");
+        }
 
         set({ isLoading: true, _lastFetchTime: now });
+
         try {
           const API_URL = getApiUrl();
           const response = await _authFetch(`${API_URL}/api/tickets`);
           const data = await response.json();
 
-          const newTickets = data.tickets || [];
+          const incoming = data.tickets || [];
           const isPartial = data.isPartial || false;
-          const existingTickets = get().tickets;
+          const isSyncing = data.isSyncing || isPartial;
+          const existing = get().tickets;
 
-          // CRITICAL: Never replace good data with an empty partial response.
-          // During sync the Redis cache can briefly be empty between saves.
-          const tickets =
-            newTickets.length === 0 && isPartial && existingTickets.length > 0
-              ? existingTickets
-              : newTickets;
+          // ── Merge logic ──
+          // 1. Complete (stable) data  → authoritative replace
+          // 2. Partial with more data  → take the larger set (accumulate)
+          // 3. Partial but empty/fewer → keep what we already have
+          let merged;
+          if (!isPartial) {
+            // Stable snapshot from tickets:active — trust it fully
+            merged = incoming;
+          } else if (incoming.length === 0 && existing.length > 0) {
+            // Cache gap — keep existing in-memory tickets
+            merged = existing;
+          } else if (incoming.length > 0) {
+            // Merge by ID: add new, update existing, never remove during sync
+            const map = new Map(existing.map((t) => [t.id, t]));
+            for (const t of incoming) map.set(t.id, t);
+            merged = Array.from(map.values());
+          } else {
+            merged = existing;
+          }
 
-          // Use fresh state for syncProgress to avoid overwriting socket updates
           const currentProgress = get().syncProgress;
 
           set({
-            tickets,
+            tickets: merged,
             lastSync: new Date(),
             isLoading: false,
             isPartialData: isPartial,
             syncProgress: isPartial ? Math.max(currentProgress, 20) : 100,
           });
 
-          console.log(`📦 Loaded ${tickets.length} tickets (${isPartial ? 'partial - more loading' : 'complete'})`);
+          console.log(
+            `[Fetch] ${merged.length} tickets (${isPartial ? "partial" : "complete"})` +
+            `${isSyncing ? " — bg sync running" : ""}`
+          );
 
-          // Clear any existing poll timer (use fresh state ref)
-          const currentTimer = get()._syncPollTimer;
-          if (currentTimer) clearTimeout(currentTimer);
+          // Cold-start fallback: if we still have zero tickets and data is
+          // partial, poll once after 3 s in case socket events are delayed.
+          const prevTimer = get()._coldStartTimer;
+          if (prevTimer) clearTimeout(prevTimer);
 
-          if (isPartial) {
-            // Poll faster (2s) when we have no tickets yet, otherwise 4s
-            const pollDelay = tickets.length === 0 ? 2000 : 4000;
-
+          if (isPartial && merged.length === 0) {
             const timer = setTimeout(() => {
-              const current = get();
-              if (current.isPartialData) {
-                console.log("🔄 Polling for incremental ticket updates...");
+              if (get().isPartialData && get().tickets.length === 0) {
+                console.log("[Fetch] Cold-start retry…");
                 get().fetchTickets();
               }
-            }, pollDelay);
-
-            set({ _syncPollTimer: timer });
+            }, 3000);
+            set({ _coldStartTimer: timer });
           } else {
-            set({ _syncPollTimer: null });
+            set({ _coldStartTimer: null });
           }
         } catch (error) {
-          console.error("Sync failed:", error);
+          console.error("[Fetch] Failed:", error);
           set({ isLoading: false });
 
-          // Retry after 3s on error, keep retrying while no tickets
+          // Retry once after 5 s if we have nothing
           setTimeout(() => {
-            const current = get();
-            if (current.tickets.length === 0 || current.isPartialData) {
-              get().fetchTickets();
-            }
-          }, 3000);
+            if (get().tickets.length === 0) get().fetchTickets();
+          }, 5000);
         }
       },
 
