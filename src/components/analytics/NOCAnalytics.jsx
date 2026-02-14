@@ -328,12 +328,19 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       // Per-person L2 scorecard
       if (t.noc_confirmation_by && t.has_l2_noc_confirmation) {
         if (!l2PersonMap[t.noc_confirmation_by]) {
-          l2PersonMap[t.noc_confirmation_by] = { confirmed: 0, rejected: 0 };
+          l2PersonMap[t.noc_confirmation_by] = { confirmed: 0, rejected: 0, ug: 0 };
         }
         if (t.is_noc) {
           l2PersonMap[t.noc_confirmation_by].confirmed++;
         } else {
           l2PersonMap[t.noc_confirmation_by].rejected++;
+          // Count Understanding Gap per reviewer
+          if (
+            t.noc_rca &&
+            t.noc_rca.toLowerCase().includes("understanding gap")
+          ) {
+            l2PersonMap[t.noc_confirmation_by].ug++;
+          }
         }
       }
     });
@@ -352,11 +359,12 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           confirmed: stats.confirmed,
           rejected: stats.rejected,
           total,
+          ug: stats.ug,
           rejectionRate:
             total > 0 ? ((stats.rejected / total) * 100).toFixed(0) : 0,
         };
       })
-      .sort((a, b) => b.total - a.total);
+      .sort((a, b) => Number(b.rejectionRate) - Number(a.rejectionRate));
 
     return {
       confirmed,
@@ -1236,6 +1244,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                     Total
                   </th>
                   <th className="text-center px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                    UG
+                  </th>
+                  <th className="text-center px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
                     Rejection Rate
                   </th>
                 </tr>
@@ -1275,6 +1286,12 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                     <td className="px-4 py-3 text-center">
                       <span className="text-slate-700 dark:text-slate-300 font-bold text-xs">
                         {person.total}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center gap-1 text-xs font-bold ${person.ug > 0 ? "text-amber-600 dark:text-amber-400" : "text-slate-400 dark:text-slate-600"}`}>
+                        {person.ug > 0 && <AlertTriangle className="w-3.5 h-3.5" />}
+                        {person.ug}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
