@@ -1212,73 +1212,90 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
             NOC Confirmation Scorecard
-            <span className="text-[10px] font-normal text-slate-400 ml-auto">
-              Rejection rate per reviewer
-            </span>
           </h4>
         </div>
-        <div className="p-5 space-y-3 max-h-[400px] overflow-y-auto">
-          {insights.l2Scorecard.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-sm">
-              No L2 confirmations yet
-            </div>
-          ) : (
-            insights.l2Scorecard.map((person) => (
-              <div key={person.name} className="group">
-                <div className="flex items-center justify-between mb-1.5">
-                  <button
-                    onClick={() => {
-                      if (!selectedConfirmationBy.includes(person.name))
-                        setSelectedConfirmationBy([
-                          ...selectedConfirmationBy,
-                          person.name,
-                        ]);
-                    }}
-                    className="text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors truncate max-w-[200px]"
+        {insights.l2Scorecard.length === 0 ? (
+          <div className="text-center py-8 text-slate-400 text-sm">
+            No L2 confirmations yet
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/50">
+                  <th className="text-left px-5 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                    Reviewer
+                  </th>
+                  <th className="text-center px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                    Confirmed
+                  </th>
+                  <th className="text-center px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                    Rejected
+                  </th>
+                  <th className="text-center px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                    Total
+                  </th>
+                  <th className="text-center px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                    Rejection Rate
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {insights.l2Scorecard.map((person) => (
+                  <tr
+                    key={person.name}
+                    className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
                   >
-                    {person.name}
-                  </button>
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                      {person.confirmed}
-                    </span>
-                    <span className="text-slate-300 dark:text-slate-600">
-                      /
-                    </span>
-                    <span className="text-rose-600 dark:text-rose-400 font-bold">
-                      {person.rejected}
-                    </span>
-                    <span
-                      className={`font-extrabold text-xs px-2 py-0.5 rounded-full ${
-                        Number(person.rejectionRate) <= 30
-                          ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"
-                          : Number(person.rejectionRate) <= 60
-                            ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
-                            : "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400"
-                      }`}
-                    >
-                      {person.rejectionRate}%
-                    </span>
-                  </div>
-                </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 flex overflow-hidden">
-                  <div
-                    className="bg-emerald-500 h-full transition-all duration-500 rounded-l-full"
-                    style={{
-                      width: `${person.total > 0 ? (person.confirmed / person.total) * 100 : 0}%`,
-                    }}
-                  />
-                  <div
-                    className="bg-rose-500 h-full transition-all duration-500 rounded-r-full"
-                    style={{
-                      width: `${person.total > 0 ? (person.rejected / person.total) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+                    <td className="px-5 py-3">
+                      <button
+                        onClick={() => {
+                          if (!selectedConfirmationBy.includes(person.name))
+                            setSelectedConfirmationBy([
+                              ...selectedConfirmationBy,
+                              person.name,
+                            ]);
+                        }}
+                        className="text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                      >
+                        {person.name}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        {person.confirmed}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-xs">
+                        <XCircle className="w-3.5 h-3.5" />
+                        {person.rejected}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-slate-700 dark:text-slate-300 font-bold text-xs">
+                        {person.total}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-extrabold ${
+                          Number(person.rejectionRate) <= 30
+                            ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-500/20"
+                            : Number(person.rejectionRate) <= 60
+                              ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 ring-1 ring-amber-200 dark:ring-amber-500/20"
+                              : "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 ring-1 ring-rose-200 dark:ring-rose-500/20"
+                        }`}
+                      >
+                        {person.rejectionRate}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
