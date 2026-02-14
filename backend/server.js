@@ -2175,51 +2175,61 @@ app.post("/api/tickets/timeline-replies", async (req, res) => {
         batch.map(async (ticketId) => {
           try {
             const objectDon = `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
-            const tlRes = await axios.post(
-              `${DEVREV_API}/timeline-entries.list`,
-              {
+            let lastCtReply = null;
+            let lastCustomerReply = null;
+            let cursor = undefined;
+
+            // Paginate through all timeline entries
+            do {
+              const body = {
                 object: objectDon,
                 collections: ["discussions"],
                 visibility: ["external"],
                 limit: 50,
-              },
-              { headers: HEADERS, timeout: 15000 },
-            );
+              };
+              if (cursor) body.cursor = cursor;
 
-            const entries = tlRes.data.timeline_entries || [];
-            let lastCtReply = null;
-            let lastCustomerReply = null;
+              const tlRes = await axios.post(
+                `${DEVREV_API}/timeline-entries.list`,
+                body,
+                { headers: HEADERS, timeout: 15000 },
+              );
 
-            for (const te of entries) {
-              if (te.type !== "timeline_comment") continue;
+              const entries = tlRes.data.timeline_entries || [];
 
-              // Check for email sent_timestamp first, fallback to created_date
-              let replyTime = te.created_date;
-              if (te.snap_widget_body && Array.isArray(te.snap_widget_body)) {
-                const emailWidget = te.snap_widget_body.find(
-                  (w) => w.type === "email_preview",
-                );
-                if (emailWidget && emailWidget.sent_timestamp) {
-                  replyTime = emailWidget.sent_timestamp;
+              for (const te of entries) {
+                if (te.type !== "timeline_comment") continue;
+
+                // Check for email sent_timestamp first, fallback to created_date
+                let replyTime = te.created_date;
+                if (te.snap_widget_body && Array.isArray(te.snap_widget_body)) {
+                  const emailWidget = te.snap_widget_body.find(
+                    (w) => w.type === "email_preview",
+                  );
+                  if (emailWidget && emailWidget.sent_timestamp) {
+                    replyTime = emailWidget.sent_timestamp;
+                  }
+                }
+
+                const actorType = te.created_by?.type;
+
+                // dev_user or service_account = CleverTap (CT) reply
+                if (actorType === "dev_user" || actorType === "service_account") {
+                  if (!lastCtReply || new Date(replyTime) > new Date(lastCtReply)) {
+                    lastCtReply = replyTime;
+                  }
+                }
+
+                // rev_user = Customer reply
+                if (actorType === "rev_user") {
+                  if (!lastCustomerReply || new Date(replyTime) > new Date(lastCustomerReply)) {
+                    lastCustomerReply = replyTime;
+                  }
                 }
               }
 
-              const actorType = te.created_by?.type;
-
-              // dev_user or service_account = CleverTap (CT) reply
-              if (actorType === "dev_user" || actorType === "service_account") {
-                if (!lastCtReply || new Date(replyTime) > new Date(lastCtReply)) {
-                  lastCtReply = replyTime;
-                }
-              }
-
-              // rev_user = Customer reply
-              if (actorType === "rev_user") {
-                if (!lastCustomerReply || new Date(replyTime) > new Date(lastCustomerReply)) {
-                  lastCustomerReply = replyTime;
-                }
-              }
-            }
+              cursor = tlRes.data.next_cursor || null;
+            } while (cursor);
 
             results[ticketId] = {
               last_ct_reply: lastCtReply,
