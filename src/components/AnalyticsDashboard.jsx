@@ -2047,12 +2047,14 @@ const AnalyticsDashboard = ({
                 avgIterations: 0,
                 iterCount: 0,
                 positiveCSAT: 0,
+                negativeCSAT: 0,
                 frrMet: 0,
               };
             }
             const agg = aggregatedByDate[day.date];
             agg.solved += day.solved || 0;
             agg.positiveCSAT += day.positiveCSAT || 0;
+            agg.negativeCSAT += day.negativeCSAT || 0;
             agg.frrMet += day.frrMet || 0;
             if (day.avgRWT > 0) {
               agg.avgRWT += day.avgRWT * (day.rwtValidCount || day.solved || 1);
@@ -2079,6 +2081,7 @@ const AnalyticsDashboard = ({
           avgIterations:
             agg.iterCount > 0 ? agg.avgIterations / agg.iterCount : 0,
           positiveCSAT: agg.positiveCSAT,
+          negativeCSAT: agg.negativeCSAT,
           frrMet: agg.frrMet,
           frrPercent: agg.solved > 0 ? Math.round((agg.frrMet / agg.solved) * 100) : 0,
         }));
@@ -2109,6 +2112,7 @@ const AnalyticsDashboard = ({
             name: format(parseISO(t.date), "MMM dd"),
             date: t.date,
             value: t[dataKey] || 0,
+            negativeCSAT: t.negativeCSAT || 0,
           }));
         }
 
@@ -2274,6 +2278,7 @@ const AnalyticsDashboard = ({
             solved: t.solved,
             frrMet: t.frrMet,
             positiveCSAT: t.positiveCSAT,
+            negativeCSAT: t.negativeCSAT || 0,
           };
         });
       }
@@ -2290,12 +2295,14 @@ const AnalyticsDashboard = ({
               solvedCounts: [],
               frrMetCounts: [],
               csatCounts: [],
+              negativeCSATCount: 0,
             };
           }
           weeks[weekKey].values.push(t[dataKey] || 0);
           weeks[weekKey].solvedCounts.push(t.solved || 0);
           weeks[weekKey].frrMetCounts.push(t.frrMet || 0);
           weeks[weekKey].csatCounts.push(t.positiveCSAT || 0);
+          weeks[weekKey].negativeCSATCount += t.negativeCSAT || 0;
         });
 
         return Object.entries(weeks)
@@ -2361,6 +2368,7 @@ const AnalyticsDashboard = ({
               range: rangeLabel,
               date: week, // Use week key format (yyyy-Www) for drill-down
               value,
+              negativeCSAT: data.negativeCSATCount || 0,
             };
           });
       }
@@ -2378,12 +2386,14 @@ const AnalyticsDashboard = ({
               solvedCounts: [],
               frrMetCounts: [],
               csatCounts: [],
+              negativeCSATCount: 0,
             };
           }
           months[monthKey].values.push(t[dataKey] || 0);
           months[monthKey].solvedCounts.push(t.solved || 0);
           months[monthKey].frrMetCounts.push(t.frrMet || 0);
           months[monthKey].csatCounts.push(t.positiveCSAT || 0);
+          months[monthKey].negativeCSATCount += t.negativeCSAT || 0;
         });
 
         return Object.entries(months)
@@ -2413,6 +2423,7 @@ const AnalyticsDashboard = ({
               name: format(parseISO(data.date), "MMM yyyy"),
               date: monthKey, // Use month key format (yyyy-MM) for drill-down
               value,
+              negativeCSAT: data.negativeCSATCount || 0,
             };
           });
       }
@@ -4299,7 +4310,7 @@ const AnalyticsDashboard = ({
                         }
                         return label;
                       }}
-                      formatter={(value, name) => {
+                      formatter={(value, name, props) => {
                         // CSAT and FRR should be integers, others can have decimals
                         const isIntegerMetric = ["csat", "frrPercent"].includes(
                           expandedOverviewMetric,
@@ -4310,16 +4321,24 @@ const AnalyticsDashboard = ({
                               ? Math.round(value)
                               : value.toFixed(2)
                             : value;
+                        const dsatCount = props?.payload?.negativeCSAT || 0;
                         return [
-                          <span
-                            className="text-lg font-bold"
-                            style={{
-                              color:
-                                OVERVIEW_METRICS[expandedOverviewMetric].color,
-                            }}
-                          >
-                            {displayValue}{" "}
-                            {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+                          <span>
+                            <span
+                              className="text-lg font-bold"
+                              style={{
+                                color:
+                                  OVERVIEW_METRICS[expandedOverviewMetric].color,
+                              }}
+                            >
+                              {displayValue}{" "}
+                              {OVERVIEW_METRICS[expandedOverviewMetric].unit}
+                            </span>
+                            {expandedOverviewMetric === "csat" && dsatCount > 0 && (
+                              <span className="block text-sm font-semibold text-red-500 mt-1">
+                                {dsatCount} DSAT
+                              </span>
+                            )}
                           </span>,
                           OVERVIEW_METRICS[expandedOverviewMetric].label,
                         ];
@@ -4331,10 +4350,19 @@ const AnalyticsDashboard = ({
                       stroke={OVERVIEW_METRICS[expandedOverviewMetric].color}
                       fill="url(#expandedAreaGrad)"
                       strokeWidth={3}
-                      dot={{
-                        fill: OVERVIEW_METRICS[expandedOverviewMetric].color,
-                        strokeWidth: 0,
-                        r: 5,
+                      dot={(props) => {
+                        const { cx, cy, payload } = props;
+                        const hasDSAT = expandedOverviewMetric === "csat" && payload?.negativeCSAT > 0;
+                        return (
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={hasDSAT ? 6 : 5}
+                            fill={hasDSAT ? "#ef4444" : OVERVIEW_METRICS[expandedOverviewMetric].color}
+                            stroke={hasDSAT ? "#fff" : "none"}
+                            strokeWidth={hasDSAT ? 2 : 0}
+                          />
+                        );
                       }}
                       activeDot={{
                         r: 8,
