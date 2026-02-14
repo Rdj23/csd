@@ -134,6 +134,8 @@ const App = () => {
     deleteView,
     dependencies,
     fetchDependencies,
+    timelineReplies,
+    fetchTimelineReplies,
   } = useTicketStore();
 
   const [googleClientId, setGoogleClientId] = useState(null);
@@ -165,6 +167,27 @@ const App = () => {
         const fetchBatch = async () => {
           for (let i = 0; i < unfetchedIds.length; i += BATCH) {
             await fetchDependencies(unfetchedIds.slice(i, i + BATCH));
+          }
+        };
+        fetchBatch();
+      }
+    }
+  }, [tickets, activeTab]);
+
+  // Fetch timeline replies (last CT & customer reply timestamps)
+  useEffect(() => {
+    if (tickets.length > 0 && activeTab === "tickets") {
+      const ticketIds = tickets
+        .map((t) => t.display_id?.replace("TKT-", ""))
+        .filter(Boolean);
+
+      const unfetchedIds = ticketIds.filter((id) => !timelineReplies[id]);
+
+      if (unfetchedIds.length > 0) {
+        const BATCH = 10;
+        const fetchBatch = async () => {
+          for (let i = 0; i < unfetchedIds.length; i += BATCH) {
+            await fetchTimelineReplies(unfetchedIds.slice(i, i + BATCH));
           }
         };
         fetchBatch();
@@ -2151,6 +2174,7 @@ ${
                       onCardClick={handleKPIFilter}
                       onProfileClick={setSelectedUserProfile}
                       dependencies={dependencies}
+                      timelineReplies={timelineReplies}
                     />
                   )}
                 </>

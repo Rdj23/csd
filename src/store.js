@@ -44,6 +44,8 @@ export const useTicketStore = create(
       theme: "dark",
       dependencies: {},
       dependenciesLoading: false,
+      timelineReplies: {},
+      timelineRepliesLoading: false,
 
       // ✅ Socket connection — drives all real-time updates
       connectSocket: () => {
@@ -296,6 +298,32 @@ fetchDependencies: async (ticketIds) => {
   }
 },
 
+fetchTimelineReplies: async (ticketIds) => {
+  if (!ticketIds.length) return;
+
+  set({ timelineRepliesLoading: true });
+  try {
+    const API_URL = getApiUrl();
+    const res = await _authFetch(`${API_URL}/api/tickets/timeline-replies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticketIds }),
+    });
+    const data = await res.json();
+
+    set((state) => ({
+      timelineReplies: { ...state.timelineReplies, ...data },
+      timelineRepliesLoading: false,
+    }));
+
+    return data;
+  } catch (e) {
+    console.error("Timeline replies fetch failed:", e);
+    set({ timelineRepliesLoading: false });
+    return {};
+  }
+},
+
 fetchAnalyticsData: async (filters = {}) => {
   set({ analyticsLoading: true });
   try {
@@ -390,7 +418,8 @@ fetchAnalyticsData: async (filters = {}) => {
         theme: s.theme,
         isAuthenticated: s.isAuthenticated,
         token: s.token,
-        dependencies: s.dependencies, 
+        dependencies: s.dependencies,
+        timelineReplies: s.timelineReplies,
       }),
     }
   )

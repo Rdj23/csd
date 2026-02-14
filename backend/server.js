@@ -2155,6 +2155,94 @@ app.post("/api/tickets/dependencies", async (req, res) => {
   }
 });
 
+// ============================================================================
+// TIMELINE REPLIES - Last CT & Customer reply timestamps via timeline-entries.list
+// ============================================================================
+app.post("/api/tickets/timeline-replies", async (req, res) => {
+  try {
+    const { ticketIds } = req.body; // Array of numeric ticket IDs like ["304218", "305713"]
+    if (!ticketIds || !ticketIds.length) {
+      return res.json({});
+    }
+
+    const results = {};
+    const BATCH_SIZE = 5;
+
+    for (let i = 0; i < ticketIds.length; i += BATCH_SIZE) {
+      const batch = ticketIds.slice(i, i + BATCH_SIZE);
+
+      await Promise.all(
+        batch.map(async (ticketId) => {
+          try {
+            const objectDon = `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
+            const tlRes = await axios.post(
+              `${DEVREV_API}/timeline-entries.list`,
+              {
+                object: objectDon,
+                collections: ["discussions"],
+                visibility: ["external"],
+                limit: 50,
+              },
+              { headers: HEADERS, timeout: 15000 },
+            );
+
+            const entries = tlRes.data.timeline_entries || [];
+            let lastCtReply = null;
+            let lastCustomerReply = null;
+
+            for (const te of entries) {
+              if (te.type !== "timeline_comment") continue;
+
+              // Check for email sent_timestamp first, fallback to created_date
+              let replyTime = te.created_date;
+              if (te.snap_widget_body && Array.isArray(te.snap_widget_body)) {
+                const emailWidget = te.snap_widget_body.find(
+                  (w) => w.type === "email_preview",
+                );
+                if (emailWidget && emailWidget.sent_timestamp) {
+                  replyTime = emailWidget.sent_timestamp;
+                }
+              }
+
+              const actorType = te.created_by?.type;
+
+              // dev_user or service_account = CleverTap (CT) reply
+              if (actorType === "dev_user" || actorType === "service_account") {
+                if (!lastCtReply || new Date(replyTime) > new Date(lastCtReply)) {
+                  lastCtReply = replyTime;
+                }
+              }
+
+              // rev_user = Customer reply
+              if (actorType === "rev_user") {
+                if (!lastCustomerReply || new Date(replyTime) > new Date(lastCustomerReply)) {
+                  lastCustomerReply = replyTime;
+                }
+              }
+            }
+
+            results[ticketId] = {
+              last_ct_reply: lastCtReply,
+              last_customer_reply: lastCustomerReply,
+            };
+          } catch (e) {
+            results[ticketId] = {
+              last_ct_reply: null,
+              last_customer_reply: null,
+              error: e.message,
+            };
+          }
+        }),
+      );
+    }
+
+    res.json(results);
+  } catch (e) {
+    console.error("Timeline replies batch fetch error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 2. ADD MANUAL SYNC ENDPOINT (Add after line 588)
 app.post("/api/admin/sync-now", async (req, res) => {
   console.log("🔄 Manual sync triggered...");
