@@ -97,11 +97,24 @@ const requireAdmin = (req, res, next) => {
 // Rate limiting - excludes webhooks to prevent blocking legitimate bursts
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // generous for office NAT traffic
+  max: 1500, // dashboard app with bulk ticket fetches (timeline-replies, dependencies)
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.path.startsWith("/webhooks/"),
   message: { error: "Too many requests, please try again later" },
+  handler: (req, res, _next, options) => {
+    // Decode JWT to identify the user who hit the limit
+    let userEmail = "unknown";
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith("Bearer ")) {
+        const decoded = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
+        userEmail = decoded.email || "unknown";
+      }
+    } catch (_) {}
+    console.warn(`⚠️ 429 RATE LIMIT HIT | IP: ${req.ip} | User: ${userEmail} | Path: ${req.method} ${req.path}`);
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 // --- SLACK ALERT CONFIGURATION ---
