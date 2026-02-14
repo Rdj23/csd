@@ -2093,7 +2093,7 @@ ${
 
             {/* SCROLLABLE CONTENT */}
             <div className="flex-1 overflow-y-auto pr-1 pt-2 pb-10 no-scrollbar">
-              {isLoading && tickets.length === 0 ? (
+              {(isLoading || isPartialData) && tickets.length === 0 ? (
                 <TicketSkeleton count={8} showProgress={true} progress={syncProgress} />
               ) : activeTab === "analytics" ? (
                 <AnalyticsDashboard

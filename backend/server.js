@@ -1628,7 +1628,7 @@ const fetchAndCacheTickets = async (source = "auto") => {
       if (!processed.length) return processed;
 
       // Always save to the main cache so /api/tickets serves data immediately
-      await redisSet("tickets:active", processed, isComplete ? CACHE_TTL.TICKETS : 120);
+      await redisSet("tickets:active", processed, isComplete ? CACHE_TTL.TICKETS : 600);
 
       if (isComplete) {
         await redisDelete("tickets:active:initial");

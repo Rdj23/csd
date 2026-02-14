@@ -172,14 +172,19 @@ export const useTicketStore = create(
       // ============================================================================
 
       _syncPollTimer: null, // Timer for polling during incremental sync
+      _lastFetchTime: 0, // Timestamp of last fetch start (for debounce)
 
       fetchTickets: async () => {
+        const now = Date.now();
         const state = get();
 
-        // Prevent multiple concurrent fetches
-        if (state.isLoading) return;
+        // Debounce: skip if a fetch started less than 2s ago
+        if (state.isLoading && now - state._lastFetchTime < 2000) return;
 
-        set({ isLoading: true });
+        // If a previous fetch is stuck (>15s), allow override
+        if (state.isLoading && now - state._lastFetchTime < 15000) return;
+
+        set({ isLoading: true, _lastFetchTime: now });
         try {
           const API_URL = getApiUrl();
           const response = await _authFetch(`${API_URL}/api/tickets`);
@@ -188,21 +193,26 @@ export const useTicketStore = create(
           const tickets = data.tickets || [];
           const isPartial = data.isPartial || false;
 
+          // Use fresh state for syncProgress to avoid overwriting socket updates
+          const currentProgress = get().syncProgress;
+
           set({
             tickets,
             lastSync: new Date(),
             isLoading: false,
             isPartialData: isPartial,
-            syncProgress: isPartial ? Math.max(state.syncProgress, 20) : 100,
+            syncProgress: isPartial ? Math.max(currentProgress, 20) : 100,
           });
 
           console.log(`📦 Loaded ${tickets.length} tickets (${isPartial ? 'partial - more loading' : 'complete'})`);
 
-          // ✅ INCREMENTAL POLLING: If backend is still syncing, poll every 4s for updated data
-          // This works even if socket events fail
+          // Clear any existing poll timer (use fresh state ref)
+          const currentTimer = get()._syncPollTimer;
+          if (currentTimer) clearTimeout(currentTimer);
+
           if (isPartial) {
-            // Clear any existing poll timer
-            if (state._syncPollTimer) clearTimeout(state._syncPollTimer);
+            // Poll faster (2s) when we have no tickets yet, otherwise 4s
+            const pollDelay = tickets.length === 0 ? 2000 : 4000;
 
             const timer = setTimeout(() => {
               const current = get();
@@ -210,24 +220,23 @@ export const useTicketStore = create(
                 console.log("🔄 Polling for incremental ticket updates...");
                 get().fetchTickets();
               }
-            }, 4000);
+            }, pollDelay);
 
             set({ _syncPollTimer: timer });
           } else {
-            // Sync complete — clear poll timer
-            if (state._syncPollTimer) {
-              clearTimeout(state._syncPollTimer);
-              set({ _syncPollTimer: null });
-            }
+            set({ _syncPollTimer: null });
           }
         } catch (error) {
           console.error("Sync failed:", error);
           set({ isLoading: false });
 
-          // Retry once after 5s on error
+          // Retry after 3s on error, keep retrying while no tickets
           setTimeout(() => {
-            if (get().tickets.length === 0) get().fetchTickets();
-          }, 5000);
+            const current = get();
+            if (current.tickets.length === 0 || current.isPartialData) {
+              get().fetchTickets();
+            }
+          }, 3000);
         }
       },
 
