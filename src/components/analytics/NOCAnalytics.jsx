@@ -274,7 +274,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         if (showL2Only) params.append("showL2Only", "true");
         const response = await authFetch(`${API_URL}/api/tickets/noc?${params}`);
         const data = await response.json();
-        setNocData(data);
+        if (data.stats && data.filters) {
+          setNocData(data);
+        }
       } catch (error) {
         console.error("Error fetching NOC data:", error);
       } finally {
@@ -444,15 +446,17 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
 
   // Pie chart
   const getPieChartData = () => {
+    const stats = nocData?.stats;
+    if (!stats) return [];
     switch (activePieChart) {
       case "reporter":
-        return nocData.stats.byReporter || [];
+        return stats.byReporter || [];
       case "rca":
-        return nocData.stats.byRca || [];
+        return stats.byRca || [];
       case "owner":
-        return nocData.stats.byOwner || [];
+        return stats.byOwner || [];
       case "confirmation":
-        return nocData.stats.byConfirmation || [];
+        return stats.byConfirmation || [];
       default:
         return [];
     }
@@ -513,7 +517,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           <p>
             Share:{" "}
             <span className="text-emerald-400">
-              {((data.value / nocData.stats.total) * 100).toFixed(1)}%
+              {((data.value / (nocData?.stats?.total || 0)) * 100).toFixed(1)}%
             </span>
           </p>
           <p className="text-[10px] text-slate-400 mt-1">Click to filter</p>
@@ -585,9 +589,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
             <AlertTriangle className="w-4 h-4 text-orange-500" />
             NOC Tickets
             <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full">
-              {nocData.stats.total} total
+              {(nocData?.stats?.total || 0)} total
             </span>
-            {filteredTickets.length !== nocData.stats.total && (
+            {filteredTickets.length !== (nocData?.stats?.total || 0) && (
               <span className="text-xs font-normal text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2.5 py-1 rounded-full">
                 {filteredTickets.length} filtered
               </span>
@@ -1072,7 +1076,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                             {item.value}
                           </span>
                           <span className="text-[10px] text-slate-400 w-12 text-right">
-                            {((item.value / nocData.stats.total) * 100).toFixed(
+                            {((item.value / (nocData?.stats?.total || 0)) * 100).toFixed(
                               1,
                             )}
                             %

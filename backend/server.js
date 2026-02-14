@@ -1941,7 +1941,23 @@ app.get("/api/tickets/noc", async (req, res) => {
     });
   } catch (e) {
     console.error("❌ /api/tickets/noc error:", e.message);
-    res.status(500).json({ tickets: [], error: e.message });
+    res.status(500).json({
+      tickets: [],
+      filters: {
+        rcaOptions: [],
+        reporterOptions: [],
+        ownerOptions: [],
+        confirmationByOptions: [],
+      },
+      stats: {
+        total: 0,
+        byReporter: [],
+        byRca: [],
+        byOwner: [],
+        byConfirmation: [],
+      },
+      error: e.message,
+    });
   }
 });
 
