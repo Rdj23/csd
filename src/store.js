@@ -190,8 +190,16 @@ export const useTicketStore = create(
           const response = await _authFetch(`${API_URL}/api/tickets`);
           const data = await response.json();
 
-          const tickets = data.tickets || [];
+          const newTickets = data.tickets || [];
           const isPartial = data.isPartial || false;
+          const existingTickets = get().tickets;
+
+          // CRITICAL: Never replace good data with an empty partial response.
+          // During sync the Redis cache can briefly be empty between saves.
+          const tickets =
+            newTickets.length === 0 && isPartial && existingTickets.length > 0
+              ? existingTickets
+              : newTickets;
 
           // Use fresh state for syncProgress to avoid overwriting socket updates
           const currentProgress = get().syncProgress;
