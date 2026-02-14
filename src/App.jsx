@@ -735,6 +735,13 @@ const App = () => {
         };
       })
       .filter((t) => {
+        // Exclude tickets owned by Anmol Sawhney
+        const ownerForExclusion =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "";
+        if (ownerForExclusion.toLowerCase().includes("anmol")) return false;
+
         if (activeTab === "csd") {
           if (!t.isCSD) return false;
           // For CSD, show all non-closed tickets
