@@ -21,16 +21,12 @@ import {
 } from "./middleware/server.js";
 import { apiLimiter, authLimiter, verifyToken, requireAdmin } from "./middleware/auth.js";
 
-// Memory management for Render
-if (process.env.NODE_ENV === "production") {
-  const v8 = await import("v8");
-  v8.setFlagsFromString("--max-old-space-size=512");
-}
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// Trust Render's reverse proxy so express-rate-limit can read X-Forwarded-For
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: ALLOWED_ORIGINS, credentials: true },

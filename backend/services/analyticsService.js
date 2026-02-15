@@ -205,9 +205,11 @@ export const startBackgroundRefresh = () => {
 
   setTimeout(async () => {
     console.log("🚀 Initial pre-computation starting...");
-    await precomputeAnalytics("Q4_25");
     await precomputeAnalytics("Q1_26");
-  }, 10000);
+    if (global.gc) global.gc();
+    await precomputeAnalytics("Q4_25");
+    if (global.gc) global.gc();
+  }, 30000); // Delay to avoid overlapping with ticket sync at startup
 
   setInterval(async () => {
     console.log("⏰ Scheduled cache refresh...");
@@ -241,7 +243,7 @@ export const warmCache = async (source = "unknown", fetchAndCacheTicketsFn = nul
       } catch (e) {
         console.log("⚠️ Analytics warming skipped:", e.message);
       }
-    }, 2000);
+    }, 15000); // Delay to let ticket sync finish first
   } catch (e) {
     console.log("⚠️ Cache warming failed:", e.message);
     cacheWarmingStarted = false;

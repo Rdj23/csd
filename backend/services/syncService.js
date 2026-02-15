@@ -140,7 +140,7 @@ export const fetchAndCacheTickets = async (source = "auto", io = null) => {
                stage.includes("open");
       });
 
-      collected = [...collected, ...newWorks];
+      collected.push(...newWorks);
 
       if (loop < 3 || loop % 3 === 0) {
         await saveProgress(collected, false);
