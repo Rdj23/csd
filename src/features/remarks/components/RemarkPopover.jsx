@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
-import authAxios from "../utils/authAxios";
 import { format, parseISO } from "date-fns";
 
 import { toZonedTime } from "date-fns-tz"; // Added toZonedTime
-import { useTicketStore } from "../store";
+import { useTicketStore } from "../../../store";
+import { useRemarks } from "../../../hooks/useRemarks";
 import {
   X,
   Send,
@@ -16,13 +16,18 @@ import {
 const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   const { postTicketComment, currentUser } = useTicketStore();
 
-  const [history, setHistory] = useState([]);
+  // Data fetching via custom hook
+  const {
+    history,
+    setHistory,
+    loadingHistory,
+    users,
+  } = useRemarks(ticket?.display_id);
+
   const [newComment, setNewComment] = useState("");
   const [sending, setSending] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(true);
 
   const [mentionQuery, setMentionQuery] = useState(null);
-  const [users, setUsers] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const textareaRef = useRef(null);
@@ -42,67 +47,17 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
       }
     : {};
 
-  // 1. FETCH USERS (For Mentions)
+  // Scroll to bottom when history loads
   useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-       
-        // To this (Force localhost if you are on a dev machine):
-        const API_URL = import.meta.env.VITE_API_URL;
-          
-        const res = await authAxios.get(`${API_URL}/api/users`);
-
-        // Ensure we handle the data property from authAxios correctly
-        const formattedUsers = res.data.map((u) => ({
-          name: u.full_name || u.display_name || "Unknown User",
-          id: u.id,
-          email: u.email,
-        }));
-
-        setUsers(formattedUsers);
-      } catch (err) {
-        console.error("Failed to load users for tagging:", err);
-      }
-    };
-    fetchUsers();
-  }, []);
-
-  // 2. LOAD HISTORY (Local Server Persistence)
-  useEffect(() => {
-    const fetchHistory = async () => {
-      if (!ticket?.display_id) return;
-      setLoadingHistory(true);
-      try {
-        const API_URL = import.meta.env.VITE_API_URL;
-        const res = await authAxios.get(
-          `${API_URL}/api/remarks/${ticket.display_id}`
-        );
-
-        const adaptedHistory = res.data.map((item) => ({
-          id: item.id,
-          body: item.text,
-          created_date: item.timestamp,
-          created_by: {
-            display_name: item.user,
-            id: "local",
-          },
-        }));
-
-        setHistory(adaptedHistory);
-        setTimeout(() => {
-          listRef.current?.scrollTo({
-            top: listRef.current.scrollHeight,
-            behavior: "smooth",
-          });
-        }, 100);
-      } catch (err) {
-        console.error("Failed to load local remarks:", err);
-      } finally {
-        setLoadingHistory(false);
-      }
-    };
-    fetchHistory();
-  }, [ticket?.display_id]);
+    if (!loadingHistory && history.length > 0) {
+      setTimeout(() => {
+        listRef.current?.scrollTo({
+          top: listRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      }, 100);
+    }
+  }, [loadingHistory, history.length]);
 
   // Mentions Helper: Replaces IDs with @Names for UI display
   const cleanCommentBody = (text) => {

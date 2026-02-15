@@ -65,12 +65,12 @@ import {
   FileJson,
   FileSpreadsheet,
 } from "lucide-react";
-import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../utils";
-import { useTicketStore } from "../store";
-import SmartDateRangePicker from "./SmartDateRangePicker";
-import MultiSelectFilter from "./MultiSelectFilter";
-import { trackEvent } from "../utils/clevertap";
-import { authFetch } from "../utils/authFetch";
+import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../utils";
+import { useTicketStore } from "../../../store";
+import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
+import MultiSelectFilter from "../../../components/common/MultiSelectFilter";
+import { trackEvent } from "../../../utils/clevertap";
+import { authFetch } from "../../../utils/authFetch";
 
 // Import split analytics components
 import {
@@ -91,7 +91,7 @@ import {
   ChartSkeleton,
   LeaderboardSkeleton,
   LoadingSpinner,
-} from "./SkeletonLoader";
+} from "../../../components/ui/SkeletonLoader";
 
 // ============================================================================
 // DRILL DOWN MODAL - Shows tickets for a specific data point

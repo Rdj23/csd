@@ -4,7 +4,7 @@
 import React from "react";
 import { Users, TrendingUp, TrendingDown } from "lucide-react";
 import { METRICS } from "./analyticsConfig";
-import { TEAM_GROUPS, FLAT_TEAM_MAP } from "../../utils";
+import { TEAM_GROUPS, FLAT_TEAM_MAP } from "../../../../utils";
 
 const SmartInsights = ({
   data,

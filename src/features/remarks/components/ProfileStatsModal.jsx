@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   X,
   ShieldAlert,
@@ -7,96 +7,13 @@ import {
   BellRing,
   CheckCircle,
 } from "lucide-react";
-import authAxios from "../utils/authAxios";
 import { differenceInMinutes, parseISO } from "date-fns";
-import { TEAM_GROUPS } from "../utils";
+import { TEAM_GROUPS } from "../../../utils";
+import { useProfileStats } from "../../../hooks/useProfileStats";
 
 const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const [backup, setBackup] = useState(null);
-  const [backupData, setBackupData] = useState(null);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
-        // 1. Fetch backup from improved endpoint
-        const backupRes = await authAxios.get(`${API_BASE}/api/roster/backup?userName=${encodeURIComponent(user.name)}&teamOnly=true`);
-        setBackup(backupRes.data.backup);
-        setBackupData(backupRes.data);
-
-        // Determine status and AI summary based on backup response
-        const { needsBackup, userStatus, backup: backupInfo } = backupRes.data;
-
-        let aiSummary = "";
-        let isActive = false;
-        let status = "Away";
-        let timings = "";
-
-        if (needsBackup === false && userStatus?.isAvailable) {
-          // User is available - no backup needed
-          isActive = true;
-          status = "On Shift";
-          timings = userStatus.shift || "";
-          const urgentCount = userStatus.urgentTickets || 0;
-          aiSummary = urgentCount > 0
-            ? `${user.name} is working. ${urgentCount} urgent ticket${urgentCount !== 1 ? 's' : ''}.`
-            : `${user.name} is working.`;
-        } else if (needsBackup === true) {
-          // User is NOT available - show backup
-          isActive = false;
-          status = userStatus?.reason || "Away";
-          timings = userStatus?.shift || "";
-
-          // Format status with proper grammar (e.g., "on Week Off", "on EL")
-          const formatStatus = (s) => {
-            if (!s) return "away";
-            const lower = s.toLowerCase();
-            if (lower.includes("week off") || lower.includes("leave") || lower.includes("holiday") || lower.includes("comp off")) {
-              return `on ${s}`;
-            }
-            return lower;
-          };
-
-          if (backupInfo) {
-            aiSummary = `${user.name} is ${formatStatus(status)}. Best backup: ${backupInfo.name} (${backupInfo.role}).`;
-          } else {
-            aiSummary = `${user.name} is ${formatStatus(status)}. No backup available.`;
-          }
-        } else {
-          // Fallback for old API response or errors
-          const statusRes = await authAxios.post(`${API_BASE}/api/profile/status`, { userName: user.name });
-          isActive = statusRes.data.isActive;
-          status = statusRes.data.status;
-          timings = statusRes.data.shift;
-          aiSummary = isActive
-            ? `${user.name} is on shift.`
-            : `${user.name} is off duty today.`;
-        }
-
-        setData({
-          isActive,
-          status,
-          timings,
-          aiSummary,
-        });
-      } catch (err) {
-        console.error("Failed to load profile info", err);
-        setData({
-          isActive: false,
-          status: "Unknown",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (user) fetchData();
-  }, [user, solvedTickets]);
+  // Data fetching via custom hook
+  const { data, loading, backup, backupData } = useProfileStats(user, solvedTickets);
 
  
 

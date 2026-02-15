@@ -10,7 +10,7 @@ import {
   differenceInHours,
   differenceInDays,
 } from "date-fns";
-import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../utils";
+import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../../utils";
 
 /**
  * Process chart data for a specific metric

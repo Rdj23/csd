@@ -7,10 +7,10 @@ import React, {
 } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import { authFetch } from "./utils/authFetch";
-import GroupedTicketList from "./components/GroupedTicketList";
-import AllTicketsView from "./components/Allticketsview";
+import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
+import AllTicketsView from "./features/tickets/components/Allticketsview";
 
-import GamificationView from "./components/GamificationView";
+import GamificationView from "./features/gamification/components/GamificationView";
 
 import {
   Users,
@@ -58,14 +58,14 @@ import {
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { Analytics } from "@vercel/analytics/react";
 
-import TicketList from "./components/TicketList";
-import AnalyticsDashboard from "./components/AnalyticsDashboard";
-import SmartDatePicker from "./components/SmartDateRangePicker";
-import MultiSelectFilter from "./components/MultiSelectFilter";
-import LoginScreen from "./components/LoginScreen";
+import TicketList from "./features/tickets/components/TicketList";
+import AnalyticsDashboard from "./features/analytics/components/AnalyticsDashboard";
+import SmartDatePicker from "./components/common/SmartDateRangePicker";
+import MultiSelectFilter from "./components/common/MultiSelectFilter";
+import LoginScreen from "./features/auth/components/LoginScreen";
 import { useTicketStore } from "./store";
-import ProfileStatsModal from "./components/ProfileStatsModal";
-import TicketSkeleton from "./components/TicketSkeleton";
+import ProfileStatsModal from "./features/remarks/components/ProfileStatsModal";
+import TicketSkeleton from "./components/ui/TicketSkeleton";
 import {
   TEAM_GROUPS,
   FLAT_TEAM_MAP,
@@ -74,7 +74,7 @@ import {
   formatRWT,
   TEAM_REGION_MAP,
 } from "./utils";
-import { SUPER_ADMIN_EMAILS } from "./components/analytics/analyticsConfig";
+import { SUPER_ADMIN_EMAILS } from "./features/analytics/components/analytics/analyticsConfig";
 import { EMAIL_TO_NAME_MAP } from "./utils";
 const EMPTY_FILTERS = {
   teams: [],

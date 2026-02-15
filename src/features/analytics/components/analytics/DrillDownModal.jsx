@@ -10,7 +10,7 @@ import {
   ExternalLink,
   Search,
 } from "lucide-react";
-import { FLAT_TEAM_MAP } from "../../utils";
+import { FLAT_TEAM_MAP } from "../../../../utils";
 
 const DrillDownModal = ({
   isOpen,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Trophy,
   Medal,
@@ -15,51 +15,18 @@ import {
   User,
   Shield,
 } from "lucide-react";
-import authAxios from "../utils/authAxios";
-import { EMAIL_TO_NAME_MAP } from "../utils";
+import { useGamification } from "../../../hooks/useGamification";
+import { EMAIL_TO_NAME_MAP } from "../../../utils";
 
 const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = false }) => {
-  const [data, setData] = useState(null);
-  const [myStatsData, setMyStatsData] = useState(null); // Separate state for GST user's own stats
-  const [loading, setLoading] = useState(true);
+  const { data, loading, currentUserName, currentUserData } = useGamification({ quarter, currentUser, isAdmin });
   const [activeTab, setActiveTab] = useState("L1");
   const [sortBy, setSortBy] = useState("rank");
   const [sortDir, setSortDir] = useState("asc");
   const [viewAsGST, setViewAsGST] = useState(false); // Admin toggle to view as GST user
 
-  // Resolve current user's GST name from email
-  const currentUserName = useMemo(() => {
-    if (!currentUser?.email) return null;
-    return EMAIL_TO_NAME_MAP[currentUser.email.toLowerCase()] || null;
-  }, [currentUser]);
-
   // Determine if we should show full leaderboard or just user's card
   const showFullLeaderboard = isAdmin && !viewAsGST;
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
-      if (isAdmin) {
-        // Admins get full leaderboard data
-        const res = await authAxios.get(`${API_BASE}/api/gamification?quarter=${quarter}`);
-        setData(res.data);
-      } else {
-        // GST users only get their own stats via secure endpoint
-        const res = await authAxios.get(`${API_BASE}/api/gamification/my-stats?quarter=${quarter}&email=${encodeURIComponent(currentUser?.email || '')}`);
-        setMyStatsData(res.data.userData);
-      }
-    } catch (e) {
-      console.error("Failed to load gamification data", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [quarter, isAdmin, currentUser?.email]);
 
   const getRankBadge = (rank) => {
     if (rank === 1) return (
@@ -115,18 +82,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
       : <ChevronDown className="w-3 h-3" />;
   };
 
-  // Get current user's data
-  const currentUserData = useMemo(() => {
-    // For non-admin users, use the secure my-stats data
-    if (!isAdmin && myStatsData) {
-      return myStatsData;
-    }
-    // For admins, find from the full leaderboard
-    if (!currentUserName || !data) return null;
-    return [...(data?.data?.L1 || []), ...(data?.data?.L2 || [])].find(
-      (eng) => eng.name === currentUserName
-    );
-  }, [currentUserName, data, isAdmin, myStatsData]);
+  // currentUserData is provided by useGamification hook
 
   if (loading) {
     return (

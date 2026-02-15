@@ -1,6 +1,6 @@
 import React from 'react';
 import { GoogleLogin } from '@react-oauth/google';
-import { useTicketStore } from '../store';
+import { useTicketStore } from '../../../store';
 
 const LoginScreen = () => {
   const { loginWithGoogle } = useTicketStore();

@@ -10,8 +10,8 @@ import {
   AlertTriangle,
   Building2,
 } from "lucide-react";
-import { FLAT_TEAM_MAP, STAGE_MAP } from "../utils";
-import RemarkPopover from "./RemarkPopover";
+import { FLAT_TEAM_MAP, STAGE_MAP } from "../../../utils";
+import RemarkPopover from "../../remarks/components/RemarkPopover";
 
 const ITEMS_PER_PAGE = 20;
 
