@@ -288,6 +288,7 @@ const DrillDownModal = ({
   filters,
   onFilterChange,
   dependencies = {},
+  timelineReplies = {},
 }) => {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -554,7 +555,22 @@ const DrillDownModal = ({
       "Iterations",
       "CSAT",
       "FRR",
+      "Last CT Reply",
+      "Last Customer Reply",
     ];
+
+    const formatTimestamp = (ts) => {
+      if (!ts) return "-";
+      return new Date(ts).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    };
 
     // Process each state section
     ["Open", "Pending", "On Hold", "Solved"].forEach((state) => {
@@ -577,6 +593,8 @@ const DrillDownModal = ({
             "Unassigned";
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+          const ticketId = t.display_id?.replace("TKT-", "");
+          const tlData = timelineReplies[ticketId];
 
           const row = [
             t.display_id,
@@ -588,17 +606,18 @@ const DrillDownModal = ({
             owner,
             t.created_date
               ? format(parseISO(t.created_date), "yyyy-MM-dd")
-              : "-", // ✅ Added
+              : "-",
             t.actual_close_date
               ? format(parseISO(t.actual_close_date), "yyyy-MM-dd")
-              : "-", // ✅ Added
-            // ... rest of fields
+              : "-",
             t.days || 0,
             t.rwt || "-",
             t.frt || "-",
             t.iterations || "-",
             t.csat || "-",
             t.frr || "-",
+            `"${formatTimestamp(tlData?.last_ct_reply)}"`,
+            `"${formatTimestamp(tlData?.last_customer_reply)}"`,
           ];
           csvContent += row.join(",") + "\n";
         });
@@ -612,7 +631,7 @@ const DrillDownModal = ({
     a.download = `Ticket_Report_${title.replace(/\s+/g, "_")}_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [filteredTickets, title]);
+  }, [filteredTickets, title, timelineReplies]);
 
    const calculateAge = (t) => {
     if (!t.created_date) return 0;
@@ -1512,6 +1531,7 @@ const AllTicketsView = ({
   onFilterChange,
   filterOptions,
   dependencies = {},
+  timelineReplies = {},
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
   const [groupBy, setGroupBy] = useState("gst"); // gst, csm, tam, region
@@ -1766,7 +1786,7 @@ const AllTicketsView = ({
       "CSM",
       "TAM",
       "Assignee",
-      "Created Date", // ✅ Added
+      "Created Date",
       "Closed Date",
       "Stage",
       "Age (Days)",
@@ -1775,7 +1795,22 @@ const AllTicketsView = ({
       "Iterations",
       "CSAT",
       "FRR",
+      "Last CT Reply",
+      "Last Customer Reply",
     ];
+
+    const formatTimestamp = (ts) => {
+      if (!ts) return "-";
+      return new Date(ts).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    };
 
     ["open", "pending", "onhold", "solved"].forEach((state) => {
       const stateTickets = categorizedTickets[state];
@@ -1798,6 +1833,8 @@ const AllTicketsView = ({
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
           const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
+          const ticketId = t.display_id?.replace("TKT-", "");
+          const tlData = timelineReplies[ticketId];
 
           csvContent +=
             [
@@ -1815,6 +1852,8 @@ const AllTicketsView = ({
               t.iterations || "-",
               t.csat || "-",
               t.frr || "-",
+              `"${formatTimestamp(tlData?.last_ct_reply)}"`,
+              `"${formatTimestamp(tlData?.last_customer_reply)}"`,
             ].join(",") + "\n";
         });
       }
@@ -1827,7 +1866,7 @@ const AllTicketsView = ({
     a.download = `All_Tickets_Report_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [categorizedTickets]);
+  }, [categorizedTickets, timelineReplies]);
 
   return (
     <div className="space-y-6">
@@ -1906,6 +1945,7 @@ const AllTicketsView = ({
         filters={filters}
         onFilterChange={onFilterChange}
         dependencies={dependencies}
+        timelineReplies={timelineReplies}
       />
     </div>
   );

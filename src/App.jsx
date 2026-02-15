@@ -2152,6 +2152,7 @@ ${
                   }}
                   filterOptions={options}
                   dependencies={dependencies}
+                  timelineReplies={timelineReplies}
                 />
               ) : (
                 <>
