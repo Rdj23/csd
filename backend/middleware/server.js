@@ -1,6 +1,7 @@
 import cors from "cors";
 import compression from "compression";
 import express from "express";
+import helmet from "helmet";
 
 // Server-level state
 let isServerReady = false;
@@ -10,6 +11,14 @@ export const setServerReady = (ready) => {
 };
 
 export const getServerReady = () => isServerReady;
+
+// Centralized allowed origins - reused by CORS and Socket.IO
+export const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "https://clevertapintel.globalsupportteam.com",
+  "https://csd-sigma.vercel.app",
+  "https://supportintel.clevertap.com",
+];
 
 // Cross-Origin headers + request timeout
 export const coopHeaders = (req, res, next) => {
@@ -22,14 +31,15 @@ export const coopHeaders = (req, res, next) => {
 
 // CORS configuration
 export const corsMiddleware = cors({
-  origin: [
-    "http://localhost:5173",
-    "https://clevertapintel.globalsupportteam.com",
-    "https://csd-sigma.vercel.app",
-    "https://supportintel.clevertap.com"
-  ],
+  origin: ALLOWED_ORIGINS,
   credentials: true,
   maxAge: 86400,
+});
+
+// Security headers - XSS, clickjacking, MIME-sniffing protection
+export const helmetMiddleware = helmet({
+  crossOriginOpenerPolicy: false, // handled by coopHeaders
+  crossOriginEmbedderPolicy: false, // handled by coopHeaders
 });
 
 // GZIP Compression - reduces payload by 70%
@@ -42,9 +52,9 @@ export const compressionMiddleware = compression({
   },
 });
 
-// Body parsing
-export const jsonParser = express.json({ limit: "50mb" });
-export const urlencodedParser = express.urlencoded({ limit: "50mb", extended: true });
+// Body parsing - capped at 5mb to prevent OOM on free tier
+export const jsonParser = express.json({ limit: "5mb" });
+export const urlencodedParser = express.urlencoded({ limit: "5mb", extended: true });
 
 // Readiness check middleware - allow health/config checks even during startup
 export const readinessCheck = (req, res, next) => {

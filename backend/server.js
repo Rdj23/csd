@@ -21,21 +21,26 @@ dotenv.config({ path: path.resolve(__dirname, "../.env") });
 // --- Create Express app, HTTP server, Socket.IO ---
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: ALLOWED_ORIGINS, credentials: true },
+});
 
 // --- Middleware ---
 import {
+  ALLOWED_ORIGINS,
   coopHeaders,
   corsMiddleware,
+  helmetMiddleware,
   compressionMiddleware,
   jsonParser,
   urlencodedParser,
   readinessCheck,
   setServerReady,
 } from "./middleware/server.js";
-import { apiLimiter, verifyToken, requireAdmin } from "./middleware/auth.js";
+import { apiLimiter, authLimiter, verifyToken, requireAdmin } from "./middleware/auth.js";
 
 app.use(coopHeaders);
+app.use(helmetMiddleware);
 app.use(corsMiddleware);
 app.use(compressionMiddleware);
 app.use(jsonParser);
@@ -43,6 +48,7 @@ app.use(urlencodedParser);
 app.use(readinessCheck);
 
 // --- Security layer ---
+app.use("/api/auth", authLimiter);
 app.use("/api", apiLimiter);
 app.use("/api", verifyToken);
 app.use("/api/admin", requireAdmin);
