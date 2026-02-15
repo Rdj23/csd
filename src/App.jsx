@@ -56,6 +56,7 @@ import {
   endOfWeek,
 } from "date-fns";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { Analytics } from "@vercel/analytics/react";
 
 import TicketList from "./components/TicketList";
 import AnalyticsDashboard from "./components/AnalyticsDashboard";
@@ -1311,6 +1312,7 @@ ${
         theme === "dark" ? "bg-[#0B1120]" : "bg-slate-50"
       }`}
     >
+      <Analytics />
       {/* ✅ 2. FIXED TOP SECTION (Header + Tabs) */}
       <div className="shrink-0 px-6 pt-6 z-20 bg-slate-50 dark:bg-[#0B1120] transition-colors">
         <div className="max-w-[1800px] mx-auto">
