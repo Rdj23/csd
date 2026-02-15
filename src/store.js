@@ -8,7 +8,7 @@ const getApiUrl = () => import.meta.env.VITE_API_URL;
 // Authenticated fetch — injects Bearer token, auto-logout on 401
 // Defined as a lazy ref so it can access the store after creation
 let _storeRef = null;
-const _authFetch = async (url, options = {}) => {
+const _authFetch = async (url, options = {}, _retries = 0) => {
   const state = _storeRef?.getState?.();
   const headers = { ...options.headers };
   if (state?.token) {
@@ -18,6 +18,14 @@ const _authFetch = async (url, options = {}) => {
   if (response.status === 401) {
     console.warn("[Auth] 401 received — session expired, logging out");
     state?.logout?.();
+  }
+  // Auto-retry on 429 with exponential backoff (max 2 retries)
+  if (response.status === 429 && _retries < 2) {
+    const retryAfter = response.headers.get("Retry-After");
+    const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : Math.min(2000 * 2 ** _retries, 10000);
+    console.warn(`[Auth] 429 rate-limited — retrying in ${delay}ms (attempt ${_retries + 1})`);
+    await new Promise((r) => setTimeout(r, delay));
+    return _authFetch(url, options, _retries + 1);
   }
   return response;
 };

@@ -151,49 +151,84 @@ const App = () => {
     return activeTab !== "vistas";
   }, [activeTab]);
 
-  // Add useEffect to fetch dependencies:
+  // Refs to track in-flight IDs and prevent duplicate API calls
+  const depsInFlightRef = useRef(new Set());
+  const timelineInFlightRef = useRef(new Set());
+  const depsFetchTimerRef = useRef(null);
+  const timelineFetchTimerRef = useRef(null);
+
+  // Fetch dependencies — debounced + in-flight tracking to prevent request floods
   useEffect(() => {
-    if (tickets.length > 0 && activeTab === "tickets") {
-      // Extract ticket IDs (remove "TKT-" prefix)
+    if (tickets.length === 0 || activeTab !== "tickets") return;
+
+    clearTimeout(depsFetchTimerRef.current);
+    depsFetchTimerRef.current = setTimeout(() => {
       const ticketIds = tickets
         .map((t) => t.display_id?.replace("TKT-", ""))
         .filter(Boolean);
 
-      // Fetch dependencies for tickets not already fetched
-      const unfetchedIds = ticketIds.filter((id) => !dependencies[id]);
+      const unfetchedIds = ticketIds.filter(
+        (id) => !dependencies[id] && !depsInFlightRef.current.has(id)
+      );
 
-      if (unfetchedIds.length > 0) {
-        // Fetch in batches to avoid overwhelming the API
-        const BATCH = 20;
-        const fetchBatch = async () => {
-          for (let i = 0; i < unfetchedIds.length; i += BATCH) {
-            await fetchDependencies(unfetchedIds.slice(i, i + BATCH));
+      if (unfetchedIds.length === 0) return;
+
+      // Mark as in-flight
+      unfetchedIds.forEach((id) => depsInFlightRef.current.add(id));
+
+      const BATCH = 50;
+      const fetchBatch = async () => {
+        for (let i = 0; i < unfetchedIds.length; i += BATCH) {
+          const batch = unfetchedIds.slice(i, i + BATCH);
+          try {
+            await fetchDependencies(batch);
+          } catch {
+            // Remove failed IDs so they can be retried
+            batch.forEach((id) => depsInFlightRef.current.delete(id));
           }
-        };
-        fetchBatch();
-      }
-    }
+        }
+      };
+      fetchBatch();
+    }, 500);
+
+    return () => clearTimeout(depsFetchTimerRef.current);
   }, [tickets, activeTab]);
 
-  // Fetch timeline replies (last CT & customer reply timestamps)
+  // Fetch timeline replies — debounced + in-flight tracking to prevent request floods
   useEffect(() => {
-    if (tickets.length > 0 && activeTab === "tickets") {
+    if (tickets.length === 0 || activeTab !== "tickets") return;
+
+    clearTimeout(timelineFetchTimerRef.current);
+    timelineFetchTimerRef.current = setTimeout(() => {
       const ticketIds = tickets
         .map((t) => t.display_id?.replace("TKT-", ""))
         .filter(Boolean);
 
-      const unfetchedIds = ticketIds.filter((id) => !timelineReplies[id]);
+      const unfetchedIds = ticketIds.filter(
+        (id) => !timelineReplies[id] && !timelineInFlightRef.current.has(id)
+      );
 
-      if (unfetchedIds.length > 0) {
-        const BATCH = 20;
-        const fetchBatch = async () => {
-          for (let i = 0; i < unfetchedIds.length; i += BATCH) {
-            await fetchTimelineReplies(unfetchedIds.slice(i, i + BATCH));
+      if (unfetchedIds.length === 0) return;
+
+      // Mark as in-flight
+      unfetchedIds.forEach((id) => timelineInFlightRef.current.add(id));
+
+      const BATCH = 50;
+      const fetchBatch = async () => {
+        for (let i = 0; i < unfetchedIds.length; i += BATCH) {
+          const batch = unfetchedIds.slice(i, i + BATCH);
+          try {
+            await fetchTimelineReplies(batch);
+          } catch {
+            // Remove failed IDs so they can be retried
+            batch.forEach((id) => timelineInFlightRef.current.delete(id));
           }
-        };
-        fetchBatch();
-      }
-    }
+        }
+      };
+      fetchBatch();
+    }, 500);
+
+    return () => clearTimeout(timelineFetchTimerRef.current);
   }, [tickets, activeTab]);
 
   // ✅ TRACK TAB VISITS
