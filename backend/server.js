@@ -7,24 +7,6 @@ import { Server } from "socket.io";
 import process from "process";
 import mongoose from "mongoose";
 
-// Memory management for Render
-if (process.env.NODE_ENV === "production") {
-  const v8 = await import("v8");
-  v8.setFlagsFromString("--max-old-space-size=512");
-}
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
-
-// --- Create Express app, HTTP server, Socket.IO ---
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: ALLOWED_ORIGINS, credentials: true },
-});
-
 // --- Middleware ---
 import {
   ALLOWED_ORIGINS,
@@ -38,6 +20,24 @@ import {
   setServerReady,
 } from "./middleware/server.js";
 import { apiLimiter, authLimiter, verifyToken, requireAdmin } from "./middleware/auth.js";
+
+// Memory management for Render
+if (process.env.NODE_ENV === "production") {
+  const v8 = await import("v8");
+  v8.setFlagsFromString("--max-old-space-size=512");
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: ALLOWED_ORIGINS, credentials: true },
+});
+
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
 
 app.use(coopHeaders);
 app.use(helmetMiddleware);
