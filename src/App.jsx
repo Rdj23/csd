@@ -184,7 +184,7 @@ const App = () => {
       const unfetchedIds = ticketIds.filter((id) => !timelineReplies[id]);
 
       if (unfetchedIds.length > 0) {
-        const BATCH = 50;
+        const BATCH = 20;
         const fetchBatch = async () => {
           for (let i = 0; i < unfetchedIds.length; i += BATCH) {
             await fetchTimelineReplies(unfetchedIds.slice(i, i + BATCH));

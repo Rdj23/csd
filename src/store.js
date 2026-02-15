@@ -304,11 +304,16 @@ fetchTimelineReplies: async (ticketIds) => {
   set({ timelineRepliesLoading: true });
   try {
     const API_URL = getApiUrl();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000); // 20s timeout
+
     const res = await _authFetch(`${API_URL}/api/tickets/timeline-replies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticketIds }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     const data = await res.json();
 
     set((state) => ({

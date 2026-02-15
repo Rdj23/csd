@@ -2203,64 +2203,59 @@ app.post("/api/tickets/dependencies", async (req, res) => {
 // ============================================================================
 
 // Helper: fetch timeline replies for a single ticket from DevRev
+// Optimized: fetches only the latest 10 entries (no pagination) since we
+// only need the most recent CT and customer reply timestamps.
 const fetchTimelineForTicket = async (ticketId) => {
   const objectDon = `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
   let lastCtReply = null;
   let lastCustomerReply = null;
-  let cursor = undefined;
 
-  do {
-    const body = {
+  const tlRes = await axios.post(
+    `${DEVREV_API}/timeline-entries.list`,
+    {
       object: objectDon,
       collections: ["discussions"],
       visibility: ["external"],
-      limit: 50,
-    };
-    if (cursor) body.cursor = cursor;
+      limit: 10,
+    },
+    { headers: HEADERS, timeout: 10000 },
+  );
 
-    const tlRes = await axios.post(
-      `${DEVREV_API}/timeline-entries.list`,
-      body,
-      { headers: HEADERS, timeout: 15000 },
-    );
+  const entries = tlRes.data.timeline_entries || [];
 
-    const entries = tlRes.data.timeline_entries || [];
+  for (const te of entries) {
+    if (te.type !== "timeline_comment") continue;
 
-    for (const te of entries) {
-      if (te.type !== "timeline_comment") continue;
-
-      let replyTime = te.created_date;
-      if (te.snap_widget_body && Array.isArray(te.snap_widget_body)) {
-        const emailWidget = te.snap_widget_body.find(
-          (w) => w.type === "email_preview",
-        );
-        if (emailWidget && emailWidget.sent_timestamp) {
-          replyTime = emailWidget.sent_timestamp;
-        }
-      }
-
-      const actorType = te.created_by?.type;
-
-      if (actorType === "dev_user" || actorType === "service_account") {
-        if (!lastCtReply || new Date(replyTime) > new Date(lastCtReply)) {
-          lastCtReply = replyTime;
-        }
-      }
-
-      if (actorType === "rev_user") {
-        if (!lastCustomerReply || new Date(replyTime) > new Date(lastCustomerReply)) {
-          lastCustomerReply = replyTime;
-        }
+    let replyTime = te.created_date;
+    if (te.snap_widget_body && Array.isArray(te.snap_widget_body)) {
+      const emailWidget = te.snap_widget_body.find(
+        (w) => w.type === "email_preview",
+      );
+      if (emailWidget && emailWidget.sent_timestamp) {
+        replyTime = emailWidget.sent_timestamp;
       }
     }
 
-    cursor = tlRes.data.next_cursor || null;
-  } while (cursor);
+    const actorType = te.created_by?.type;
+
+    if (actorType === "dev_user" || actorType === "service_account") {
+      if (!lastCtReply || new Date(replyTime) > new Date(lastCtReply)) {
+        lastCtReply = replyTime;
+      }
+    }
+
+    if (actorType === "rev_user") {
+      if (!lastCustomerReply || new Date(replyTime) > new Date(lastCustomerReply)) {
+        lastCustomerReply = replyTime;
+      }
+    }
+  }
 
   return { last_ct_reply: lastCtReply, last_customer_reply: lastCustomerReply };
 };
 
 // Background job: pre-warm timeline cache for all active tickets after sync
+// Uses per-ticket Redis keys so the API endpoint is a pure cache read
 const enrichTimelineReplies = async () => {
   const tickets = await redisGet("tickets:active");
   if (!tickets || !tickets.length) return;
@@ -2269,9 +2264,14 @@ const enrichTimelineReplies = async () => {
     .map((t) => t.display_id?.replace("TKT-", ""))
     .filter(Boolean);
 
-  // Load existing cache
-  const cached = (await redisGet("timeline:replies")) || {};
-  const uncachedIds = ticketIds.filter((id) => !cached[id]);
+  // Check which tickets are already cached (per-ticket keys)
+  const uncachedIds = [];
+  await Promise.all(
+    ticketIds.map(async (id) => {
+      const cached = await redisGet(`timeline:reply:${id}`);
+      if (!cached) uncachedIds.push(id);
+    }),
+  );
 
   if (!uncachedIds.length) {
     console.log("✅ Timeline cache already warm for all tickets");
@@ -2281,30 +2281,30 @@ const enrichTimelineReplies = async () => {
   console.log(`🔄 Enriching timeline replies for ${uncachedIds.length} tickets...`);
   let enriched = 0;
 
-  // Process 3 at a time with 1s delay between batches to avoid DevRev 429
-  const BATCH = 3;
+  // Process 5 at a time with 500ms delay between batches
+  const BATCH = 5;
   for (let i = 0; i < uncachedIds.length; i += BATCH) {
     const batch = uncachedIds.slice(i, i + BATCH);
 
     await Promise.all(
       batch.map(async (ticketId) => {
         try {
-          cached[ticketId] = await fetchTimelineForTicket(ticketId);
+          const data = await fetchTimelineForTicket(ticketId);
+          await redisSet(`timeline:reply:${ticketId}`, data, 1800);
           enriched++;
         } catch (e) {
-          cached[ticketId] = { last_ct_reply: null, last_customer_reply: null };
+          // Cache null result to avoid re-fetching on next request
+          await redisSet(`timeline:reply:${ticketId}`, {
+            last_ct_reply: null,
+            last_customer_reply: null,
+          }, 1800);
         }
       }),
     );
 
-    // Save progress every 15 tickets
-    if (enriched % 15 === 0 || i + BATCH >= uncachedIds.length) {
-      await redisSet("timeline:replies", cached, 1800); // 30 min TTL
-    }
-
-    // Rate limit: 1s pause between batches
+    // Rate limit: 500ms pause between batches
     if (i + BATCH < uncachedIds.length) {
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
@@ -2318,22 +2318,25 @@ app.post("/api/tickets/timeline-replies", async (req, res) => {
       return res.json({});
     }
 
-    // Check Redis cache first
-    const cached = (await redisGet("timeline:replies")) || {};
+    // Per-ticket Redis cache lookup
     const results = {};
     const uncachedIds = [];
 
-    for (const id of ticketIds) {
-      if (cached[id]) {
-        results[id] = cached[id];
-      } else {
-        uncachedIds.push(id);
-      }
-    }
+    // Check individual per-ticket keys in parallel
+    await Promise.all(
+      ticketIds.map(async (id) => {
+        const cached = await redisGet(`timeline:reply:${id}`);
+        if (cached) {
+          results[id] = cached;
+        } else {
+          uncachedIds.push(id);
+        }
+      }),
+    );
 
-    // Fetch only uncached tickets from DevRev (max 3 concurrent, with delay)
+    // Fetch uncached tickets from DevRev (5 concurrent, 200ms delay)
     if (uncachedIds.length > 0) {
-      const BATCH_SIZE = 3;
+      const BATCH_SIZE = 5;
       for (let i = 0; i < uncachedIds.length; i += BATCH_SIZE) {
         const batch = uncachedIds.slice(i, i + BATCH_SIZE);
 
@@ -2342,12 +2345,12 @@ app.post("/api/tickets/timeline-replies", async (req, res) => {
             try {
               const data = await fetchTimelineForTicket(ticketId);
               results[ticketId] = data;
-              cached[ticketId] = data;
+              // Cache per-ticket with 30 min TTL
+              await redisSet(`timeline:reply:${ticketId}`, data, 1800);
             } catch (e) {
               results[ticketId] = {
                 last_ct_reply: null,
                 last_customer_reply: null,
-                error: e.message,
               };
             }
           }),
@@ -2355,12 +2358,9 @@ app.post("/api/tickets/timeline-replies", async (req, res) => {
 
         // Rate limit between batches
         if (i + BATCH_SIZE < uncachedIds.length) {
-          await new Promise((r) => setTimeout(r, 500));
+          await new Promise((r) => setTimeout(r, 200));
         }
       }
-
-      // Update cache with newly fetched data
-      await redisSet("timeline:replies", cached, 1800);
     }
 
     res.json(results);
