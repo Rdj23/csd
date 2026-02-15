@@ -536,7 +536,22 @@ const App = () => {
       "Iterations",
       "CSAT",
       "FRR",
+      "Last CT Reply",
+      "Last Customer Reply",
     ];
+
+    const formatTimestamp = (ts) => {
+      if (!ts) return "-";
+      return new Date(ts).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    };
 
     // Process each state section
     ["Open", "Pending", "On Hold", "Solved"].forEach((state) => {
@@ -559,6 +574,8 @@ const App = () => {
             "Unassigned";
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+          const ticketId = t.display_id?.replace("TKT-", "");
+          const tlData = timelineReplies[ticketId];
 
           const row = [
             t.display_id,
@@ -574,6 +591,8 @@ const App = () => {
             t.iterations || "-",
             t.csat || "-",
             t.frr || "-",
+            `"${formatTimestamp(tlData?.last_ct_reply)}"`,
+            `"${formatTimestamp(tlData?.last_customer_reply)}"`,
           ];
           csvContent += row.join(",") + "\n";
         });
