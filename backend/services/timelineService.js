@@ -2,9 +2,27 @@ import axios from "axios";
 import { DEVREV_API, HEADERS } from "./devrevApi.js";
 import { redisGet, redisSet } from "../config/database.js";
 
+// In-memory fallback cache for when Redis is down
+const memoryCache = new Map();
+const MEMORY_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+const memGet = (key) => {
+  const entry = memoryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiry) { memoryCache.delete(key); return null; }
+  return entry.data;
+};
+
+const memSet = (key, data) => {
+  // Cap memory cache at 500 entries to prevent unbounded growth
+  if (memoryCache.size > 500) {
+    const oldest = memoryCache.keys().next().value;
+    memoryCache.delete(oldest);
+  }
+  memoryCache.set(key, { data, expiry: Date.now() + MEMORY_CACHE_TTL });
+};
+
 // Helper: fetch timeline replies for a single ticket from DevRev
-// Optimized: fetches only the latest 10 entries (no pagination) since we
-// only need the most recent CT and customer reply timestamps.
 export const fetchTimelineForTicket = async (ticketId) => {
   const objectDon = `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
   let lastCtReply = null;
@@ -54,8 +72,22 @@ export const fetchTimelineForTicket = async (ticketId) => {
   return { last_ct_reply: lastCtReply, last_customer_reply: lastCustomerReply };
 };
 
+// Cache helper: write to Redis + in-memory fallback
+const cacheTimeline = async (ticketId, data) => {
+  memSet(`timeline:reply:${ticketId}`, data);
+  await redisSet(`timeline:reply:${ticketId}`, data, 1800);
+};
+
+// Cache helper: read from Redis, fall back to in-memory
+const getCachedTimeline = async (ticketId) => {
+  const key = `timeline:reply:${ticketId}`;
+  const redisData = await redisGet(key);
+  if (redisData) return redisData;
+  return memGet(key);
+};
+
 // Background job: pre-warm timeline cache for all active tickets after sync
-// Uses per-ticket Redis keys so the API endpoint is a pure cache read
+// Uses per-ticket Redis + memory keys so the API endpoint is a pure cache read
 export const enrichTimelineReplies = async () => {
   const tickets = await redisGet("tickets:active");
   if (!tickets || !tickets.length) return;
@@ -64,14 +96,12 @@ export const enrichTimelineReplies = async () => {
     .map((t) => t.display_id?.replace("TKT-", ""))
     .filter(Boolean);
 
-  // Check which tickets are already cached (per-ticket keys)
+  // Check which tickets are already cached
   const uncachedIds = [];
-  await Promise.all(
-    ticketIds.map(async (id) => {
-      const cached = await redisGet(`timeline:reply:${id}`);
-      if (!cached) uncachedIds.push(id);
-    }),
-  );
+  for (const id of ticketIds) {
+    const cached = await getCachedTimeline(id);
+    if (!cached) uncachedIds.push(id);
+  }
 
   if (!uncachedIds.length) {
     console.log("✅ Timeline cache already warm for all tickets");
@@ -81,8 +111,8 @@ export const enrichTimelineReplies = async () => {
   console.log(`🔄 Enriching timeline replies for ${uncachedIds.length} tickets...`);
   let enriched = 0;
 
-  // Process 5 at a time with 500ms delay between batches
-  const BATCH = 5;
+  // Process 3 at a time with 500ms delay between batches (reduced from 5)
+  const BATCH = 3;
   for (let i = 0; i < uncachedIds.length; i += BATCH) {
     const batch = uncachedIds.slice(i, i + BATCH);
 
@@ -90,19 +120,17 @@ export const enrichTimelineReplies = async () => {
       batch.map(async (ticketId) => {
         try {
           const data = await fetchTimelineForTicket(ticketId);
-          await redisSet(`timeline:reply:${ticketId}`, data, 1800);
+          await cacheTimeline(ticketId, data);
           enriched++;
         } catch (e) {
-          // Cache null result to avoid re-fetching on next request
-          await redisSet(`timeline:reply:${ticketId}`, {
+          await cacheTimeline(ticketId, {
             last_ct_reply: null,
             last_customer_reply: null,
-          }, 1800);
+          });
         }
       }),
     );
 
-    // Rate limit: 500ms pause between batches
     if (i + BATCH < uncachedIds.length) {
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -111,56 +139,25 @@ export const enrichTimelineReplies = async () => {
   console.log(`✅ Timeline enrichment done: ${enriched} tickets enriched`);
 };
 
-// Batch fetch timeline replies (used by the API endpoint)
+// API endpoint handler: CACHE-ONLY read — never calls DevRev on user requests.
+// If data isn't cached yet, returns null (background enrichment will fill it).
 export const batchFetchTimelineReplies = async (ticketIds) => {
   if (!ticketIds || !ticketIds.length) {
     return {};
   }
 
-  // Per-ticket Redis cache lookup
   const results = {};
-  const uncachedIds = [];
 
-  // Check individual per-ticket keys in parallel
+  // Pure cache read from Redis + in-memory fallback
   await Promise.all(
     ticketIds.map(async (id) => {
-      const cached = await redisGet(`timeline:reply:${id}`);
+      const cached = await getCachedTimeline(id);
       if (cached) {
         results[id] = cached;
-      } else {
-        uncachedIds.push(id);
       }
+      // If not cached, skip — background enrichment will populate it
     }),
   );
-
-  // Fetch uncached tickets from DevRev (5 concurrent, 200ms delay)
-  if (uncachedIds.length > 0) {
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < uncachedIds.length; i += BATCH_SIZE) {
-      const batch = uncachedIds.slice(i, i + BATCH_SIZE);
-
-      await Promise.all(
-        batch.map(async (ticketId) => {
-          try {
-            const data = await fetchTimelineForTicket(ticketId);
-            results[ticketId] = data;
-            // Cache per-ticket with 30 min TTL
-            await redisSet(`timeline:reply:${ticketId}`, data, 1800);
-          } catch (e) {
-            results[ticketId] = {
-              last_ct_reply: null,
-              last_customer_reply: null,
-            };
-          }
-        }),
-      );
-
-      // Rate limit between batches
-      if (i + BATCH_SIZE < uncachedIds.length) {
-        await new Promise((r) => setTimeout(r, 200));
-      }
-    }
-  }
 
   return results;
 };

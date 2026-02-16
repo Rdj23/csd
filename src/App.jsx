@@ -194,7 +194,7 @@ const App = () => {
     return () => clearTimeout(depsFetchTimerRef.current);
   }, [tickets, activeTab]);
 
-  // Fetch timeline replies — debounced + in-flight tracking to prevent request floods
+  // Fetch timeline replies — single request, retry for uncached tickets
   useEffect(() => {
     if (tickets.length === 0 || activeTab !== "tickets") return;
 
@@ -213,20 +213,24 @@ const App = () => {
       // Mark as in-flight
       unfetchedIds.forEach((id) => timelineInFlightRef.current.add(id));
 
-      const BATCH = 50;
-      const fetchBatch = async () => {
-        for (let i = 0; i < unfetchedIds.length; i += BATCH) {
-          const batch = unfetchedIds.slice(i, i + BATCH);
-          try {
-            await fetchTimelineReplies(batch);
-          } catch {
-            // Remove failed IDs so they can be retried
-            batch.forEach((id) => timelineInFlightRef.current.delete(id));
+      const fetchWithRetry = async (ids, attempt = 0) => {
+        try {
+          const data = await fetchTimelineReplies(ids);
+          // Find IDs that weren't in the response (not cached yet on server)
+          const missing = ids.filter((id) => !data || !data[id]);
+          // Allow in-flight tracking to be cleared for missing so they retry
+          missing.forEach((id) => timelineInFlightRef.current.delete(id));
+          // Retry missing IDs up to 3 times with increasing delay (10s, 20s, 30s)
+          if (missing.length > 0 && attempt < 3) {
+            setTimeout(() => fetchWithRetry(missing, attempt + 1), (attempt + 1) * 10000);
           }
+        } catch {
+          ids.forEach((id) => timelineInFlightRef.current.delete(id));
         }
       };
-      fetchBatch();
-    }, 500);
+
+      fetchWithRetry(unfetchedIds);
+    }, 2000); // 2s debounce — gives background enrichment time to populate cache
 
     return () => clearTimeout(timelineFetchTimerRef.current);
   }, [tickets, activeTab]);
