@@ -1,4 +1,3 @@
-import axios from "axios";
 import { AnalyticsTicket, PrecomputedDashboard } from "../models/index.js";
 import { getQuarterDateRange } from "../config/constants.js";
 
@@ -198,24 +197,20 @@ export const precomputeAnalytics = async (quarter) => {
   }
 };
 
-const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
-
-export const startBackgroundRefresh = () => {
-  console.log("🔄 Starting background cache refresh (every 15 min)...");
-
+export const runInitialPrecomputation = () => {
+  // Delay initial pre-computation by 90s to let ticket sync finish first
   setTimeout(async () => {
     console.log("🚀 Initial pre-computation starting...");
-    await precomputeAnalytics("Q1_26");
-    if (global.gc) global.gc();
-    await precomputeAnalytics("Q4_25");
-    if (global.gc) global.gc();
-  }, 30000); // Delay to avoid overlapping with ticket sync at startup
-
-  setInterval(async () => {
-    console.log("⏰ Scheduled cache refresh...");
-    await precomputeAnalytics("Q4_25");
-    await precomputeAnalytics("Q1_26");
-  }, REFRESH_INTERVAL);
+    try {
+      await precomputeAnalytics("Q1_26");
+      if (global.gc) global.gc();
+      await precomputeAnalytics("Q4_25");
+      if (global.gc) global.gc();
+      console.log("✅ Initial pre-computation complete");
+    } catch (e) {
+      console.error("❌ Initial pre-computation failed:", e.message);
+    }
+  }, 90000);
 };
 
 export const warmCache = async (source = "unknown", fetchAndCacheTicketsFn = null) => {
@@ -231,19 +226,6 @@ export const warmCache = async (source = "unknown", fetchAndCacheTicketsFn = nul
       fetchAndCacheTicketsFn("startup").catch(console.error);
       console.log("✅ Ticket sync started in background");
     }
-
-    setTimeout(async () => {
-      try {
-        const PORT = process.env.PORT || 5000;
-        await axios.get(
-          `http://localhost:${PORT}/api/tickets/analytics?quarter=Q1_26`,
-          { timeout: 10000 }
-        );
-        console.log("✅ Analytics cache warmed");
-      } catch (e) {
-        console.log("⚠️ Analytics warming skipped:", e.message);
-      }
-    }, 15000); // Delay to let ticket sync finish first
   } catch (e) {
     console.log("⚠️ Cache warming failed:", e.message);
     cacheWarmingStarted = false;

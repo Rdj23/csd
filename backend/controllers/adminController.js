@@ -1,10 +1,10 @@
 import axios from "axios";
 import { format } from "date-fns";
-import { AnalyticsTicket, AnalyticsCache } from "../models/index.js";
+import { AnalyticsTicket } from "../models/index.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { syncHistoricalToDB } from "../services/syncService.js";
 import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/slackService.js";
-import { resolveOwnerName, getQuarterDateRange, GST_SLACK_MEMBER_IDS } from "../config/constants.js";
+import { resolveOwnerName, GST_SLACK_MEMBER_IDS } from "../config/constants.js";
 
 export const syncNow = async (req, res) => {
   console.log("🔄 Manual sync triggered...");
@@ -48,112 +48,9 @@ export const getSyncStatus = async (req, res) => {
   }
 };
 
-export const adminSearch = async (req, res) => {
-  try {
-    const { query = {}, page = 1, pageSize = 50 } = req.body;
-
-    console.log("🔍 Admin Search:", JSON.stringify(query, null, 2));
-
-    const processedQuery = { ...query };
-    if (processedQuery.closed_date) {
-      if (processedQuery.closed_date.$gte) {
-        processedQuery.closed_date.$gte = new Date(processedQuery.closed_date.$gte);
-      }
-      if (processedQuery.closed_date.$lte) {
-        processedQuery.closed_date.$lte = new Date(processedQuery.closed_date.$lte);
-      }
-    }
-
-    const totalCount = await AnalyticsTicket.countDocuments(processedQuery);
-
-    const skip = (page - 1) * pageSize;
-    const tickets = await AnalyticsTicket.find(processedQuery)
-      .sort({ closed_date: -1 })
-      .skip(skip)
-      .limit(pageSize)
-      .lean();
-
-    const allTickets = await AnalyticsTicket.find(processedQuery).lean();
-
-    const stats = {
-      totalTickets: allTickets.length,
-      totalRWT: 0, rwtValidCount: 0,
-      totalFRT: 0, frtValidCount: 0,
-      totalIterations: 0, iterationsValidCount: 0,
-      goodCSATCount: 0, badCSATCount: 0,
-      frrMetCount: 0,
-    };
-
-    allTickets.forEach((t) => {
-      if (t.rwt != null && t.rwt > 0) { stats.totalRWT += t.rwt; stats.rwtValidCount++; }
-      if (t.frt != null && t.frt > 0) { stats.totalFRT += t.frt; stats.frtValidCount++; }
-      if (t.iterations != null) { stats.totalIterations += t.iterations; stats.iterationsValidCount++; }
-      if (t.csat === 2) stats.goodCSATCount++;
-      if (t.csat === 1) stats.badCSATCount++;
-      if (t.frr === 1) stats.frrMetCount++;
-    });
-
-    stats.avgRWT = stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
-    stats.avgFRT = stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
-    stats.avgIterations = stats.iterationsValidCount > 0 ? stats.totalIterations / stats.iterationsValidCount : 0;
-
-    res.json({
-      query: processedQuery, stats, tickets, totalCount,
-      page, pageSize, totalPages: Math.ceil(totalCount / pageSize),
-    });
-  } catch (e) {
-    console.error("Admin search error:", e);
-    res.status(500).json({ error: e.message });
-  }
-};
-
-export const debugStats = async (req, res) => {
-  try {
-    const { owner, quarter = "Q1_26" } = req.query;
-    const { start, end } = getQuarterDateRange(quarter);
-
-    const query = { closed_date: { $gte: start, $lte: end } };
-    if (owner) query.owner = { $regex: owner, $options: "i" };
-
-    const tickets = await AnalyticsTicket.find(query).lean();
-
-    const stats = {
-      totalTickets: tickets.length,
-      totalRWT: 0, rwtValidCount: 0, rwtFaultyCount: 0,
-      totalFRT: 0, frtValidCount: 0, frtFaultyCount: 0,
-      totalIterations: 0, iterationsValidCount: 0, iterationsFaultyCount: 0,
-      goodCSATCount: 0, csatValidCount: 0, csatFaultyCount: 0,
-      frrMetCount: 0, frrFalsyCount: 0,
-      owner: owner || "All",
-    };
-
-    tickets.forEach((t) => {
-      if (t.rwt !== null && t.rwt !== undefined && t.rwt > 0) { stats.totalRWT += t.rwt; stats.rwtValidCount++; } else { stats.rwtFaultyCount++; }
-      if (t.frt !== null && t.frt !== undefined && t.frt > 0) { stats.totalFRT += t.frt; stats.frtValidCount++; } else { stats.frtFaultyCount++; }
-      if (t.iterations !== null && t.iterations !== undefined) { stats.totalIterations += t.iterations; stats.iterationsValidCount++; } else { stats.iterationsFaultyCount++; }
-      if (t.csat === 2) { stats.goodCSATCount++; stats.csatValidCount++; } else if (t.csat === 1) { stats.csatValidCount++; } else { stats.csatFaultyCount++; }
-      if (t.frr === 1) { stats.frrMetCount++; } else { stats.frrFalsyCount++; }
-    });
-
-    stats.avgRWT = stats.rwtValidCount > 0 ? stats.totalRWT / stats.rwtValidCount : 0;
-    stats.avgFRT = stats.frtValidCount > 0 ? stats.totalFRT / stats.frtValidCount : 0;
-    stats.avgIterations = stats.iterationsValidCount > 0 ? stats.totalIterations / stats.iterationsValidCount : 0;
-
-    console.log("📊 Debug Stats:", stats);
-    res.json(stats);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-};
-
 export const backfill = (req, res) => {
   syncHistoricalToDB(true);
   res.json({ message: "Started" });
-};
-
-export const clearAdminCache = async (req, res) => {
-  await AnalyticsCache.deleteMany({});
-  res.json({ message: "Cleared" });
 };
 
 export const verifyGSTNames = async (req, res) => {

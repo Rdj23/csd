@@ -66,23 +66,29 @@ export const initRedis = async () => {
       enableReadyCheck: true,
       connectTimeout: 10000,
       lazyConnect: true,
+      // Never give up — keep reconnecting forever with backoff
       retryStrategy(times) {
-        if (times > 10) {
-          console.error("🔴 Redis: giving up after 10 retries");
-          return null; // stop retrying
+        const delay = Math.min(times * 2000, 30000); // max 30s between retries
+        if (times % 10 === 0) {
+          console.log(`🔄 Redis: reconnecting (attempt ${times}, next in ${delay / 1000}s)`);
         }
-        const delay = Math.min(times * 1000, 15000);
-        console.log(`🔄 Redis: reconnecting in ${delay}ms (attempt ${times})`);
         return delay;
+      },
+      reconnectOnError(err) {
+        // Reconnect on connection reset errors
+        const targetErrors = ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT"];
+        return targetErrors.some((e) => err.message.includes(e));
       },
     });
 
     redis.on("connect", () => console.log("🟢 Redis Connected"));
     redis.on("ready", () => console.log("🟢 Redis Ready"));
-    redis.on("close", () => console.log("🔴 Redis Connection Closed"));
+    redis.on("close", () => console.log("🔴 Redis Connection Closed — will reconnect"));
     redis.on("error", (err) => {
-      console.error("Redis Error:", err.message);
-      // ioredis will auto-retry via retryStrategy — don't disconnect here
+      // Only log non-repetitive errors (suppress flood during reconnection)
+      if (!err.message.includes("ECONNRESET")) {
+        console.error("Redis Error:", err.message);
+      }
     });
 
     // Connect in background - don't block server startup

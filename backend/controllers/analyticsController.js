@@ -25,8 +25,9 @@ export const getAnalytics = async (req, res) => {
 
       if (precomputed?.data && !precomputed.computing) {
         const age = Date.now() - new Date(precomputed.computed_at).getTime();
-        if (age < 20 * 60 * 1000) {
-          console.log(`⚡ PRECOMPUTED HIT: ${quarter} (${Math.round(age / 1000)}s old)`);
+        // Serve precomputed data if less than 25 hours old (daily refresh at 1 AM IST)
+        if (age < 25 * 60 * 60 * 1000) {
+          console.log(`⚡ PRECOMPUTED HIT: ${quarter} (${Math.round(age / 60000)}min old)`);
           return res.json(precomputed.data);
         }
       }
@@ -46,7 +47,7 @@ export const getAnalytics = async (req, res) => {
     // 2. Check MongoDB cache (fallback)
     if (forceRefresh !== "true") {
       const mongoCache = await AnalyticsCache.findOne({ cache_key: cacheKey }).lean();
-      if (mongoCache && Date.now() - new Date(mongoCache.computed_at).getTime() < 1800000) {
+      if (mongoCache && Date.now() - new Date(mongoCache.computed_at).getTime() < 25 * 60 * 60 * 1000) {
         console.log(`⚡ MongoDB Cache HIT`);
         await redisSet(cacheKey, mongoCache, CACHE_TTL.ANALYTICS);
         return res.json(mongoCache);

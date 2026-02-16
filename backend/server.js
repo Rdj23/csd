@@ -77,7 +77,7 @@ setWebhookIO(io);
 setTicketIO(io);
 
 // --- Cache warming on MongoDB ready ---
-import { warmCache, startBackgroundRefresh, getCacheWarmingStarted } from "./services/analyticsService.js";
+import { warmCache, runInitialPrecomputation, getCacheWarmingStarted, precomputeAnalytics } from "./services/analyticsService.js";
 import { fetchAndCacheTickets, syncHistoricalToDB } from "./services/syncService.js";
 import { syncRoster } from "./services/rosterService.js";
 import { AnalyticsTicket } from "./models/index.js";
@@ -112,17 +112,47 @@ server.listen(PORT, async () => {
     }
   }, 5000);
 
-  // Start background cache refresh for instant load times
-  startBackgroundRefresh();
+  // Run initial pre-computation (delayed 90s to avoid startup memory spike)
+  runInitialPrecomputation();
 
   console.log("✅ Server ready - background tasks running");
 });
 
-// Scheduled sync every 6 hours
-setInterval(
-  () => {
-    console.log("⏰ Scheduled sync (every 6 hours)...");
-    syncHistoricalToDB(false);
-  },
-  6 * 60 * 60 * 1000,
-);
+// --- Scheduled daily jobs (midnight & 1 AM IST) ---
+const scheduleDailyJob = (hourIST, label, jobFn) => {
+  const schedule = () => {
+    const now = new Date();
+    // Calculate next occurrence of the target hour in IST (UTC+5:30)
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(now.getTime() + istOffset);
+    const nextRun = new Date(nowIST);
+    nextRun.setHours(hourIST, 0, 0, 0);
+    // If the target time already passed today, schedule for tomorrow
+    if (nextRun <= nowIST) nextRun.setDate(nextRun.getDate() + 1);
+    // Convert back to UTC for setTimeout
+    const delayMs = nextRun.getTime() - nowIST.getTime();
+    const hoursUntil = (delayMs / 3600000).toFixed(1);
+    console.log(`🕐 ${label} scheduled in ${hoursUntil}h (${hourIST}:00 IST)`);
+    setTimeout(async () => {
+      console.log(`⏰ ${label} starting...`);
+      try {
+        await jobFn();
+      } catch (e) {
+        console.error(`❌ ${label} failed:`, e.message);
+      }
+      if (global.gc) global.gc();
+      schedule(); // Re-schedule for next day
+    }, delayMs);
+  };
+  schedule();
+};
+
+// Historical sync: once daily at midnight IST
+scheduleDailyJob(0, "Daily historical sync", () => syncHistoricalToDB(false));
+
+// Analytics pre-computation: once daily at 1 AM IST
+scheduleDailyJob(1, "Daily analytics pre-computation", async () => {
+  await precomputeAnalytics("Q1_26");
+  if (global.gc) global.gc();
+  await precomputeAnalytics("Q4_25");
+});
