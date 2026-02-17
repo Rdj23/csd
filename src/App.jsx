@@ -136,6 +136,7 @@ const App = () => {
     dependencies,
     fetchDependencies,
     timelineReplies,
+    timelinePendingIds,
     fetchTimelineReplies,
   } = useTicketStore();
 
@@ -194,7 +195,7 @@ const App = () => {
     return () => clearTimeout(depsFetchTimerRef.current);
   }, [tickets, activeTab]);
 
-  // Fetch timeline replies — single request, retry for uncached tickets
+  // Fetch timeline replies — one-shot request, socket hydrates the rest
   useEffect(() => {
     if (tickets.length === 0 || activeTab !== "tickets") return;
 
@@ -213,24 +214,12 @@ const App = () => {
       // Mark as in-flight
       unfetchedIds.forEach((id) => timelineInFlightRef.current.add(id));
 
-      const fetchWithRetry = async (ids, attempt = 0) => {
-        try {
-          const data = await fetchTimelineReplies(ids);
-          // Find IDs that weren't in the response (not cached yet on server)
-          const missing = ids.filter((id) => !data || !data[id]);
-          // Allow in-flight tracking to be cleared for missing so they retry
-          missing.forEach((id) => timelineInFlightRef.current.delete(id));
-          // Retry missing IDs up to 3 times with increasing delay (10s, 20s, 30s)
-          if (missing.length > 0 && attempt < 3) {
-            setTimeout(() => fetchWithRetry(missing, attempt + 1), (attempt + 1) * 10000);
-          }
-        } catch {
-          ids.forEach((id) => timelineInFlightRef.current.delete(id));
-        }
-      };
-
-      fetchWithRetry(unfetchedIds);
-    }, 2000); // 2s debounce — gives background enrichment time to populate cache
+      // Single request — returns cached data instantly + triggers background
+      // fetch for missing IDs. Socket `timeline_batch_updated` delivers the rest.
+      fetchTimelineReplies(unfetchedIds).catch(() => {
+        unfetchedIds.forEach((id) => timelineInFlightRef.current.delete(id));
+      });
+    }, 500); // 500ms debounce — no retries needed, socket pushes missing data
 
     return () => clearTimeout(timelineFetchTimerRef.current);
   }, [tickets, activeTab]);
@@ -2211,6 +2200,7 @@ ${
                   filterOptions={options}
                   dependencies={dependencies}
                   timelineReplies={timelineReplies}
+                  timelinePendingIds={timelinePendingIds}
                 />
               ) : (
                 <>
@@ -2236,6 +2226,7 @@ ${
                       onProfileClick={setSelectedUserProfile}
                       dependencies={dependencies}
                       timelineReplies={timelineReplies}
+                      timelinePendingIds={timelinePendingIds}
                     />
                   )}
                 </>

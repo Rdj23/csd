@@ -3,7 +3,7 @@ import { AnalyticsTicket } from "../models/index.js";
 import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { fetchAndCacheTickets, getSyncState } from "../services/syncService.js";
-import { batchFetchTimelineReplies } from "../services/timelineService.js";
+import { batchFetchTimelineReplies, fetchMissingTimelinesInBackground } from "../services/timelineService.js";
 
 // io instance setter for socket events
 let _io = null;
@@ -522,10 +522,18 @@ export const getTimelineReplies = async (req, res) => {
   try {
     const { ticketIds } = req.body;
     if (!ticketIds || !ticketIds.length) {
-      return res.json({});
+      return res.json({ cached: {}, pending: [] });
     }
-    const results = await batchFetchTimelineReplies(ticketIds);
-    res.json(results);
+
+    // Instant cache-only read — no DevRev calls in this HTTP path
+    const { cached, pending } = await batchFetchTimelineReplies(ticketIds);
+
+    // Fire-and-forget: fetch missing timelines in background, push via socket
+    if (pending.length > 0) {
+      fetchMissingTimelinesInBackground(pending, _io);
+    }
+
+    res.json({ cached, pending });
   } catch (e) {
     console.error("Timeline replies batch fetch error:", e.message);
     res.status(500).json({ error: e.message });

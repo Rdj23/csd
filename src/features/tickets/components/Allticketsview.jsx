@@ -1532,6 +1532,7 @@ const AllTicketsView = ({
   filterOptions,
   dependencies = {},
   timelineReplies = {},
+  timelinePendingIds = new Set(),
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
   const [groupBy, setGroupBy] = useState("gst"); // gst, csm, tam, region

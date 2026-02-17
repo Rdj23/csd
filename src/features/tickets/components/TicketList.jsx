@@ -16,6 +16,10 @@ import RemarkPopover from "../../remarks/components/RemarkPopover";
 const ITEMS_PER_PAGE = 20;
 
 // ✅ NEW: Added 'onProfileClick' prop
+const TimelineSkeleton = () => (
+  <span className="inline-block h-3 w-20 rounded bg-slate-200 dark:bg-slate-700 animate-pulse" />
+);
+
 const TicketList = ({
   tickets,
   isCSDView,
@@ -23,6 +27,7 @@ const TicketList = ({
   onProfileClick,
   dependencies,
   timelineReplies = {},
+  timelinePendingIds = new Set(),
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState({
@@ -372,7 +377,7 @@ const TicketList = ({
                               minute: "2-digit",
                               hour12: true,
                             })
-                          : "-"}
+                          : timelinePendingIds.has(ticketId) ? <TimelineSkeleton /> : "-"}
                       </span>
                     </td>
 
@@ -388,7 +393,7 @@ const TicketList = ({
                               minute: "2-digit",
                               hour12: true,
                             })
-                          : "-"}
+                          : timelinePendingIds.has(ticketId) ? <TimelineSkeleton /> : "-"}
                       </span>
                     </td>
 

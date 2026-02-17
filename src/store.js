@@ -88,6 +88,20 @@ export const useTicketStore = create(
           get().fetchTickets();
         });
 
+        // Real-time timeline hydration — merge each batch as it arrives
+        newSocket.on("timeline_batch_updated", (batchData) => {
+          if (!batchData || typeof batchData !== "object") return;
+          const arrivedIds = Object.keys(batchData);
+          set((state) => {
+            const updatedPending = new Set(state.timelinePendingIds);
+            arrivedIds.forEach((id) => updatedPending.delete(id));
+            return {
+              timelineReplies: { ...state.timelineReplies, ...batchData },
+              timelinePendingIds: updatedPending,
+            };
+          });
+        });
+
         // Legacy compat
         newSocket.on("REFRESH_TICKETS", (updatedTickets) => {
           if (Array.isArray(updatedTickets) && updatedTickets.length > 0) {
@@ -306,6 +320,9 @@ fetchDependencies: async (ticketIds) => {
   }
 },
 
+// Track which ticket IDs are pending background fetch (for skeleton UI)
+timelinePendingIds: new Set(),
+
 fetchTimelineReplies: async (ticketIds) => {
   if (!ticketIds.length) return;
 
@@ -313,7 +330,7 @@ fetchTimelineReplies: async (ticketIds) => {
   try {
     const API_URL = getApiUrl();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000); // 20s timeout
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     const res = await _authFetch(`${API_URL}/api/tickets/timeline-replies`, {
       method: "POST",
@@ -324,12 +341,17 @@ fetchTimelineReplies: async (ticketIds) => {
     clearTimeout(timeout);
     const data = await res.json();
 
+    // New response shape: { cached: {...}, pending: [...] }
+    const cached = data.cached || data; // Backwards-compatible
+    const pending = data.pending || [];
+
     set((state) => ({
-      timelineReplies: { ...state.timelineReplies, ...data },
+      timelineReplies: { ...state.timelineReplies, ...cached },
+      timelinePendingIds: new Set([...state.timelinePendingIds, ...pending]),
       timelineRepliesLoading: false,
     }));
 
-    return data;
+    return cached;
   } catch (e) {
     console.error("Timeline replies fetch failed:", e);
     set({ timelineRepliesLoading: false });
