@@ -92,21 +92,21 @@ export const getDaysWorked = (name, start) => {
 
   let days = 0;
   const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4"];
+  const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 
   for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
-    let colDate;
-    if (typeof dateKey === 'number' || !isNaN(Number(dateKey))) {
-      const excelSerial = Number(dateKey);
-      colDate = new Date((excelSerial - 25569) * 86400 * 1000);
-    } else {
-      const currentYear = today.getFullYear();
-      const parsed = new Date(`${dateKey}-${currentYear}`);
-      colDate = isNaN(parsed.getTime()) ? null : parsed;
-    }
+    // Parse "D-Mon" format (e.g. "1-Jan", "18-Feb") manually for reliability
+    const parts = dateKey.split("-");
+    if (parts.length !== 2 || !MONTHS.hasOwnProperty(parts[1])) continue;
+    const colDate = new Date(today.getFullYear(), MONTHS[parts[1]], parseInt(parts[0]));
+    if (isNaN(colDate.getTime())) continue;
 
-    if (colDate && colDate >= start && colDate <= today) {
+    if (colDate >= start && colDate <= today) {
       const val = (row[colIdx] || "").toUpperCase().trim();
-      if (VALID_SHIFTS.includes(val)) {
+      // Normalize shift format (handles "SHIFT1", "SHIFT 1", "1", etc.)
+      const shiftMatch = val.match(/(?:SHIFT\s*)?(\d)/);
+      const normalized = shiftMatch ? `SHIFT ${shiftMatch[1]}` : val;
+      if (VALID_SHIFTS.includes(normalized)) {
         days++;
       }
     }
