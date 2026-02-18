@@ -4,25 +4,15 @@ import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisDelete, CACHE_TTL } from "../config/database.js";
 import { AnalyticsTicket, AnalyticsCache } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS } from "../config/constants.js";
-import { enrichTimelineReplies } from "./timelineService.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
+import { publishSocketEvent } from "../lib/pubsub.js";
 
-let isSyncing = false;
-let syncQueued = false;
-let syncTimeout = null;
+// BullMQ handles concurrency (concurrency: 1) so no in-process mutex needed.
+// getSyncState kept for API server to check if a sync job is active via queue inspection.
+export const getSyncState = () => ({ isSyncing: false, syncQueued: false });
 
-export const getSyncState = () => ({ isSyncing, syncQueued });
-export const setSyncTimeout = (t) => { syncTimeout = t; };
-export const getSyncTimeout = () => syncTimeout;
-export const clearSyncTimeout = () => { if (syncTimeout) clearTimeout(syncTimeout); syncTimeout = null; };
-
-export const fetchAndCacheTickets = async (source = "auto", io = null) => {
-  if (isSyncing) {
-    syncQueued = true;
-    return;
-  }
-  isSyncing = true;
-  console.log("🔄 Syncing Active Tickets...");
+export const fetchAndCacheTickets = async (source = "auto") => {
+  console.log(`🔄 Syncing Active Tickets (source: ${source})...`);
 
   try {
     let collected = [],
@@ -89,21 +79,20 @@ export const fetchAndCacheTickets = async (source = "auto", io = null) => {
         await redisSet("tickets:syncing", processed, 1800);
       }
 
-      if (io) {
-        io.emit("SYNC_PROGRESS", {
+      // Publish socket events via Redis Pub/Sub (Worker → API Server → clients)
+      await publishSocketEvent("SYNC_PROGRESS", {
+        type: "tickets",
+        count: processed.length,
+        progress: isComplete ? 100 : Math.min(90, 10 + Math.floor((loop / 100) * 80)),
+        status: isComplete ? "complete" : "loading",
+      });
+
+      if (isComplete) {
+        await publishSocketEvent("DATA_UPDATED", {
           type: "tickets",
           count: processed.length,
-          progress: isComplete ? 100 : Math.min(90, 10 + Math.floor((loop / 100) * 80)),
-          status: isComplete ? "complete" : "loading",
+          timestamp: new Date().toISOString(),
         });
-
-        if (isComplete) {
-          io.emit("DATA_UPDATED", {
-            type: "tickets",
-            count: processed.length,
-            timestamp: new Date().toISOString(),
-          });
-        }
       }
 
       return processed;
@@ -175,21 +164,13 @@ export const fetchAndCacheTickets = async (source = "auto", io = null) => {
       console.log(
         `✅ ${activeTickets.length} tickets cached (${activeTickets.length - solvedCount} active, ${solvedCount} recently solved)`,
       );
-
-      enrichTimelineReplies().catch((e) =>
-        console.error("❌ Timeline enrichment failed:", e.message),
-      );
+      // Timeline enrichment is now handled by BullMQ chain (worker dispatches timeline:enrich-all)
     } else {
       console.warn("⚠️ Sync completed with 0 tickets collected");
     }
   } catch (e) {
     console.error("❌ Sync Failed:", e.message);
-  } finally {
-    isSyncing = false;
-    if (syncQueued) {
-      syncQueued = false;
-      fetchAndCacheTickets("queued", io);
-    }
+    throw e; // Let BullMQ handle retry
   }
 };
 
@@ -210,6 +191,10 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
   ).lean();
   const alertedTicketIds = new Set(alertedTickets.map(t => t.ticket_id));
   const ticketsToAlert = [];
+
+  // Delta sync: track consecutive batches where all tickets already exist in DB
+  let consecutiveKnownBatches = 0;
+  const KNOWN_THRESHOLD = 5;
 
   do {
     try {
@@ -234,6 +219,23 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
           t.actual_close_date
         );
       });
+
+      // Delta sync: check if all solved tickets in this batch already exist in DB
+      if (solved.length > 0 && !fullHistory) {
+        const batchTicketIds = solved.map(t => t.display_id);
+        const existingCount = await AnalyticsTicket.countDocuments({
+          ticket_id: { $in: batchTicketIds }
+        });
+        if (existingCount === batchTicketIds.length) {
+          consecutiveKnownBatches++;
+          if (consecutiveKnownBatches >= KNOWN_THRESHOLD) {
+            console.log(`⏹️ Delta sync: ${KNOWN_THRESHOLD} consecutive fully-known batches, stopping early`);
+            break;
+          }
+        } else {
+          consecutiveKnownBatches = 0;
+        }
+      }
 
       if (solved.length) {
         const ops = [];

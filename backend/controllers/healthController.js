@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { getRedis } from "../config/database.js";
 import { getServerReady } from "../middleware/server.js";
-import { getCacheWarmingStarted } from "../services/analyticsService.js";
+import { getAllQueues } from "../lib/queues.js";
 
 // PRODUCTION MONITORING: Track server health and usage
 const serverMetrics = {
@@ -26,6 +26,20 @@ export const healthCheck = async (req, res) => {
     mongoose.connection.readyState === 1 ? "connected" : "disconnected";
   const redisStatus = redis?.status || "disconnected";
 
+  // BullMQ queue status
+  let queues = {};
+  try {
+    const allQueues = getAllQueues();
+    for (const [name, queue] of Object.entries(allQueues)) {
+      if (queue) {
+        const counts = await queue.getJobCounts("active", "waiting", "delayed", "failed");
+        queues[name] = counts;
+      }
+    }
+  } catch {
+    queues = { error: "Unable to fetch queue status" };
+  }
+
   res.json({
     status: getServerReady() ? "ok" : "starting",
     server: {
@@ -33,12 +47,12 @@ export const healthCheck = async (req, res) => {
       startedAt: new Date(serverMetrics.startTime).toISOString(),
       isColdStart,
       isReady: getServerReady(),
-      cacheWarming: getCacheWarmingStarted(),
     },
     services: {
       mongodb: mongoStatus,
       redis: redisStatus,
     },
+    queues,
     metrics: {
       totalRequests: serverMetrics.requests,
       coldStarts: serverMetrics.coldStarts,

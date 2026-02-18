@@ -54,7 +54,7 @@ import { mountRoutes } from "./routes/index.js";
 mountRoutes(app);
 
 // --- Database connections ---
-import { connectMongoDB, initRedis } from "./config/database.js";
+import { connectMongoDB, initRedis, getBullMQConnection, getRedisUrl } from "./config/database.js";
 
 connectMongoDB()
   .then(() => {
@@ -70,28 +70,62 @@ connectMongoDB()
 // Start Redis connection immediately (non-blocking)
 initRedis();
 
-// --- Socket.IO injection ---
-import { setIO as setWebhookIO } from "./controllers/webhookController.js";
-import { setIO as setTicketIO } from "./controllers/ticketController.js";
-setWebhookIO(io);
-setTicketIO(io);
+// --- Determine run mode ---
+// NODE_ROLE=api    → API only (needs separate worker service)
+// NODE_ROLE=worker → Worker only (no HTTP server — use worker.js instead)
+// unset / hybrid   → Both API + Workers in one process (default, no extra cost)
+const NODE_ROLE = process.env.NODE_ROLE || "hybrid";
+const isHybrid = NODE_ROLE === "hybrid";
+const runWorkers = NODE_ROLE === "worker" || isHybrid;
 
-// --- Cache warming on MongoDB ready ---
-import { warmCache, runInitialPrecomputation, getCacheWarmingStarted, precomputeAnalytics } from "./services/analyticsService.js";
-import { fetchAndCacheTickets, syncHistoricalToDB } from "./services/syncService.js";
-import { syncRoster } from "./services/rosterService.js";
+// --- BullMQ Setup ---
+import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue } from "./lib/queues.js";
+
+const bullmqConn = getBullMQConnection();
+if (bullmqConn) {
+  initQueues(bullmqConn);
+  console.log(`📋 BullMQ queues initialized (${NODE_ROLE} mode)`);
+} else {
+  console.warn("⚠️ No REDIS_URL — BullMQ queues not available");
+}
+
+// --- Bull Board (Admin monitoring UI) ---
+import { setupBullBoard } from "./lib/bullboard.js";
+if (bullmqConn) {
+  setupBullBoard(app, requireAdmin);
+}
+
+// --- Worker processors + Pub/Sub ---
+import { registerAllWorkers } from "./lib/workers.js";
+import { initPublisher, initSubscriber } from "./lib/pubsub.js";
+import { loadRosterFromRedis } from "./services/rosterService.js";
 import { AnalyticsTicket } from "./models/index.js";
 
-mongoose.connection.once("open", () => {
-  console.log("🍃 MongoDB connection ready");
-  warmCache("mongodb-open", fetchAndCacheTickets);
-});
+let workerInstances = [];
+const redisUrl = getRedisUrl();
+
+if (runWorkers && bullmqConn && redisUrl) {
+  // In hybrid mode, workers run in the same process.
+  // Publisher is needed because services use publishSocketEvent() instead of io.emit().
+  initPublisher(redisUrl);
+  workerInstances = registerAllWorkers(bullmqConn);
+  console.log(`✅ ${workerInstances.length} workers registered (${NODE_ROLE} mode)`);
+}
+
+// Subscriber picks up worker Pub/Sub events and re-broadcasts via Socket.IO
+if (redisUrl) {
+  initSubscriber(redisUrl, io, () => {
+    loadRosterFromRedis().catch((err) =>
+      console.error("Failed to reload roster from Redis:", err.message),
+    );
+  });
+}
 
 // --- Start server ---
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, async () => {
-  console.log(`🚀 Server on port ${PORT}`);
+  console.log(`🚀 Server on port ${PORT} (${NODE_ROLE} mode)`);
 
   // Non-blocking: count tickets in background
   AnalyticsTicket.countDocuments().then((count) => {
@@ -102,57 +136,55 @@ server.listen(PORT, async () => {
     );
   });
 
-  // Non-blocking: sync roster in background (don't wait)
-  syncRoster().catch((err) => console.error("Roster sync failed:", err));
+  // Load roster from Redis
+  loadRosterFromRedis().catch(() => {});
 
-  // Fallback cache warming after 5s if MongoDB connection was slow
-  setTimeout(() => {
-    if (!getCacheWarmingStarted() && mongoose.connection.readyState === 1) {
-      warmCache("server-listen-fallback", fetchAndCacheTickets);
+  // Dispatch startup jobs via BullMQ (workers will pick them up — same or separate process)
+  const ticketSyncQueue = getTicketSyncQueue();
+  if (ticketSyncQueue) {
+    const { redisGet } = await import("./config/database.js");
+    const cached = await redisGet("tickets:active");
+    if (!cached || cached.length === 0) {
+      await ticketSyncQueue.add("sync-active", { source: "startup" }, { jobId: `startup-${Date.now()}` });
+      console.log("📦 Dispatched startup ticket sync job");
     }
-  }, 5000);
 
-  // Run initial pre-computation (delayed 90s to avoid startup memory spike)
-  runInitialPrecomputation();
+    const rosterQueue = getRosterQueue();
+    const rosterData = await redisGet("roster:data");
+    if (rosterQueue && (!rosterData || !rosterData.rows?.length)) {
+      await rosterQueue.add("sync-roster", {}, { jobId: `roster-${Date.now()}` });
+      console.log("📋 Dispatched startup roster sync job");
+    }
+  }
 
-  console.log("✅ Server ready - background tasks running");
+  // Register cron jobs if running workers (hybrid or dedicated worker)
+  if (runWorkers && bullmqConn) {
+    await getHistoricalSyncQueue().add(
+      "delta-sync", {},
+      { repeat: { pattern: "30 18 * * *" }, jobId: "daily-historical-sync" },
+    );
+    await getAnalyticsQueue().add(
+      "precompute", { quarter: "Q1_26" },
+      { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
+    );
+    await getAnalyticsQueue().add(
+      "precompute", { quarter: "Q4_25" },
+      { repeat: { pattern: "40 19 * * *" }, jobId: "daily-analytics-q4-25" },
+    );
+    console.log("📅 Cron jobs registered");
+  }
+
+  console.log("✅ Server ready");
 });
 
-// --- Scheduled daily jobs (midnight & 1 AM IST) ---
-const scheduleDailyJob = (hourIST, label, jobFn) => {
-  const schedule = () => {
-    const now = new Date();
-    // Calculate next occurrence of the target hour in IST (UTC+5:30)
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    const nowIST = new Date(now.getTime() + istOffset);
-    const nextRun = new Date(nowIST);
-    nextRun.setHours(hourIST, 0, 0, 0);
-    // If the target time already passed today, schedule for tomorrow
-    if (nextRun <= nowIST) nextRun.setDate(nextRun.getDate() + 1);
-    // Convert back to UTC for setTimeout
-    const delayMs = nextRun.getTime() - nowIST.getTime();
-    const hoursUntil = (delayMs / 3600000).toFixed(1);
-    console.log(`🕐 ${label} scheduled in ${hoursUntil}h (${hourIST}:00 IST)`);
-    setTimeout(async () => {
-      console.log(`⏰ ${label} starting...`);
-      try {
-        await jobFn();
-      } catch (e) {
-        console.error(`❌ ${label} failed:`, e.message);
-      }
-      if (global.gc) global.gc();
-      schedule(); // Re-schedule for next day
-    }, delayMs);
-  };
-  schedule();
+// --- Graceful shutdown ---
+const shutdown = async () => {
+  if (workerInstances.length > 0) {
+    console.log("🛑 Closing workers...");
+    await Promise.all(workerInstances.map((w) => w.close()));
+    console.log("✅ All workers closed");
+  }
+  server.close(() => process.exit(0));
 };
-
-// Historical sync: once daily at midnight IST
-scheduleDailyJob(0, "Daily historical sync", () => syncHistoricalToDB(false));
-
-// Analytics pre-computation: once daily at 1 AM IST
-scheduleDailyJob(1, "Daily analytics pre-computation", async () => {
-  await precomputeAnalytics("Q1_26");
-  if (global.gc) global.gc();
-  await precomputeAnalytics("Q4_25");
-});
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

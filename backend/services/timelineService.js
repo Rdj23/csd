@@ -1,6 +1,7 @@
 import axios from "axios";
 import { DEVREV_API, HEADERS } from "./devrevApi.js";
 import { redisGet, redisSet } from "../config/database.js";
+import { publishSocketEvent } from "../lib/pubsub.js";
 
 // In-memory fallback cache for when Redis is down
 const memoryCache = new Map();
@@ -164,41 +165,38 @@ export const batchFetchTimelineReplies = async (ticketIds) => {
   return { cached, pending };
 };
 
-// Background function: fetches missing timeline data from DevRev in batches,
-// updates cache, and pushes each batch to the frontend via Socket.io.
-// Fire-and-forget — never awaited in the HTTP request path.
-export const fetchMissingTimelinesInBackground = (missingIds, io) => {
-  if (!missingIds || !missingIds.length || !io) return;
+// Worker-side function: fetches missing timeline data from DevRev in batches,
+// updates cache, and publishes each batch via Redis Pub/Sub → Socket.IO.
+export const fetchMissingTimelinesForWorker = async (missingIds) => {
+  if (!missingIds || !missingIds.length) return;
 
   const BATCH = 3;
   const DELAY_MS = 200; // Respect DevRev rate limit
 
-  (async () => {
-    for (let i = 0; i < missingIds.length; i += BATCH) {
-      const batch = missingIds.slice(i, i + BATCH);
-      const batchResults = {};
+  for (let i = 0; i < missingIds.length; i += BATCH) {
+    const batch = missingIds.slice(i, i + BATCH);
+    const batchResults = {};
 
-      await Promise.all(
-        batch.map(async (ticketId) => {
-          try {
-            const data = await fetchTimelineForTicket(ticketId);
-            await cacheTimeline(ticketId, data);
-            batchResults[ticketId] = data;
-          } catch (e) {
-            const fallback = { last_ct_reply: null, last_customer_reply: null };
-            await cacheTimeline(ticketId, fallback);
-            batchResults[ticketId] = fallback;
-          }
-        }),
-      );
+    await Promise.all(
+      batch.map(async (ticketId) => {
+        try {
+          const data = await fetchTimelineForTicket(ticketId);
+          await cacheTimeline(ticketId, data);
+          batchResults[ticketId] = data;
+        } catch (e) {
+          const fallback = { last_ct_reply: null, last_customer_reply: null };
+          await cacheTimeline(ticketId, fallback);
+          batchResults[ticketId] = fallback;
+        }
+      }),
+    );
 
-      // Push this batch to all connected clients
-      io.emit("timeline_batch_updated", batchResults);
+    // Push batch to all connected clients via Pub/Sub
+    await publishSocketEvent("timeline_batch_updated", batchResults);
 
-      // Rate-limit delay between batches
-      if (i + BATCH < missingIds.length) {
-        await new Promise((r) => setTimeout(r, DELAY_MS));
-      }
+    // Rate-limit delay between batches
+    if (i + BATCH < missingIds.length) {
+      await new Promise((r) => setTimeout(r, DELAY_MS));
     }
-  })().catch((e) => console.error("Background timeline fetch error:", e));
+  }
 };

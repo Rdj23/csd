@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node --max-old-space-size=512 --expose-gc server.js",
+    "start:api": "node --max-old-space-size=384 server.js",
+    "start:worker": "node --max-old-space-size=512 --expose-gc worker.js",
     "build": "echo 'No build step necessary'"
   },
   "keywords": [],
@@ -13,8 +15,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@bull-board/api": "^6.18.2",
+    "@bull-board/express": "^6.18.2",
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.13.2",
+    "bullmq": "^5.69.3",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",

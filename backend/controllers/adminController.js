@@ -1,22 +1,22 @@
 import axios from "axios";
-import { format } from "date-fns";
 import { AnalyticsTicket } from "../models/index.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
-import { syncHistoricalToDB } from "../services/syncService.js";
 import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/slackService.js";
 import { resolveOwnerName, GST_SLACK_MEMBER_IDS } from "../config/constants.js";
+import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 
 export const syncNow = async (req, res) => {
   console.log("🔄 Manual sync triggered...");
   try {
-    await syncHistoricalToDB(false);
-    const count = await AnalyticsTicket.countDocuments();
-    const latest = await AnalyticsTicket.findOne().sort({ closed_date: -1 });
-    res.json({
+    const queue = getHistoricalSyncQueue();
+    if (!queue) {
+      return res.status(503).json({ success: false, error: "Sync queue not available (no Redis)" });
+    }
+    const job = await queue.add("delta-sync", {}, { jobId: `manual-sync-${Date.now()}` });
+    res.status(202).json({
       success: true,
-      totalTickets: count,
-      latestClosedDate: latest?.closed_date,
-      message: `Synced successfully. Latest ticket: ${format(latest?.closed_date || new Date(), "MMM dd, yyyy")}`,
+      message: "Historical sync job dispatched. Check Bull Board for progress.",
+      jobId: job.id,
     });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -48,9 +48,53 @@ export const getSyncStatus = async (req, res) => {
   }
 };
 
-export const backfill = (req, res) => {
-  syncHistoricalToDB(true);
-  res.json({ message: "Started" });
+export const backfill = async (req, res) => {
+  try {
+    const queue = getHistoricalSyncQueue();
+    if (!queue) {
+      return res.status(503).json({ error: "Sync queue not available (no Redis)" });
+    }
+    const job = await queue.add("full-sync", { fullSync: true }, { jobId: `backfill-${Date.now()}` });
+    res.status(202).json({ message: "Full backfill job dispatched.", jobId: job.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getJobStatus = async (req, res) => {
+  const { jobId } = req.params;
+  const { queue: queueName } = req.query;
+  try {
+    const queueMap = {
+      "historical-sync": getHistoricalSyncQueue,
+      analytics: getAnalyticsQueue,
+    };
+    const getQueue = queueMap[queueName];
+    if (!getQueue) {
+      return res.status(400).json({ error: `Unknown queue: ${queueName}` });
+    }
+    const q = getQueue();
+    if (!q) {
+      return res.status(503).json({ error: "Queue not available" });
+    }
+    const job = await q.getJob(jobId);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    const state = await job.getState();
+    res.json({
+      jobId: job.id,
+      state,
+      progress: job.progress,
+      data: job.data,
+      returnvalue: job.returnvalue,
+      failedReason: job.failedReason,
+      timestamp: job.timestamp,
+      finishedOn: job.finishedOn,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 };
 
 export const verifyGSTNames = async (req, res) => {

@@ -103,6 +103,31 @@ export const initRedis = async () => {
   }
 };
 
+// --- REDIS URL EXPORT (for BullMQ and Pub/Sub connections) ---
+export const getRedisUrl = () => process.env.REDIS_URL || null;
+
+/**
+ * Parse REDIS_URL into a BullMQ-compatible connection object.
+ * BullMQ requires maxRetriesPerRequest: null.
+ */
+export const getBullMQConnection = () => {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) return null;
+  try {
+    const parsed = new URL(redisUrl);
+    return {
+      host: parsed.hostname,
+      port: parseInt(parsed.port) || 6379,
+      password: parsed.password || undefined,
+      username: parsed.username || "default",
+      tls: parsed.protocol === "rediss:" ? {} : undefined,
+      maxRetriesPerRequest: null, // Required by BullMQ
+    };
+  } catch {
+    return null;
+  }
+};
+
 // --- MONGODB CONNECTION ---
 // Returns a promise; resolves when connected (or failed)
 export const connectMongoDB = () => {

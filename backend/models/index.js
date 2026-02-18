@@ -86,3 +86,10 @@ const PrecomputedDashboardSchema = new mongoose.Schema({
   computing: { type: Boolean, default: false },
 });
 export const PrecomputedDashboard = mongoose.model("PrecomputedDashboard", PrecomputedDashboardSchema);
+
+const SyncMetadataSchema = new mongoose.Schema({
+  key: { type: String, unique: true },
+  value: mongoose.Schema.Types.Mixed,
+  updated_at: { type: Date, default: Date.now },
+});
+export const SyncMetadata = mongoose.model("SyncMetadata", SyncMetadataSchema);

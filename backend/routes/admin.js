@@ -3,6 +3,7 @@ import {
   syncNow,
   getSyncStatus,
   backfill,
+  getJobStatus,
   verifyGSTNames,
   getPendingAlerts,
   sendPendingAlerts,
@@ -15,6 +16,7 @@ const router = Router();
 router.post("/admin/sync-now", syncNow);
 router.get("/admin/sync-status", getSyncStatus);
 router.post("/admin/backfill", backfill);
+router.get("/admin/job-status/:jobId", getJobStatus);
 router.get("/admin/verify-gst-names", verifyGSTNames);
 router.get("/admin/pending-alerts", getPendingAlerts);
 router.post("/admin/send-pending-alerts", sendPendingAlerts);

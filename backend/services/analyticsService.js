@@ -1,9 +1,8 @@
 import { AnalyticsTicket, PrecomputedDashboard } from "../models/index.js";
 import { getQuarterDateRange } from "../config/constants.js";
 
-let cacheWarmingStarted = false;
-
-export const getCacheWarmingStarted = () => cacheWarmingStarted;
+// precomputeAnalytics is now called by the Worker via BullMQ jobs.
+// warmCache and runInitialPrecomputation are replaced by BullMQ startup jobs.
 
 export const precomputeAnalytics = async (quarter) => {
   const cacheType = quarter.toLowerCase().replace("_", "");
@@ -194,40 +193,5 @@ export const precomputeAnalytics = async (quarter) => {
       { cache_type: cacheType },
       { $set: { computing: false } }
     ).catch(() => {});
-  }
-};
-
-export const runInitialPrecomputation = () => {
-  // Delay initial pre-computation by 90s to let ticket sync finish first
-  setTimeout(async () => {
-    console.log("🚀 Initial pre-computation starting...");
-    try {
-      await precomputeAnalytics("Q1_26");
-      if (global.gc) global.gc();
-      await precomputeAnalytics("Q4_25");
-      if (global.gc) global.gc();
-      console.log("✅ Initial pre-computation complete");
-    } catch (e) {
-      console.error("❌ Initial pre-computation failed:", e.message);
-    }
-  }, 90000);
-};
-
-export const warmCache = async (source = "unknown", fetchAndCacheTicketsFn = null) => {
-  if (cacheWarmingStarted) {
-    console.log(`⏭️ Cache warming already started, skipping (${source})`);
-    return;
-  }
-  cacheWarmingStarted = true;
-  console.log(`🔥 Warming cache (triggered by: ${source})...`);
-
-  try {
-    if (fetchAndCacheTicketsFn) {
-      fetchAndCacheTicketsFn("startup").catch(console.error);
-      console.log("✅ Ticket sync started in background");
-    }
-  } catch (e) {
-    console.log("⚠️ Cache warming failed:", e.message);
-    cacheWarmingStarted = false;
   }
 };

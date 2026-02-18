@@ -2,12 +2,8 @@ import axios from "axios";
 import { AnalyticsTicket } from "../models/index.js";
 import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
-import { fetchAndCacheTickets, getSyncState } from "../services/syncService.js";
-import { batchFetchTimelineReplies, fetchMissingTimelinesInBackground } from "../services/timelineService.js";
-
-// io instance setter for socket events
-let _io = null;
-export const setIO = (io) => { _io = io; };
+import { batchFetchTimelineReplies } from "../services/timelineService.js";
+import { getTicketSyncQueue, getTimelineQueue } from "../lib/queues.js";
 
 export const getLiveStats = async (req, res) => {
   try {
@@ -277,16 +273,14 @@ export const getTicketsByDate = async (req, res) => {
 
 export const getActiveTickets = async (req, res) => {
   try {
-    const { isSyncing } = getSyncState();
-
     const stableTickets = await redisGet("tickets:active");
     if (stableTickets && stableTickets.length > 0) {
-      console.log(`⚡ Serving ${stableTickets.length} stable tickets (syncing: ${isSyncing})`);
+      console.log(`⚡ Serving ${stableTickets.length} stable tickets`);
       return res.json({
         tickets: stableTickets,
         total: stableTickets.length,
         isPartial: false,
-        isSyncing: isSyncing,
+        isSyncing: false,
       });
     }
 
@@ -300,13 +294,15 @@ export const getActiveTickets = async (req, res) => {
       });
     }
 
-    console.log("⏳ Cold start - no cache, triggering sync");
-    if (!isSyncing) {
-      fetchAndCacheTickets("on_demand", _io).catch(err =>
-        console.error("Sync failed:", err)
-      );
+    // Cold start — dispatch a sync job via BullMQ instead of calling directly
+    console.log("⏳ Cold start - no cache, dispatching sync job");
+    const queue = getTicketSyncQueue();
+    if (queue) {
+      queue.add("sync-active", { source: "on_demand" }, { jobId: `on-demand-${Date.now()}` })
+        .catch((err) => console.error("Failed to dispatch sync:", err.message));
     }
 
+    // Poll for a few seconds to see if data appears
     for (let i = 0; i < 5; i++) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       const earlyTickets = await redisGet("tickets:syncing");
@@ -528,9 +524,13 @@ export const getTimelineReplies = async (req, res) => {
     // Instant cache-only read — no DevRev calls in this HTTP path
     const { cached, pending } = await batchFetchTimelineReplies(ticketIds);
 
-    // Fire-and-forget: fetch missing timelines in background, push via socket
+    // Dispatch a BullMQ job to fetch missing timelines (Worker will push via Pub/Sub)
     if (pending.length > 0) {
-      fetchMissingTimelinesInBackground(pending, _io);
+      const queue = getTimelineQueue();
+      if (queue) {
+        queue.add("fetch-missing", { ticketIds: pending }, { jobId: `tl-missing-${Date.now()}` })
+          .catch((err) => console.error("Failed to dispatch timeline fetch:", err.message));
+      }
     }
 
     res.json({ cached, pending });
@@ -541,6 +541,10 @@ export const getTimelineReplies = async (req, res) => {
 };
 
 export const syncTickets = (req, res) => {
-  fetchAndCacheTickets("manual", _io);
+  const queue = getTicketSyncQueue();
+  if (queue) {
+    queue.add("sync-active", { source: "manual" }, { jobId: `manual-sync-${Date.now()}` })
+      .catch((err) => console.error("Failed to dispatch manual sync:", err.message));
+  }
   res.json({ success: true });
 };

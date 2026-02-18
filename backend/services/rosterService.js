@@ -12,7 +12,7 @@ import {
   getCurrentISTHour,
   getQuarterDateRange,
 } from "../config/constants.js";
-import { redisGet } from "../config/database.js";
+import { redisGet, redisSet } from "../config/database.js";
 
 // --- MUTABLE ROSTER STATE ---
 let ROSTER_ROWS = [];
@@ -250,8 +250,43 @@ export const syncRoster = async () => {
     });
 
     console.log(`✅ ${ROSTER_ROWS.length} engineers loaded with ${allDates.length} total days (${headerIndices.length} months)`);
+
+    // Serialize roster data to Redis so API server can load it without Google Sheets access
+    await saveRosterToRedis();
   } catch (e) {
     console.error("Roster error:", e.message);
+  }
+};
+
+// Serialize roster data to Redis (called by Worker after sync)
+const saveRosterToRedis = async () => {
+  try {
+    await redisSet("roster:data", {
+      rows: ROSTER_ROWS,
+      dateColMap: DATE_COL_MAP,
+      levelColIdx: LEVEL_COL_IDX,
+    }, 86400); // 24 hour TTL
+    console.log("✅ Roster data saved to Redis");
+  } catch (e) {
+    console.error("Failed to save roster to Redis:", e.message);
+  }
+};
+
+// Load roster data from Redis (called by API server on startup and roster-updated events)
+export const loadRosterFromRedis = async () => {
+  try {
+    const data = await redisGet("roster:data");
+    if (data && data.rows && data.rows.length > 0) {
+      ROSTER_ROWS = data.rows;
+      DATE_COL_MAP = data.dateColMap || {};
+      LEVEL_COL_IDX = data.levelColIdx ?? -1;
+      console.log(`✅ Roster loaded from Redis: ${ROSTER_ROWS.length} engineers`);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.error("Failed to load roster from Redis:", e.message);
+    return false;
   }
 };
 
