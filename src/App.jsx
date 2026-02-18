@@ -11,7 +11,6 @@ import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
 import AllTicketsView from "./features/tickets/components/Allticketsview";
 
 import GamificationView from "./features/gamification/components/GamificationView";
-import RosterView from "./features/roster/components/RosterView";
 
 import {
   Users,
@@ -1430,8 +1429,6 @@ ${
               { id: "analytics", icon: BarChart3, label: "Analytics" },
               // Gamification tab visible to SUPER_ADMIN and GST users
               ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? [{ id: "gamification", icon: Trophy, label: "Gamification" }] : []),
-              // Roster tab visible to SUPER_ADMIN and GST users
-              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? [{ id: "roster", icon: Layers, label: "Roster" }] : []),
             ].map((t) => (
               <button
                 key={t.id}
@@ -2190,8 +2187,6 @@ ${
     currentUser={currentUser}
     isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
   />
-) : activeTab === "roster" ? (
-  <RosterView />
 ) : activeTab === "alltickets" ? (
                 <AllTicketsView
                   tickets={allTicketsFiltered}

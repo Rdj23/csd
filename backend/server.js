@@ -99,6 +99,7 @@ if (bullmqConn) {
 import { registerAllWorkers } from "./lib/workers.js";
 import { initPublisher, initSubscriber } from "./lib/pubsub.js";
 import { fetchAndCacheTickets } from "./services/syncService.js";
+import { loadRosterFromRedis } from "./services/rosterService.js";
 import { AnalyticsTicket } from "./models/index.js";
 
 let workerInstances = [];
@@ -111,7 +112,9 @@ if (runWorkers && bullmqConn && redisUrl) {
 }
 
 if (redisUrl) {
-  initSubscriber(redisUrl, io);
+  initSubscriber(redisUrl, io, () => {
+    loadRosterFromRedis().catch((e) => console.warn("⚠️ Roster reload failed:", e.message));
+  });
 }
 
 // --- Start server ---
@@ -153,6 +156,9 @@ server.listen(PORT, async () => {
     console.warn("⚠️ Redis down, running startup sync directly");
     fetchAndCacheTickets("startup").catch((e) => console.error("Direct startup sync failed:", e.message));
   }
+
+  // Load roster data from Redis (populated by worker's syncRoster)
+  loadRosterFromRedis().catch((e) => console.warn("⚠️ Roster load failed:", e.message));
 
   // Register cron jobs if running workers and BullMQ is available
   if (runWorkers && bullmqConn) {
