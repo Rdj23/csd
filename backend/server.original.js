@@ -3277,7 +3277,7 @@ app.post("/api/auth/google", async (req, res) => {
     const token = jwt.sign(
       { email: payload.email, name: payload.name },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: "30D" }
     );
     res.json({ success: true, user: payload, token });
   } catch (e) {
