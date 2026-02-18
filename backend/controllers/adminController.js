@@ -4,20 +4,29 @@ import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/slackService.js";
 import { resolveOwnerName, GST_SLACK_MEMBER_IDS } from "../config/constants.js";
 import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
+import { syncHistoricalToDB } from "../services/syncService.js";
 
 export const syncNow = async (req, res) => {
   console.log("🔄 Manual sync triggered...");
   try {
+    // Try BullMQ, fall back to direct execution
     const queue = getHistoricalSyncQueue();
-    if (!queue) {
-      return res.status(503).json({ success: false, error: "Sync queue not available (no Redis)" });
+    if (queue) {
+      try {
+        const job = await queue.add("delta-sync", {}, { jobId: `manual-sync-${Date.now()}` });
+        return res.status(202).json({
+          success: true,
+          message: "Historical sync job dispatched.",
+          jobId: job.id,
+        });
+      } catch (qErr) {
+        console.warn(`⚠️ BullMQ dispatch failed (${qErr.message}), running directly`);
+      }
     }
-    const job = await queue.add("delta-sync", {}, { jobId: `manual-sync-${Date.now()}` });
-    res.status(202).json({
-      success: true,
-      message: "Historical sync job dispatched. Check Bull Board for progress.",
-      jobId: job.id,
-    });
+    // Direct fallback
+    await syncHistoricalToDB(false);
+    const count = await AnalyticsTicket.countDocuments();
+    res.json({ success: true, message: `Sync completed directly. ${count} tickets in DB.` });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -51,11 +60,17 @@ export const getSyncStatus = async (req, res) => {
 export const backfill = async (req, res) => {
   try {
     const queue = getHistoricalSyncQueue();
-    if (!queue) {
-      return res.status(503).json({ error: "Sync queue not available (no Redis)" });
+    if (queue) {
+      try {
+        const job = await queue.add("full-sync", { fullSync: true }, { jobId: `backfill-${Date.now()}` });
+        return res.status(202).json({ message: "Full backfill job dispatched.", jobId: job.id });
+      } catch (qErr) {
+        console.warn(`⚠️ BullMQ dispatch failed (${qErr.message}), running directly`);
+      }
     }
-    const job = await queue.add("full-sync", { fullSync: true }, { jobId: `backfill-${Date.now()}` });
-    res.status(202).json({ message: "Full backfill job dispatched.", jobId: job.id });
+    // Direct fallback
+    syncHistoricalToDB(true);
+    res.json({ message: "Full backfill started directly." });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

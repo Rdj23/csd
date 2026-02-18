@@ -98,27 +98,20 @@ if (bullmqConn) {
 // --- Worker processors + Pub/Sub ---
 import { registerAllWorkers } from "./lib/workers.js";
 import { initPublisher, initSubscriber } from "./lib/pubsub.js";
-import { loadRosterFromRedis } from "./services/rosterService.js";
+import { fetchAndCacheTickets } from "./services/syncService.js";
 import { AnalyticsTicket } from "./models/index.js";
 
 let workerInstances = [];
 const redisUrl = getRedisUrl();
 
 if (runWorkers && bullmqConn && redisUrl) {
-  // In hybrid mode, workers run in the same process.
-  // Publisher is needed because services use publishSocketEvent() instead of io.emit().
   initPublisher(redisUrl);
   workerInstances = registerAllWorkers(bullmqConn);
   console.log(`✅ ${workerInstances.length} workers registered (${NODE_ROLE} mode)`);
 }
 
-// Subscriber picks up worker Pub/Sub events and re-broadcasts via Socket.IO
 if (redisUrl) {
-  initSubscriber(redisUrl, io, () => {
-    loadRosterFromRedis().catch((err) =>
-      console.error("Failed to reload roster from Redis:", err.message),
-    );
-  });
+  initSubscriber(redisUrl, io);
 }
 
 // --- Start server ---
@@ -136,42 +129,50 @@ server.listen(PORT, async () => {
     );
   });
 
-  // Load roster from Redis
-  loadRosterFromRedis().catch(() => {});
-
-  // Dispatch startup jobs via BullMQ (workers will pick them up — same or separate process)
-  const ticketSyncQueue = getTicketSyncQueue();
-  if (ticketSyncQueue) {
+  // Startup ticket sync — try BullMQ, fall back to direct call
+  try {
     const { redisGet } = await import("./config/database.js");
     const cached = await redisGet("tickets:active");
     if (!cached || cached.length === 0) {
-      await ticketSyncQueue.add("sync-active", { source: "startup" }, { jobId: `startup-${Date.now()}` });
-      console.log("📦 Dispatched startup ticket sync job");
+      const ticketSyncQueue = getTicketSyncQueue();
+      if (ticketSyncQueue) {
+        try {
+          await ticketSyncQueue.add("sync-active", { source: "startup" }, { jobId: `startup-${Date.now()}` });
+          console.log("📦 Dispatched startup ticket sync job");
+        } catch {
+          console.warn("⚠️ BullMQ unavailable, running startup sync directly");
+          fetchAndCacheTickets("startup").catch((e) => console.error("Direct startup sync failed:", e.message));
+        }
+      } else {
+        console.log("📦 No queues, running startup sync directly");
+        fetchAndCacheTickets("startup").catch((e) => console.error("Direct startup sync failed:", e.message));
+      }
     }
-
-    const rosterQueue = getRosterQueue();
-    const rosterData = await redisGet("roster:data");
-    if (rosterQueue && (!rosterData || !rosterData.rows?.length)) {
-      await rosterQueue.add("sync-roster", {}, { jobId: `roster-${Date.now()}` });
-      console.log("📋 Dispatched startup roster sync job");
-    }
+  } catch {
+    // Redis completely down — run direct sync
+    console.warn("⚠️ Redis down, running startup sync directly");
+    fetchAndCacheTickets("startup").catch((e) => console.error("Direct startup sync failed:", e.message));
   }
 
-  // Register cron jobs if running workers (hybrid or dedicated worker)
+  // Register cron jobs if running workers and BullMQ is available
   if (runWorkers && bullmqConn) {
-    await getHistoricalSyncQueue().add(
-      "delta-sync", {},
-      { repeat: { pattern: "30 18 * * *" }, jobId: "daily-historical-sync" },
-    );
-    await getAnalyticsQueue().add(
-      "precompute", { quarter: "Q1_26" },
-      { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
-    );
-    await getAnalyticsQueue().add(
-      "precompute", { quarter: "Q4_25" },
-      { repeat: { pattern: "40 19 * * *" }, jobId: "daily-analytics-q4-25" },
-    );
-    console.log("📅 Cron jobs registered");
+    try {
+      await getHistoricalSyncQueue().add(
+        "delta-sync", {},
+        { repeat: { pattern: "30 18 * * *" }, jobId: "daily-historical-sync" },
+      );
+      await getAnalyticsQueue().add(
+        "precompute", { quarter: "Q1_26" },
+        { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
+      );
+      await getAnalyticsQueue().add(
+        "precompute", { quarter: "Q4_25" },
+        { repeat: { pattern: "40 19 * * *" }, jobId: "daily-analytics-q4-25" },
+      );
+      console.log("📅 Cron jobs registered");
+    } catch (e) {
+      console.warn("⚠️ Failed to register cron jobs (Redis down?):", e.message);
+    }
   }
 
   console.log("✅ Server ready");
