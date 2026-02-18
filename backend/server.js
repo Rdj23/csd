@@ -158,7 +158,19 @@ server.listen(PORT, async () => {
   }
 
   // Load roster data from Redis (populated by worker's syncRoster)
-  loadRosterFromRedis().catch((e) => console.warn("⚠️ Roster load failed:", e.message));
+  // If Redis cache is empty/expired, dispatch a sync job to fetch from Google Sheets
+  loadRosterFromRedis()
+    .then((loaded) => {
+      if (loaded) return;
+      console.warn("⚠️ No roster data in Redis, dispatching sync job...");
+      const rosterQueue = getRosterQueue();
+      if (rosterQueue) {
+        rosterQueue.add("sync-roster", {}, { jobId: `startup-roster-${Date.now()}` })
+          .then(() => console.log("📅 Startup roster sync dispatched"))
+          .catch((e) => console.error("Failed to dispatch roster sync:", e.message));
+      }
+    })
+    .catch((e) => console.warn("⚠️ Roster load failed:", e.message));
 
   // Register cron jobs if running workers and BullMQ is available
   if (runWorkers && bullmqConn) {
