@@ -26,4 +26,4 @@ export {
 
 export { fetchViews, saveView, deleteView } from "./viewApi";
 
-export { fetchBackupInfo, fetchProfileStatus } from "./rosterApi";
+export { fetchBackupInfo, fetchProfileStatus, fetchFullRoster } from "./rosterApi";

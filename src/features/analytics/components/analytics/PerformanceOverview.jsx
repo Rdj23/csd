@@ -173,11 +173,10 @@ const PerformanceMetricsCards = ({
 
     return (
       <div
-        className={`metric-card relative flex flex-col justify-between h-44 group cursor-pointer animate-slide-up stagger-${index + 1} ${isHovered ? 'z-10' : ''}`}
+        className={`metric-card relative flex flex-col justify-between h-44 group cursor-pointer transition-opacity duration-300 ${isRefreshing ? 'opacity-70' : 'opacity-100'} ${isHovered ? 'z-10' : ''}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={() => onExpand && onExpand(metricKey)}
-        style={{ animationDelay: `${index * 0.05}s` }}
       >
         <div className="flex justify-between items-start">
           <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -200,7 +199,7 @@ const PerformanceMetricsCards = ({
         </div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-4xl font-black text-slate-800 dark:text-white">
-            {isLoading ? "..." : value}
+            {value ?? "..."}
           </span>
           <span className="text-sm font-semibold text-slate-400">{unit}</span>
         </div>

@@ -3,6 +3,7 @@ import {
   getProfileStatus,
   findBackupForUser,
   getWorkload,
+  getFullRoster,
 } from "../services/rosterService.js";
 
 export const postProfileStatus = (req, res) => {
@@ -34,6 +35,16 @@ export const getRosterWorkload = async (req, res) => {
   } catch (e) {
     console.error("❌ Workload Error:", e);
     res.status(500).json([]);
+  }
+};
+
+export const getFullRosterData = async (req, res) => {
+  try {
+    const results = await getFullRoster();
+    res.json(results);
+  } catch (e) {
+    console.error("❌ Full Roster Error:", e);
+    res.status(500).json({ engineers: [], error: e.message });
   }
 };
 

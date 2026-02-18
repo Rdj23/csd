@@ -6,6 +6,7 @@ import {
   OFF_STATUSES,
   DESIGNATION_MAP,
   NAME_TO_ROSTER_MAP,
+  GAMIFICATION_TEAM_MAP,
   TEAM_GROUPS,
   TEAM_MAPPING,
   getISTTime,
@@ -512,6 +513,79 @@ export const findBackupForUser = async (userName, teamOnly = "true") => {
       })),
     }
   };
+};
+
+// Get full roster data for today (all engineers, shift status, days worked)
+export const getFullRoster = async (quarterStart) => {
+  const istNow = getISTTime();
+  const dateKey = format(istNow, "d-MMM");
+  const colIdx = DATE_COL_MAP[dateKey];
+  const currentHour = getCurrentISTHour();
+
+  if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
+    return { engineers: [], date: dateKey, error: "Roster data not loaded" };
+  }
+
+  const tickets = (await redisGet("tickets:active")) || [];
+  const workloadMap = {};
+  tickets.forEach((t) => {
+    const stageName = (t.stage?.name || "").toLowerCase();
+    if (stageName.includes("solved") || stageName.includes("closed") || stageName.includes("resolved")) return;
+    const ownerName = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "";
+    if (ownerName) {
+      const key = ownerName.toLowerCase();
+      workloadMap[key] = (workloadMap[key] || 0) + 1;
+    }
+  });
+
+  const start = quarterStart || new Date("2026-01-01");
+  const engineers = ROSTER_ROWS.map((row) => {
+    const name = row[0];
+    if (!name) return null;
+
+    const designation = DESIGNATION_MAP[name] || row[LEVEL_COL_IDX] || "L1";
+    const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
+    const shift = colIdx != null ? (row[colIdx] || "").trim() : "";
+    const shiftUpper = shift.toUpperCase();
+
+    let isOnShift = false;
+    let status = "Off";
+    let reason = "";
+
+    if (OFF_STATUSES.includes(shiftUpper)) {
+      reason = OFF_STATUS_MAP[shiftUpper] || "Away";
+      status = reason;
+    } else if (shift) {
+      const shiftMatch = shiftUpper.match(/(?:SHIFT\s*)?(\d)/i);
+      const shiftNum = shiftMatch ? shiftMatch[1] : null;
+      const shiftKey = shiftNum ? `SHIFT ${shiftNum}` : shiftUpper.replace(/\s+/g, " ").trim();
+      const hours = SHIFT_HOURS[shiftKey];
+      if (hours) {
+        if (hours.overnight) {
+          isOnShift = currentHour >= hours.start || currentHour < hours.end;
+        } else {
+          isOnShift = currentHour >= hours.start && currentHour < hours.end;
+        }
+      }
+      status = isOnShift ? "On Shift" : `${shift} (upcoming)`;
+    }
+
+    const daysWorked = getDaysWorked(name, start);
+
+    return {
+      name,
+      designation,
+      team,
+      shift: shift || "—",
+      isOnShift,
+      status,
+      reason,
+      daysWorked,
+      workload: workloadMap[name.toLowerCase()] || 0,
+    };
+  }).filter(Boolean);
+
+  return { engineers, date: dateKey };
 };
 
 // Get workload for all active engineers

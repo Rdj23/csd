@@ -213,10 +213,9 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
       const solved = works.filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
         return (
-          (stage.includes("solved") ||
-            stage.includes("closed") ||
-            stage.includes("resolved")) &&
-          t.actual_close_date
+          stage.includes("solved") ||
+          stage.includes("closed") ||
+          stage.includes("resolved")
         );
       });
 
@@ -241,7 +240,9 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
         const ops = [];
 
         for (const t of solved) {
-          if (new Date(t.actual_close_date) < TARGET_DATE) {
+          // Use actual_close_date, fall back to modified_date, then created_date
+          const closeDateRaw = t.actual_close_date || t.modified_date || t.created_date;
+          if (!closeDateRaw || new Date(closeDateRaw) < TARGET_DATE) {
             continue;
           }
           const ownerRaw = t.owned_by?.[0]?.display_name || "";
@@ -271,7 +272,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
           let hasL2NocConfirmation = false;
           let nocConfirmationIssId = null;
 
-          const closedDate = new Date(t.actual_close_date);
+          const closedDate = new Date(closeDateRaw);
           if (closedDate >= NOC_CHECK_DATE) {
             try {
               const linksRes = await axios.post(
@@ -368,7 +369,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                   display_id: t.display_id,
                   title: t.title,
                   created_date: new Date(t.created_date),
-                  closed_date: new Date(t.actual_close_date),
+                  closed_date: closedDate,
                   owner,
                   region: t.custom_fields?.tnt__region_salesforce || "Unknown",
                   priority: t.priority,

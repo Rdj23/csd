@@ -25,3 +25,11 @@ export const fetchProfileStatus = async (userName) => {
   });
   return res.data;
 };
+
+/**
+ * Fetch full roster data (all engineers, shifts, status).
+ */
+export const fetchFullRoster = async () => {
+  const res = await authAxios.get(`${API_URL}/api/roster/full`);
+  return res.data;
+};
