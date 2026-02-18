@@ -20,7 +20,7 @@ export const registerAllWorkers = (connection) => {
         await tlQueue.add("enrich-all", {}, { jobId: `enrich-after-sync-${Date.now()}` });
       }
     },
-    { ...opts, concurrency: 1 },
+    { ...opts, concurrency: 1, lockDuration: 300000 },
   );
 
   const historicalSyncWorker = new Worker(
@@ -30,7 +30,6 @@ export const registerAllWorkers = (connection) => {
       if (job.name === "full-sync") {
         await syncHistoricalToDB(true);
       } else {
-        // delta-sync or single-ticket
         await syncHistoricalToDB(false);
       }
       if (global.gc) global.gc();
@@ -45,7 +44,7 @@ export const registerAllWorkers = (connection) => {
       await precomputeAnalytics(job.data.quarter);
       if (global.gc) global.gc();
     },
-    { ...opts, concurrency: 1 },
+    { ...opts, concurrency: 1, lockDuration: 300000 },
   );
 
   const timelineWorker = new Worker(
@@ -59,7 +58,7 @@ export const registerAllWorkers = (connection) => {
         await fetchMissingTimelinesForWorker(job.data.ticketIds);
       }
     },
-    { ...opts, concurrency: 1 },
+    { ...opts, concurrency: 1, lockDuration: 300000 },
   );
 
   const rosterWorker = new Worker(
@@ -69,7 +68,7 @@ export const registerAllWorkers = (connection) => {
       await syncRoster();
       await publishRosterUpdated();
     },
-    { ...opts, concurrency: 1 },
+    { ...opts, concurrency: 1, lockDuration: 120000 },
   );
 
   const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, timelineWorker, rosterWorker];
