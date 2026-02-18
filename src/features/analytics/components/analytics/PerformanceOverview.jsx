@@ -33,6 +33,13 @@ const Q1_WEEKS = [
   { id: 4, label: "W4", start: "2026-01-19", end: "2026-01-25", range: "Jan 19-25" },
   { id: 5, label: "W5", start: "2026-01-26", end: "2026-02-01", range: "Jan 26 - Feb 1" },
   { id: 6, label: "W6", start: "2026-02-02", end: "2026-02-08", range: "Feb 2-8" },
+  { id: 7, label: "W7", start: "2026-02-09", end: "2026-02-15", range: "Feb 9-15" },
+  { id: 8, label: "W8", start: "2026-02-16", end: "2026-02-22", range: "Feb 16-22" },
+  { id: 9, label: "W9", start: "2026-02-23", end: "2026-03-01", range: "Feb 23 - Mar 1" },
+  { id: 10, label: "W10", start: "2026-03-02", end: "2026-03-08", range: "Mar 2-8" },
+  { id: 11, label: "W11", start: "2026-03-09", end: "2026-03-15", range: "Mar 9-15" },
+  { id: 12, label: "W12", start: "2026-03-16", end: "2026-03-22", range: "Mar 16-22" },
+  { id: 13, label: "W13", start: "2026-03-23", end: "2026-03-31", range: "Mar 23-31" },
 ];
 
 // Month definitions with week ranges

@@ -2,7 +2,7 @@ import axios from "axios";
 import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisDelete, CACHE_TTL } from "../config/database.js";
-import { AnalyticsTicket, AnalyticsCache } from "../models/index.js";
+import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS } from "../config/constants.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
@@ -423,6 +423,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
 
   await Promise.all([
     AnalyticsCache.deleteMany({}),
+    PrecomputedDashboard.deleteMany({}),
     redisDelete("analytics:*"),
     redisDelete("livestats:*"),
     redisDelete("bydate:*"),

@@ -246,6 +246,41 @@ export const getQuarterDateRange = (quarter) => {
         start: new Date("2026-02-02"),
         end: new Date("2026-02-08T23:59:59Z"),
       };
+    case "Q1_26_W7":
+      return {
+        start: new Date("2026-02-09"),
+        end: new Date("2026-02-15T23:59:59Z"),
+      };
+    case "Q1_26_W8":
+      return {
+        start: new Date("2026-02-16"),
+        end: new Date("2026-02-22T23:59:59Z"),
+      };
+    case "Q1_26_W9":
+      return {
+        start: new Date("2026-02-23"),
+        end: new Date("2026-03-01T23:59:59Z"),
+      };
+    case "Q1_26_W10":
+      return {
+        start: new Date("2026-03-02"),
+        end: new Date("2026-03-08T23:59:59Z"),
+      };
+    case "Q1_26_W11":
+      return {
+        start: new Date("2026-03-09"),
+        end: new Date("2026-03-15T23:59:59Z"),
+      };
+    case "Q1_26_W12":
+      return {
+        start: new Date("2026-03-16"),
+        end: new Date("2026-03-22T23:59:59Z"),
+      };
+    case "Q1_26_W13":
+      return {
+        start: new Date("2026-03-23"),
+        end: new Date("2026-03-31T23:59:59Z"),
+      };
 
     // Q1 2026 Months
     case "Q1_26_M1":
