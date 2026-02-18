@@ -181,7 +181,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     processedCount = 0,
     nocCount = 0,
     skippedCount = 0;
-  const TARGET_DATE = new Date("2025-10-01");
+  const TARGET_DATE = new Date("2026-01-01");
   const NOC_CHECK_DATE = new Date("2026-01-01");
   const SLACK_ALERT_START_DATE = new Date("2026-01-25");
 

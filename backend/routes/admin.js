@@ -9,6 +9,7 @@ import {
   sendPendingAlerts,
   testSlack,
   syncSingleTicket,
+  cleanupOldTickets,
 } from "../controllers/adminController.js";
 
 const router = Router();
@@ -22,5 +23,6 @@ router.get("/admin/pending-alerts", getPendingAlerts);
 router.post("/admin/send-pending-alerts", sendPendingAlerts);
 router.post("/admin/test-slack", testSlack);
 router.post("/admin/sync-ticket", syncSingleTicket);
+router.post("/admin/cleanup-old-tickets", cleanupOldTickets);
 
 export default router;

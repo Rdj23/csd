@@ -400,3 +400,22 @@ export const syncSingleTicket = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+export const cleanupOldTickets = async (req, res) => {
+  try {
+    const cutoff = new Date("2026-01-01");
+    const result = await AnalyticsTicket.deleteMany({
+      closed_date: { $lt: cutoff },
+    });
+    console.log(`🗑️ Deleted ${result.deletedCount} tickets before 2026-01-01`);
+    const remaining = await AnalyticsTicket.countDocuments();
+    res.json({
+      success: true,
+      deleted: result.deletedCount,
+      remaining,
+      message: `Deleted ${result.deletedCount} old tickets. ${remaining} tickets remaining.`,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};

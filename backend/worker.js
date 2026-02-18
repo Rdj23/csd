@@ -44,16 +44,11 @@ const start = async () => {
     { repeat: { pattern: "30 18 * * *" }, jobId: "daily-historical-sync" },
   );
 
-  // Analytics precompute: 1AM IST (19:30 UTC) and 1:10AM IST (19:40 UTC)
+  // Analytics precompute: 1AM IST (19:30 UTC)
   await getAnalyticsQueue().add(
     "precompute",
     { quarter: "Q1_26" },
     { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
-  );
-  await getAnalyticsQueue().add(
-    "precompute",
-    { quarter: "Q4_25" },
-    { repeat: { pattern: "40 19 * * *" }, jobId: "daily-analytics-q4-25" },
   );
 
   console.log("📅 Repeatable cron jobs registered");
@@ -70,11 +65,6 @@ const start = async () => {
     await getAnalyticsQueue().add("precompute", { quarter: "Q1_26" }, { jobId: `startup-analytics-q1-${Date.now()}` });
     console.log("📊 Startup Q1_26 precompute dispatched");
   }, 90000);
-
-  setTimeout(async () => {
-    await getAnalyticsQueue().add("precompute", { quarter: "Q4_25" }, { jobId: `startup-analytics-q4-${Date.now()}` });
-    console.log("📊 Startup Q4_25 precompute dispatched");
-  }, 120000);
 
   // 8. Graceful shutdown
   const shutdown = async () => {

@@ -165,10 +165,6 @@ server.listen(PORT, async () => {
         "precompute", { quarter: "Q1_26" },
         { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
       );
-      await getAnalyticsQueue().add(
-        "precompute", { quarter: "Q4_25" },
-        { repeat: { pattern: "40 19 * * *" }, jobId: "daily-analytics-q4-25" },
-      );
       console.log("📅 Cron jobs registered");
     } catch (e) {
       console.warn("⚠️ Failed to register cron jobs (Redis down?):", e.message);
