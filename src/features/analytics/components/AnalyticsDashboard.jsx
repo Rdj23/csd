@@ -9,6 +9,8 @@ import {
   format,
   subDays,
   eachDayOfInterval,
+  startOfWeek,
+  endOfWeek,
   isSameDay,
   parseISO,
   differenceInHours,
@@ -1413,6 +1415,21 @@ const AnalyticsDashboard = ({
   const [showGST, setShowGST] = useState(false);
   const [timeRange, setTimeRange] = useState(30);
   const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const userDropdownRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target)) {
+        setUserDropdownOpen(false);
+      }
+    };
+    if (userDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [userDropdownOpen]);
 
   const isDark = propIsDark !== undefined ? propIsDark : theme === "dark";
 
@@ -2697,14 +2714,77 @@ const AnalyticsDashboard = ({
     dependencies,
   ]);
 
+  // Helper: determine if a metric should be summed or averaged when grouping
+  const isAverageMetric = (metric) =>
+    ["rwt", "avgRWT", "avgFRT", "avgIterations", "frrPercent"].includes(metric);
+
+  // Helper: aggregate daily data points into weekly/monthly buckets
+  const aggregateData = useCallback((dailyData, groupMode, metric, users) => {
+    if (groupMode === "daily" || !dailyData.length) return dailyData;
+
+    const buckets = new Map();
+    const useAvg = isAverageMetric(metric);
+
+    dailyData.forEach((point) => {
+      const d = parseISO(point.date);
+      let bucketKey, bucketLabel;
+
+      if (groupMode === "weekly") {
+        const weekStart = startOfWeek(d, { weekStartsOn: 1 });
+        bucketKey = format(weekStart, "yyyy-MM-dd");
+        const weekEnd = endOfWeek(d, { weekStartsOn: 1 });
+        bucketLabel = `${format(weekStart, "MMM dd")} - ${format(weekEnd, "MMM dd")}`;
+      } else {
+        bucketKey = format(d, "yyyy-MM");
+        bucketLabel = format(d, "MMM yyyy");
+      }
+
+      if (!buckets.has(bucketKey)) {
+        buckets.set(bucketKey, { name: bucketLabel, date: bucketKey, _count: 0 });
+      }
+      const bucket = buckets.get(bucketKey);
+      bucket._count += 1;
+
+      // Aggregate user values
+      users.forEach((user) => {
+        bucket[user] = (bucket[user] || 0) + (point[user] || 0);
+      });
+      // Aggregate team/GST
+      if (point.compare_team !== undefined) {
+        bucket.compare_team = (bucket.compare_team || 0) + (point.compare_team || 0);
+      }
+      if (point.compare_gst !== undefined) {
+        bucket.compare_gst = (bucket.compare_gst || 0) + (point.compare_gst || 0);
+      }
+    });
+
+    // For average metrics, divide sums by count
+    if (useAvg) {
+      buckets.forEach((bucket) => {
+        const count = bucket._count || 1;
+        users.forEach((user) => {
+          bucket[user] = Number(((bucket[user] || 0) / count).toFixed(2));
+        });
+        if (bucket.compare_team !== undefined) {
+          bucket.compare_team = Number((bucket.compare_team / count).toFixed(2));
+        }
+        if (bucket.compare_gst !== undefined) {
+          bucket.compare_gst = Number((bucket.compare_gst / count).toFixed(2));
+        }
+      });
+    }
+
+    return Array.from(buckets.values()).map(({ _count, ...rest }) => rest);
+  }, []);
+
   // Expanded chart data
   const expandedData = useMemo(() => {
     if (!expandedMetric) return [];
 
     const individualTrends = analyticsData?.individualTrends || {};
     const rangeToUse = expandedEffectiveDateRange || effectiveDateRange;
+    let dailyData = [];
 
-    // For VOLUME - use real-time tickets with created_date
     // For VOLUME - use real-time tickets with created_date
     if (expandedMetric === "volume") {
       const daysInterval = eachDayOfInterval({
@@ -2712,7 +2792,7 @@ const AnalyticsDashboard = ({
         end: rangeToUse.end,
       });
 
-      return daysInterval.map((day) => {
+      dailyData = daysInterval.map((day) => {
         const dateKey = format(day, "yyyy-MM-dd");
         const dataPoint = { name: format(day, "MMM dd"), date: dateKey };
 
@@ -2761,97 +2841,99 @@ const AnalyticsDashboard = ({
 
         return dataPoint;
       });
-    }
-
-    // For SOLVED, RWT, BACKLOG - use server individualTrends
-    const allDates = new Set();
-    selectedUsers.forEach((user) => {
-      (individualTrends[user] || []).forEach((d) => allDates.add(d.date));
-    });
-
-    // Filter dates to be within effectiveDateRange
-    const sortedDates = Array.from(allDates)
-      .sort()
-      .filter((date) => {
-        const d = parseISO(date);
-        return d >= rangeToUse.start && d <= rangeToUse.end;
-      });
-
-    return sortedDates.map((date) => {
-      const dataPoint = { name: format(parseISO(date), "MMM dd"), date };
-
+    } else {
+      // For SOLVED, RWT, BACKLOG, etc. - use server individualTrends
+      const allDates = new Set();
       selectedUsers.forEach((user) => {
-        const userDay = (individualTrends[user] || []).find(
-          (d) => d.date === date,
-        );
-        if (expandedMetric === "solved") {
-          dataPoint[user] = userDay?.solved || 0;
-        } else if (expandedMetric === "rwt" || expandedMetric === "avgRWT") {
-          dataPoint[user] = userDay?.avgRWT
-            ? Number(userDay.avgRWT.toFixed(2))
-            : 0;
-        } else if (expandedMetric === "backlog") {
-          dataPoint[user] = userDay?.backlogCleared || 0;
-        } else if (expandedMetric === "frrPercent") {
-          // ✅ FIX: Use pre-calculated frrPercent from backend
-          dataPoint[user] = userDay?.frrPercent || 0;
-        } else if (expandedMetric === "csat") {
-          dataPoint[user] = userDay?.positiveCSAT || 0;
-        } else if (expandedMetric === "avgFRT") {
-          dataPoint[user] = userDay?.avgFRT
-            ? Number(userDay.avgFRT.toFixed(2))
-            : 0;
-        } else if (expandedMetric === "avgIterations") {
-          dataPoint[user] = userDay?.avgIterations
-            ? Number(userDay.avgIterations.toFixed(1))
-            : 0;
-        }
+        (individualTrends[user] || []).forEach((d) => allDates.add(d.date));
       });
 
-      // Team & GST totals
-      if (showTeam || showGST) {
-        let teamTotal = 0,
-          gstTotal = 0;
-        const teamMembers = TEAM_GROUPS[
-          selectedUserTeamName?.replace("Team ", "")
-        ]
-          ? Object.values(
-              TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")],
-            )
-          : [];
+      // Filter dates to be within effectiveDateRange
+      const sortedDates = Array.from(allDates)
+        .sort()
+        .filter((date) => {
+          const d = parseISO(date);
+          return d >= rangeToUse.start && d <= rangeToUse.end;
+        });
 
-        Object.entries(individualTrends).forEach(([user, days]) => {
-          const dayData = days.find((d) => d.date === date);
-          if (dayData) {
-            const val =
-              expandedMetric === "solved"
-                ? dayData.solved
-                : expandedMetric === "rwt" || expandedMetric === "avgRWT"
-                  ? dayData.avgRWT
-                  : expandedMetric === "backlog"
-                    ? dayData.backlogCleared
-                    : expandedMetric === "frrPercent"
-                      ? dayData.frrPercent
-                      : expandedMetric === "csat"
-                        ? dayData.positiveCSAT
-                        : expandedMetric === "avgFRT"
-                          ? dayData.avgFRT
-                          : expandedMetric === "avgIterations"
-                            ? dayData.avgIterations
-                            : 0;
-            gstTotal += val || 0;
-            if (teamMembers.includes(user)) {
-              teamTotal += val || 0;
-            }
+      dailyData = sortedDates.map((date) => {
+        const dataPoint = { name: format(parseISO(date), "MMM dd"), date };
+
+        selectedUsers.forEach((user) => {
+          const userDay = (individualTrends[user] || []).find(
+            (d) => d.date === date,
+          );
+          if (expandedMetric === "solved") {
+            dataPoint[user] = userDay?.solved || 0;
+          } else if (expandedMetric === "rwt" || expandedMetric === "avgRWT") {
+            dataPoint[user] = userDay?.avgRWT
+              ? Number(userDay.avgRWT.toFixed(2))
+              : 0;
+          } else if (expandedMetric === "backlog") {
+            dataPoint[user] = userDay?.backlogCleared || 0;
+          } else if (expandedMetric === "frrPercent") {
+            dataPoint[user] = userDay?.frrPercent || 0;
+          } else if (expandedMetric === "csat") {
+            dataPoint[user] = userDay?.positiveCSAT || 0;
+          } else if (expandedMetric === "avgFRT") {
+            dataPoint[user] = userDay?.avgFRT
+              ? Number(userDay.avgFRT.toFixed(2))
+              : 0;
+          } else if (expandedMetric === "avgIterations") {
+            dataPoint[user] = userDay?.avgIterations
+              ? Number(userDay.avgIterations.toFixed(1))
+              : 0;
           }
         });
 
-        if (showTeam) dataPoint.compare_team = teamTotal;
-        if (showGST) dataPoint.compare_gst = gstTotal;
-      }
+        // Team & GST totals
+        if (showTeam || showGST) {
+          let teamTotal = 0,
+            gstTotal = 0;
+          const teamMembers = TEAM_GROUPS[
+            selectedUserTeamName?.replace("Team ", "")
+          ]
+            ? Object.values(
+                TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")],
+              )
+            : [];
 
-      return dataPoint;
-    });
+          Object.entries(individualTrends).forEach(([user, days]) => {
+            const dayData = days.find((d) => d.date === date);
+            if (dayData) {
+              const val =
+                expandedMetric === "solved"
+                  ? dayData.solved
+                  : expandedMetric === "rwt" || expandedMetric === "avgRWT"
+                    ? dayData.avgRWT
+                    : expandedMetric === "backlog"
+                      ? dayData.backlogCleared
+                      : expandedMetric === "frrPercent"
+                        ? dayData.frrPercent
+                        : expandedMetric === "csat"
+                          ? dayData.positiveCSAT
+                          : expandedMetric === "avgFRT"
+                            ? dayData.avgFRT
+                            : expandedMetric === "avgIterations"
+                              ? dayData.avgIterations
+                              : 0;
+              gstTotal += val || 0;
+              if (teamMembers.includes(user)) {
+                teamTotal += val || 0;
+              }
+            }
+          });
+
+          if (showTeam) dataPoint.compare_team = teamTotal;
+          if (showGST) dataPoint.compare_gst = gstTotal;
+        }
+
+        return dataPoint;
+      });
+    }
+
+    // Apply weekly/monthly grouping
+    return aggregateData(dailyData, expandedGroupBy, expandedMetric, selectedUsers);
   }, [
     analyticsData,
     expandedMetric,
@@ -2862,6 +2944,8 @@ const AnalyticsDashboard = ({
     tickets,
     effectiveDateRange,
     expandedEffectiveDateRange,
+    expandedGroupBy,
+    aggregateData,
   ]);
 
   const colors = {
@@ -3424,8 +3508,15 @@ const AnalyticsDashboard = ({
             {/* CONTROLS */}
             <div className="px-8 py-4 bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4 shrink-0">
               {/* User Dropdown - GST ONLY */}
-              <div className="relative group">
-                <button className="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-indigo-500 transition-all min-w-[220px] justify-between">
+              <div className="relative" ref={userDropdownRef}>
+                <button
+                  onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                  className={`flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl border shadow-sm transition-all min-w-[220px] justify-between ${
+                    userDropdownOpen
+                      ? "border-indigo-500 ring-2 ring-indigo-500/20"
+                      : "border-slate-200 dark:border-slate-800 hover:border-indigo-500"
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-slate-400" />
                     <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
@@ -3434,34 +3525,59 @@ const AnalyticsDashboard = ({
                         : "Select Users..."}
                     </span>
                   </div>
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${userDropdownOpen ? "rotate-180" : ""}`} />
                 </button>
 
-                <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2 hidden group-hover:block max-h-[60vh] overflow-y-auto z-[60]">
-                  {gstUserNames.map((user) => (
-                    <label
-                      key={user}
-                      className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedUsers.includes(user)}
-                        onChange={(e) => {
-                          if (e.target.checked)
-                            setSelectedUsers([...selectedUsers, user]);
-                          else
-                            setSelectedUsers(
-                              selectedUsers.filter((u) => u !== user),
-                            );
-                        }}
-                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span className="text-sm text-slate-700 dark:text-slate-200">
-                        {user}
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                {userDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2 max-h-[60vh] overflow-y-auto z-[60]">
+                    {/* Select All / Clear */}
+                    <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                      <button
+                        onClick={() => setSelectedUsers([...gstUserNames])}
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={() => setSelectedUsers([])}
+                        className="text-xs font-medium text-slate-400 hover:text-slate-600"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {gstUserNames.map((user) => (
+                      <label
+                        key={user}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                          selectedUsers.includes(user)
+                            ? "bg-indigo-50 dark:bg-indigo-900/20"
+                            : "hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedUsers.includes(user)}
+                          onChange={(e) => {
+                            if (e.target.checked)
+                              setSelectedUsers([...selectedUsers, user]);
+                            else
+                              setSelectedUsers(
+                                selectedUsers.filter((u) => u !== user),
+                              );
+                          }}
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className={`text-sm ${
+                          selectedUsers.includes(user)
+                            ? "font-semibold text-indigo-700 dark:text-indigo-300"
+                            : "text-slate-700 dark:text-slate-200"
+                        }`}>
+                          {user}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Time Range */}
@@ -3473,20 +3589,37 @@ const AnalyticsDashboard = ({
                 />
               </div>
 
+              {/* Group By Toggle */}
+              <div className="flex items-center bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                {["daily", "weekly", "monthly"].map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setExpandedGroupBy(mode)}
+                    className={`px-3 py-2 text-xs font-bold capitalize transition-all ${
+                      expandedGroupBy === mode
+                        ? "bg-indigo-600 text-white"
+                        : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+
               <div className="h-8 w-px bg-slate-300 dark:bg-slate-700 mx-2"></div>
 
               <button
                 onClick={() => setShowTeam(!showTeam)}
                 className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${
                   showTeam
-                    ? "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 text-indigo-600"
+                    ? "bg-rose-50 dark:bg-rose-900/30 border-rose-200 text-rose-600"
                     : "border-transparent text-slate-500 hover:bg-slate-100"
                 }`}
               >
                 <div
                   className={`w-3 h-3 rounded-full border ${
                     showTeam
-                      ? "bg-indigo-500 border-indigo-500"
+                      ? "bg-rose-500 border-rose-500"
                       : "border-slate-400"
                   }`}
                 ></div>
@@ -3533,8 +3666,8 @@ const AnalyticsDashboard = ({
                 >
                   <defs>
                     <linearGradient id="colorTeam" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#e11d48" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#e11d48" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorGST" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
@@ -3599,9 +3732,10 @@ const AnalyticsDashboard = ({
                       type="monotone"
                       dataKey="compare_team"
                       name="Team Total"
-                      stroke="#6366f1"
+                      stroke="#e11d48"
                       fill="none"
-                      strokeWidth={3}
+                      strokeWidth={2.5}
+                      strokeDasharray="6 3"
                     />
                   )}
                   {showGST && (
@@ -3611,7 +3745,8 @@ const AnalyticsDashboard = ({
                       name="GST Total"
                       stroke="#10b981"
                       fill="none"
-                      strokeWidth={3}
+                      strokeWidth={2.5}
+                      strokeDasharray="6 3"
                     />
                   )}
                 </AreaChart>
