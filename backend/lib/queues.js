@@ -18,8 +18,8 @@ export const initQueues = (connection) => {
   historicalSyncQueue = new Queue("historical-sync", {
     ...opts,
     defaultJobOptions: {
-      attempts: 2,
-      backoff: { type: "fixed", delay: 30000 },
+      attempts: 4,
+      backoff: { type: "exponential", delay: 30000 },
       removeOnComplete: { count: 10 },
       removeOnFail: { count: 20 },
     },
@@ -28,8 +28,8 @@ export const initQueues = (connection) => {
   analyticsQueue = new Queue("analytics", {
     ...opts,
     defaultJobOptions: {
-      attempts: 2,
-      backoff: { type: "fixed", delay: 15000 },
+      attempts: 4,
+      backoff: { type: "exponential", delay: 15000 },
       removeOnComplete: { count: 20 },
       removeOnFail: { count: 20 },
     },

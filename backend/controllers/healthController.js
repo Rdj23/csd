@@ -28,12 +28,24 @@ export const healthCheck = async (req, res) => {
 
   // BullMQ queue status
   let queues = {};
+  let cronJobs = [];
   try {
     const allQueues = getAllQueues();
     for (const [name, queue] of Object.entries(allQueues)) {
       if (queue) {
         const counts = await queue.getJobCounts("active", "waiting", "delayed", "failed");
         queues[name] = counts;
+
+        // Show registered repeatable (cron) jobs
+        const repeatables = await queue.getRepeatableJobs();
+        for (const r of repeatables) {
+          cronJobs.push({
+            queue: name,
+            name: r.name,
+            pattern: r.pattern,
+            next: r.next ? new Date(r.next).toISOString() : null,
+          });
+        }
       }
     }
   } catch {
@@ -53,6 +65,7 @@ export const healthCheck = async (req, res) => {
       redis: redisStatus,
     },
     queues,
+    cronJobs,
     metrics: {
       totalRequests: serverMetrics.requests,
       coldStarts: serverMetrics.coldStarts,

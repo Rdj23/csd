@@ -175,13 +175,22 @@ server.listen(PORT, async () => {
   // Register cron jobs if running workers and BullMQ is available
   if (runWorkers && bullmqConn) {
     try {
+      // Clean up old repeatable schedules before registering new ones
+      for (const queue of [getHistoricalSyncQueue(), getAnalyticsQueue()]) {
+        const repeatables = await queue.getRepeatableJobs();
+        for (const job of repeatables) {
+          await queue.removeRepeatableByKey(job.key);
+          console.log(`🗑️ Removed old repeatable: ${job.key}`);
+        }
+      }
+
       await getHistoricalSyncQueue().add(
         "delta-sync", {},
-        { repeat: { pattern: "30 18 * * *" }, jobId: "daily-historical-sync" },
+        { repeat: { pattern: "0 4 * * *" }, jobId: "daily-historical-sync" },  // 04:00 UTC = 9:30 AM IST (during keep-alive window)
       );
       await getAnalyticsQueue().add(
         "precompute", { quarter: "Q1_26" },
-        { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
+        { repeat: { pattern: "30 4 * * *" }, jobId: "daily-analytics-q1-26" },  // 04:30 UTC = 10:00 AM IST (runs after sync)
       );
       console.log("📅 Cron jobs registered");
     } catch (e) {
