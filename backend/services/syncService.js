@@ -50,22 +50,41 @@ export const fetchAndCacheTickets = async (source = "auto") => {
           const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
           return !ownerName.includes("anmol sawhney");
         })
-        .map((t) => ({
-          id: t.id,
-          display_id: t.display_id,
-          title: t.title,
-          priority: t.priority,
-          severity: t.severity,
-          account: t.account?.display_name || t.account,
-          stage: t.stage,
-          owned_by: t.owned_by,
-          created_date: t.created_date,
-          modified_date: t.modified_date,
-          custom_fields: t.custom_fields,
-          tags: t.tags,
-          isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
-          actual_close_date: t.actual_close_date,
-        }));
+        .map((t) => {
+          // Only keep the custom_fields the frontend needs — drop massive
+          // app_email_integration__* and other bloat that causes Redis OOM.
+          const cf = t.custom_fields || {};
+          const trimmedCF = {
+            tnt__csatrating: cf.tnt__csatrating,
+            tnt__region_salesforce: cf.tnt__region_salesforce,
+            tnt__instance_account_name: cf.tnt__instance_account_name,
+            tnt__csm_email_id: cf.tnt__csm_email_id,
+            tnt__csm: cf.tnt__csm,
+            tnt__tam: cf.tnt__tam,
+            tnt__rwt_business_hours: cf.tnt__rwt_business_hours,
+            tnt__frt_hours: cf.tnt__frt_hours,
+            tnt__iteration_count: cf.tnt__iteration_count,
+            tnt__frr: cf.tnt__frr,
+            tnt__customer_wait_time: cf.tnt__customer_wait_time,
+          };
+
+          return {
+            id: t.id,
+            display_id: t.display_id,
+            title: t.title,
+            priority: t.priority,
+            severity: t.severity,
+            account: t.account?.display_name || t.account,
+            stage: t.stage,
+            owned_by: t.owned_by,
+            created_date: t.created_date,
+            modified_date: t.modified_date,
+            custom_fields: trimmedCF,
+            tags: t.tags,
+            isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+            actual_close_date: t.actual_close_date,
+          };
+        });
     };
 
     const saveProgress = async (ticketsRaw, isComplete) => {
@@ -164,8 +183,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       if (global.gc) global.gc();
       logger.info({ total: activeTickets.length, active: activeTickets.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
       // Timeline enrichment is now handled by BullMQ chain (worker dispatches timeline:enrich-all)
+      return activeTickets;
     } else {
       logger.warn("Sync completed with 0 tickets collected");
+      return [];
     }
   } catch (e) {
     logger.error({ err: e }, "Sync Failed");
