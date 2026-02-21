@@ -312,32 +312,10 @@ export const getActiveTickets = async (req, res) => {
       });
     }
 
-    // Cold start — dispatch sync via BullMQ, or run directly if Redis is down
-    logger.info("Cold start - no cache, triggering sync");
-
-    const queue = getTicketSyncQueue();
-    if (queue) {
-      try {
-        await queue.add("sync-active", { source: "on_demand" }, { jobId: `sync-active-${Date.now()}` });
-        // BullMQ dispatched — poll Redis for partial results
-        for (let i = 0; i < 5; i++) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          const earlyTickets = await redisGet("tickets:syncing");
-          if (earlyTickets && earlyTickets.length > 0) {
-            return ok(res, {
-              tickets: earlyTickets,
-              total: earlyTickets.length,
-              isPartial: true,
-            });
-          }
-        }
-        return ok(res, { tickets: [], total: 0, isPartial: true, message: "Loading tickets..." });
-      } catch (err) {
-        logger.warn({ err }, "BullMQ dispatch failed, running sync directly");
-      }
-    }
-
-    // Direct fallback — run sync and return results without depending on Redis
+    // Cold start — always run sync directly and return results.
+    // BullMQ/Redis may be OOM so we bypass the queue entirely here
+    // to guarantee the frontend gets data.
+    logger.info("Cold start - no cache, running direct sync");
     try {
       const tickets = await fetchAndCacheTickets("on_demand");
       return ok(res, {
