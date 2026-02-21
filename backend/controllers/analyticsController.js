@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
 import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import { getQuarterDateRange } from "../config/constants.js";
+import logger from "../config/logger.js";
 
 export const getAnalytics = async (req, res) => {
   try {
@@ -27,7 +28,7 @@ export const getAnalytics = async (req, res) => {
         const age = Date.now() - new Date(precomputed.computed_at).getTime();
         // Serve precomputed data if less than 25 hours old (daily refresh at 1 AM IST)
         if (age < 25 * 60 * 60 * 1000) {
-          console.log(`⚡ PRECOMPUTED HIT: ${quarter} (${Math.round(age / 60000)}min old)`);
+          logger.info({ quarter, ageMin: Math.round(age / 60000) }, "Precomputed cache HIT");
           return res.json(precomputed.data);
         }
       }
@@ -37,18 +38,18 @@ export const getAnalytics = async (req, res) => {
     if (forceRefresh !== "true") {
       const redisData = await redisGet(cacheKey);
       if (redisData) {
-        console.log(`⚡ Redis HIT: ${cacheKey}`);
+        logger.info({ cacheKey }, "Redis cache HIT");
         return res.json(redisData);
       }
     }
 
-    console.log(`📊 Analytics Request (Cache MISS): ${cacheKey}`);
+    logger.info({ cacheKey }, "Analytics cache MISS");
 
     // 2. Check MongoDB cache (fallback)
     if (forceRefresh !== "true") {
       const mongoCache = await AnalyticsCache.findOne({ cache_key: cacheKey }).lean();
       if (mongoCache && Date.now() - new Date(mongoCache.computed_at).getTime() < 25 * 60 * 60 * 1000) {
-        console.log(`⚡ MongoDB Cache HIT`);
+        logger.info("MongoDB cache HIT");
         await redisSet(cacheKey, mongoCache, CACHE_TTL.ANALYTICS);
         return res.json(mongoCache);
       }
@@ -56,7 +57,7 @@ export const getAnalytics = async (req, res) => {
 
     // 3. Compute fresh data
     const { start, end } = getQuarterDateRange(quarter);
-    console.log(`📅 Date Range: ${format(start, "MMM d")} - ${format(end, "MMM d")}`);
+    logger.info({ start: format(start, "MMM d"), end: format(end, "MMM d") }, "Computing analytics");
 
     const matchConditions = { closed_date: { $gte: start, $lte: end } };
     if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
@@ -284,10 +285,10 @@ export const getAnalytics = async (req, res) => {
       ),
     ]);
 
-    console.log(`✅ Analytics computed & cached: ${cacheKey}`);
+    logger.info({ cacheKey }, "Analytics computed & cached");
     res.json(response);
   } catch (e) {
-    console.error("❌ Analytics Error:", e.message, e.stack);
+    logger.error({ err: e }, "Analytics error");
     res.status(500).json({
       stats: {},
       trends: [],

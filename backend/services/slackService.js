@@ -1,6 +1,7 @@
 import axios from "axios";
 import { AnalyticsTicket } from "../models/index.js";
 import { GST_SLACK_MEMBER_IDS, SLACK_ADMIN_ID } from "../config/constants.js";
+import logger from "../config/logger.js";
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
@@ -28,7 +29,7 @@ export const sendSlackAlerts = async (tickets) => {
     // Double-check: skip if already alerted (prevents duplicates from concurrent runs)
     const existing = await AnalyticsTicket.findOne({ ticket_id: ticket.ticket_id, slack_alerted_at: { $ne: null } });
     if (existing) {
-      console.log(`   ⏭️ Skipping ${ticket.ticket_id} - already alerted`);
+      logger.info({ ticketId: ticket.ticket_id }, "Skipping ticket - already alerted");
       continue;
     }
 
@@ -57,14 +58,14 @@ export const sendSlackAlerts = async (tickets) => {
         { $set: { slack_alerted_at: new Date() } }
       );
       sentCount++;
-      console.log(`   📢 Slack alert sent & marked for ${ticket.ticket_id}`);
+      logger.info({ ticketId: ticket.ticket_id }, "Slack alert sent and marked");
     } catch (err) {
-      console.error(`   ❌ Slack alert failed for ${ticket.ticket_id}:`, err.message);
+      logger.error({ err, ticketId: ticket.ticket_id }, "Slack alert failed");
     }
   }
 
   if (sentCount > 0) {
-    console.log(`   ✅ Total ${sentCount} Slack alerts sent`);
+    logger.info({ sentCount }, "Total Slack alerts sent");
   }
   return sentCount;
 };

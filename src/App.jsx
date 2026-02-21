@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import { authFetch } from "./utils/authFetch";
+import ErrorBoundary from "./components/ErrorBoundary";
 import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
 import AllTicketsView from "./features/tickets/components/Allticketsview";
 
@@ -2168,40 +2169,46 @@ ${
               {(isLoading || isPartialData) && tickets.length === 0 ? (
                 <TicketSkeleton count={8} showProgress={true} progress={syncProgress} />
               ) : activeTab === "analytics" ? (
-                <AnalyticsDashboard
-                  tickets={tickets}
-                  dependencies={dependencies}
-                  filters={tabFilters.analytics}
-                  filterOptions={options}
-                  onFilterChange={(key, value) => {
-                    setTabFilters((prev) => ({
-                      ...prev,
-                      analytics: { ...prev.analytics, [key]: value },
-                    }));
-                  }}
-                  isDark={theme === "dark"}
-                />
+                <ErrorBoundary level="section">
+                  <AnalyticsDashboard
+                    tickets={tickets}
+                    dependencies={dependencies}
+                    filters={tabFilters.analytics}
+                    filterOptions={options}
+                    onFilterChange={(key, value) => {
+                      setTabFilters((prev) => ({
+                        ...prev,
+                        analytics: { ...prev.analytics, [key]: value },
+                      }));
+                    }}
+                    isDark={theme === "dark"}
+                  />
+                </ErrorBoundary>
               ) : activeTab === "gamification" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
-  <GamificationView
-    quarter={tabFilters.analytics?.quarter || "Q1_26"}
-    currentUser={currentUser}
-    isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
-  />
+  <ErrorBoundary level="section">
+    <GamificationView
+      quarter={tabFilters.analytics?.quarter || "Q1_26"}
+      currentUser={currentUser}
+      isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
+    />
+  </ErrorBoundary>
 ) : activeTab === "alltickets" ? (
-                <AllTicketsView
-                  tickets={allTicketsFiltered}
-                  filters={tabFilters.alltickets}
-                  onFilterChange={(key, value) => {
-                    setTabFilters((prev) => ({
-                      ...prev,
-                      alltickets: { ...prev.alltickets, [key]: value },
-                    }));
-                  }}
-                  filterOptions={options}
-                  dependencies={dependencies}
-                  timelineReplies={timelineReplies}
-                  timelinePendingIds={timelinePendingIds}
-                />
+                <ErrorBoundary level="section">
+                  <AllTicketsView
+                    tickets={allTicketsFiltered}
+                    filters={tabFilters.alltickets}
+                    onFilterChange={(key, value) => {
+                      setTabFilters((prev) => ({
+                        ...prev,
+                        alltickets: { ...prev.alltickets, [key]: value },
+                      }));
+                    }}
+                    filterOptions={options}
+                    dependencies={dependencies}
+                    timelineReplies={timelineReplies}
+                    timelinePendingIds={timelinePendingIds}
+                  />
+                </ErrorBoundary>
               ) : (
                 <>
                   {/* Progressive Loading Banner */}

@@ -1,18 +1,19 @@
 import axios from "axios";
 import { Remark } from "../models/index.js";
 import { HEADERS } from "../services/devrevApi.js";
+import { ok, serverError } from "../utils/response.js";
 
 export const getRemarks = async (req, res) => {
   const remarks = await Remark.find({ ticketId: req.params.ticketId }).sort({
     timestamp: 1,
   });
-  res.json(remarks);
+  ok(res, remarks);
 };
 
 export const createRemark = async (req, res) => {
   const { ticketId, user, text } = req.body;
   const remark = await Remark.create({ ticketId, user, text });
-  res.json({ success: true, remark });
+  ok(res, { remark });
 };
 
 export const createComment = async (req, res) => {
@@ -27,8 +28,8 @@ export const createComment = async (req, res) => {
       },
       { headers: HEADERS },
     );
-    res.json(resp.data);
+    ok(res, resp.data);
   } catch (e) {
-    res.status(500).json({ error: "Failed" });
+    serverError(res, "Failed to create comment");
   }
 };

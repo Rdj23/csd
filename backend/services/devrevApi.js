@@ -1,4 +1,5 @@
 import axios from "axios";
+import logger from "../config/logger.js";
 
 export const DEVREV_API = "https://api.devrev.ai";
 
@@ -14,7 +15,7 @@ export const fetchWithRetry = async (url, options, retries = 2) => {
       return await axios.get(url, options);
     } catch (err) {
       if (attempt === retries) throw err;
-      console.warn(`⚠️ API attempt ${attempt}/${retries} failed: ${err.message}. Retrying in ${attempt * 2}s...`);
+      logger.warn({ attempt, retries, err }, "API attempt failed, retrying");
       await new Promise((r) => setTimeout(r, attempt * 2000));
     }
   }

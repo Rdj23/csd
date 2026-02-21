@@ -7,13 +7,15 @@ import {
   EMAIL_TO_NAME_MAP,
 } from "../config/constants.js";
 import { getDaysWorked } from "../services/rosterService.js";
+import { ok, badRequest, fail, serverError } from "../utils/response.js";
+import logger from "../config/logger.js";
 
 export const getGamification = async (req, res) => {
   try {
     const { quarter = "Q1_26" } = req.query;
     const { start, end } = getQuarterDateRange(quarter);
 
-    console.log(`🎮 Gamification: ${quarter} (${start.toDateString()} - ${end.toDateString()})`);
+    logger.info({ quarter, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
 
     const stats = await AnalyticsTicket.aggregate([
       {
@@ -169,7 +171,7 @@ export const getGamification = async (req, res) => {
       e.percentile = totalL2 > 0 ? Math.round(((totalL2 - e.rank + 1) / totalL2) * 100) : 0;
     });
 
-    res.json({
+    ok(res, {
       quarter,
       dateRange: { start: start.toISOString(), end: end.toISOString() },
       data,
@@ -178,8 +180,8 @@ export const getGamification = async (req, res) => {
       lastUpdated: new Date().toISOString(),
     });
   } catch (e) {
-    console.error("❌ Gamification Error:", e);
-    res.status(500).json({ error: e.message });
+    logger.error({ err: e }, "Gamification error");
+    serverError(res, e.message);
   }
 };
 
@@ -188,16 +190,16 @@ export const getMyStats = async (req, res) => {
     const { quarter = "Q1_26", email } = req.query;
 
     if (!email) {
-      return res.status(400).json({ error: "Email is required" });
+      return badRequest(res, "Email is required");
     }
 
     const userName = EMAIL_TO_NAME_MAP[email.toLowerCase()];
     if (!userName) {
-      return res.status(403).json({ error: "Unauthorized: Not a GST user" });
+      return fail(res, 403, "Unauthorized: Not a GST user");
     }
 
     const { start, end } = getQuarterDateRange(quarter);
-    console.log(`🎮 My Stats: ${userName} (${email}) for ${quarter}`);
+    logger.info({ userName, email, quarter }, "My Stats request");
 
     const stats = await AnalyticsTicket.aggregate([
       {
@@ -223,7 +225,7 @@ export const getMyStats = async (req, res) => {
     const daysWorked = getDaysWorked(userName, start);
 
     if (stats.length === 0) {
-      return res.json({
+      return ok(res, {
         quarter,
         dateRange: { start: start.toISOString(), end: end.toISOString() },
         userData: {
@@ -331,7 +333,7 @@ export const getMyStats = async (req, res) => {
        frrPercentPercentile * weights.frrPercent) / 100
     );
 
-    res.json({
+    ok(res, {
       quarter,
       dateRange: { start: start.toISOString(), end: end.toISOString() },
       userData: {
@@ -353,7 +355,7 @@ export const getMyStats = async (req, res) => {
       lastUpdated: new Date().toISOString(),
     });
   } catch (e) {
-    console.error("❌ My Stats Error:", e);
-    res.status(500).json({ error: e.message });
+    logger.error({ err: e }, "My Stats error");
+    serverError(res, e.message);
   }
 };

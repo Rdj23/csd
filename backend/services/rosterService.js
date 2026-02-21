@@ -14,6 +14,7 @@ import {
   getQuarterDateRange,
 } from "../config/constants.js";
 import { redisGet, redisSet } from "../config/database.js";
+import logger from "../config/logger.js";
 
 // --- MUTABLE ROSTER STATE ---
 let ROSTER_ROWS = [];
@@ -66,7 +67,7 @@ export const getShiftStatus = (row, colIdx) => {
     } else {
       isActive = currentHour >= hours.start && currentHour < hours.end;
     }
-    console.log(`   ${row[0]}: ${shiftKey} (${hours.start}-${hours.end}), currentHour=${currentHour.toFixed(2)}, isActive=${isActive}`);
+    logger.info({ name: row[0], shiftKey, start: hours.start, end: hours.end, currentHour: currentHour.toFixed(2), isActive }, "Shift status check");
     return {
       isOnShift: isActive,
       shift: shiftKey,
@@ -74,7 +75,7 @@ export const getShiftStatus = (row, colIdx) => {
     };
   }
 
-  console.log(`⚠️ Unknown shift format: "${rawShift}" for ${row[0]}`);
+  logger.warn({ rawShift, name: row[0] }, "Unknown shift format");
   return { isOnShift: false, shift: rawShift, reason: `Unknown shift: ${rawShift}` };
 };
 
@@ -86,7 +87,7 @@ export const getDaysWorked = (name, start) => {
   const rosterName = NAME_TO_ROSTER_MAP[name] || name;
   const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
   if (!row) {
-    console.log(`⚠️ getDaysWorked: No roster row found for "${name}" (searched as "${rosterName}")`);
+    logger.warn({ name, rosterName }, "getDaysWorked: No roster row found");
     return 0;
   }
 
@@ -115,10 +116,10 @@ export const getDaysWorked = (name, start) => {
 };
 
 export const syncRoster = async () => {
-  console.log("🔄 Roster Sync...");
+  logger.info("Roster Sync started");
 
   if (!process.env.GOOGLE_SHEETS_KEY_BASE64) {
-    console.error("❌ FATAL: GOOGLE_SHEETS_KEY_BASE64 is missing");
+    logger.error("FATAL: GOOGLE_SHEETS_KEY_BASE64 is missing");
     return;
   }
 
@@ -163,11 +164,11 @@ export const syncRoster = async () => {
     });
 
     if (headerIndices.length === 0) {
-      console.log("⚠️ Could not find header row in Roster (need rows with Designation + date columns)");
+      logger.warn("Could not find header row in Roster (need rows with Designation + date columns)");
       return;
     }
 
-    console.log(`📅 Found ${headerIndices.length} month section(s) in roster`);
+    logger.info({ sections: headerIndices.length }, "Found month sections in roster");
 
     // Reset and build DATE_COL_MAP from ALL header rows
     DATE_COL_MAP = {};
@@ -192,7 +193,7 @@ export const syncRoster = async () => {
           colName.toLowerCase().includes("level")
         )) {
           LEVEL_COL_IDX = i;
-          console.log(`✅ Level/Designation found at column ${i}`);
+          logger.info({ column: i }, "Level/Designation found");
         }
       });
 
@@ -202,7 +203,7 @@ export const syncRoster = async () => {
       const sectionDataRows = rows.slice(headerIdx + 1, sectionEndIdx)
         .filter((r) => r[0]?.length > 2);
 
-      console.log(`  📊 Section ${sectionIndex + 1}: ${Object.keys(sectionDateMap).length} dates, ${sectionDataRows.length} engineers`);
+      logger.info({ section: sectionIndex + 1, dates: Object.keys(sectionDateMap).length, engineers: sectionDataRows.length }, "Roster section parsed");
 
       sectionDataRows.forEach((row) => {
         const name = row[0]?.trim();
@@ -250,12 +251,12 @@ export const syncRoster = async () => {
       return row;
     });
 
-    console.log(`✅ ${ROSTER_ROWS.length} engineers loaded with ${allDates.length} total days (${headerIndices.length} months)`);
+    logger.info({ engineers: ROSTER_ROWS.length, totalDays: allDates.length, months: headerIndices.length }, "Engineers loaded from roster");
 
     // Serialize roster data to Redis so API server can load it without Google Sheets access
     await saveRosterToRedis();
   } catch (e) {
-    console.error("Roster error:", e.message);
+    logger.error({ err: e }, "Roster error");
   }
 };
 
@@ -267,9 +268,9 @@ const saveRosterToRedis = async () => {
       dateColMap: DATE_COL_MAP,
       levelColIdx: LEVEL_COL_IDX,
     }, 86400); // 24 hour TTL
-    console.log("✅ Roster data saved to Redis");
+    logger.info("Roster data saved to Redis");
   } catch (e) {
-    console.error("Failed to save roster to Redis:", e.message);
+    logger.error({ err: e }, "Failed to save roster to Redis");
   }
 };
 
@@ -281,12 +282,12 @@ export const loadRosterFromRedis = async () => {
       ROSTER_ROWS = data.rows;
       DATE_COL_MAP = data.dateColMap || {};
       LEVEL_COL_IDX = data.levelColIdx ?? -1;
-      console.log(`✅ Roster loaded from Redis: ${ROSTER_ROWS.length} engineers`);
+      logger.info({ engineers: ROSTER_ROWS.length }, "Roster loaded from Redis");
       return true;
     }
     return false;
   } catch (e) {
-    console.error("Failed to load roster from Redis:", e.message);
+    logger.error({ err: e }, "Failed to load roster from Redis");
     return false;
   }
 };
@@ -312,7 +313,7 @@ export const findBackupForUser = async (userName, teamOnly = "true") => {
   const dayOfWeek = istNow.getDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-  console.log(`🕐 Backup API: IST Time = ${istNow.toISOString()}, Hour = ${currentHour.toFixed(2)}, Date = ${dateKey}`);
+  logger.info({ istTime: istNow.toISOString(), hour: currentHour.toFixed(2), dateKey }, "Backup API called");
 
   if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
     return {
@@ -326,7 +327,7 @@ export const findBackupForUser = async (userName, teamOnly = "true") => {
   }
 
   if (!colIdx && colIdx !== 0) {
-    console.warn(`⚠️ Date column not found for ${dateKey}. Available dates: ${Object.keys(DATE_COL_MAP).slice(0, 5).join(", ")}...`);
+    logger.warn({ dateKey, availableDates: Object.keys(DATE_COL_MAP).slice(0, 5) }, "Date column not found");
     return {
       status: 503,
       data: {
@@ -356,9 +357,9 @@ export const findBackupForUser = async (userName, teamOnly = "true") => {
     );
     if (userRow) {
       userShiftStatus = getShiftStatus(userRow, colIdx);
-      console.log(`   User ${userName} (roster: ${rosterName}): shift=${userShiftStatus.shift}, isOnShift=${userShiftStatus.isOnShift}`);
+      logger.info({ userName, rosterName, shift: userShiftStatus.shift, isOnShift: userShiftStatus.isOnShift }, "User shift status");
     } else {
-      console.log(`⚠️ User ${userName} not found in roster (tried: ${rosterName})`);
+      logger.warn({ userName, rosterName }, "User not found in roster");
     }
   }
 
@@ -595,7 +596,7 @@ export const getWorkload = async () => {
   const colIdx = DATE_COL_MAP[dateKey];
   const currentHour = getCurrentISTHour();
 
-  console.log(`🔍 Workload check for ${dateKey}, IST hour=${currentHour.toFixed(2)}`);
+  logger.info({ dateKey, istHour: currentHour.toFixed(2) }, "Workload check");
 
   const activeEngineers = ROSTER_ROWS.filter((row) => {
     if (!row[0] || !row[1]) return false;
@@ -625,7 +626,7 @@ export const getWorkload = async () => {
     shift: colIdx ? row[colIdx] : "Unknown",
   }));
 
-  console.log(`✅ ${activeEngineers.length} engineers currently on shift`);
+  logger.info({ count: activeEngineers.length }, "Engineers currently on shift");
 
   const tickets = await redisGet("tickets:active") || [];
   const workloadMap = {};

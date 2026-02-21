@@ -6,13 +6,14 @@ import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
+import logger from "../config/logger.js";
 
 // BullMQ handles concurrency (concurrency: 1) so no in-process mutex needed.
 // getSyncState kept for API server to check if a sync job is active via queue inspection.
 export const getSyncState = () => ({ isSyncing: false, syncQueued: false });
 
 export const fetchAndCacheTickets = async (source = "auto") => {
-  console.log(`🔄 Syncing Active Tickets (source: ${source})...`);
+  logger.info({ source }, "Syncing Active Tickets");
 
   try {
     let collected = [],
@@ -108,10 +109,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
           { headers: HEADERS, timeout: 60000 },
         );
       } catch (batchErr) {
-        console.warn(`⚠️ Batch ${loop} failed: ${batchErr.message}. Saving ${collected.length} tickets collected so far.`);
+        logger.warn({ batch: loop, err: batchErr, collectedCount: collected.length }, "Batch failed, saving collected tickets");
         if (collected.length > 0) {
           const saved = await saveProgress(collected, true);
-          console.log(`✅ Partial sync saved: ${saved.length} tickets cached despite error`);
+          logger.info({ count: saved.length }, "Partial sync saved despite error");
         }
         break;
       }
@@ -133,14 +134,14 @@ export const fetchAndCacheTickets = async (source = "auto") => {
 
       if (loop < 3 || loop % 3 === 0) {
         await saveProgress(collected, false);
-        console.log(`📦 Incrementally cached ${processTickets(collected).length} tickets (batch ${loop + 1})`);
+        logger.info({ count: processTickets(collected).length, batch: loop + 1 }, "Incrementally cached tickets");
       }
 
       if (!hasActiveTickets) {
         consecutiveInactiveBatches++;
         const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
         if (lastDate < SOLVED_CUTOFF_DATE && consecutiveInactiveBatches >= 10) {
-          console.log(`⏹️ Early exit after ${consecutiveInactiveBatches} consecutive inactive batches`);
+          logger.info({ consecutiveInactiveBatches }, "Early exit after consecutive inactive batches");
           break;
         }
       } else {
@@ -161,21 +162,19 @@ export const fetchAndCacheTickets = async (source = "auto") => {
 
       collected = null;
       if (global.gc) global.gc();
-      console.log(
-        `✅ ${activeTickets.length} tickets cached (${activeTickets.length - solvedCount} active, ${solvedCount} recently solved)`,
-      );
+      logger.info({ total: activeTickets.length, active: activeTickets.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
       // Timeline enrichment is now handled by BullMQ chain (worker dispatches timeline:enrich-all)
     } else {
-      console.warn("⚠️ Sync completed with 0 tickets collected");
+      logger.warn("Sync completed with 0 tickets collected");
     }
   } catch (e) {
-    console.error("❌ Sync Failed:", e.message);
+    logger.error({ err: e }, "Sync Failed");
     throw e; // Let BullMQ handle retry
   }
 };
 
 export const syncHistoricalToDB = async (fullHistory = false) => {
-  console.log("📦 Syncing to MongoDB...");
+  logger.info("Syncing to MongoDB");
   let cursor = null,
     loop = 0,
     processedCount = 0,
@@ -227,7 +226,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
         if (existingCount === batchTicketIds.length) {
           consecutiveKnownBatches++;
           if (consecutiveKnownBatches >= KNOWN_THRESHOLD) {
-            console.log(`⏹️ Delta sync: ${KNOWN_THRESHOLD} consecutive fully-known batches, stopping early`);
+            logger.info({ threshold: KNOWN_THRESHOLD }, "Delta sync: consecutive fully-known batches, stopping early");
             break;
           }
         } else {
@@ -298,7 +297,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                   );
                   const issue = issRes.data.work;
 
-                  console.log(`   🔍 ${t.display_id} → ${issueId} | issuetype: ${issue?.custom_fields?.ctype__issuetype || 'N/A'} | team_involved: ${issue?.custom_fields?.ctype__team_involved || 'N/A'}`);
+                  logger.info({ ticketId: t.display_id, issueId, issuetype: issue?.custom_fields?.ctype__issuetype || "N/A", teamInvolved: issue?.custom_fields?.ctype__team_involved || "N/A" }, "Issue link found");
 
                   if (!isNoc && issue?.custom_fields?.ctype__issuetype === "PSN Task") {
                     isNoc = true;
@@ -310,9 +309,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                       issue.reported_by?.[0]?.display_name || null;
                     nocAssignee = issue.owned_by?.[0]?.display_name || null;
                     nocCount++;
-                    console.log(
-                      `   ✓ NOC: ${t.display_id} → ${nocIssueId}, Assignee: ${nocAssignee}, RCA: ${nocRca}`,
-                    );
+                    logger.info({ ticketId: t.display_id, nocIssueId, nocAssignee, nocRca }, "NOC ticket detected");
                   }
 
                   if (!hasL2NocConfirmation && issue?.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
@@ -321,14 +318,12 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                       issue.owned_by?.[0]?.display_name ||
                       issue.modified_by?.display_name || null;
                     nocConfirmationIssId = issue.display_id;
-                    console.log(
-                      `   ✓ L2 NOC Confirmation: ${t.display_id} → ${nocConfirmationIssId}, By: ${nocConfirmationBy}`,
-                    );
+                    logger.info({ ticketId: t.display_id, nocConfirmationIssId, nocConfirmationBy }, "L2 NOC Confirmation detected");
                   }
 
                   if (isNoc && hasL2NocConfirmation) break;
                 } catch (e) {
-                  console.log(`   ⚠️ ${t.display_id} → ${issueId} fetch error: ${e.message}`);
+                  logger.warn({ ticketId: t.display_id, issueId, err: e }, "Issue fetch error");
                 }
               }
             } catch (e) {
@@ -403,21 +398,19 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
         if (ops.length > 0) {
           await AnalyticsTicket.bulkWrite(ops);
           processedCount += ops.length;
-          console.log(
-            `   📊 Batch done: ${processedCount} synced, ${nocCount} NOC, ${skippedCount} skipped`,
-          );
+          logger.info({ processedCount, nocCount, skippedCount }, "Batch done");
         }
       }
       cursor = res.data.next_cursor;
       loop++;
     } catch (e) {
-      console.error("Sync Error:", e.message);
+      logger.error({ err: e }, "Sync Error");
       break;
     }
   } while (cursor && loop < 1000);
 
   if (ticketsToAlert.length > 0) {
-    console.log(`📢 Sending Slack alerts for ${ticketsToAlert.length} Understanding Gap tickets...`);
+    logger.info({ count: ticketsToAlert.length }, "Sending Slack alerts for Understanding Gap tickets");
     await sendSlackAlerts(ticketsToAlert);
   }
 
@@ -429,7 +422,5 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     redisDelete("bydate:*"),
     redisDelete("tickets:*"),
   ]);
-  console.log(
-    `✅ SYNC COMPLETE: ${processedCount} GST tickets, ${nocCount} NOC tickets, ${skippedCount} non-GST skipped. Caches cleared.`,
-  );
+  logger.info({ processedCount, nocCount, skippedCount }, "SYNC COMPLETE. Caches cleared.");
 };

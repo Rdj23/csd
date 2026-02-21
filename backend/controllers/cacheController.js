@@ -1,4 +1,5 @@
 import { getRedis, redisDelete } from "../config/database.js";
+import { ok } from "../utils/response.js";
 
 export const getCacheStatus = async (req, res) => {
   const redis = getRedis();
@@ -12,7 +13,7 @@ export const getCacheStatus = async (req, res) => {
     }
   }
 
-  res.json({
+  ok(res, {
     redis: {
       status: redis?.status || "disconnected",
       keys: redisKeys.length,
@@ -24,5 +25,5 @@ export const getCacheStatus = async (req, res) => {
 
 export const clearCache = async (req, res) => {
   await redisDelete("*");
-  res.json({ success: true, message: "Redis cache cleared" });
+  ok(res, { message: "Redis cache cleared" });
 };

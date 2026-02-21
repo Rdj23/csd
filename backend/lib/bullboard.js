@@ -2,6 +2,7 @@ import { createBullBoard } from "@bull-board/api";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import { getAllQueues } from "./queues.js";
+import logger from "../config/logger.js";
 
 export const setupBullBoard = (app, requireAdmin) => {
   const serverAdapter = new ExpressAdapter();
@@ -13,5 +14,5 @@ export const setupBullBoard = (app, requireAdmin) => {
   });
 
   app.use("/api/admin/queues", requireAdmin, serverAdapter.getRouter());
-  console.log("📊 Bull Board mounted at /api/admin/queues");
+  logger.info("Bull Board mounted at /api/admin/queues");
 };

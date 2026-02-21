@@ -5,30 +5,31 @@ import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/
 import { resolveOwnerName, GST_SLACK_MEMBER_IDS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 import { syncHistoricalToDB } from "../services/syncService.js";
+import { ok, accepted, fail, badRequest, notFound, serverError } from "../utils/response.js";
+import logger from "../config/logger.js";
 
 export const syncNow = async (req, res) => {
-  console.log("🔄 Manual sync triggered...");
+  logger.info("Manual sync triggered");
   try {
     // Try BullMQ, fall back to direct execution
     const queue = getHistoricalSyncQueue();
     if (queue) {
       try {
         const job = await queue.add("delta-sync", {}, { jobId: `manual-sync-${Date.now()}` });
-        return res.status(202).json({
-          success: true,
+        return accepted(res, {
           message: "Historical sync job dispatched.",
           jobId: job.id,
         });
       } catch (qErr) {
-        console.warn(`⚠️ BullMQ dispatch failed (${qErr.message}), running directly`);
+        logger.warn({ err: qErr }, "BullMQ dispatch failed, running directly");
       }
     }
     // Direct fallback
     await syncHistoricalToDB(false);
     const count = await AnalyticsTicket.countDocuments();
-    res.json({ success: true, message: `Sync completed directly. ${count} tickets in DB.` });
+    ok(res, { message: `Sync completed directly. ${count} tickets in DB.` });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    serverError(res, e.message);
   }
 };
 
@@ -43,7 +44,7 @@ export const getSyncStatus = async (req, res) => {
       ? Date.now() - new Date(latestDate).getTime() > 2 * 24 * 60 * 60 * 1000
       : true;
 
-    res.json({
+    ok(res, {
       totalTickets: count,
       latestClosedDate: latestDate,
       oldestClosedDate: oldest?.closed_date,
@@ -53,7 +54,7 @@ export const getSyncStatus = async (req, res) => {
         : "✅ Data is up to date",
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    serverError(res, e.message);
   }
 };
 
@@ -63,16 +64,16 @@ export const backfill = async (req, res) => {
     if (queue) {
       try {
         const job = await queue.add("full-sync", { fullSync: true }, { jobId: `backfill-${Date.now()}` });
-        return res.status(202).json({ message: "Full backfill job dispatched.", jobId: job.id });
+        return accepted(res, { message: "Full backfill job dispatched.", jobId: job.id });
       } catch (qErr) {
-        console.warn(`⚠️ BullMQ dispatch failed (${qErr.message}), running directly`);
+        logger.warn({ err: qErr }, "BullMQ dispatch failed, running directly");
       }
     }
     // Direct fallback
     syncHistoricalToDB(true);
-    res.json({ message: "Full backfill started directly." });
+    ok(res, { message: "Full backfill started directly." });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    serverError(res, e.message);
   }
 };
 
@@ -86,18 +87,18 @@ export const getJobStatus = async (req, res) => {
     };
     const getQueue = queueMap[queueName];
     if (!getQueue) {
-      return res.status(400).json({ error: `Unknown queue: ${queueName}` });
+      return badRequest(res, `Unknown queue: ${queueName}`);
     }
     const q = getQueue();
     if (!q) {
-      return res.status(503).json({ error: "Queue not available" });
+      return fail(res, 503, "Queue not available");
     }
     const job = await q.getJob(jobId);
     if (!job) {
-      return res.status(404).json({ error: "Job not found" });
+      return notFound(res, "Job not found");
     }
     const state = await job.getState();
-    res.json({
+    ok(res, {
       jobId: job.id,
       state,
       progress: job.progress,
@@ -108,7 +109,7 @@ export const getJobStatus = async (req, res) => {
       finishedOn: job.finishedOn,
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    serverError(res, e.message);
   }
 };
 
@@ -136,7 +137,7 @@ export const verifyGSTNames = async (req, res) => {
 
     const gstWithNoTickets = configuredGSTMembers.filter(name => !uniqueReporters.includes(name));
 
-    res.json({
+    ok(res, {
       summary: {
         totalConfiguredGST: configuredGSTMembers.length,
         totalUniqueReporters: uniqueReporters.length,
@@ -151,8 +152,8 @@ export const verifyGSTNames = async (req, res) => {
       note: "Unmatched reporters will NOT trigger Slack alerts. Add them to GST_SLACK_MEMBER_IDS if they should."
     });
   } catch (err) {
-    console.error("Error verifying GST names:", err.message);
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "Error verifying GST names");
+    serverError(res, err.message);
   }
 };
 
@@ -178,7 +179,7 @@ export const getPendingAlerts = async (req, res) => {
     const pendingWithGST = pendingTickets.filter(t => findGSTMember(t.noc_reported_by));
     const pendingNonGST = pendingTickets.filter(t => !findGSTMember(t.noc_reported_by));
 
-    res.json({
+    ok(res, {
       summary: {
         pendingAlerts: pendingWithGST.length,
         pendingNonGST: pendingNonGST.length,
@@ -190,8 +191,8 @@ export const getPendingAlerts = async (req, res) => {
       alreadyAlerted: alertedTickets
     });
   } catch (err) {
-    console.error("Error fetching pending alerts:", err.message);
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "Error fetching pending alerts");
+    serverError(res, err.message);
   }
 };
 
@@ -206,7 +207,7 @@ export const sendPendingAlerts = async (req, res) => {
     const eligible = pendingTickets.filter(t => findGSTMember(t.noc_reported_by));
 
     if (eligible.length === 0) {
-      return res.json({ message: "No pending alerts to send", sent: 0 });
+      return ok(res, { message: "No pending alerts to send", sent: 0 });
     }
 
     const alertPayload = eligible.map(t => ({
@@ -221,25 +222,22 @@ export const sendPendingAlerts = async (req, res) => {
 
     const sentCount = await sendSlackAlerts(alertPayload) || 0;
 
-    res.json({
+    ok(res, {
       message: `Sent ${sentCount} Slack alerts (${eligible.length - sentCount} skipped as already alerted)`,
       sent: sentCount,
       skipped: eligible.length - sentCount,
       tickets: eligible.map(t => t.ticket_id),
     });
   } catch (err) {
-    console.error("Error sending pending alerts:", err.message);
-    res.status(500).json({ error: err.message });
+    logger.error({ err }, "Error sending pending alerts");
+    serverError(res, err.message);
   }
 };
 
 export const testSlack = async (req, res) => {
   const SLACK_WEBHOOK_URL = getSlackWebhookUrl();
   if (!SLACK_WEBHOOK_URL) {
-    return res.status(400).json({
-      success: false,
-      error: "SLACK_WEBHOOK_URL not configured in environment variables"
-    });
+    return badRequest(res, "SLACK_WEBHOOK_URL not configured in environment variables");
   }
 
   try {
@@ -248,31 +246,26 @@ export const testSlack = async (req, res) => {
     };
 
     await axios.post(SLACK_WEBHOOK_URL, payload);
-    console.log("📢 Test Slack message sent successfully");
+    logger.info("Test Slack message sent");
 
-    res.json({
-      success: true,
+    ok(res, {
       message: "Test message sent to Slack! Check your channel.",
       webhookConfigured: true
     });
   } catch (err) {
-    console.error("❌ Slack test failed:", err.message);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-      hint: "Check if your SLACK_WEBHOOK_URL is correct and the webhook is not disabled"
-    });
+    logger.error({ err }, "Slack test failed");
+    serverError(res, err.message);
   }
 };
 
 export const syncSingleTicket = async (req, res) => {
   const { ticketId } = req.body;
   if (!ticketId) {
-    return res.status(400).json({ error: "ticketId required" });
+    return badRequest(res, "ticketId required");
   }
 
   try {
-    console.log(`🔄 Single ticket sync: ${ticketId}`);
+    logger.info({ ticketId }, "Single ticket sync");
 
     const ticketRes = await axios.post(
       `${DEVREV_API}/works.get`,
@@ -281,7 +274,7 @@ export const syncSingleTicket = async (req, res) => {
     );
     const t = ticketRes.data.work;
     if (!t) {
-      return res.status(404).json({ error: "Ticket not found" });
+      return notFound(res, "Ticket not found");
     }
 
     const stage = t.stage?.name?.toLowerCase() || "";
@@ -322,7 +315,7 @@ export const syncSingleTicket = async (req, res) => {
           }
         }
       } catch (e) {
-        console.log("NOC detection error:", e.message);
+        logger.info({ err: e }, "NOC detection error");
       }
     }
 
@@ -381,8 +374,7 @@ export const syncSingleTicket = async (req, res) => {
       { upsert: true }
     );
 
-    res.json({
-      success: true,
+    ok(res, {
       ticketId: t.display_id,
       stage: t.stage?.name,
       alertConditions,
@@ -391,8 +383,8 @@ export const syncSingleTicket = async (req, res) => {
       message: slackSent ? "✅ Slack alert sent!" : shouldAlert ? "Alert conditions met but send failed" : "Alert conditions not met",
     });
   } catch (e) {
-    console.error("Single ticket sync error:", e.message);
-    res.status(500).json({ error: e.message });
+    logger.error({ err: e }, "Single ticket sync error");
+    serverError(res, e.message);
   }
 };
 
@@ -402,15 +394,14 @@ export const cleanupOldTickets = async (req, res) => {
     const result = await AnalyticsTicket.deleteMany({
       closed_date: { $lt: cutoff },
     });
-    console.log(`🗑️ Deleted ${result.deletedCount} tickets before 2026-01-01`);
+    logger.info({ deleted: result.deletedCount }, "Cleaned up old tickets");
     const remaining = await AnalyticsTicket.countDocuments();
-    res.json({
-      success: true,
+    ok(res, {
       deleted: result.deletedCount,
       remaining,
       message: `Deleted ${result.deletedCount} old tickets. ${remaining} tickets remaining.`,
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    serverError(res, e.message);
   }
 };

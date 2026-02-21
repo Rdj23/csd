@@ -11,9 +11,10 @@ import { connectMongoDB, initRedis, getBullMQConnection } from "./config/databas
 import { initPublisher } from "./lib/pubsub.js";
 import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue } from "./lib/queues.js";
 import { registerAllWorkers } from "./lib/workers.js";
+import logger from "./config/logger.js";
 
 const start = async () => {
-  console.log("🔧 Starting Worker Process...");
+  logger.info("Starting Worker Process");
 
   // 1. Connect to databases
   await connectMongoDB();
@@ -22,7 +23,7 @@ const start = async () => {
   // 2. Get BullMQ Redis connection config
   const bullmqConn = getBullMQConnection();
   if (!bullmqConn) {
-    console.error("❌ REDIS_URL is required for the Worker process. Exiting.");
+    logger.fatal("REDIS_URL is required for the Worker process. Exiting.");
     process.exit(1);
   }
 
@@ -34,7 +35,7 @@ const start = async () => {
 
   // 5. Register all worker processors
   const workers = registerAllWorkers(bullmqConn);
-  console.log(`✅ ${workers.length} workers registered`);
+  logger.info({ count: workers.length }, "Workers registered");
 
   // 6. Register repeatable/cron jobs
   // Historical sync: midnight IST (18:30 UTC)
@@ -51,36 +52,36 @@ const start = async () => {
     { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
   );
 
-  console.log("📅 Repeatable cron jobs registered");
+  logger.info("Repeatable cron jobs registered");
 
   // 7. Dispatch staggered startup jobs
   await getRosterQueue().add("sync-roster", {}, { jobId: `startup-roster-${Date.now()}` });
 
   setTimeout(async () => {
     await getTicketSyncQueue().add("sync-active", { source: "startup" }, { jobId: `startup-sync-${Date.now()}` });
-    console.log("📦 Startup ticket sync dispatched");
+    logger.info("Startup ticket sync dispatched");
   }, 5000);
 
   setTimeout(async () => {
     await getAnalyticsQueue().add("precompute", { quarter: "Q1_26" }, { jobId: `startup-analytics-q1-${Date.now()}` });
-    console.log("📊 Startup Q1_26 precompute dispatched");
+    logger.info("Startup Q1_26 precompute dispatched");
   }, 90000);
 
   // 8. Graceful shutdown
   const shutdown = async () => {
-    console.log("🛑 Worker shutting down...");
+    logger.info("Worker shutting down...");
     await Promise.all(workers.map((w) => w.close()));
-    console.log("✅ All workers closed");
+    logger.info("All workers closed");
     process.exit(0);
   };
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  console.log("✅ Worker process running");
+  logger.info("Worker process running");
 };
 
 start().catch((err) => {
-  console.error("❌ Worker failed to start:", err);
+  logger.fatal({ err }, "Worker failed to start");
   process.exit(1);
 });

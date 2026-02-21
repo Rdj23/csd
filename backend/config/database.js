@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Redis from "ioredis";
+import logger from "./logger.js";
 
 // --- REDIS CACHE HELPERS ---
 export const CACHE_TTL = {
@@ -21,7 +22,7 @@ export const redisGet = async (key) => {
     const data = await redis.get(key);
     return data ? JSON.parse(data) : null;
   } catch (e) {
-    console.error("Redis GET error:", e.message);
+    logger.error({ err: e, key }, "Redis GET error");
     return null;
   }
 };
@@ -32,7 +33,7 @@ export const redisSet = async (key, data, ttl = 1800) => {
     await redis.setex(key, ttl, JSON.stringify(data));
     return true;
   } catch (e) {
-    console.error("Redis SET error:", e.message);
+    logger.error({ err: e, key }, "Redis SET error");
     return false;
   }
 };
@@ -43,10 +44,10 @@ export const redisDelete = async (pattern) => {
     const keys = await redis.keys(pattern);
     if (keys.length > 0) {
       await redis.del(...keys);
-      console.log(`🗑️ Cleared ${keys.length} cache keys: ${pattern}`);
+      logger.info({ count: keys.length, pattern }, "Cleared cache keys");
     }
   } catch (e) {
-    console.error("Redis DEL error:", e.message);
+    logger.error({ err: e, pattern }, "Redis DEL error");
   }
 };
 
@@ -56,7 +57,7 @@ export const initRedis = async () => {
 
   // Skip Redis if no URL provided (local dev without Redis)
   if (!REDIS_URL) {
-    console.log("⚠️ No REDIS_URL - running without Redis cache");
+    logger.warn("No REDIS_URL - running without Redis cache");
     return;
   }
 
@@ -70,7 +71,7 @@ export const initRedis = async () => {
       retryStrategy(times) {
         const delay = Math.min(times * 2000, 30000); // max 30s between retries
         if (times % 10 === 0) {
-          console.log(`🔄 Redis: reconnecting (attempt ${times}, next in ${delay / 1000}s)`);
+          logger.info({ attempt: times, nextRetryMs: delay }, "Redis reconnecting");
         }
         return delay;
       },
@@ -81,34 +82,34 @@ export const initRedis = async () => {
       },
     });
 
-    redis.on("connect", () => console.log("🟢 Redis Connected"));
+    redis.on("connect", () => logger.info("Redis connected"));
     redis.on("ready", async () => {
-      console.log("🟢 Redis Ready");
+      logger.info("Redis ready");
       // Set eviction policy so Redis drops old cache keys instead of refusing all writes (OOM)
       try {
         await redis.config("SET", "maxmemory-policy", "allkeys-lru");
-        console.log("🟢 Redis maxmemory-policy set to allkeys-lru");
+        logger.info("Redis maxmemory-policy set to allkeys-lru");
       } catch {
         // Managed Redis (like Render) may not allow CONFIG SET — that's fine
-        console.log("ℹ️ Could not set maxmemory-policy (managed Redis)");
+        logger.info("Could not set maxmemory-policy (managed Redis)");
       }
     });
-    redis.on("close", () => console.log("🔴 Redis Connection Closed — will reconnect"));
+    redis.on("close", () => logger.warn("Redis connection closed — will reconnect"));
     redis.on("error", (err) => {
       // Only log non-repetitive errors (suppress flood during reconnection)
       if (!err.message.includes("ECONNRESET")) {
-        console.error("Redis Error:", err.message);
+        logger.error({ err }, "Redis error");
       }
     });
 
     // Connect in background - don't block server startup
     redis.connect().catch((err) => {
-      console.error("Redis Init Failed:", err.message);
-      console.log("⚠️ Will keep retrying via retryStrategy");
+      logger.error({ err }, "Redis init failed");
+      logger.warn("Will keep retrying via retryStrategy");
     });
   } catch (err) {
-    console.error("Redis Init Failed:", err.message);
-    console.log("⚠️ Continuing without Redis cache");
+    logger.error({ err }, "Redis init failed");
+    logger.warn("Continuing without Redis cache");
     redis = null;
   }
 };
@@ -139,18 +140,30 @@ export const getBullMQConnection = () => {
 };
 
 // --- MONGODB CONNECTION ---
-// Returns a promise; resolves when connected (or failed)
-export const connectMongoDB = () => {
-  return mongoose
-    .connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 30000,
-    })
-    .then(() => {
-      console.log("🍃 MongoDB Connected");
-    })
-    .catch((err) => {
-      console.error("❌ MongoDB Error:", err);
-    });
+const MAX_RETRIES = 5;
+const BASE_DELAY_MS = 1000;
+
+export const connectMongoDB = async () => {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await mongoose.connect(process.env.MONGO_URI, {
+        serverSelectionTimeoutMS: 10000,
+        connectTimeoutMS: 10000,
+        socketTimeoutMS: 30000,
+      });
+      logger.info("MongoDB connected");
+      return;
+    } catch (err) {
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1); // 1s, 2s, 4s, 8s, 16s
+      logger.error(
+        { err, attempt, maxRetries: MAX_RETRIES, nextRetryMs: delay },
+        "MongoDB connection failed",
+      );
+      if (attempt === MAX_RETRIES) {
+        logger.fatal("MongoDB connection failed after all retries");
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 };

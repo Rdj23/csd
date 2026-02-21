@@ -5,6 +5,7 @@ import {
   getWorkload,
   getFullRoster,
 } from "../services/rosterService.js";
+import logger from "../config/logger.js";
 
 export const postProfileStatus = (req, res) => {
   const { userName } = req.body;
@@ -23,7 +24,7 @@ export const getBackup = async (req, res) => {
     const result = await findBackupForUser(userName, teamOnly);
     res.status(result.status).json(result.data);
   } catch (e) {
-    console.error("❌ Backup Error:", e);
+    logger.error({ err: e }, "Backup error");
     res.status(500).json({ backup: null, error: e.message });
   }
 };
@@ -33,7 +34,7 @@ export const getRosterWorkload = async (req, res) => {
     const results = await getWorkload();
     res.json(results);
   } catch (e) {
-    console.error("❌ Workload Error:", e);
+    logger.error({ err: e }, "Workload error");
     res.status(500).json([]);
   }
 };
@@ -43,7 +44,7 @@ export const getFullRosterData = async (req, res) => {
     const results = await getFullRoster();
     res.json(results);
   } catch (e) {
-    console.error("❌ Full Roster Error:", e);
+    logger.error({ err: e }, "Full roster error");
     res.status(500).json({ engineers: [], error: e.message });
   }
 };

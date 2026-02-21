@@ -1,9 +1,15 @@
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
+import logger from "../config/logger.js";
 
 // --- SECURITY CONFIGURATION ---
-export const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret-in-production";
-export const ADMIN_EMAILS = ["rohan.jadhav@clevertap.com"];
+export const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET && process.env.NODE_ENV !== "test") {
+  throw new Error("JWT_SECRET environment variable is required");
+}
+export const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "rohan.jadhav@clevertap.com")
+  .split(",")
+  .map((e) => e.trim());
 
 // --- SECURITY MIDDLEWARE ---
 
@@ -19,9 +25,7 @@ export const verifyToken = (req, res, next) => {
 
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.log(
-      `[401] Unauthorized: path=${req.path} ip=${req.ip}`
-    );
+    logger.warn({ path: req.path, ip: req.ip }, "Unauthorized: No token provided");
     return res.status(401).json({ error: "Unauthorized: No token provided" });
   }
 
@@ -31,18 +35,14 @@ export const verifyToken = (req, res, next) => {
 
     // Strict domain check - only @clevertap.com emails allowed
     if (!decoded.email || !decoded.email.endsWith("@clevertap.com")) {
-      console.log(
-        `[403] Forbidden domain: email=${decoded.email || "missing"} path=${req.path} ip=${req.ip}`
-      );
+      logger.warn({ email: decoded.email || "missing", path: req.path, ip: req.ip }, "Forbidden domain");
       return res.status(403).json({ error: "Forbidden: Access restricted to CleverTap employees" });
     }
 
     req.user = decoded;
     next();
   } catch (err) {
-    console.log(
-      `[401] Invalid token: path=${req.path} ip=${req.ip} reason=${err.message}`
-    );
+    logger.warn({ path: req.path, ip: req.ip, reason: err.message }, "Invalid token");
     return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
   }
 };
@@ -50,9 +50,7 @@ export const verifyToken = (req, res, next) => {
 // RBAC - Admin-only access
 export const requireAdmin = (req, res, next) => {
   if (!req.user || !ADMIN_EMAILS.includes(req.user.email)) {
-    console.log(
-      `[403] Forbidden: email=${req.user?.email || "unknown"} path=${req.path}`
-    );
+    logger.warn({ email: req.user?.email || "unknown", path: req.path }, "Forbidden: Admin access required");
     return res.status(403).json({ error: "Forbidden: Admin access required" });
   }
   next();
@@ -68,7 +66,7 @@ const rateLimitHandler = (req, res, _next, options) => {
       userEmail = decoded.email || "unknown";
     }
   } catch (_) {}
-  console.warn(`⚠️ 429 RATE LIMIT HIT | IP: ${req.ip} | User: ${userEmail} | Path: ${req.method} ${req.path}`);
+  logger.warn({ ip: req.ip, user: userEmail, method: req.method, path: req.path }, "Rate limit hit");
   res.status(options.statusCode).json(options.message);
 };
 

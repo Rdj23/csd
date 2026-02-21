@@ -1,6 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET } from "../middleware/auth.js";
+import { ok, badRequest } from "../utils/response.js";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -17,12 +18,12 @@ export const googleAuth = async (req, res) => {
       JWT_SECRET,
       { expiresIn: "30d" }
     );
-    res.json({ success: true, user: payload, token });
+    ok(res, { user: payload, token });
   } catch (e) {
-    res.status(400).json({ error: "Invalid Token" });
+    badRequest(res, "Invalid Token");
   }
 };
 
 export const getAuthConfig = (req, res) => {
-  res.json({ clientId: GOOGLE_CLIENT_ID });
+  ok(res, { clientId: GOOGLE_CLIENT_ID });
 };

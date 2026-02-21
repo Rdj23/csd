@@ -1,5 +1,6 @@
 import { AnalyticsTicket, PrecomputedDashboard } from "../models/index.js";
 import { getQuarterDateRange } from "../config/constants.js";
+import logger from "../config/logger.js";
 
 // precomputeAnalytics is now called by the Worker via BullMQ jobs.
 // warmCache and runInitialPrecomputation are replaced by BullMQ startup jobs.
@@ -10,7 +11,7 @@ export const precomputeAnalytics = async (quarter) => {
   try {
     const existing = await PrecomputedDashboard.findOne({ cache_type: cacheType });
     if (existing?.computing) {
-      console.log(`⏭️ Skipping ${quarter} - already computing`);
+      logger.info({ quarter }, "Skipping quarter - already computing");
       return;
     }
 
@@ -20,7 +21,7 @@ export const precomputeAnalytics = async (quarter) => {
       { upsert: true }
     );
 
-    console.log(`🔄 Pre-computing ${quarter} analytics...`);
+    logger.info({ quarter }, "Pre-computing analytics");
 
     const { start, end } = getQuarterDateRange(quarter);
     const matchConditions = {
@@ -185,10 +186,10 @@ export const precomputeAnalytics = async (quarter) => {
       { upsert: true }
     );
 
-    console.log(`✅ Pre-computed ${quarter} analytics (${response.stats.totalTickets} tickets)`);
+    logger.info({ quarter, totalTickets: response.stats.totalTickets }, "Pre-computed analytics");
     return response;
   } catch (error) {
-    console.error(`❌ Pre-compute ${quarter} failed:`, error.message);
+    logger.error({ err: error, quarter }, "Pre-compute failed");
     await PrecomputedDashboard.findOneAndUpdate(
       { cache_type: cacheType },
       { $set: { computing: false } }

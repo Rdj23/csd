@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import logger from "../config/logger.js";
 
 let pubClient = null;
 let subClient = null;
@@ -14,7 +15,7 @@ export const initPublisher = (redisUrl) => {
     retryStrategy: (times) => Math.min(times * 2000, 30000),
   });
   pubClient.connect().catch((err) =>
-    console.error("PubSub publisher connect failed:", err.message),
+    logger.error({ err }, "PubSub publisher connect failed"),
   );
 };
 
@@ -29,7 +30,7 @@ export const publishSocketEvent = async (event, payload) => {
       JSON.stringify({ event, payload }),
     );
   } catch (e) {
-    console.error("PubSub publish error:", e.message);
+    logger.error({ err: e }, "PubSub publish error");
   }
 };
 
@@ -44,7 +45,7 @@ export const publishRosterUpdated = async () => {
       JSON.stringify({ updatedAt: new Date().toISOString() }),
     );
   } catch (e) {
-    console.error("Roster PubSub error:", e.message);
+    logger.error({ err: e }, "Roster PubSub error");
   }
 };
 
@@ -61,14 +62,14 @@ export const initSubscriber = (redisUrl, io, onRosterUpdated) => {
   });
 
   subClient.connect().catch((err) =>
-    console.error("PubSub subscriber connect failed:", err.message),
+    logger.error({ err }, "PubSub subscriber connect failed"),
   );
 
   subClient.subscribe("worker:socket-events", "worker:roster-updated", (err) => {
     if (err) {
-      console.error("PubSub subscribe error:", err.message);
+      logger.error({ err }, "PubSub subscribe error");
     } else {
-      console.log("📡 Subscribed to worker PubSub channels");
+      logger.info("Subscribed to worker PubSub channels");
     }
   });
 
@@ -81,7 +82,7 @@ export const initSubscriber = (redisUrl, io, onRosterUpdated) => {
         onRosterUpdated();
       }
     } catch (e) {
-      console.error("PubSub message parse error:", e.message);
+      logger.error({ err: e }, "PubSub message parse error");
     }
   });
 };

@@ -1,0 +1,1239 @@
+openapi: 3.0.3
+info:
+  title: CSD - CleverTap Support Dashboard API
+  description: |
+    Internal operations dashboard API for the CleverTap Global Support Team (GST).
+
+    **Authentication:** All endpoints (except Auth, Webhooks, Health) require a Bearer JWT token obtained via Google OAuth.
+
+    **Domain restriction:** Only @clevertap.com emails are allowed.
+
+    **Admin endpoints:** Require the authenticated user's email to be in the ADMIN_EMAILS allowlist.
+  version: 1.0.0
+  contact:
+    name: Rohan Jadhav
+    email: rohan.jadhav@clevertap.com
+
+servers:
+  - url: https://supportintel.clevertap.com/api
+    description: Production
+  - url: http://localhost:5000/api
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Google OAuth authentication
+  - name: Tickets
+    description: Active ticket operations, dependencies, and timeline
+  - name: Analytics
+    description: Pre-computed analytics and metrics
+  - name: NOC
+    description: Network Operations Center ticket data
+  - name: Gamification
+    description: Performance leaderboard and personal stats
+  - name: Roster
+    description: Team roster, shift status, and backup lookup
+  - name: Remarks
+    description: Internal ticket comments and DevRev sync
+  - name: Views
+    description: User-saved filter configurations
+  - name: Webhooks
+    description: DevRev webhook receiver
+  - name: Health
+    description: System health and monitoring
+  - name: Cache
+    description: Redis cache management
+  - name: Admin
+    description: Admin-only sync, backfill, and alert controls
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from POST /auth/google
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Unauthorized: No token provided"
+
+    AuthRequest:
+      type: object
+      required: [credential]
+      properties:
+        credential:
+          type: string
+          description: Google OAuth credential token
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token (30-day expiry)
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        user:
+          type: object
+          properties:
+            email:
+              type: string
+              example: "rohan.jadhav@clevertap.com"
+            name:
+              type: string
+              example: "Rohan Jadhav"
+            picture:
+              type: string
+              example: "https://lh3.googleusercontent.com/..."
+            isAdmin:
+              type: boolean
+              example: true
+
+    AuthConfig:
+      type: object
+      properties:
+        clientId:
+          type: string
+          example: "123456789.apps.googleusercontent.com"
+
+    Ticket:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "don:core:dvrv-us-1:devo/xyz:ticket/123"
+        display_id:
+          type: string
+          example: "TKT-1234"
+        title:
+          type: string
+          example: "Push notification not delivered"
+        stage:
+          type: object
+          properties:
+            name:
+              type: string
+              example: "Waiting on Assignee"
+        owner:
+          type: string
+          example: "Rohan"
+        created_date:
+          type: string
+          format: date-time
+        priority:
+          type: string
+          example: "p1"
+        region:
+          type: string
+          example: "India"
+        account_name:
+          type: string
+          example: "Acme Corp"
+
+    AnalyticsResponse:
+      type: object
+      properties:
+        stats:
+          type: object
+          properties:
+            totalTickets:
+              type: integer
+              example: 1250
+            avgRWT:
+              type: number
+              example: 4.5
+            avgFRT:
+              type: number
+              example: 1.2
+            avgIterations:
+              type: number
+              example: 3.8
+            positiveCSAT:
+              type: integer
+              example: 890
+            negativeCSAT:
+              type: integer
+              example: 45
+            frrPercent:
+              type: number
+              example: 42.5
+        trends:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                example: "2026-01-15"
+              volume:
+                type: integer
+              solved:
+                type: integer
+              avgRWT:
+                type: number
+              avgFRT:
+                type: number
+        leaderboard:
+          type: array
+          items:
+            type: object
+            properties:
+              owner:
+                type: string
+                example: "Rohan"
+              solved:
+                type: integer
+                example: 85
+              avgRWT:
+                type: number
+                example: 3.2
+              csatPositive:
+                type: integer
+                example: 72
+              csatNegative:
+                type: integer
+                example: 2
+        individualTrends:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+
+    GamificationResponse:
+      type: object
+      properties:
+        L1:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+        L2:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Rohan"
+        team:
+          type: string
+          example: "Mashnu"
+        designation:
+          type: string
+          enum: [L1, L2]
+        daysWorked:
+          type: number
+          example: 45
+        solved:
+          type: integer
+          example: 85
+        productivity:
+          type: number
+          example: 1.89
+        csatPercent:
+          type: number
+          example: 97.5
+        csatCount:
+          type: integer
+          example: 72
+        avgRWT:
+          type: number
+          example: 3.2
+        avgIterations:
+          type: number
+          example: 3.5
+        frrPercent:
+          type: number
+          example: 42.0
+        finalPercentile:
+          type: number
+          example: 85.5
+
+    MyStatsResponse:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Rohan"
+        stats:
+          $ref: '#/components/schemas/LeaderboardEntry'
+        percentiles:
+          type: object
+          properties:
+            productivity:
+              type: number
+            csatPercent:
+              type: number
+            avgRWT:
+              type: number
+
+    Remark:
+      type: object
+      properties:
+        _id:
+          type: string
+        ticketId:
+          type: string
+          example: "TKT-1234"
+        user:
+          type: string
+          example: "Rohan"
+        text:
+          type: string
+          example: "Escalated to L2, customer is VIP"
+        timestamp:
+          type: string
+          format: date-time
+
+    View:
+      type: object
+      properties:
+        _id:
+          type: string
+        userId:
+          type: string
+          example: "rohan.jadhav@clevertap.com"
+        name:
+          type: string
+          example: "My P1 Tickets"
+        filters:
+          type: object
+          example:
+            priority: ["p1"]
+            owner: ["Rohan"]
+        createdAt:
+          type: string
+          format: date-time
+
+    RosterEntry:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Rohan"
+        team:
+          type: string
+          example: "Mashnu"
+        designation:
+          type: string
+          enum: [L1, L2]
+        shift:
+          type: string
+          example: "SHIFT 2"
+        status:
+          type: string
+          enum: [on_shift, off_shift, leave, week_off]
+        activeTickets:
+          type: integer
+          example: 5
+        daysWorked:
+          type: number
+          example: 45
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        uptime:
+          type: number
+          example: 86400
+        mongodb:
+          type: string
+          enum: [connected, disconnected]
+        redis:
+          type: string
+          enum: [ready, disconnected]
+        queues:
+          type: object
+          properties:
+            ticket-sync:
+              type: object
+              properties:
+                waiting:
+                  type: integer
+                active:
+                  type: integer
+                completed:
+                  type: integer
+                failed:
+                  type: integer
+
+    DependencyRequest:
+      type: object
+      required: [ticketIds]
+      properties:
+        ticketIds:
+          type: array
+          items:
+            type: string
+          example: ["don:core:dvrv-us-1:devo/xyz:ticket/1", "don:core:dvrv-us-1:devo/xyz:ticket/2"]
+
+    TimelineRequest:
+      type: object
+      required: [ticketIds]
+      properties:
+        ticketIds:
+          type: array
+          items:
+            type: string
+          example: ["don:core:dvrv-us-1:devo/xyz:ticket/1"]
+
+paths:
+  # --- AUTH ---
+  /auth/google:
+    post:
+      tags: [Auth]
+      summary: Login with Google OAuth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            example:
+              credential: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '403':
+          description: Non-CleverTap email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Only @clevertap.com emails are allowed"
+        '401':
+          description: Invalid Google credential
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/config:
+    get:
+      tags: [Auth]
+      summary: Get Google OAuth client ID
+      security: []
+      responses:
+        '200':
+          description: OAuth configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+
+  # --- TICKETS ---
+  /tickets:
+    get:
+      tags: [Tickets]
+      summary: Get active tickets
+      description: Returns all active (non-closed) tickets from Redis cache. Triggers background sync if cache is empty.
+      responses:
+        '200':
+          description: Active ticket list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Ticket'
+                  fromCache:
+                    type: boolean
+                  syncInProgress:
+                    type: boolean
+
+  /tickets/live-stats:
+    get:
+      tags: [Tickets]
+      summary: Get real-time ticket statistics
+      responses:
+        '200':
+          description: Live statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  byStage:
+                    type: object
+                  byOwner:
+                    type: object
+                  byRegion:
+                    type: object
+
+  /tickets/drilldown:
+    get:
+      tags: [Tickets]
+      summary: Get ticket drilldown details
+      parameters:
+        - name: metric
+          in: query
+          schema:
+            type: string
+            enum: [rwt, frt, iterations, csat, frr]
+        - name: owner
+          in: query
+          schema:
+            type: string
+        - name: quarter
+          in: query
+          schema:
+            type: string
+            example: Q1_26
+      responses:
+        '200':
+          description: Detailed ticket breakdown
+
+  /tickets/by-range:
+    get:
+      tags: [Tickets]
+      summary: Get tickets in a date range
+      parameters:
+        - name: start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-01-01"
+        - name: end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-03-31"
+        - name: owner
+          in: query
+          schema:
+            type: string
+        - name: excludeZendesk
+          in: query
+          schema:
+            type: boolean
+        - name: excludeNOC
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Tickets within date range
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Ticket'
+                  total:
+                    type: integer
+
+  /tickets/by-date:
+    get:
+      tags: [Tickets]
+      summary: Get tickets by specific date/week/month
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: week
+          in: query
+          schema:
+            type: string
+            example: "Q1_26_W5"
+        - name: month
+          in: query
+          schema:
+            type: string
+            example: "Q1_26_M2"
+        - name: owner
+          in: query
+          schema:
+            type: string
+        - name: metric
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tickets for the specified period
+
+  /tickets/links:
+    post:
+      tags: [Tickets]
+      summary: Get linked issues for tickets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ticketIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Linked issue data
+
+  /tickets/dependencies:
+    post:
+      tags: [Tickets]
+      summary: Batch fetch ticket dependencies
+      description: Returns dependency (linked issue) data for up to 50 tickets per request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DependencyRequest'
+      responses:
+        '200':
+          description: Dependency map keyed by ticket ID
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    team:
+                      type: string
+                    assignee:
+                      type: string
+                    stage:
+                      type: string
+
+  /tickets/timeline-replies:
+    post:
+      tags: [Tickets]
+      summary: Batch fetch timeline replies
+      description: Returns cached timeline data. Missing timelines are queued for background fetch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimelineRequest'
+      responses:
+        '200':
+          description: Timeline data with pending list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        lastCustomerReply:
+                          type: string
+                          format: date-time
+                        lastInternalReply:
+                          type: string
+                          format: date-time
+                  pending:
+                    type: array
+                    items:
+                      type: string
+
+  /tickets/sync:
+    post:
+      tags: [Tickets]
+      summary: Trigger manual ticket sync
+      responses:
+        '200':
+          description: Sync initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Sync job dispatched"
+
+  /issues/get:
+    post:
+      tags: [Tickets]
+      summary: Get issue details from DevRev
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                issueId:
+                  type: string
+      responses:
+        '200':
+          description: Issue details
+
+  # --- ANALYTICS ---
+  /tickets/analytics:
+    get:
+      tags: [Analytics]
+      summary: Get pre-computed analytics
+      description: Returns pre-aggregated analytics data with multi-tier caching (Redis → MongoDB → fresh computation).
+      parameters:
+        - name: quarter
+          in: query
+          required: true
+          schema:
+            type: string
+            example: Q1_26
+        - name: owner
+          in: query
+          schema:
+            type: string
+            description: Filter by specific owner
+        - name: excludeZendesk
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: excludeNOC
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [daily, weekly, monthly]
+            default: daily
+        - name: forceRefresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsResponse'
+
+  # --- NOC ---
+  /tickets/noc:
+    get:
+      tags: [NOC]
+      summary: Get NOC ticket data
+      parameters:
+        - name: quarter
+          in: query
+          schema:
+            type: string
+            example: Q1_26
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: NOC tickets with aggregations
+
+  # --- GAMIFICATION ---
+  /gamification:
+    get:
+      tags: [Gamification]
+      summary: Get full leaderboard
+      description: Returns L1 and L2 leaderboards with weighted scoring. Available to all authenticated users.
+      parameters:
+        - name: quarter
+          in: query
+          schema:
+            type: string
+            example: Q1_26
+      responses:
+        '200':
+          description: Leaderboard data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GamificationResponse'
+
+  /gamification/my-stats:
+    get:
+      tags: [Gamification]
+      summary: Get personal performance stats
+      description: Returns only the authenticated user's stats and percentile rankings. Secure — users cannot see each other's data.
+      parameters:
+        - name: quarter
+          in: query
+          schema:
+            type: string
+            example: Q1_26
+      responses:
+        '200':
+          description: Personal stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyStatsResponse'
+
+  # --- ROSTER ---
+  /profile/status:
+    post:
+      tags: [Roster]
+      summary: Get user profile/shift status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userName]
+              properties:
+                userName:
+                  type: string
+                  example: "Rohan"
+      responses:
+        '200':
+          description: User shift status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    enum: [on_shift, off_shift, leave, week_off]
+                  shift:
+                    type: string
+                  team:
+                    type: string
+
+  /roster/backup:
+    get:
+      tags: [Roster]
+      summary: Find backup for a user
+      parameters:
+        - name: userName
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "Rohan"
+      responses:
+        '200':
+          description: Recommended backup engineer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backup:
+                    type: string
+                    example: "Archie"
+                  reason:
+                    type: string
+                    example: "Same team, on shift, lowest workload"
+
+  /roster/workload:
+    get:
+      tags: [Roster]
+      summary: Get team workload data
+      responses:
+        '200':
+          description: Active engineers sorted by workload
+
+  /roster/full:
+    get:
+      tags: [Roster]
+      summary: Get full roster data
+      responses:
+        '200':
+          description: All engineers with shift status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RosterEntry'
+
+  /roster/sync:
+    post:
+      tags: [Roster]
+      summary: Sync roster from Google Sheets
+      responses:
+        '200':
+          description: Roster sync initiated
+
+  # --- REMARKS ---
+  /remarks/{ticketId}:
+    get:
+      tags: [Remarks]
+      summary: Get remarks for a ticket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "TKT-1234"
+      responses:
+        '200':
+          description: Remark history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Remark'
+
+  /remarks:
+    post:
+      tags: [Remarks]
+      summary: Create internal remark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticketId, user, text]
+              properties:
+                ticketId:
+                  type: string
+                  example: "TKT-1234"
+                user:
+                  type: string
+                  example: "Rohan"
+                text:
+                  type: string
+                  example: "Customer escalated via email"
+      responses:
+        '201':
+          description: Remark created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Remark'
+
+  /comments:
+    post:
+      tags: [Remarks]
+      summary: Post comment to DevRev
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [internalId, displayId, text]
+              properties:
+                internalId:
+                  type: string
+                displayId:
+                  type: string
+                text:
+                  type: string
+      responses:
+        '200':
+          description: Comment posted to DevRev
+
+  # --- VIEWS ---
+  /views/{userId}:
+    get:
+      tags: [Views]
+      summary: Get saved views for user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "rohan.jadhav@clevertap.com"
+      responses:
+        '200':
+          description: User's saved views
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/View'
+
+  /views:
+    post:
+      tags: [Views]
+      summary: Create a saved view
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, name, filters]
+              properties:
+                userId:
+                  type: string
+                  example: "rohan.jadhav@clevertap.com"
+                name:
+                  type: string
+                  example: "My P1 Tickets"
+                filters:
+                  type: object
+                  example:
+                    priority: ["p1"]
+                    owner: ["Rohan"]
+      responses:
+        '201':
+          description: View created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/View'
+
+  /views/{userId}/{viewId}:
+    delete:
+      tags: [Views]
+      summary: Delete a saved view
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: viewId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: View deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "View deleted"
+
+  # --- WEBHOOKS ---
+  /webhooks/devrev:
+    post:
+      tags: [Webhooks]
+      summary: Receive DevRev webhook events
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook acknowledged
+
+  # --- HEALTH ---
+  /health:
+    get:
+      tags: [Health]
+      summary: System health check
+      security: []
+      responses:
+        '200':
+          description: System health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # --- CACHE ---
+  /cache/status:
+    get:
+      tags: [Cache]
+      summary: Get Redis cache status
+      responses:
+        '200':
+          description: Cache statistics
+
+  /cache/clear:
+    post:
+      tags: [Cache]
+      summary: Clear all Redis cache
+      responses:
+        '200':
+          description: Cache cleared
+
+  # --- ADMIN ---
+  /admin/sync-now:
+    post:
+      tags: [Admin]
+      summary: Force ticket sync
+      description: Dispatches an immediate ticket sync job via BullMQ.
+      responses:
+        '200':
+          description: Sync job dispatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  jobId:
+                    type: string
+
+  /admin/sync-status:
+    get:
+      tags: [Admin]
+      summary: Get sync status and data staleness
+      responses:
+        '200':
+          description: Sync status info
+
+  /admin/backfill:
+    post:
+      tags: [Admin]
+      summary: Full historical backfill
+      description: Triggers a complete re-sync of all historical tickets from DevRev to MongoDB. Long-running operation.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullHistory:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Backfill job dispatched
+
+  /admin/job-status/{jobId}:
+    get:
+      tags: [Admin]
+      summary: Get BullMQ job status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status details
+
+  /admin/verify-gst-names:
+    get:
+      tags: [Admin]
+      summary: Verify GST member name mappings
+      responses:
+        '200':
+          description: Name verification results
+
+  /admin/pending-alerts:
+    get:
+      tags: [Admin]
+      summary: Get pending Slack alerts
+      responses:
+        '200':
+          description: Alerts pending delivery
+
+  /admin/send-pending-alerts:
+    post:
+      tags: [Admin]
+      summary: Send all pending Slack alerts
+      responses:
+        '200':
+          description: Alerts sent
+
+  /admin/test-slack:
+    post:
+      tags: [Admin]
+      summary: Test Slack webhook connectivity
+      responses:
+        '200':
+          description: Test message sent
+
+  /admin/sync-ticket:
+    post:
+      tags: [Admin]
+      summary: Sync a single ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticketId]
+              properties:
+                ticketId:
+                  type: string
+                  example: "don:core:dvrv-us-1:devo/xyz:ticket/123"
+      responses:
+        '200':
+          description: Single ticket synced
+
+  /admin/cleanup-old-tickets:
+    post:
+      tags: [Admin]
+      summary: Delete tickets before cutoff date
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                before:
+                  type: string
+                  format: date
+                  example: "2025-01-01"
+      responses:
+        '200':
+          description: Old tickets deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+                    example: 150

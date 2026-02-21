@@ -2,6 +2,7 @@ import axios from "axios";
 import { DEVREV_API, HEADERS } from "./devrevApi.js";
 import { redisGet } from "../config/database.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
+import logger from "../config/logger.js";
 
 // In-memory fallback cache for when Redis is down
 const memoryCache = new Map();
@@ -101,11 +102,11 @@ export const enrichTimelineReplies = async () => {
   }
 
   if (!uncachedIds.length) {
-    console.log("✅ Timeline cache already warm for all tickets");
+    logger.info("Timeline cache already warm for all tickets");
     return;
   }
 
-  console.log(`🔄 Enriching timeline replies for ${uncachedIds.length} tickets...`);
+  logger.info({ count: uncachedIds.length }, "Enriching timeline replies for tickets");
   let enriched = 0;
 
   // Process 3 at a time with 500ms delay between batches (reduced from 5)
@@ -133,7 +134,7 @@ export const enrichTimelineReplies = async () => {
     }
   }
 
-  console.log(`✅ Timeline enrichment done: ${enriched} tickets enriched`);
+  logger.info({ enriched }, "Timeline enrichment done");
 };
 
 // API endpoint handler: CACHE-ONLY read — never calls DevRev on user requests.

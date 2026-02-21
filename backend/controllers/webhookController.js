@@ -1,5 +1,6 @@
 import { getTicketSyncQueue } from "../lib/queues.js";
 import { fetchAndCacheTickets } from "../services/syncService.js";
+import logger from "../config/logger.js";
 
 let debounceTimer = null;
 
@@ -16,7 +17,7 @@ export const handleDevRevWebhook = (req, res) => {
         delay: 5000,
       }).catch((err) => {
         // BullMQ failed (Redis down) — fall back to debounced direct call
-        console.warn(`⚠️ BullMQ webhook dispatch failed (${err.message}), using direct sync`);
+        logger.warn({ err }, "BullMQ webhook dispatch failed, using direct sync");
         directDebouncedSync();
       });
     } else {
@@ -31,7 +32,7 @@ function directDebouncedSync() {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     fetchAndCacheTickets("webhook").catch((e) =>
-      console.error("Direct webhook sync failed:", e.message),
+      logger.error({ err: e }, "Direct webhook sync failed"),
     );
   }, 5000);
 }

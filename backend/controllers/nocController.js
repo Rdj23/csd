@@ -1,4 +1,6 @@
 import { AnalyticsTicket } from "../models/index.js";
+import { ok, serverError } from "../utils/response.js";
+import logger from "../config/logger.js";
 
 export const getNocTickets = async (req, res) => {
   try {
@@ -87,7 +89,7 @@ export const getNocTickets = async (req, res) => {
       ]),
     ]);
 
-    res.json({
+    ok(res, {
       tickets: nocTickets,
       filters: {
         rcaOptions: rcaValues.filter(r => r != null && r !== "").sort(),
@@ -104,12 +106,7 @@ export const getNocTickets = async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("❌ /api/tickets/noc error:", e.message);
-    res.status(500).json({
-      tickets: [],
-      filters: { rcaOptions: [], reporterOptions: [], ownerOptions: [], confirmationByOptions: [] },
-      stats: { total: 0, byReporter: [], byRca: [], byOwner: [], byConfirmation: [] },
-      error: e.message,
-    });
+    logger.error({ err: e }, "NOC tickets error");
+    serverError(res, e.message);
   }
 };

@@ -5,6 +5,7 @@ import { enrichTimelineReplies, fetchMissingTimelinesForWorker } from "../servic
 import { syncRoster } from "../services/rosterService.js";
 import { getTimelineQueue } from "./queues.js";
 import { publishRosterUpdated } from "./pubsub.js";
+import logger from "../config/logger.js";
 
 export const registerAllWorkers = (connection) => {
   const opts = { connection };
@@ -12,7 +13,7 @@ export const registerAllWorkers = (connection) => {
   const ticketSyncWorker = new Worker(
     "ticket-sync",
     async (job) => {
-      console.log(`[ticket-sync] Processing: source=${job.data.source}`);
+      logger.info({ source: job.data.source }, "[ticket-sync] Processing");
       await fetchAndCacheTickets(job.data.source);
       // Chain: enrich timeline after sync
       const tlQueue = getTimelineQueue();
@@ -26,7 +27,7 @@ export const registerAllWorkers = (connection) => {
   const historicalSyncWorker = new Worker(
     "historical-sync",
     async (job) => {
-      console.log(`[historical-sync] Processing: ${job.name}`);
+      logger.info({ jobName: job.name }, "[historical-sync] Processing");
       if (job.name === "full-sync") {
         await syncHistoricalToDB(true);
       } else {
@@ -40,7 +41,7 @@ export const registerAllWorkers = (connection) => {
   const analyticsWorker = new Worker(
     "analytics",
     async (job) => {
-      console.log(`[analytics] Processing: quarter=${job.data.quarter}`);
+      logger.info({ quarter: job.data.quarter }, "[analytics] Processing");
       await precomputeAnalytics(job.data.quarter);
       if (global.gc) global.gc();
     },
@@ -51,10 +52,10 @@ export const registerAllWorkers = (connection) => {
     "timeline",
     async (job) => {
       if (job.name === "enrich-all") {
-        console.log("[timeline] Enriching all active tickets...");
+        logger.info("[timeline] Enriching all active tickets");
         await enrichTimelineReplies();
       } else if (job.name === "fetch-missing") {
-        console.log(`[timeline] Fetching ${job.data.ticketIds?.length} missing timelines`);
+        logger.info({ count: job.data.ticketIds?.length }, "[timeline] Fetching missing timelines");
         await fetchMissingTimelinesForWorker(job.data.ticketIds);
       }
     },
@@ -64,7 +65,7 @@ export const registerAllWorkers = (connection) => {
   const rosterWorker = new Worker(
     "roster",
     async () => {
-      console.log("[roster] Syncing roster from Google Sheets...");
+      logger.info("[roster] Syncing roster from Google Sheets");
       await syncRoster();
       await publishRosterUpdated();
     },
@@ -74,9 +75,9 @@ export const registerAllWorkers = (connection) => {
   const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, timelineWorker, rosterWorker];
 
   allWorkers.forEach((w) => {
-    w.on("completed", (job) => console.log(`[${w.name}] Job ${job.name} completed`));
-    w.on("failed", (job, err) => console.error(`[${w.name}] Job ${job?.name} failed:`, err.message));
-    w.on("error", (err) => console.error(`[${w.name}] Worker error:`, err.message));
+    w.on("completed", (job) => logger.info({ worker: w.name, jobName: job.name }, "Job completed"));
+    w.on("failed", (job, err) => logger.error({ worker: w.name, jobName: job?.name, err }, "Job failed"));
+    w.on("error", (err) => logger.error({ worker: w.name, err }, "Worker error"));
   });
 
   return allWorkers;

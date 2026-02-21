@@ -8,7 +8,9 @@
     "start": "node --max-old-space-size=512 --expose-gc server.js",
     "start:api": "node --max-old-space-size=384 server.js",
     "start:worker": "node --max-old-space-size=512 --expose-gc worker.js",
-    "build": "echo 'No build step necessary'"
+    "build": "echo 'No build step necessary'",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -35,7 +37,13 @@
     "mongoose": "^9.0.2",
     "node-cache": "^5.1.2",
     "nodemon": "^3.1.11",
+    "pino": "^10.3.1",
     "socket.io": "^4.8.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2",
+    "vitest": "^4.0.18"
   }
 }

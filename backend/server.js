@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { Server } from "socket.io";
 import process from "process";
 import mongoose from "mongoose";
+import logger from "./config/logger.js";
 
 // --- Middleware ---
 import {
@@ -58,11 +59,10 @@ import { connectMongoDB, initRedis, getBullMQConnection, getRedisUrl } from "./c
 
 connectMongoDB()
   .then(() => {
-    console.log("🍃 MongoDB Connected");
     setServerReady(true);
   })
   .catch((err) => {
-    console.error("❌ MongoDB Error:", err);
+    logger.error({ err }, "MongoDB startup connection failed");
     // Still mark as ready to allow health checks to work
     setServerReady(true);
   });
@@ -84,9 +84,9 @@ import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQue
 const bullmqConn = getBullMQConnection();
 if (bullmqConn) {
   initQueues(bullmqConn);
-  console.log(`📋 BullMQ queues initialized (${NODE_ROLE} mode)`);
+  logger.info({ mode: NODE_ROLE }, "BullMQ queues initialized");
 } else {
-  console.warn("⚠️ No REDIS_URL — BullMQ queues not available");
+  logger.warn("No REDIS_URL — BullMQ queues not available");
 }
 
 // --- Bull Board (Admin monitoring UI) ---
@@ -108,12 +108,12 @@ const redisUrl = getRedisUrl();
 if (runWorkers && bullmqConn && redisUrl) {
   initPublisher(redisUrl);
   workerInstances = registerAllWorkers(bullmqConn);
-  console.log(`✅ ${workerInstances.length} workers registered (${NODE_ROLE} mode)`);
+  logger.info({ count: workerInstances.length, mode: NODE_ROLE }, "Workers registered");
 }
 
 if (redisUrl) {
   initSubscriber(redisUrl, io, () => {
-    loadRosterFromRedis().catch((e) => console.warn("⚠️ Roster reload failed:", e.message));
+    loadRosterFromRedis().catch((e) => logger.warn({ err: e }, "Roster reload failed"));
   });
 }
 
@@ -121,15 +121,15 @@ if (redisUrl) {
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, async () => {
-  console.log(`🚀 Server on port ${PORT} (${NODE_ROLE} mode)`);
+  logger.info({ port: PORT, mode: NODE_ROLE }, "Server started");
 
   // Non-blocking: count tickets in background
   AnalyticsTicket.countDocuments().then((count) => {
-    console.log(
-      count
-        ? `✅ ${count} tickets in MongoDB`
-        : "⚠️ MongoDB empty - run /api/admin/backfill",
-    );
+    if (count) {
+      logger.info({ count }, "Tickets in MongoDB");
+    } else {
+      logger.warn("MongoDB empty - run /api/admin/backfill");
+    }
   });
 
   // Startup ticket sync — try BullMQ, fall back to direct call
@@ -141,20 +141,20 @@ server.listen(PORT, async () => {
       if (ticketSyncQueue) {
         try {
           await ticketSyncQueue.add("sync-active", { source: "startup" }, { jobId: `startup-${Date.now()}` });
-          console.log("📦 Dispatched startup ticket sync job");
+          logger.info("Dispatched startup ticket sync job");
         } catch {
-          console.warn("⚠️ BullMQ unavailable, running startup sync directly");
-          fetchAndCacheTickets("startup").catch((e) => console.error("Direct startup sync failed:", e.message));
+          logger.warn("BullMQ unavailable, running startup sync directly");
+          fetchAndCacheTickets("startup").catch((e) => logger.error({ err: e }, "Direct startup sync failed"));
         }
       } else {
-        console.log("📦 No queues, running startup sync directly");
-        fetchAndCacheTickets("startup").catch((e) => console.error("Direct startup sync failed:", e.message));
+        logger.info("No queues, running startup sync directly");
+        fetchAndCacheTickets("startup").catch((e) => logger.error({ err: e }, "Direct startup sync failed"));
       }
     }
   } catch {
     // Redis completely down — run direct sync
-    console.warn("⚠️ Redis down, running startup sync directly");
-    fetchAndCacheTickets("startup").catch((e) => console.error("Direct startup sync failed:", e.message));
+    logger.warn("Redis down, running startup sync directly");
+    fetchAndCacheTickets("startup").catch((e) => logger.error({ err: e }, "Direct startup sync failed"));
   }
 
   // Load roster data from Redis (populated by worker's syncRoster)
@@ -162,15 +162,15 @@ server.listen(PORT, async () => {
   loadRosterFromRedis()
     .then((loaded) => {
       if (loaded) return;
-      console.warn("⚠️ No roster data in Redis, dispatching sync job...");
+      logger.warn("No roster data in Redis, dispatching sync job");
       const rosterQueue = getRosterQueue();
       if (rosterQueue) {
         rosterQueue.add("sync-roster", {}, { jobId: `startup-roster-${Date.now()}` })
-          .then(() => console.log("📅 Startup roster sync dispatched"))
-          .catch((e) => console.error("Failed to dispatch roster sync:", e.message));
+          .then(() => logger.info("Startup roster sync dispatched"))
+          .catch((e) => logger.error({ err: e }, "Failed to dispatch roster sync"));
       }
     })
-    .catch((e) => console.warn("⚠️ Roster load failed:", e.message));
+    .catch((e) => logger.warn({ err: e }, "Roster load failed"));
 
   // Register cron jobs if running workers and BullMQ is available
   if (runWorkers && bullmqConn) {
@@ -180,7 +180,7 @@ server.listen(PORT, async () => {
         const repeatables = await queue.getRepeatableJobs();
         for (const job of repeatables) {
           await queue.removeRepeatableByKey(job.key);
-          console.log(`🗑️ Removed old repeatable: ${job.key}`);
+          logger.info({ key: job.key }, "Removed old repeatable job");
         }
       }
 
@@ -192,21 +192,21 @@ server.listen(PORT, async () => {
         "precompute", { quarter: "Q1_26" },
         { repeat: { pattern: "30 4 * * *" }, jobId: "daily-analytics-q1-26" },  // 04:30 UTC = 10:00 AM IST (runs after sync)
       );
-      console.log("📅 Cron jobs registered");
+      logger.info("Cron jobs registered");
     } catch (e) {
-      console.warn("⚠️ Failed to register cron jobs (Redis down?):", e.message);
+      logger.warn({ err: e }, "Failed to register cron jobs (Redis down?)");
     }
   }
 
-  console.log("✅ Server ready");
+  logger.info("Server ready");
 });
 
 // --- Graceful shutdown ---
 const shutdown = async () => {
   if (workerInstances.length > 0) {
-    console.log("🛑 Closing workers...");
+    logger.info("Closing workers...");
     await Promise.all(workerInstances.map((w) => w.close()));
-    console.log("✅ All workers closed");
+    logger.info("All workers closed");
   }
   server.close(() => process.exit(0));
 };

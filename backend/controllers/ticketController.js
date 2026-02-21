@@ -5,6 +5,8 @@ import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { batchFetchTimelineReplies, fetchMissingTimelinesForWorker } from "../services/timelineService.js";
 import { fetchAndCacheTickets } from "../services/syncService.js";
 import { getTicketSyncQueue, getTimelineQueue } from "../lib/queues.js";
+import { ok, badRequest, serverError } from "../utils/response.js";
+import logger from "../config/logger.js";
 
 // Helper: try BullMQ dispatch, fall back to direct execution if Redis is down
 const dispatchOrRun = async (getQueue, jobName, jobData, directFn) => {
@@ -14,11 +16,11 @@ const dispatchOrRun = async (getQueue, jobName, jobData, directFn) => {
       await queue.add(jobName, jobData, { jobId: `${jobName}-${Date.now()}` });
       return;
     } catch (err) {
-      console.warn(`⚠️ BullMQ dispatch failed (${err.message}), running directly`);
+      logger.warn({ err }, "BullMQ dispatch failed, running directly");
     }
   }
   // Fallback: run directly (non-blocking)
-  directFn().catch((e) => console.error(`Direct ${jobName} failed:`, e.message));
+  directFn().catch((e) => logger.error({ err: e }, "Direct job failed"));
 };
 
 export const getLiveStats = async (req, res) => {
@@ -26,14 +28,14 @@ export const getLiveStats = async (req, res) => {
     const { start, end, owners, teams, region, excludeZendesk, excludeNOC } = req.query;
 
     if (!start || !end) {
-      return res.status(400).json({ error: "Start and End dates required" });
+      return badRequest(res, "Start and End dates required");
     }
 
     const cacheKey = `livestats:${start}:${end}:${owners || "all"}:${region || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
     const cachedData = await redisGet(cacheKey);
     if (cachedData) {
-      console.log(`⚡ LiveStats Redis HIT`);
-      return res.json(cachedData);
+      logger.info("LiveStats Redis HIT");
+      return ok(res, cachedData);
     }
 
     const startDate = new Date(start);
@@ -81,7 +83,7 @@ export const getLiveStats = async (req, res) => {
     ]);
 
     if (result.length === 0) {
-      return res.json({ stats: {}, trends: [] });
+      return ok(res, { stats: {}, trends: [] });
     }
 
     const data = result[0];
@@ -129,17 +131,17 @@ export const getLiveStats = async (req, res) => {
     };
 
     await redisSet(cacheKey, responseData, CACHE_TTL.DRILLDOWN);
-    res.json(responseData);
+    ok(res, responseData);
   } catch (e) {
-    console.error("Live Stats Error:", e);
-    res.status(500).json({ error: e.message });
+    logger.error({ err: e }, "Live Stats error");
+    serverError(res, e.message);
   }
 };
 
 export const getDrilldown = async (req, res) => {
   try {
     const { date, metric, type } = req.query;
-    if (!date) return res.status(400).json({ error: "Date required" });
+    if (!date) return badRequest(res, "Date required");
 
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
@@ -158,10 +160,10 @@ export const getDrilldown = async (req, res) => {
       .select("display_id title created_date actual_close_date owner stage_name rwt account_name")
       .lean();
 
-    res.json({ tickets });
+    ok(res, { tickets });
   } catch (error) {
-    console.error("Drilldown Error:", error);
-    res.status(500).json({ error: "Failed to fetch drilldown data" });
+    logger.error({ err: error }, "Drilldown error");
+    serverError(res, "Failed to fetch drilldown data");
   }
 };
 
@@ -169,7 +171,7 @@ export const getTicketsByRange = async (req, res) => {
   try {
     const { start, end, owners, metric, excludeZendesk, excludeNOC, region } = req.query;
     if (!start || !end) {
-      return res.status(400).json({ error: "Start and end dates required" });
+      return badRequest(res, "Start and end dates required");
     }
 
     const startDate = new Date(start);
@@ -177,7 +179,7 @@ export const getTicketsByRange = async (req, res) => {
     const endDate = new Date(end);
     endDate.setHours(23, 59, 59, 999);
 
-    console.log(`📊 By-Range: ${start} to ${end}, metric=${metric}`);
+    logger.info({ start, end, metric }, "By-Range request");
 
     const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
     if (owners && owners !== "All") {
@@ -209,23 +211,23 @@ export const getTicketsByRange = async (req, res) => {
         : 0,
     };
 
-    res.json({ tickets, stats, count: tickets.length });
+    ok(res, { tickets, stats, count: tickets.length });
   } catch (e) {
-    console.error("❌ By-range fetch error:", e);
-    res.status(500).json({ error: e.message, tickets: [], stats: {} });
+    logger.error({ err: e }, "By-range fetch error");
+    serverError(res, e.message);
   }
 };
 
 export const getTicketsByDate = async (req, res) => {
   try {
     const { date, owners, metric, excludeZendesk, region, excludeNOC } = req.query;
-    if (!date) return res.status(400).json({ error: "Date required" });
+    if (!date) return badRequest(res, "Date required");
 
     const cacheKey = `bydate:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
     const cached = await redisGet(cacheKey);
     if (cached) {
-      console.log(`⚡ ByDate Redis HIT`);
-      return res.json(cached);
+      logger.info("ByDate Redis HIT");
+      return ok(res, cached);
     }
 
     let startOfDay, endOfDay;
@@ -280,10 +282,10 @@ export const getTicketsByDate = async (req, res) => {
     const tickets = await AnalyticsTicket.find(matchConditions).sort({ closed_date: -1 }).limit(2000).lean();
 
     await redisSet(cacheKey, { tickets }, CACHE_TTL.DRILLDOWN);
-    res.json({ tickets, count: tickets.length });
+    ok(res, { tickets, count: tickets.length });
   } catch (e) {
-    console.error("❌ By-date fetch error:", e);
-    res.status(500).json({ error: e.message, tickets: [] });
+    logger.error({ err: e }, "By-date fetch error");
+    serverError(res, e.message);
   }
 };
 
@@ -291,8 +293,8 @@ export const getActiveTickets = async (req, res) => {
   try {
     const stableTickets = await redisGet("tickets:active");
     if (stableTickets && stableTickets.length > 0) {
-      console.log(`⚡ Serving ${stableTickets.length} stable tickets`);
-      return res.json({
+      logger.info({ count: stableTickets.length }, "Serving stable tickets");
+      return ok(res, {
         tickets: stableTickets,
         total: stableTickets.length,
         isPartial: false,
@@ -302,8 +304,8 @@ export const getActiveTickets = async (req, res) => {
 
     const stagingTickets = await redisGet("tickets:syncing");
     if (stagingTickets && stagingTickets.length > 0) {
-      console.log(`📦 Serving ${stagingTickets.length} staging tickets (sync in progress)`);
-      return res.json({
+      logger.info({ count: stagingTickets.length }, "Serving staging tickets");
+      return ok(res, {
         tickets: stagingTickets,
         total: stagingTickets.length,
         isPartial: true,
@@ -311,7 +313,7 @@ export const getActiveTickets = async (req, res) => {
     }
 
     // Cold start — dispatch sync via BullMQ, or run directly if Redis is down
-    console.log("⏳ Cold start - no cache, triggering sync");
+    logger.info("Cold start - no cache, triggering sync");
     await dispatchOrRun(
       getTicketSyncQueue, "sync-active", { source: "on_demand" },
       () => fetchAndCacheTickets("on_demand"),
@@ -322,7 +324,7 @@ export const getActiveTickets = async (req, res) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       const earlyTickets = await redisGet("tickets:syncing");
       if (earlyTickets && earlyTickets.length > 0) {
-        return res.json({
+        return ok(res, {
           tickets: earlyTickets,
           total: earlyTickets.length,
           isPartial: true,
@@ -330,15 +332,15 @@ export const getActiveTickets = async (req, res) => {
       }
     }
 
-    res.json({
+    ok(res, {
       tickets: [],
       total: 0,
       isPartial: true,
       message: "Loading tickets..."
     });
   } catch (e) {
-    console.error("❌ /api/tickets error:", e.message);
-    res.status(500).json({ tickets: [], error: e.message });
+    logger.error({ err: e }, "Tickets API error");
+    serverError(res, e.message);
   }
 };
 
@@ -357,7 +359,7 @@ export const getTicketLinks = async (req, res) => {
 
     const links = linksRes.data.links || [];
     if (links.length === 0) {
-      return res.json({ hasDependency: false, issues: [] });
+      return ok(res, { hasDependency: false, issues: [] });
     }
 
     const issues = links
@@ -376,10 +378,10 @@ export const getTicketLinks = async (req, res) => {
       })
       .filter(Boolean);
 
-    res.json({ hasDependency: true, issues });
+    ok(res, { hasDependency: true, issues });
   } catch (e) {
-    console.error("Links fetch error:", e.message);
-    res.json({ hasDependency: false, issues: [], error: e.message });
+    logger.error({ err: e }, "Links fetch error");
+    ok(res, { hasDependency: false, issues: [], error: e.message });
   }
 };
 
@@ -394,7 +396,7 @@ export const getIssueDetails = async (req, res) => {
 
     const issue = issRes.data.work;
     if (!issue) {
-      return res.json({ error: "Issue not found" });
+      return ok(res, { error: "Issue not found" });
     }
 
     const customFields = issue.custom_fields || {};
@@ -413,7 +415,7 @@ export const getIssueDetails = async (req, res) => {
       team = "Whatsapp";
     }
 
-    res.json({
+    ok(res, {
       issueId: issue.display_id,
       title: issue.title,
       owner: issue.owned_by?.[0]?.display_name || "Unassigned",
@@ -428,8 +430,8 @@ export const getIssueDetails = async (req, res) => {
       isNOC: customFields.ctype__issuetype === "PSN Task",
     });
   } catch (e) {
-    console.error("Issue fetch error:", e.message);
-    res.json({ error: e.message });
+    logger.error({ err: e }, "Issue fetch error");
+    ok(res, { error: e.message });
   }
 };
 
@@ -522,10 +524,10 @@ export const getBatchDependencies = async (req, res) => {
       );
     }
 
-    res.json(results);
+    ok(res, results);
   } catch (e) {
-    console.error("Dependencies batch fetch error:", e.message);
-    res.status(500).json({ error: e.message });
+    logger.error({ err: e }, "Dependencies batch fetch error");
+    serverError(res, e.message);
   }
 };
 
@@ -533,7 +535,7 @@ export const getTimelineReplies = async (req, res) => {
   try {
     const { ticketIds } = req.body;
     if (!ticketIds || !ticketIds.length) {
-      return res.json({ cached: {}, pending: [] });
+      return ok(res, { cached: {}, pending: [] });
     }
 
     // Instant cache-only read — no DevRev calls in this HTTP path
@@ -547,10 +549,10 @@ export const getTimelineReplies = async (req, res) => {
       );
     }
 
-    res.json({ cached, pending });
+    ok(res, { cached, pending });
   } catch (e) {
-    console.error("Timeline replies batch fetch error:", e.message);
-    res.status(500).json({ error: e.message });
+    logger.error({ err: e }, "Timeline replies batch fetch error");
+    serverError(res, e.message);
   }
 };
 
@@ -559,5 +561,5 @@ export const syncTickets = async (req, res) => {
     getTicketSyncQueue, "sync-active", { source: "manual" },
     () => fetchAndCacheTickets("manual"),
   );
-  res.json({ success: true });
+  ok(res, null);
 };
