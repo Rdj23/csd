@@ -3,7 +3,7 @@ import { AnalyticsTicket } from "../models/index.js";
 import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { batchFetchTimelineReplies, fetchMissingTimelinesForWorker } from "../services/timelineService.js";
-import { fetchAndCacheTickets } from "../services/syncService.js";
+import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
 import { getTicketSyncQueue, getTimelineQueue } from "../lib/queues.js";
 import { ok, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
@@ -312,20 +312,26 @@ export const getActiveTickets = async (req, res) => {
       });
     }
 
-    // Cold start — always run sync directly and return results.
-    // BullMQ/Redis may be OOM so we bypass the queue entirely here
-    // to guarantee the frontend gets data.
-    logger.info("Cold start - no cache, running direct sync");
+    // Cold start — quick-fetch first few pages from DevRev and return
+    // immediately. A full sync would take minutes and time out on Render.
+    logger.info("Cold start - no cache, quick-fetching tickets");
     try {
-      const tickets = await fetchAndCacheTickets("on_demand");
+      const tickets = await quickFetchTickets();
+      // Kick off full sync in background (non-blocking) — it will populate
+      // Redis once done (if Redis has space).
+      dispatchOrRun(
+        getTicketSyncQueue, "sync-active", { source: "cold_start" },
+        () => fetchAndCacheTickets("cold_start"),
+      ).catch((e) => logger.error({ err: e }, "Background sync dispatch failed"));
+
       return ok(res, {
-        tickets: tickets || [],
-        total: (tickets || []).length,
-        isPartial: false,
-        isSyncing: false,
+        tickets,
+        total: tickets.length,
+        isPartial: true,
+        isSyncing: true,
       });
     } catch (syncErr) {
-      logger.error({ err: syncErr }, "Direct sync failed");
+      logger.error({ err: syncErr }, "Quick fetch failed");
       return ok(res, { tickets: [], total: 0, isPartial: true, message: "Loading tickets..." });
     }
   } catch (e) {

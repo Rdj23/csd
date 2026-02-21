@@ -12,6 +12,82 @@ import logger from "../config/logger.js";
 // getSyncState kept for API server to check if a sync job is active via queue inspection.
 export const getSyncState = () => ({ isSyncing: false, syncQueued: false });
 
+/**
+ * Quick fetch: grab the first few pages of tickets from DevRev and return
+ * immediately. Designed for cold-start HTTP requests where we can't wait
+ * for a full sync (which takes minutes and would time out on Render).
+ */
+export const quickFetchTickets = async () => {
+  const SOLVED_CUTOFF_DATE = new Date("2026-01-01");
+  let collected = [];
+
+  // Single page, no retries, short timeout — must finish well within
+  // Render's ~30s HTTP timeout so the frontend gets a response.
+  try {
+    const response = await axios.get(
+      `${DEVREV_API}/works.list?limit=50&type=ticket`,
+      { headers: HEADERS, timeout: 10000 },
+    );
+    collected = response.data.works || [];
+  } catch (err) {
+    logger.warn({ err }, "quickFetchTickets failed");
+  }
+
+  // Apply the same filtering/trimming as the full sync
+  return collected
+    .filter((t) => {
+      const stage = t.stage?.name?.toLowerCase() || "";
+      const isActive = stage.includes("waiting on assignee") ||
+                      stage.includes("awaiting customer reply") ||
+                      stage.includes("waiting on clevertap") ||
+                      stage.includes("on hold") ||
+                      stage.includes("pending") ||
+                      stage.includes("open");
+      if (isActive) return true;
+      const isSolved = stage.includes("solved") || stage.includes("closed") || stage.includes("resolved");
+      if (isSolved) {
+        const createdDate = t.created_date ? parseISO(t.created_date) : null;
+        return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
+      }
+      return false;
+    })
+    .filter((t) => {
+      const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
+      return !ownerName.includes("anmol sawhney");
+    })
+    .map((t) => {
+      const cf = t.custom_fields || {};
+      return {
+        id: t.id,
+        display_id: t.display_id,
+        title: t.title,
+        priority: t.priority,
+        severity: t.severity,
+        account: t.account?.display_name || t.account,
+        stage: t.stage,
+        owned_by: t.owned_by,
+        created_date: t.created_date,
+        modified_date: t.modified_date,
+        custom_fields: {
+          tnt__csatrating: cf.tnt__csatrating,
+          tnt__region_salesforce: cf.tnt__region_salesforce,
+          tnt__instance_account_name: cf.tnt__instance_account_name,
+          tnt__csm_email_id: cf.tnt__csm_email_id,
+          tnt__csm: cf.tnt__csm,
+          tnt__tam: cf.tnt__tam,
+          tnt__rwt_business_hours: cf.tnt__rwt_business_hours,
+          tnt__frt_hours: cf.tnt__frt_hours,
+          tnt__iteration_count: cf.tnt__iteration_count,
+          tnt__frr: cf.tnt__frr,
+          tnt__customer_wait_time: cf.tnt__customer_wait_time,
+        },
+        tags: t.tags,
+        isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+        actual_close_date: t.actual_close_date,
+      };
+    });
+};
+
 export const fetchAndCacheTickets = async (source = "auto") => {
   logger.info({ source }, "Syncing Active Tickets");
 
