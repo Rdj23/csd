@@ -155,7 +155,8 @@ export const useTicketStore = create(
         try {
           const API_URL = getApiUrl();
           const res = await _authFetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}`);
-          set({ myViews: await res.json() });
+          const viewsData = await res.json();
+          set({ myViews: viewsData.data || viewsData || [] });
         } catch (e) {
           console.error("Failed to fetch views", e);
         }

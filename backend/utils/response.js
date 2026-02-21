@@ -6,7 +6,9 @@
  */
 
 export const ok = (res, data, meta) => {
-  const body = { success: true, data };
+  // Spread data at top level so frontend can read properties directly
+  // (e.g. data.tickets, data.clientId) without unwrapping data.data
+  const body = { success: true, ...(data && typeof data === "object" && !Array.isArray(data) ? data : { data }) };
   if (meta) body.meta = meta;
   return res.json(body);
 };
