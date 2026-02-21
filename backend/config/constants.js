@@ -1,3 +1,7 @@
+// Tickets solved before this date are historical backfill — no Slack alerts during sync.
+// After this date, all "Understanding Gap - CS" tickets from GST reporters trigger alerts.
+export const BACKFILL_CUTOFF = new Date("2026-02-20");
+
 // --- TEAM CONFIGURATION (Backend Copy) ---
 export const TEAM_GROUPS = {
   "Mashnu": { "DEVU-1111": "Rohan", "DEVU-1114": "Archie", "DEVU-1072": "Neha", "DEVU-1115": "Shreya", "DEVU-1122": "Vaibhav", "DEVU-1076": "Adarsh", "DEVU-1108": "Abhishek" },

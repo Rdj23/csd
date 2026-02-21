@@ -10,8 +10,8 @@ export const initQueues = (connection) => {
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 5000 },
-      removeOnComplete: { count: 50 },
-      removeOnFail: { count: 100 },
+      removeOnComplete: { count: 5 },
+      removeOnFail: { count: 10 },
     },
   });
 
@@ -20,8 +20,8 @@ export const initQueues = (connection) => {
     defaultJobOptions: {
       attempts: 4,
       backoff: { type: "exponential", delay: 30000 },
-      removeOnComplete: { count: 10 },
-      removeOnFail: { count: 20 },
+      removeOnComplete: { count: 3 },
+      removeOnFail: { count: 5 },
     },
   });
 
@@ -30,8 +30,8 @@ export const initQueues = (connection) => {
     defaultJobOptions: {
       attempts: 4,
       backoff: { type: "exponential", delay: 15000 },
-      removeOnComplete: { count: 20 },
-      removeOnFail: { count: 20 },
+      removeOnComplete: { count: 3 },
+      removeOnFail: { count: 5 },
     },
   });
 
@@ -40,8 +40,8 @@ export const initQueues = (connection) => {
     defaultJobOptions: {
       attempts: 2,
       backoff: { type: "fixed", delay: 5000 },
-      removeOnComplete: { count: 100 },
-      removeOnFail: { count: 50 },
+      removeOnComplete: { count: 5 },
+      removeOnFail: { count: 10 },
     },
   });
 
@@ -50,8 +50,8 @@ export const initQueues = (connection) => {
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 10000 },
-      removeOnComplete: { count: 10 },
-      removeOnFail: { count: 10 },
+      removeOnComplete: { count: 3 },
+      removeOnFail: { count: 5 },
     },
   });
 };

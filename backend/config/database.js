@@ -3,10 +3,10 @@ import Redis from "ioredis";
 
 // --- REDIS CACHE HELPERS ---
 export const CACHE_TTL = {
-  ANALYTICS: 1800, // 30 minutes
+  ANALYTICS: 900, // 15 minutes
   TICKETS: 300, // 5 minutes
-  LEADERBOARD: 3600, // 1 hour
-  DRILLDOWN: 600, // 10 minutes
+  LEADERBOARD: 1800, // 30 minutes
+  DRILLDOWN: 300, // 5 minutes
 };
 
 let redis = null;
@@ -82,7 +82,17 @@ export const initRedis = async () => {
     });
 
     redis.on("connect", () => console.log("🟢 Redis Connected"));
-    redis.on("ready", () => console.log("🟢 Redis Ready"));
+    redis.on("ready", async () => {
+      console.log("🟢 Redis Ready");
+      // Set eviction policy so Redis drops old cache keys instead of refusing all writes (OOM)
+      try {
+        await redis.config("SET", "maxmemory-policy", "allkeys-lru");
+        console.log("🟢 Redis maxmemory-policy set to allkeys-lru");
+      } catch {
+        // Managed Redis (like Render) may not allow CONFIG SET — that's fine
+        console.log("ℹ️ Could not set maxmemory-policy (managed Redis)");
+      }
+    });
     redis.on("close", () => console.log("🔴 Redis Connection Closed — will reconnect"));
     redis.on("error", (err) => {
       // Only log non-repetitive errors (suppress flood during reconnection)

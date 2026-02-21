@@ -1,6 +1,6 @@
 import axios from "axios";
 import { DEVREV_API, HEADERS } from "./devrevApi.js";
-import { redisGet, redisSet } from "../config/database.js";
+import { redisGet } from "../config/database.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 
 // In-memory fallback cache for when Redis is down
@@ -73,18 +73,14 @@ export const fetchTimelineForTicket = async (ticketId) => {
   return { last_ct_reply: lastCtReply, last_customer_reply: lastCustomerReply };
 };
 
-// Cache helper: write to Redis + in-memory fallback
+// Cache helper: in-memory only (Redis too expensive for per-ticket keys)
 const cacheTimeline = async (ticketId, data) => {
   memSet(`timeline:reply:${ticketId}`, data);
-  await redisSet(`timeline:reply:${ticketId}`, data, 1800);
 };
 
-// Cache helper: read from Redis, fall back to in-memory
+// Cache helper: read from in-memory cache
 const getCachedTimeline = async (ticketId) => {
-  const key = `timeline:reply:${ticketId}`;
-  const redisData = await redisGet(key);
-  if (redisData) return redisData;
-  return memGet(key);
+  return memGet(`timeline:reply:${ticketId}`);
 };
 
 // Background job: pre-warm timeline cache for all active tickets after sync

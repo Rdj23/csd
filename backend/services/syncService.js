@@ -3,7 +3,7 @@ import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisDelete, CACHE_TTL } from "../config/database.js";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
-import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS } from "../config/constants.js";
+import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 
@@ -183,7 +183,6 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     skippedCount = 0;
   const TARGET_DATE = new Date("2026-01-01");
   const NOC_CHECK_DATE = new Date("2026-01-01");
-  const SLACK_ALERT_START_DATE = new Date("2026-01-25");
 
   const alertedTickets = await AnalyticsTicket.find(
     { slack_alerted_at: { $ne: null } },
@@ -344,7 +343,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
             nocRca.toLowerCase().includes("understanding gap - cs") &&
             isReporterGST &&
             !alertedTicketIds.has(t.display_id) &&
-            closedDate >= SLACK_ALERT_START_DATE
+            closedDate >= BACKFILL_CUTOFF
           ) {
             ticketsToAlert.push({
               ticket_id: t.display_id,

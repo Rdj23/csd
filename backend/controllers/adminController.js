@@ -2,7 +2,7 @@ import axios from "axios";
 import { AnalyticsTicket } from "../models/index.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/slackService.js";
-import { resolveOwnerName, GST_SLACK_MEMBER_IDS } from "../config/constants.js";
+import { resolveOwnerName, GST_SLACK_MEMBER_IDS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 import { syncHistoricalToDB } from "../services/syncService.js";
 
@@ -158,10 +158,8 @@ export const verifyGSTNames = async (req, res) => {
 
 export const getPendingAlerts = async (req, res) => {
   try {
-    const SLACK_ALERT_START_DATE = new Date("2026-01-25");
-
     const pendingTickets = await AnalyticsTicket.find({
-      closed_date: { $gte: SLACK_ALERT_START_DATE },
+      closed_date: { $gte: BACKFILL_CUTOFF },
       noc_rca: { $regex: /understanding gap - cs/i },
       slack_alerted_at: null
     }).select({
@@ -170,7 +168,7 @@ export const getPendingAlerts = async (req, res) => {
     }).sort({ closed_date: -1 }).lean();
 
     const alertedTickets = await AnalyticsTicket.find({
-      closed_date: { $gte: SLACK_ALERT_START_DATE },
+      closed_date: { $gte: BACKFILL_CUTOFF },
       noc_rca: { $regex: /understanding gap - cs/i },
       slack_alerted_at: { $ne: null }
     }).select({
@@ -199,10 +197,8 @@ export const getPendingAlerts = async (req, res) => {
 
 export const sendPendingAlerts = async (req, res) => {
   try {
-    const SLACK_ALERT_START_DATE = new Date("2026-01-25");
-
     const pendingTickets = await AnalyticsTicket.find({
-      closed_date: { $gte: SLACK_ALERT_START_DATE },
+      closed_date: { $gte: BACKFILL_CUTOFF },
       noc_rca: { $regex: /understanding gap - cs/i },
       slack_alerted_at: null,
     }).lean();
@@ -296,7 +292,6 @@ export const syncSingleTicket = async (req, res) => {
 
     let isNoc = false, nocIssueId = null, nocJiraKey = null, nocRca = null, nocReportedBy = null, nocAssignee = null;
     const NOC_CHECK_DATE = new Date("2026-01-01");
-    const SLACK_ALERT_START_DATE = new Date("2026-01-25");
     const closedDate = t.actual_close_date ? new Date(t.actual_close_date) : null;
 
     if (closedDate && closedDate >= NOC_CHECK_DATE) {
@@ -333,7 +328,7 @@ export const syncSingleTicket = async (req, res) => {
 
     const existingTicket = await AnalyticsTicket.findOne({ ticket_id: t.display_id });
     const alreadyAlerted = existingTicket?.slack_alerted_at != null;
-    const closedAfterStartDate = closedDate && closedDate >= SLACK_ALERT_START_DATE;
+    const closedAfterBackfillCutoff = closedDate && closedDate >= BACKFILL_CUTOFF;
     const isReporterGST = nocReportedBy && findGSTMember(nocReportedBy);
     const hasUnderstandingGapCS = nocRca && nocRca.toLowerCase().includes("understanding gap - cs");
 
@@ -341,11 +336,11 @@ export const syncSingleTicket = async (req, res) => {
       isSolved, isNoc, hasUnderstandingGapCS,
       isReporterGST: !!isReporterGST,
       notAlreadyAlerted: !alreadyAlerted,
-      closedAfterJan25: closedAfterStartDate,
+      closedAfterBackfillCutoff,
       nocReportedBy, nocRca,
     };
 
-    const shouldAlert = isSolved && hasUnderstandingGapCS && isReporterGST && !alreadyAlerted && closedAfterStartDate;
+    const shouldAlert = isSolved && hasUnderstandingGapCS && isReporterGST && !alreadyAlerted && closedAfterBackfillCutoff;
 
     let slackSent = false;
     if (shouldAlert) {
