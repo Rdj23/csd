@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { ChevronDown, Search, CheckSquare } from "lucide-react";
 
 const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -34,6 +34,20 @@ const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) =
     onChange(newSelected);
   };
 
+  // Select All / Deselect All
+  const allSelected = filteredOptions.length > 0 && filteredOptions.every(opt => selected.includes(opt));
+  const toggleAll = () => {
+    if (allSelected) {
+      // Deselect all filtered options
+      const newSelected = selected.filter(s => !filteredOptions.includes(s));
+      onChange(newSelected);
+    } else {
+      // Select all filtered options
+      const newSelected = [...new Set([...selected, ...filteredOptions])];
+      onChange(newSelected);
+    }
+  };
+
   return (
     <div className="relative" ref={containerRef}>
       <button 
@@ -62,6 +76,24 @@ const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) =
               />
             </div>
           </div>
+
+          {/* Select All Option */}
+          {filteredOptions.length > 1 && (
+            <div className="px-1 pt-1 border-b border-slate-100 dark:border-slate-800">
+              <label 
+                className={`flex items-center gap-3 px-3 py-2 rounded cursor-pointer text-xs transition-colors ${allSelected ? 'bg-indigo-50 text-indigo-700 font-medium dark:bg-indigo-900/30 dark:text-indigo-100' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+              >
+                <input 
+                  type="checkbox" 
+                  className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-500 dark:bg-slate-800"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                />
+                <span className="truncate flex-1 font-semibold">Select All</span>
+                <span className="text-[10px] text-slate-400">({filteredOptions.length})</span>
+              </label>
+            </div>
+          )}
 
           <div className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
             {filteredOptions.length > 0 ? (

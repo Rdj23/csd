@@ -2,24 +2,47 @@
   "name": "backend",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js",
-    "build": "echo 'No build step necessary'"
+    "start": "node --max-old-space-size=512 --expose-gc server.js",
+    "start:api": "node --max-old-space-size=384 server.js",
+    "start:worker": "node --max-old-space-size=512 --expose-gc worker.js",
+    "build": "echo 'No build step necessary'",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@bull-board/api": "^6.18.2",
+    "@bull-board/express": "^6.18.2",
     "axios": "^1.13.2",
+    "bullmq": "^5.69.3",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
     "google-auth-library": "^10.5.0",
+    "googleapis": "^169.0.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.9.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.0.2",
     "node-cache": "^5.1.2",
     "nodemon": "^3.1.11",
-    "socket.io": "^4.8.1"
+    "pino": "^10.3.1",
+    "socket.io": "^4.8.1",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2",
+    "vitest": "^4.0.18"
   }
 }
