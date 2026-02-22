@@ -1,5 +1,5 @@
 /**
- * Ticket API - Fetching tickets, dependencies, timeline replies
+ * Ticket API - Fetching tickets, dependencies
  */
 import { API_URL } from "./apiClient";
 
@@ -23,26 +23,6 @@ export const fetchDependencies = async (authFetch, ticketIds) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ticketIds }),
   });
-  return res.json();
-};
-
-/**
- * Fetch timeline replies for given ticket IDs.
- * @param {Function} authFetch - Authenticated fetch function from store
- * @param {string[]} ticketIds
- * @param {number} [timeoutMs=20000]
- */
-export const fetchTimelineReplies = async (authFetch, ticketIds, timeoutMs = 20000) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  const res = await authFetch(`${API_URL}/api/tickets/timeline-replies`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticketIds }),
-    signal: controller.signal,
-  });
-  clearTimeout(timeout);
   return res.json();
 };
 

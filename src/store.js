@@ -52,8 +52,6 @@ export const useTicketStore = create(
       theme: "dark",
       dependencies: {},
       dependenciesLoading: false,
-      timelineReplies: {},
-      timelineRepliesLoading: false,
 
       // ✅ Socket connection — drives all real-time updates
       connectSocket: () => {
@@ -86,20 +84,6 @@ export const useTicketStore = create(
         // Final signal after sync completion (webhook / manual / cron)
         newSocket.on("DATA_UPDATED", () => {
           get().fetchTickets();
-        });
-
-        // Real-time timeline hydration — merge each batch as it arrives
-        newSocket.on("timeline_batch_updated", (batchData) => {
-          if (!batchData || typeof batchData !== "object") return;
-          const arrivedIds = Object.keys(batchData);
-          set((state) => {
-            const updatedPending = new Set(state.timelinePendingIds);
-            arrivedIds.forEach((id) => updatedPending.delete(id));
-            return {
-              timelineReplies: { ...state.timelineReplies, ...batchData },
-              timelinePendingIds: updatedPending,
-            };
-          });
         });
 
         // Legacy compat
@@ -317,45 +301,6 @@ fetchDependencies: async (ticketIds) => {
   } catch (e) {
     console.error("Dependencies fetch failed:", e);
     set({ dependenciesLoading: false });
-    return {};
-  }
-},
-
-// Track which ticket IDs are pending background fetch (for skeleton UI)
-timelinePendingIds: new Set(),
-
-fetchTimelineReplies: async (ticketIds) => {
-  if (!ticketIds.length) return;
-
-  set({ timelineRepliesLoading: true });
-  try {
-    const API_URL = getApiUrl();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    const res = await _authFetch(`${API_URL}/api/tickets/timeline-replies`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticketIds }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    const data = await res.json();
-
-    // New response shape: { cached: {...}, pending: [...] }
-    const cached = data.cached || data; // Backwards-compatible
-    const pending = data.pending || [];
-
-    set((state) => ({
-      timelineReplies: { ...state.timelineReplies, ...cached },
-      timelinePendingIds: new Set([...state.timelinePendingIds, ...pending]),
-      timelineRepliesLoading: false,
-    }));
-
-    return cached;
-  } catch (e) {
-    console.error("Timeline replies fetch failed:", e);
-    set({ timelineRepliesLoading: false });
     return {};
   }
 },

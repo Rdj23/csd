@@ -19,7 +19,6 @@
   "dependencies": {
     "@bull-board/api": "^6.18.2",
     "@bull-board/express": "^6.18.2",
-    "@google/generative-ai": "^0.24.1",
     "axios": "^1.13.2",
     "bullmq": "^5.69.3",
     "compression": "^1.8.1",

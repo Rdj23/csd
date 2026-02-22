@@ -80,6 +80,8 @@ export const quickFetchTickets = async () => {
           tnt__iteration_count: cf.tnt__iteration_count,
           tnt__frr: cf.tnt__frr,
           tnt__customer_wait_time: cf.tnt__customer_wait_time,
+          tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
+          tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
         },
         tags: t.tags,
         isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
@@ -142,6 +144,8 @@ export const fetchAndCacheTickets = async (source = "auto") => {
             tnt__iteration_count: cf.tnt__iteration_count,
             tnt__frr: cf.tnt__frr,
             tnt__customer_wait_time: cf.tnt__customer_wait_time,
+            tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
+            tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
           };
 
           return {
@@ -258,7 +262,6 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       collected = null;
       if (global.gc) global.gc();
       logger.info({ total: activeTickets.length, active: activeTickets.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
-      // Timeline enrichment is now handled by BullMQ chain (worker dispatches timeline:enrich-all)
       return activeTickets;
     } else {
       logger.warn("Sync completed with 0 tickets collected");

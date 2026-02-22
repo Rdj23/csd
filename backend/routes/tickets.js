@@ -8,7 +8,6 @@ import {
   getTicketLinks,
   getIssueDetails,
   getBatchDependencies,
-  getTimelineReplies,
   syncTickets,
 } from "../controllers/ticketController.js";
 import { validate } from "../middleware/validate.js";
@@ -20,7 +19,6 @@ import {
   ticketLinksSchema,
   issueDetailsSchema,
   batchDependenciesSchema,
-  timelineRepliesSchema,
 } from "../validations/ticketSchemas.js";
 
 const router = Router();
@@ -33,7 +31,6 @@ router.get("/tickets", getActiveTickets);
 router.post("/tickets/links", validate(ticketLinksSchema), getTicketLinks);
 router.post("/issues/get", validate(issueDetailsSchema), getIssueDetails);
 router.post("/tickets/dependencies", validate(batchDependenciesSchema), getBatchDependencies);
-router.post("/tickets/timeline-replies", validate(timelineRepliesSchema), getTimelineReplies);
 router.post("/tickets/sync", syncTickets);
 
 export default router;

@@ -9,7 +9,6 @@ export { loginWithGoogle } from "./authApi";
 export {
   fetchTickets,
   fetchDependencies,
-  fetchTimelineReplies,
   fetchTicketTimeline,
 } from "./ticketApi";
 

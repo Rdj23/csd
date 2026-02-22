@@ -65,8 +65,3 @@ export const batchDependenciesSchema = z.object({
   }),
 });
 
-export const timelineRepliesSchema = z.object({
-  body: z.object({
-    ticketIds: z.array(z.string()).optional().default([]),
-  }),
-});

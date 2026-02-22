@@ -135,9 +135,6 @@ const App = () => {
     deleteView,
     dependencies,
     fetchDependencies,
-    timelineReplies,
-    timelinePendingIds,
-    fetchTimelineReplies,
   } = useTicketStore();
 
   const [googleClientId, setGoogleClientId] = useState(null);
@@ -154,9 +151,7 @@ const App = () => {
 
   // Refs to track in-flight IDs and prevent duplicate API calls
   const depsInFlightRef = useRef(new Set());
-  const timelineInFlightRef = useRef(new Set());
   const depsFetchTimerRef = useRef(null);
-  const timelineFetchTimerRef = useRef(null);
 
   // Fetch dependencies — debounced + in-flight tracking to prevent request floods
   useEffect(() => {
@@ -193,35 +188,6 @@ const App = () => {
     }, 500);
 
     return () => clearTimeout(depsFetchTimerRef.current);
-  }, [tickets, activeTab]);
-
-  // Fetch timeline replies — one-shot request, socket hydrates the rest
-  useEffect(() => {
-    if (tickets.length === 0 || activeTab !== "tickets") return;
-
-    clearTimeout(timelineFetchTimerRef.current);
-    timelineFetchTimerRef.current = setTimeout(() => {
-      const ticketIds = tickets
-        .map((t) => t.display_id?.replace("TKT-", ""))
-        .filter(Boolean);
-
-      const unfetchedIds = ticketIds.filter(
-        (id) => !timelineReplies[id] && !timelineInFlightRef.current.has(id)
-      );
-
-      if (unfetchedIds.length === 0) return;
-
-      // Mark as in-flight
-      unfetchedIds.forEach((id) => timelineInFlightRef.current.add(id));
-
-      // Single request — returns cached data instantly + triggers background
-      // fetch for missing IDs. Socket `timeline_batch_updated` delivers the rest.
-      fetchTimelineReplies(unfetchedIds).catch(() => {
-        unfetchedIds.forEach((id) => timelineInFlightRef.current.delete(id));
-      });
-    }, 500); // 500ms debounce — no retries needed, socket pushes missing data
-
-    return () => clearTimeout(timelineFetchTimerRef.current);
   }, [tickets, activeTab]);
 
   // ✅ TRACK TAB VISITS
@@ -602,8 +568,7 @@ const App = () => {
             "Unassigned";
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
-          const ticketId = t.display_id?.replace("TKT-", "");
-          const tlData = timelineReplies[ticketId];
+          const cf = t.custom_fields || {};
 
           const row = [
             t.display_id,
@@ -619,8 +584,8 @@ const App = () => {
             t.iterations || "-",
             t.csat || "-",
             t.frr || "-",
-            `"${formatTimestamp(tlData?.last_ct_reply)}"`,
-            `"${formatTimestamp(tlData?.last_customer_reply)}"`,
+            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+            `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
           ];
           csvContent += row.join(",") + "\n";
         });
@@ -2213,8 +2178,6 @@ ${
                     }}
                     filterOptions={options}
                     dependencies={dependencies}
-                    timelineReplies={timelineReplies}
-                    timelinePendingIds={timelinePendingIds}
                   />
                 </ErrorBoundary>
               ) : (
@@ -2240,8 +2203,6 @@ ${
                       onCardClick={handleKPIFilter}
                       onProfileClick={setSelectedUserProfile}
                       dependencies={dependencies}
-                      timelineReplies={timelineReplies}
-                      timelinePendingIds={timelinePendingIds}
                     />
                   )}
                 </>

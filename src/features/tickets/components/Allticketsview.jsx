@@ -288,7 +288,6 @@ const DrillDownModal = ({
   filters,
   onFilterChange,
   dependencies = {},
-  timelineReplies = {},
 }) => {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -593,8 +592,7 @@ const DrillDownModal = ({
             "Unassigned";
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
-          const ticketId = t.display_id?.replace("TKT-", "");
-          const tlData = timelineReplies[ticketId];
+          const cf = t.custom_fields || {};
 
           const row = [
             t.display_id,
@@ -616,8 +614,8 @@ const DrillDownModal = ({
             t.iterations || "-",
             t.csat || "-",
             t.frr || "-",
-            `"${formatTimestamp(tlData?.last_ct_reply)}"`,
-            `"${formatTimestamp(tlData?.last_customer_reply)}"`,
+            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+            `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
           ];
           csvContent += row.join(",") + "\n";
         });
@@ -631,7 +629,7 @@ const DrillDownModal = ({
     a.download = `Ticket_Report_${title.replace(/\s+/g, "_")}_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [filteredTickets, title, timelineReplies]);
+  }, [filteredTickets, title]);
 
    const calculateAge = (t) => {
     if (!t.created_date) return 0;
@@ -1531,8 +1529,6 @@ const AllTicketsView = ({
   onFilterChange,
   filterOptions,
   dependencies = {},
-  timelineReplies = {},
-  timelinePendingIds = new Set(),
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
   const [groupBy, setGroupBy] = useState("gst"); // gst, csm, tam, region
@@ -1834,8 +1830,7 @@ const AllTicketsView = ({
           const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
           const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
-          const ticketId = t.display_id?.replace("TKT-", "");
-          const tlData = timelineReplies[ticketId];
+          const cf = t.custom_fields || {};
 
           csvContent +=
             [
@@ -1853,8 +1848,8 @@ const AllTicketsView = ({
               t.iterations || "-",
               t.csat || "-",
               t.frr || "-",
-              `"${formatTimestamp(tlData?.last_ct_reply)}"`,
-              `"${formatTimestamp(tlData?.last_customer_reply)}"`,
+              `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+              `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
             ].join(",") + "\n";
         });
       }
@@ -1867,7 +1862,7 @@ const AllTicketsView = ({
     a.download = `All_Tickets_Report_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [categorizedTickets, timelineReplies]);
+  }, [categorizedTickets]);
 
   return (
     <div className="space-y-6">
@@ -1946,7 +1941,6 @@ const AllTicketsView = ({
         filters={filters}
         onFilterChange={onFilterChange}
         dependencies={dependencies}
-        timelineReplies={timelineReplies}
       />
     </div>
   );

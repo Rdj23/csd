@@ -16,18 +16,12 @@ import RemarkPopover from "../../remarks/components/RemarkPopover";
 const ITEMS_PER_PAGE = 20;
 
 // ✅ NEW: Added 'onProfileClick' prop
-const TimelineSkeleton = () => (
-  <span className="inline-block h-3 w-20 rounded bg-slate-200 dark:bg-slate-700 animate-pulse" />
-);
-
 const TicketList = ({
   tickets,
   isCSDView,
   onCardClick,
   onProfileClick,
   dependencies,
-  timelineReplies = {},
-  timelinePendingIds = new Set(),
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState({
@@ -51,17 +45,13 @@ const TicketList = ({
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
     if (sortConfig.key === "ct_updated") {
-      const idA = a.display_id?.replace("TKT-", "");
-      const idB = b.display_id?.replace("TKT-", "");
-      const valA = new Date(timelineReplies[idA]?.last_ct_reply || 0).getTime();
-      const valB = new Date(timelineReplies[idB]?.last_ct_reply || 0).getTime();
+      const valA = new Date(a.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
+      const valB = new Date(b.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
     if (sortConfig.key === "cust_updated") {
-      const idA = a.display_id?.replace("TKT-", "");
-      const idB = b.display_id?.replace("TKT-", "");
-      const valA = new Date(timelineReplies[idA]?.last_customer_reply || 0).getTime();
-      const valB = new Date(timelineReplies[idB]?.last_customer_reply || 0).getTime();
+      const valA = new Date(a.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
+      const valB = new Date(b.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
 
@@ -368,8 +358,8 @@ const TicketList = ({
                     {/* 12. CT Updated (Sticky Right 2) */}
                     <td className="px-3 py-2 align-middle sticky right-[310px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                        {timelineReplies[ticketId]?.last_ct_reply
-                          ? new Date(timelineReplies[ticketId].last_ct_reply).toLocaleString("en-IN", {
+                        {t.custom_fields?.tnt__last_revu_message_ts
+                          ? new Date(t.custom_fields.tnt__last_revu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
                               day: "2-digit",
                               month: "short",
@@ -377,15 +367,15 @@ const TicketList = ({
                               minute: "2-digit",
                               hour12: true,
                             })
-                          : timelinePendingIds.has(ticketId) ? <TimelineSkeleton /> : "-"}
+                          : "-"}
                       </span>
                     </td>
 
                     {/* 13. Customer Updated (Sticky Right 3) */}
                     <td className="px-3 py-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                        {timelineReplies[ticketId]?.last_customer_reply
-                          ? new Date(timelineReplies[ticketId].last_customer_reply).toLocaleString("en-IN", {
+                        {t.custom_fields?.tnt__last_devu_message_ts
+                          ? new Date(t.custom_fields.tnt__last_devu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
                               day: "2-digit",
                               month: "short",
@@ -393,7 +383,7 @@ const TicketList = ({
                               minute: "2-digit",
                               hour12: true,
                             })
-                          : timelinePendingIds.has(ticketId) ? <TimelineSkeleton /> : "-"}
+                          : "-"}
                       </span>
                     </td>
 

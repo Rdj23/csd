@@ -2,9 +2,8 @@ import axios from "axios";
 import { AnalyticsTicket } from "../models/index.js";
 import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
-import { batchFetchTimelineReplies, fetchMissingTimelinesForWorker } from "../services/timelineService.js";
 import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
-import { getTicketSyncQueue, getTimelineQueue } from "../lib/queues.js";
+import { getTicketSyncQueue } from "../lib/queues.js";
 import { ok, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 
@@ -523,31 +522,6 @@ export const getBatchDependencies = async (req, res) => {
     ok(res, results);
   } catch (e) {
     logger.error({ err: e }, "Dependencies batch fetch error");
-    serverError(res, e.message);
-  }
-};
-
-export const getTimelineReplies = async (req, res) => {
-  try {
-    const { ticketIds } = req.body;
-    if (!ticketIds || !ticketIds.length) {
-      return ok(res, { cached: {}, pending: [] });
-    }
-
-    // Instant cache-only read — no DevRev calls in this HTTP path
-    const { cached, pending } = await batchFetchTimelineReplies(ticketIds);
-
-    // Dispatch timeline fetch via BullMQ, or run directly if Redis is down
-    if (pending.length > 0) {
-      await dispatchOrRun(
-        getTimelineQueue, "fetch-missing", { ticketIds: pending },
-        () => fetchMissingTimelinesForWorker(pending),
-      );
-    }
-
-    ok(res, { cached, pending });
-  } catch (e) {
-    logger.error({ err: e }, "Timeline replies batch fetch error");
     serverError(res, e.message);
   }
 };

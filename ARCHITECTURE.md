@@ -30,7 +30,7 @@ An internal operations dashboard for the CleverTap Global Support Team (GST). Tr
 | express-rate-limit | 8.2 | Rate limiting |
 | googleapis | 169.0 | Google Sheets / OAuth |
 | axios | 1.13 | HTTP client (DevRev API) |
-| @google/generative-ai | 0.24 | Gemini AI insights |
+
 
 ### Frontend
 | Technology | Version | Purpose |
@@ -88,11 +88,10 @@ support-dashboard/
 │   │   ├── webhookController.js    # DevRev webhook receiver
 │   │   ├── healthController.js     # Health check + metrics
 │   │   └── cacheController.js      # Cache status + clearing
-│   ├── services/                   # Business logic (6 files)
+│   ├── services/                   # Business logic (5 files)
 │   │   ├── syncService.js          # Ticket sync from DevRev → Redis/MongoDB
 │   │   ├── analyticsService.js     # Quarterly analytics pre-computation
 │   │   ├── rosterService.js        # Google Sheets roster parsing
-│   │   ├── timelineService.js      # Timeline reply enrichment
 │   │   ├── slackService.js         # Slack webhook notifications
 │   │   └── devrevApi.js            # DevRev API wrapper + retry logic
 │   ├── routes/                     # Express route definitions (13 files)

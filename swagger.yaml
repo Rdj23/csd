@@ -381,16 +381,6 @@ components:
             type: string
           example: ["don:core:dvrv-us-1:devo/xyz:ticket/1", "don:core:dvrv-us-1:devo/xyz:ticket/2"]
 
-    TimelineRequest:
-      type: object
-      required: [ticketIds]
-      properties:
-        ticketIds:
-          type: array
-          items:
-            type: string
-          example: ["don:core:dvrv-us-1:devo/xyz:ticket/1"]
-
 paths:
   # --- AUTH ---
   /auth/google:
@@ -631,41 +621,6 @@ paths:
                     assignee:
                       type: string
                     stage:
-                      type: string
-
-  /tickets/timeline-replies:
-    post:
-      tags: [Tickets]
-      summary: Batch fetch timeline replies
-      description: Returns cached timeline data. Missing timelines are queued for background fetch.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TimelineRequest'
-      responses:
-        '200':
-          description: Timeline data with pending list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  results:
-                    type: object
-                    additionalProperties:
-                      type: object
-                      properties:
-                        lastCustomerReply:
-                          type: string
-                          format: date-time
-                        lastInternalReply:
-                          type: string
-                          format: date-time
-                  pending:
-                    type: array
-                    items:
                       type: string
 
   /tickets/sync:
