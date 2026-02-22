@@ -721,30 +721,31 @@ const DrillDownModal = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[95vw] max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-[95vw] max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 overflow-hidden"
+           style={{ boxShadow: 'var(--shadow-premium)' }}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/30">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              className="btn-icon w-8 h-8 flex items-center justify-center"
             >
-              <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+              <ArrowLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm text-slate-500">Back to Overview</span>
+            <span className="text-[12px] text-slate-500 dark:text-slate-400">Back to Overview</span>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+            className="btn-icon w-8 h-8 flex items-center justify-center"
           >
-            <X className="w-5 h-5 text-slate-500" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Title & Filters */}
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-3">
+        <div className="px-4 pt-4 pb-3 border-b border-slate-100 dark:border-slate-800/60">
+          <h2 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white mb-3">
             {title}
           </h2>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1330,39 +1331,47 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick, groupBy = "gst" 
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-all duration-200 hover:-translate-y-0.5"
+         style={{ boxShadow: 'var(--shadow-card)' }}
+         onMouseEnter={e => e.currentTarget.style.boxShadow = 'var(--shadow-elevated)'}
+         onMouseLeave={e => e.currentTarget.style.boxShadow = 'var(--shadow-card)'}
+    >
+      {/* State color accent top bar */}
+      <div
+        className="h-[3px] w-full"
+        style={{ backgroundColor: config.color }}
+      />
+
       {/* Header */}
       <button
         onClick={() => onCardClick(state)}
-        className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors border-b border-slate-100 dark:border-slate-800"
+        className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors border-b border-slate-100 dark:border-slate-800/60"
       >
         <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${config.bgLight} ${config.bgDark}`}>
-            <Icon
-              className={`w-5 h-5 ${config.textLight} ${config.textDark}`}
-            />
+          <div className={`p-1.5 rounded-lg ${config.bgLight} ${config.bgDark}`}>
+            <Icon className={`w-4 h-4 ${config.textLight} ${config.textDark}`} />
           </div>
-          <span className="font-semibold text-slate-800 dark:text-white">
+          <span className="text-[13px] font-semibold text-slate-800 dark:text-white tracking-tight">
             {config.label}
           </span>
         </div>
-        <span className="text-2xl font-bold text-slate-800 dark:text-white">
+        <span className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">
           {tickets.length}
         </span>
       </button>
 
       {/* Pie Chart */}
-      <div className="p-4">
+      <div className="px-4 pt-3 pb-4">
         {tickets.length > 0 ? (
-          <div className="h-48">
+          <div className="h-44">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={chartData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={40}
-                  outerRadius={70}
+                  innerRadius={38}
+                  outerRadius={68}
                   paddingAngle={2}
                   dataKey="value"
                   onClick={(data) => onSliceClick(state, data.name, groupBy)}
@@ -1381,30 +1390,30 @@ const StateCard = ({ state, tickets, onCardClick, onSliceClick, groupBy = "gst" 
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="h-48 flex items-center justify-center text-slate-400">
+          <div className="h-44 flex items-center justify-center text-slate-400">
             <p className="text-sm">No tickets</p>
           </div>
         )}
 
-        {/* Legend - Show ALL entries based on groupBy */}
+        {/* Legend */}
         {chartData.length > 0 && (
-          <div className="mt-2 space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
+          <div className="mt-1 space-y-0.5 max-h-44 overflow-y-auto custom-scrollbar">
             {chartData.map((item, idx) => (
               <button
                 key={item.name}
                 onClick={() => onSliceClick(state, item.name, groupBy)}
-                className="w-full flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 px-2 py-1 rounded transition-colors"
+                className="w-full flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 px-2 py-1 rounded-md transition-colors"
               >
                 <div className="flex items-center gap-2">
                   <div
-                    className="w-2.5 h-2.5 rounded-full"
+                    className="w-2 h-2 rounded-full flex-shrink-0"
                     style={{ backgroundColor: COLORS[idx % COLORS.length] }}
                   />
                   <span className="text-slate-600 dark:text-slate-400 truncate max-w-[100px]">
                     {item.name}
                   </span>
                 </div>
-                <span className="text-slate-500 font-medium">
+                <span className="text-slate-400 dark:text-slate-500 font-semibold tabular-nums">
                   {item.percentage}%
                 </span>
               </button>
@@ -1450,12 +1459,13 @@ const DistributionChart = ({ title, subtitle, data, onItemClick }) => {
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4"
+         style={{ boxShadow: 'var(--shadow-card)' }}>
       <div className="mb-4">
-        <h3 className="font-semibold text-slate-800 dark:text-white">
+        <h3 className="text-[13px] font-semibold text-slate-800 dark:text-white tracking-tight">
           {title}
         </h3>
-        <p className="text-xs text-slate-500">{subtitle}</p>
+        {subtitle && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
 
       <div className="flex gap-4">
@@ -1865,15 +1875,20 @@ const AllTicketsView = ({
   }, [categorizedTickets]);
 
   return (
-    <div className="space-y-6">
-      {/* Header with Download and Grouping Tabs */}
+    <div className="space-y-5">
+      {/* Header with Grouping Tabs */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-slate-800 dark:text-white">
-          All Tickets Overview
-        </h2>
+        <div>
+          <h2 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">
+            All Tickets Overview
+          </h2>
+          <p className="text-[12px] text-slate-400 dark:text-slate-500 mt-0.5">
+            Click any slice or card to drill down
+          </p>
+        </div>
 
-        {/* Grouping Tab Switcher - Cool UI like NOC */}
-        <div className="flex items-center gap-1 bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-900 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        {/* Grouping Tab Switcher */}
+        <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-200 dark:border-slate-700/60">
           {GROUPING_TABS.map((tab) => {
             const TabIcon = tab.icon;
             const isActive = groupBy === tab.key;
@@ -1881,26 +1896,18 @@ const AllTicketsView = ({
               <button
                 key={tab.key}
                 onClick={() => setGroupBy(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[12px] font-medium transition-all duration-150 ${
                   isActive
-                    ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/20"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-white"
+                    ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                 }`}
               >
-                <TabIcon className={`w-4 h-4 ${isActive ? "text-white" : ""}`} />
-                <span>{tab.label}</span>
+                <TabIcon className="w-3.5 h-3.5" />
+                {tab.label}
               </button>
             );
           })}
         </div>
-      </div>
-
-      {/* Info Bar showing current grouping */}
-      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-4 py-2 rounded-lg">
-        <Layers className="w-3.5 h-3.5" />
-        <span>Pie charts grouped by: <span className="font-semibold text-indigo-600 dark:text-indigo-400">{GROUPING_TABS.find(t => t.key === groupBy)?.label}</span></span>
-        <span className="text-slate-300 dark:text-slate-600">|</span>
-        <span>Click on any slice or legend item to drill down</span>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

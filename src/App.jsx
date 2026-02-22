@@ -1221,26 +1221,36 @@ const App = () => {
   }) => (
     <button
       onClick={() => handleKPIFilter(filterVal)}
-      className={`relative overflow-hidden group transition-all duration-200 p-4 rounded-xl flex justify-between shadow-sm hover:shadow-md text-left w-full 
-bg-white dark:bg-slate-900
-${filterVal === "Healthy" ? "bg-emerald-50/60 dark:bg-emerald-900/10" : ""}
-${filterVal === "Needs Attention" ? "bg-amber-50/60 dark:bg-amber-900/10" : ""}
-${
-  filterVal === "Action Immediately" ? "bg-rose-50/60 dark:bg-rose-900/10" : ""
-}`}
+      className={`relative group text-left w-full rounded-xl border overflow-hidden
+        transition-all duration-200 hover:-translate-y-0.5
+        ${filterVal === "Healthy"
+          ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/60"
+          : filterVal === "Needs Attention"
+          ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800/60"
+          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-800/60"
+        }`}
+      style={{ boxShadow: 'var(--shadow-card)' }}
     >
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-wider opacity-70 text-slate-500 dark:text-slate-400 mb-1">
-          {label}
-        </p>
-        <p
-          className={`text-2xl font-extrabold tracking-tight ${textClassLight} ${textClassDark}`}
+      {/* Left accent bar */}
+      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${borderClass.replace('border-l-4 border-l-', 'bg-')}`} />
+
+      <div className="pl-5 pr-4 py-4 flex items-center justify-between">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">
+            {label}
+          </p>
+          <p className={`text-3xl font-bold tracking-tight leading-none ${textClassLight} ${textClassDark}`}>
+            {count}
+          </p>
+        </div>
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center
+          transition-transform duration-200 group-hover:scale-110
+          ${filterVal === "Healthy" ? "bg-emerald-50 dark:bg-emerald-900/20"
+            : filterVal === "Needs Attention" ? "bg-amber-50 dark:bg-amber-900/20"
+            : "bg-rose-50 dark:bg-rose-900/20"}`}
         >
-          {count}
-        </p>
-      </div>
-      <div className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
-        <Icon className="w-4 h-4 text-slate-400 dark:text-slate-300 opacity-70" />
+          <Icon className={`w-4 h-4 ${textClassLight} ${textClassDark} opacity-75`} />
+        </div>
       </div>
     </button>
   );
@@ -1321,34 +1331,43 @@ ${
     // ✅ 1. OUTER CONTAINER: Locked height, no window scroll
     <div
       className={`h-screen w-full flex flex-col overflow-hidden font-sans transition-colors duration-300 ${
-        theme === "dark" ? "bg-[#0B1120]" : "bg-slate-50"
+        theme === "dark" ? "bg-[#060D17]" : "bg-slate-50"
       }`}
     >
       <Analytics />
       {/* ✅ 2. FIXED TOP SECTION (Header + Tabs) */}
-      <div className="shrink-0 px-6 pt-6 z-20 bg-slate-50 dark:bg-[#0B1120] transition-colors">
+      <div className="shrink-0 px-6 pt-5 z-20 bg-slate-50 dark:bg-[#060D17] border-b border-slate-200 dark:border-slate-800/80 transition-colors">
         <div className="max-w-[1800px] mx-auto">
           {/* HEADER */}
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-4">
+          <div className="flex justify-between items-center mb-5">
+            {/* Brand */}
+            <div className="flex items-center gap-3.5">
               <img
                 src="https://res.cloudinary.com/diwc3efjb/image/upload/v1766049455/clevertap_vtpmh8.jpg"
-                className="h-10 rounded-md"
-                alt="Logo"
+                className="h-8 w-8 rounded-lg object-cover flex-shrink-0"
+                style={{ boxShadow: '0 1px 4px rgba(15,23,42,0.12)' }}
+                alt="CleverTap"
               />
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+              <div className="pl-3.5 border-l border-slate-200 dark:border-slate-700/80">
+                <h1 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white leading-tight">
                   Customer Success Dashboard
                 </h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Welcome, {currentUser?.name}
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  Welcome back,{" "}
+                  <span className="text-slate-600 dark:text-slate-300 font-medium">
+                    {currentUser?.name?.split(" ")[0]}
+                  </span>
                 </p>
               </div>
             </div>
-            <div className="flex gap-3 items-center">
+
+            {/* Actions */}
+            <div className="flex items-center gap-2">
+              {/* Theme toggle */}
               <button
                 onClick={toggleTheme}
-                className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm text-slate-600 dark:text-slate-200"
+                className="btn-icon"
+                title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
               >
                 {theme === "light" ? (
                   <Moon className="w-4 h-4" />
@@ -1357,14 +1376,17 @@ ${
                 )}
               </button>
 
-              {/* ✅ SINGLE SYNC BUTTON */}
+              {/* Divider */}
+              <div className="w-px h-5 bg-slate-200 dark:bg-slate-700" />
+
+              {/* Sync */}
               <button
                 onClick={handleManualSync}
                 disabled={isLoading || isSyncing || isPartialData}
-                className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm text-slate-700 dark:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-secondary text-xs disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <RefreshCw
-                  className={`w-4 h-4 ${
+                  className={`w-3.5 h-3.5 ${
                     isLoading || isSyncing || isPartialData ? "animate-spin" : ""
                   }`}
                 />
@@ -1375,36 +1397,40 @@ ${
                     : "Sync"}
               </button>
 
+              {/* Logout */}
               <button
                 onClick={logout}
-                className="flex items-center gap-2 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-900/50 px-4 py-2 rounded-lg text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-sm font-medium"
+                className="btn-danger-ghost text-xs"
               >
-                <LogOut className="w-4 h-4" /> Logout
+                <LogOut className="w-3.5 h-3.5" /> Logout
               </button>
             </div>
           </div>
 
           {/* TABS */}
-          <div className="flex gap-8 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-end gap-0">
             {[
-              { id: "tickets", icon: Users, label: "Ongoing Tickets" },
-              { id: "alltickets", icon: LayoutGrid, label: "All Tickets" },
-              { id: "csd", icon: Star, label: "CSD Highlighted" },
-              { id: "vistas", icon: Layout, label: "My Views" },
-              { id: "analytics", icon: BarChart3, label: "Analytics" },
-              // Gamification tab visible to SUPER_ADMIN and GST users
-              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? [{ id: "gamification", icon: Trophy, label: "Gamification" }] : []),
+              { id: "tickets",      icon: Users,      label: "Ongoing Tickets" },
+              { id: "alltickets",   icon: LayoutGrid,  label: "All Tickets" },
+              { id: "csd",          icon: Star,        label: "CSD Highlighted" },
+              { id: "vistas",       icon: Layout,      label: "My Views" },
+              { id: "analytics",    icon: BarChart3,   label: "Analytics" },
+              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
+                ? [{ id: "gamification", icon: Trophy, label: "Gamification" }]
+                : []),
             ].map((t) => (
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
-                className={`pb-3 text-sm font-medium flex items-center gap-2 transition-colors ${
-                  activeTab === t.id
-                    ? "text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400"
-                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                }`}
+                className={`relative flex items-center gap-1.5 px-4 pb-3 pt-0.5 text-[13px] font-medium transition-colors duration-150
+                  after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:rounded-t after:transition-all after:duration-200
+                  ${activeTab === t.id
+                    ? "text-indigo-600 dark:text-indigo-400 after:bg-indigo-600 dark:after:bg-indigo-400"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 after:bg-transparent"
+                  }`}
               >
-                <t.icon className="w-4 h-4" /> {t.label}
+                <t.icon className="w-3.5 h-3.5" />
+                {t.label}
               </button>
             ))}
           </div>
@@ -1412,15 +1438,16 @@ ${
       </div>
 
       {/* ✅ 3. MAIN CONTENT (Flex Grow) */}
-      <div className="flex-1 min-h-0 flex flex-col max-w-[1800px] mx-auto w-full px-6 pb-4 pt-6">
+      <div className="flex-1 min-h-0 flex flex-col max-w-[1800px] mx-auto w-full px-6 pb-4 pt-5">
         <div className="flex gap-0 h-full">
-          {/* SIDEBAR (Vistas Only) - ✅ Fixed: Removed border-r */}
+          {/* SIDEBAR (Vistas Only) */}
           {activeTab === "vistas" && (
-            <div className="w-48 shrink-0 pr-4 mr-4 animate-in slide-in-from-left-2">
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm h-full">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                  <h3 className="font-bold text-sm text-slate-700 dark:text-slate-200 flex items-center gap-2">
-                    <FolderOpen className="w-4 h-4 text-indigo-500" /> Your
+            <div className="w-48 shrink-0 pr-4 mr-4 animate-fade-in">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden h-full"
+                   style={{ boxShadow: 'var(--shadow-card)' }}>
+                <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40">
+                  <h3 className="font-semibold text-[13px] text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                    <FolderOpen className="w-3.5 h-3.5 text-indigo-500" /> Your
                     Views
                   </h3>
                 </div>
@@ -1468,7 +1495,8 @@ ${
           <div className="flex-1 flex flex-col min-w-0 h-full">
             {/* FIXED FILTERS BAR - Hidden for Gamification tab */}
             {activeTab !== "gamification" && (
-            <div className="shrink-0 z-40 mb-4 bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center transition-colors relative">
+            <div className="shrink-0 z-40 mb-4 bg-white dark:bg-slate-900/95 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center transition-colors relative"
+                 style={{ boxShadow: 'var(--shadow-card)' }}>
               {/* LEFT: Filters */}
               <div className="flex items-center gap-2">
                 {activeTab !== "analytics" && (
@@ -2104,9 +2132,8 @@ ${
             )}
 
             {/* KPI CARDS */}
-            {/* {activeTab !== "analytics" && activeTab !== "vistas" && ( */}
             {shouldShowKPIs && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-2 shrink-0">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3 shrink-0">
                 <KPICard
                   count={stats.green}
                   label={`Healthy (${labels.green})`}
@@ -2215,7 +2242,8 @@ ${
 
       {/* TOAST */}
       {toastMessage && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2 rounded-full shadow-xl flex items-center gap-2 text-xs font-bold">
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-5 py-2.5 rounded-full flex items-center gap-2 text-[12px] font-semibold animate-fade-in"
+             style={{ boxShadow: '0 4px 24px rgba(15,23,42,0.25), 0 1px 4px rgba(15,23,42,0.15)' }}>
           {toastMessage}
         </div>
       )}
