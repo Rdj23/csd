@@ -275,21 +275,26 @@ export const getAnalytics = async (req, res) => {
       }, {}),
     };
 
-    // Cache in Redis (fast) and MongoDB (persistent)
-    await Promise.all([
+    // Send response immediately — don't let cache failures block the client
+    res.json(response);
+
+    // Cache in background (non-blocking) — errors here should never cause 500
+    Promise.all([
       redisSet(cacheKey, response, CACHE_TTL.ANALYTICS),
       AnalyticsCache.findOneAndUpdate(
         { cache_key: cacheKey },
-        { $set: response },
+        { $set: { cache_key: cacheKey, computed_at: response.computed_at, stats: response.stats, trends: response.trends, leaderboard: response.leaderboard, badTickets: response.badTickets, individualTrends: response.individualTrends } },
         { upsert: true },
       ),
-    ]);
-
-    logger.info({ cacheKey }, "Analytics computed & cached");
-    res.json(response);
+    ]).then(() => {
+      logger.info({ cacheKey }, "Analytics cached");
+    }).catch((cacheErr) => {
+      logger.error({ err: cacheErr, cacheKey }, "Analytics cache save failed (response already sent)");
+    });
   } catch (e) {
-    logger.error({ err: e }, "Analytics error");
+    logger.error({ err: e, stack: e.stack }, "Analytics error");
     res.status(500).json({
+      error: e.message,
       stats: {},
       trends: [],
       leaderboard: [],

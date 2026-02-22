@@ -106,7 +106,7 @@ export const getNocTickets = async (req, res) => {
       },
     });
   } catch (e) {
-    logger.error({ err: e }, "NOC tickets error");
+    logger.error({ err: e, stack: e.stack }, "NOC tickets error");
     serverError(res, e.message);
   }
 };
