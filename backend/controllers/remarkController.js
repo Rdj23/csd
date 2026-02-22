@@ -1,32 +1,44 @@
 import axios from "axios";
 import { Remark } from "../models/index.js";
-import { HEADERS } from "../services/devrevApi.js";
+import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { ok, serverError } from "../utils/response.js";
-import { TEAM_GROUPS } from "../config/constants.js";
+import logger from "../config/logger.js";
 
-// Build a flat user list from TEAM_GROUPS with full DevRev identity IDs
-const buildUserList = () => {
-  const seen = new Set();
-  const users = [];
-  for (const members of Object.values(TEAM_GROUPS)) {
-    for (const [devuId, name] of Object.entries(members)) {
-      if (seen.has(devuId)) continue;
-      seen.add(devuId);
-      const systemId = devuId.toLowerCase().replace("-", "/");
-      users.push({
-        id: `don:identity:dvrv-us-1:devo/1iVu4ClfVV:${systemId}`,
-        display_id: devuId,
-        full_name: name,
-        display_name: name,
-      });
+// In-memory cache so we don't hit DevRev on every popover open
+let cachedUsers = null;
+let cacheExpiry = 0;
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+export const getUsers = async (_req, res) => {
+  try {
+    if (cachedUsers && Date.now() < cacheExpiry) {
+      return res.json(cachedUsers);
     }
+
+    const allUsers = [];
+    let cursor;
+
+    // Paginate through all dev-users
+    do {
+      const resp = await axios.post(
+        `${DEVREV_API}/dev-users.list`,
+        { cursor },
+        { headers: HEADERS },
+      );
+      const page = resp.data?.dev_users || [];
+      allUsers.push(...page);
+      cursor = resp.data?.next_cursor;
+    } while (cursor);
+
+    cachedUsers = allUsers;
+    cacheExpiry = Date.now() + CACHE_TTL;
+
+    return res.json(allUsers);
+  } catch (e) {
+    logger.error({ err: e.message }, "Failed to fetch DevRev users");
+    serverError(res, "Failed to fetch users");
   }
-  return users;
 };
-
-const USERS = buildUserList();
-
-export const getUsers = (_req, res) => res.json(USERS);
 
 export const getRemarks = async (req, res) => {
   const remarks = await Remark.find({ ticketId: req.params.ticketId }).sort({
