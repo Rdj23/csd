@@ -93,7 +93,6 @@ const EMPTY_FILTERS = {
 
 const FILTER_CONFIG = [
   { key: "regions", label: "Region", icon: Globe },
-  { key: "owners", label: "Member", icon: Users },
   { key: "accounts", label: "Account", icon: Building2 },
   { key: "csms", label: "CSM", icon: Briefcase },
   { key: "tams", label: "TAM", icon: UserCircle },
@@ -1831,6 +1830,7 @@ ${
                       )}
 
                       {activeTab !== "analytics" && (
+                        <>
                         <MultiSelectFilter
                           icon={Layers}
                           label="Team"
@@ -1850,6 +1850,14 @@ ${
                             }
                           }}
                         />
+                        <MultiSelectFilter
+                          icon={Users}
+                          label="Member"
+                          options={options.owners}
+                          selected={currentFilters.owners}
+                          onChange={(v) => setFilter("owners", v)}
+                        />
+                        </>
                       )}
 
                       {activeTab !== "analytics" && activeTab !== "vistas" && (
