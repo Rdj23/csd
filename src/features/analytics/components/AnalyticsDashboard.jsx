@@ -101,14 +101,15 @@ const QUARTERS = [
 ];
 
 const StatCard = ({ label, value, unit = "", color, isPositive }) => (
-  <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
-    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
+  <div className="bg-white dark:bg-slate-900 rounded-xl px-4 py-3.5 border border-slate-200 dark:border-slate-800"
+       style={{ boxShadow: 'var(--shadow-card)' }}>
+    <div className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5">
       {label}
     </div>
-    <div className="text-2xl font-bold" style={{ color }}>
+    <div className="text-[22px] font-bold tracking-tight leading-none" style={{ color }}>
       {value}
       {unit && (
-        <span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>
+        <span className="text-sm font-normal text-slate-400 dark:text-slate-500 ml-1">{unit}</span>
       )}
     </div>
   </div>

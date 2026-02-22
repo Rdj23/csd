@@ -90,101 +90,92 @@ const TicketList = ({
   }) => (
     <button
       onClick={() => onCardClick(filterVal)}
-      className={`relative overflow-hidden group transition-all duration-200 p-5 rounded-xl border flex justify-between shadow-sm hover:shadow-md text-left w-full 
-      bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 ${borderClass}`}
+      className={`relative group text-left w-full rounded-xl border overflow-hidden
+        transition-all duration-200 hover:-translate-y-0.5
+        bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800
+        hover:shadow-md`}
+      style={{ boxShadow: 'var(--shadow-card)' }}
     >
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-wider opacity-70 text-slate-500 dark:text-slate-400 mb-1">
-          {label}
-        </p>
-        <p
-          className={`text-3xl font-extrabold tracking-tight ${textClassLight} ${textClassDark}`}
-        >
-          {count}
-        </p>
-      </div>
-      <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center group-hover:scale-110 transition-transform">
-        <Icon className="w-5 h-5 text-slate-400 dark:text-slate-300" />
+      {/* Color accent bar (left) */}
+      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${borderClass.replace('border-l-4 border-l-', 'bg-')}`} />
+      <div className="pl-5 pr-4 py-4 flex items-center justify-between">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">
+            {label}
+          </p>
+          <p className={`text-3xl font-bold tracking-tight leading-none ${textClassLight} ${textClassDark}`}>
+            {count}
+          </p>
+        </div>
+        <div className="w-9 h-9 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
+          <Icon className={`w-4.5 h-4.5 ${textClassLight} ${textClassDark} opacity-70`} />
+        </div>
       </div>
     </button>
   );
  
 
   return (
-    <div className="space-y-6 animate-in fade-in pb-20 relative">
-      {/* 2. TABLE */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col transition-colors relative">
+    <div className="space-y-3 animate-fade-in pb-20 relative">
+      {/* TABLE */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col"
+           style={{ boxShadow: 'var(--shadow-card)' }}>
         <div className="overflow-x-auto min-h-[400px]">
           <table className="w-full text-left border-collapse min-w-[1400px]">
-            <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-wider font-semibold">
+            <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700/60 text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-widest font-semibold">
               <tr>
                 {/* 1. Ticket (Sticky Left) */}
-                <th className="p-4 w-[300px] align-middle sticky left-0 z-20 bg-slate-50 dark:bg-slate-800 border-r border-slate-100 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                <th className="px-4 py-3 w-[300px] align-middle sticky left-0 z-20 bg-slate-50 dark:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700/60 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                   Ticket
                 </th>
-                {/* 2. Region */}
-                <th className="p-4 w-[150px] align-middle">Region</th>
-                {/* 3. Owner */}
-                <th className="p-4 w-[180px] align-middle">Owner</th>
-                {/* 4. CSM */}
-                <th className="p-4 w-[180px] align-middle">CSM</th>
-                {/* 5. TAM */}
-                <th className="p-4 w-[180px] align-middle">TAM</th>
-                <th className="p-3 font-medium text-center w-[120px]">
-                  <div className="flex items-center justify-center gap-1">
-                    Team
-                  </div>
-                </th>
-                <th className="p-3 font-medium text-center w-[140px]">
-                  <div className="flex items-center justify-center gap-1">
-                    Assignee
-                  </div>
-                </th>
-                {/* 8. Stage */}
-                <th className="p-4 w-[120px] align-middle">Stage</th>
-                {/* 9. RWT */}
-                <th className="p-4 w-[100px] align-middle text-center">RWT</th>
-                {/* 10. Iterations */}
-                <th className="p-4 w-[100px] align-middle text-center">Iter</th>
+                <th className="px-4 py-3 w-[150px] align-middle">Region</th>
+                <th className="px-4 py-3 w-[180px] align-middle">Owner</th>
+                <th className="px-4 py-3 w-[180px] align-middle">CSM</th>
+                <th className="px-4 py-3 w-[180px] align-middle">TAM</th>
+                <th className="px-3 py-3 text-center w-[120px]">Team</th>
+                <th className="px-3 py-3 text-center w-[140px]">Assignee</th>
+                <th className="px-4 py-3 w-[120px] align-middle">Stage</th>
+                <th className="px-4 py-3 w-[100px] align-middle text-center">RWT</th>
+                <th className="px-4 py-3 w-[100px] align-middle text-center">Iter</th>
 
-                {/* 11. Age (Sticky Right 1) */}
+                {/* Age (Sticky Right 1) */}
                 <th
-                  className="p-4 w-[100px] align-middle sticky right-[440px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] cursor-pointer"
+                  className="px-4 py-3 w-[100px] align-middle sticky right-[440px] z-20 bg-slate-50 dark:bg-slate-800/80 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)] cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none"
                   onClick={() => handleSort("days")}
                 >
                   <div className="flex items-center gap-1">
-                    Age <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    Age <ArrowUpDown className="w-3 h-3 opacity-50" />
                   </div>
                 </th>
 
-                {/* 12. CT Updated (Sticky Right 2) */}
+                {/* CT Updated (Sticky Right 2) */}
                 <th
-                  className="p-4 w-[130px] align-middle sticky right-[310px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 cursor-pointer"
+                  className="px-4 py-3 w-[130px] align-middle sticky right-[310px] z-20 bg-slate-50 dark:bg-slate-800/80 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none"
                   onClick={() => handleSort("ct_updated")}
                 >
                   <div className="flex items-center gap-1">
-                    Updated By CleverTap <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    CT Reply <ArrowUpDown className="w-3 h-3 opacity-50" />
                   </div>
                 </th>
 
-                {/* 13. Customer Updated (Sticky Right 3) */}
+                {/* Customer Updated (Sticky Right 3) */}
                 <th
-                  className="p-4 w-[130px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800 border-l border-slate-100 dark:border-slate-800 cursor-pointer"
+                  className="px-4 py-3 w-[130px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800/80 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none"
                   onClick={() => handleSort("cust_updated")}
                 >
                   <div className="flex items-center gap-1">
-                    Updated by Customer <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    Cust Reply <ArrowUpDown className="w-3 h-3 opacity-50" />
                   </div>
                 </th>
 
-                {/* 14. Status (Sticky Right 4) */}
-                <th className="p-4 w-[180px] min-w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-5px_0_5px_-5px_rgba(0,0,0,0.1)]">
+                {/* Status (Sticky Right 4) */}
+                <th className="px-4 py-3 w-[180px] min-w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800/80 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.06)]">
                   Status
                 </th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
               {paginatedTickets.map((t) => {
                 const ownerName =
                   FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "Unassigned";
@@ -198,47 +189,48 @@ const TicketList = ({
                 return (
                   <tr
                     key={t.id}
-                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors group text-sm"
+                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors duration-100 group text-sm"
                   >
                     {/* 1. Ticket (Sticky Left) */}
-                    <td className="p-4 align-middle sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-r border-slate-100 dark:border-slate-800">
+                    <td className="px-4 py-3.5 align-middle sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50/80 dark:group-hover:bg-slate-800/40 border-r border-slate-100 dark:border-slate-800">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-xs text-slate-500 font-bold">
+                        <span className="font-mono text-[11px] font-semibold text-slate-400 dark:text-slate-500">
                           {t.display_id}
                         </span>
                         <a
                           href={`https://app.devrev.ai/clevertapsupport/works/${t.display_id}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-slate-400 hover:text-indigo-600"
+                          className="text-slate-300 dark:text-slate-600 hover:text-indigo-500 transition-colors"
                         >
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       </div>
                       <div
-                        className="text-sm font-semibold text-slate-900 dark:text-slate-200 line-clamp-2"
+                        className="text-[13px] font-medium text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug"
                         title={t.title}
                       >
                         {t.title}
                       </div>
                       {t.accountName && (
-                        <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-1">
-                          <Building2 className="w-3 h-3" /> {t.accountName}
+                        <div className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                          <Building2 className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate">{t.accountName}</span>
                         </div>
                       )}
                     </td>
 
                     {/* 2. Region */}
-                    <td className="px-4 py-3 align-middle">
-                      <span className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                    <td className="px-4 py-3.5 align-middle">
+                      <span className="badge badge-neutral text-[10px]">
                         {t.region}
                       </span>
                     </td>
 
                     {/* 3. Owner (Clickable) */}
-                    <td className="px-4 py-3 align-middle">
+                    <td className="px-4 py-3.5 align-middle">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                        <div className="w-6 h-6 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 flex-shrink-0">
                           {ownerName[0]}
                         </div>
                         <button
@@ -246,7 +238,7 @@ const TicketList = ({
                             onProfileClick &&
                             onProfileClick({ name: ownerName })
                           }
-                          className="text-sm text-slate-700 dark:text-slate-300 hover:text-indigo-600 hover:underline text-left font-medium"
+                          className="text-[13px] text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline text-left font-medium transition-colors"
                         >
                           {ownerName}
                         </button>
@@ -420,26 +412,29 @@ const TicketList = ({
 
         {/* PAGINATION */}
         {sortedTickets.length > 0 && (
-          <div className="flex items-center justify-between p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900">
-            <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Page {currentPage} of {totalPages}
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-800/20">
+            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium tabular-nums">
+              {(currentPage - 1) * 20 + 1}–{Math.min(currentPage * 20, sortedTickets.length)} of {sortedTickets.length} tickets
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 disabled:opacity-30 text-slate-500 dark:text-slate-400"
+                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 disabled:opacity-30 text-slate-500 dark:text-slate-400 transition-colors"
               >
-                <ChevronLeft className="w-5 h-5" />
+                <ChevronLeft className="w-4 h-4" />
               </button>
+              <span className="text-[11px] text-slate-400 dark:text-slate-500 px-2 tabular-nums">
+                {currentPage} / {totalPages}
+              </span>
               <button
                 onClick={() =>
                   setCurrentPage((p) => Math.min(totalPages, p + 1))
                 }
                 disabled={currentPage === totalPages}
-                className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 disabled:opacity-30 text-slate-500 dark:text-slate-400"
+                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 disabled:opacity-30 text-slate-500 dark:text-slate-400 transition-colors"
               >
-                <ChevronRight className="w-5 h-5" />
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
