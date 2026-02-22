@@ -1,12 +1,7 @@
-import path from "path";
-import dotenv from "dotenv";
-import { fileURLToPath } from "url";
+// Must be the first import — loads .env before any module reads process.env
+import "./config/env.js";
+
 import process from "process";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
-
 import { connectMongoDB, initRedis, getBullMQConnection } from "./config/database.js";
 import { initPublisher } from "./lib/pubsub.js";
 import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue } from "./lib/queues.js";
