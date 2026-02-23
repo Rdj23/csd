@@ -15,17 +15,21 @@ import {
   parseISO,
   differenceInHours,
   differenceInDays,
+  getHours,
 } from "date-fns";
 import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip as RechartsTooltip,
   Legend,
   Line,
+  Cell,
 } from "recharts";
 import {
   CheckCircle,
@@ -691,8 +695,50 @@ const AnalyticsDashboard = ({
   // GST-only user list for dropdowns
   const gstUserNames = useMemo(() => Object.values(FLAT_TEAM_MAP).sort(), []);
 
+  // Helper: format hour to 12-hour label
+  const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => {
+    if (h === 0) return "12 AM";
+    if (h < 12) return `${h} AM`;
+    if (h === 12) return "12 PM";
+    return `${h - 12} PM`;
+  });
+
   const getExpandedChartData = useCallback(
     (metricKey) => {
+      // =====================================================
+      // HOURLY VIEW — Only for volume metric
+      // =====================================================
+      if (expandedGroupBy === "hourly" && metricKey === "volume") {
+        const start = expandedEffectiveDateRange.start;
+        const end = expandedEffectiveDateRange.end;
+
+        // Filter tickets in the expanded date range
+        const rangeTickets = baseFilteredTickets.filter((t) => {
+          if (!t.created_date) return false;
+          const created = parseISO(t.created_date);
+          return created >= start && created <= end;
+        });
+
+        // Count tickets per hour bucket
+        const hourBuckets = Array.from({ length: 24 }, () => 0);
+        rangeTickets.forEach((t) => {
+          const hour = getHours(parseISO(t.created_date));
+          hourBuckets[hour]++;
+        });
+
+        // Number of days in the range
+        const totalDays = Math.max(1, differenceInDays(end, start) + 1);
+
+        return hourBuckets.map((count, hour) => ({
+          name: HOUR_LABELS[hour],
+          hour,
+          value: parseFloat((count / totalDays).toFixed(2)),
+          totalTickets: count,
+          totalDays,
+          hourRange: `${HOUR_LABELS[hour]} → ${HOUR_LABELS[(hour + 1) % 24]}`,
+        }));
+      }
+
       // =====================================================
       // When owner/team filter is active, aggregate from individualTrends
       // =====================================================
@@ -1129,6 +1175,7 @@ const AnalyticsDashboard = ({
       filters?.owners,
       filters?.teams,
       excludeNOC,
+      baseFilteredTickets,
     ],
   );
 
@@ -1940,6 +1987,60 @@ const AnalyticsDashboard = ({
 
     // For VOLUME - use real-time tickets with created_date
     if (expandedMetric === "volume") {
+      // HOURLY VIEW for multi-user comparison
+      if (expandedGroupBy === "hourly") {
+        const totalDays = Math.max(1, differenceInDays(rangeToUse.end, rangeToUse.start) + 1);
+
+        // Filter all tickets in range
+        const rangeTickets = tickets.filter((t) => {
+          if (!t.created_date) return false;
+          const created = parseISO(t.created_date);
+          return created >= rangeToUse.start && created <= rangeToUse.end;
+        });
+
+        dailyData = HOUR_LABELS.map((label, hour) => {
+          const dataPoint = { name: label, hour, totalDays };
+
+          // Per-user hourly averages
+          selectedUsers.forEach((user) => {
+            const count = rangeTickets.filter((t) => {
+              const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "";
+              return owner === user && getHours(parseISO(t.created_date)) === hour;
+            }).length;
+            dataPoint[user] = parseFloat((count / totalDays).toFixed(2));
+          });
+
+          // Team & GST hourly averages
+          if (showTeam || showGST) {
+            const hourTickets = rangeTickets.filter((t) => getHours(parseISO(t.created_date)) === hour);
+
+            if (showTeam) {
+              const teamMembers = TEAM_GROUPS[selectedUserTeamName?.replace("Team ", "")]
+                ? Object.values(TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")])
+                : [];
+              const teamCount = hourTickets.filter((t) => {
+                const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
+                return teamMembers.includes(owner);
+              }).length;
+              dataPoint.compare_team = parseFloat((teamCount / totalDays).toFixed(2));
+            }
+
+            if (showGST) {
+              const gstMembers = Object.values(FLAT_TEAM_MAP);
+              const gstCount = hourTickets.filter((t) => {
+                const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
+                return gstMembers.includes(owner);
+              }).length;
+              dataPoint.compare_gst = parseFloat((gstCount / totalDays).toFixed(2));
+            }
+          }
+
+          return dataPoint;
+        });
+
+        return dailyData;
+      }
+
       const daysInterval = eachDayOfInterval({
         start: rangeToUse.start,
         end: rangeToUse.end,
@@ -2385,17 +2486,17 @@ const AnalyticsDashboard = ({
 
               {/* Grouping Toggle */}
               <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                {["daily", "weekly", "monthly"].map((g) => (
+                {[...(expandedOverviewMetric === "volume" ? ["hourly"] : []), "daily", "weekly", "monthly"].map((g) => (
                   <button
                     key={g}
                     onClick={() => setExpandedGroupBy(g)}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
                       expandedGroupBy === g
-                        ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
+                        ? g === "hourly" ? "bg-indigo-600 text-white shadow-sm" : "bg-white dark:bg-slate-700 text-indigo-600 shadow-sm"
                         : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
-                    {g.charAt(0).toUpperCase() + g.slice(1)}
+                    {g === "hourly" ? "⏰ Hourly Avg" : g.charAt(0).toUpperCase() + g.slice(1)}
                   </button>
                 ))}
               </div>
@@ -2468,7 +2569,125 @@ const AnalyticsDashboard = ({
             {/* Main Chart Area */}
             <div className="flex-1 px-8 py-6 overflow-auto">
               <div className="h-full min-h-[450px]">
-                <ResponsiveContainer width="100%" height="100%">
+                {expandedGroupBy === "hourly" && expandedOverviewMetric === "volume" ? (
+                  /* =============== HOURLY BAR CHART =============== */
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={getExpandedChartData(expandedOverviewMetric)}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
+                      barCategoryGap="12%"
+                    >
+                      <defs>
+                        {/* Peak hour gradient (high values) */}
+                        <linearGradient id="hourlyBarPeak" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                          <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.8} />
+                        </linearGradient>
+                        {/* Normal hour gradient */}
+                        <linearGradient id="hourlyBarNormal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#818cf8" stopOpacity={0.7} />
+                          <stop offset="100%" stopColor="#a5b4fc" stopOpacity={0.4} />
+                        </linearGradient>
+                        {/* Low hour gradient */}
+                        <linearGradient id="hourlyBarLow" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#c7d2fe" stopOpacity={0.5} />
+                          <stop offset="100%" stopColor="#e0e7ff" stopOpacity={0.3} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke={isDark ? "#334155" : "#e2e8f0"}
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tick={{
+                          fill: isDark ? "#94a3b8" : "#64748b",
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}
+                        axisLine={{ stroke: isDark ? "#334155" : "#e2e8f0" }}
+                        tickLine={false}
+                        dy={15}
+                        interval={0}
+                      />
+                      <YAxis
+                        tick={{
+                          fill: isDark ? "#94a3b8" : "#64748b",
+                          fontSize: 12,
+                          fontWeight: 500,
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                        dx={-10}
+                        label={{
+                          value: "Avg Tickets / Day",
+                          angle: -90,
+                          position: "insideLeft",
+                          style: {
+                            fill: isDark ? "#64748b" : "#94a3b8",
+                            fontSize: 12,
+                            fontWeight: 600,
+                          },
+                        }}
+                      />
+                      <RechartsTooltip
+                        cursor={{ fill: isDark ? "rgba(99,102,241,0.1)" : "rgba(99,102,241,0.06)" }}
+                        contentStyle={{
+                          backgroundColor: isDark ? "#1e293b" : "#ffffff",
+                          border: "none",
+                          borderRadius: "16px",
+                          boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+                          padding: "16px 20px",
+                        }}
+                        labelStyle={{
+                          fontWeight: "bold",
+                          fontSize: "14px",
+                          marginBottom: "8px",
+                          color: isDark ? "#fff" : "#1e293b",
+                        }}
+                        labelFormatter={(label, payload) => {
+                          const data = payload?.[0]?.payload;
+                          return data?.hourRange || label;
+                        }}
+                        formatter={(value, name, props) => {
+                          const data = props?.payload;
+                          return [
+                            <span>
+                              <span className="text-lg font-bold text-indigo-600">
+                                {value} <span className="text-sm font-medium text-slate-400">avg/day</span>
+                              </span>
+                              <span className="block text-xs text-slate-400 mt-1">
+                                {data?.totalTickets} total tickets over {data?.totalDays} days
+                              </span>
+                            </span>,
+                            "Volume",
+                          ];
+                        }}
+                      />
+                      <Bar
+                        dataKey="value"
+                        radius={[6, 6, 0, 0]}
+                        maxBarSize={40}
+                      >
+                        {(() => {
+                          const chartData = getExpandedChartData(expandedOverviewMetric);
+                          const maxVal = Math.max(...chartData.map(d => d.value));
+                          return chartData.map((entry, index) => {
+                            const ratio = maxVal > 0 ? entry.value / maxVal : 0;
+                            let fill;
+                            if (ratio >= 0.7) fill = "url(#hourlyBarPeak)";
+                            else if (ratio >= 0.3) fill = "url(#hourlyBarNormal)";
+                            else fill = "url(#hourlyBarLow)";
+                            return <Cell key={index} fill={fill} />;
+                          });
+                        })()}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  /* =============== STANDARD AREA CHART =============== */
+                  <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
                     data={getExpandedChartData(expandedOverviewMetric)}
                     margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
@@ -2619,6 +2838,7 @@ const AnalyticsDashboard = ({
                     />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -2744,17 +2964,17 @@ const AnalyticsDashboard = ({
 
               {/* Group By Toggle */}
               <div className="flex items-center bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                {["daily", "weekly", "monthly"].map((mode) => (
+                {[...(expandedMetric === "volume" ? ["hourly"] : []), "daily", "weekly", "monthly"].map((mode) => (
                   <button
                     key={mode}
                     onClick={() => setExpandedGroupBy(mode)}
-                    className={`px-3 py-2 text-xs font-bold capitalize transition-all ${
+                    className={`px-3 py-2 text-xs font-bold transition-all ${
                       expandedGroupBy === mode
                         ? "bg-indigo-600 text-white"
                         : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
                     }`}
                   >
-                    {mode}
+                    {mode === "hourly" ? "⏰ Hourly Avg" : mode.charAt(0).toUpperCase() + mode.slice(1)}
                   </button>
                 ))}
               </div>
@@ -2812,7 +3032,107 @@ const AnalyticsDashboard = ({
 
             {/* CHART */}
             <div className="flex-1 w-full bg-slate-50/50 dark:bg-slate-900/50 p-6 relative">
-              <ResponsiveContainer width="100%" height="100%">
+              {expandedGroupBy === "hourly" && expandedMetric === "volume" ? (
+                /* =============== HOURLY BAR CHART (Multi-user) =============== */
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={expandedData}
+                    margin={{ top: 20, right: 30, left: 10, bottom: 0 }}
+                    barCategoryGap="8%"
+                  >
+                    <defs>
+                      <linearGradient id="hourlyBarTeam" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#e11d48" stopOpacity={0.9} />
+                        <stop offset="100%" stopColor="#e11d48" stopOpacity={0.5} />
+                      </linearGradient>
+                      <linearGradient id="hourlyBarGST" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.9} />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity={0.5} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke={isDark ? "#1e293b" : "#e2e8f0"}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      tick={{
+                        fill: isDark ? "#94a3b8" : "#64748b",
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      dy={10}
+                      interval={0}
+                    />
+                    <YAxis
+                      tick={{
+                        fill: isDark ? "#94a3b8" : "#64748b",
+                        fontSize: 11,
+                        fontWeight: 500,
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      label={{
+                        value: "Avg Tickets / Day",
+                        angle: -90,
+                        position: "insideLeft",
+                        style: {
+                          fill: isDark ? "#64748b" : "#94a3b8",
+                          fontSize: 12,
+                          fontWeight: 600,
+                        },
+                      }}
+                    />
+                    <RechartsTooltip
+                      cursor={{ fill: isDark ? "rgba(99,102,241,0.1)" : "rgba(99,102,241,0.06)" }}
+                      contentStyle={{
+                        backgroundColor: isDark ? "#0f172a" : "#ffffff",
+                        borderRadius: "12px",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                      }}
+                    />
+                    <Legend
+                      wrapperStyle={{ paddingTop: "20px" }}
+                      iconType="circle"
+                    />
+
+                    {selectedUsers.map((user, index) => (
+                      <Bar
+                        key={user}
+                        dataKey={user}
+                        name={user}
+                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={30}
+                      />
+                    ))}
+
+                    {showTeam && (
+                      <Bar
+                        dataKey="compare_team"
+                        name="Team Avg"
+                        fill="url(#hourlyBarTeam)"
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={30}
+                      />
+                    )}
+                    {showGST && (
+                      <Bar
+                        dataKey="compare_gst"
+                        name="GST Avg"
+                        fill="url(#hourlyBarGST)"
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={30}
+                      />
+                    )}
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                /* =============== STANDARD AREA CHART (Multi-user) =============== */
+                <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={expandedData}
                   margin={{ top: 20, right: 30, left: 10, bottom: 0 }}
@@ -2904,6 +3224,7 @@ const AnalyticsDashboard = ({
                   )}
                 </AreaChart>
               </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>
