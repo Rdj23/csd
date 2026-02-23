@@ -719,21 +719,19 @@ const AnalyticsDashboard = ({
           return created >= start && created <= end;
         });
 
-        // Count tickets per hour bucket
+        // Count tickets per hour bucket (raw counts)
         const hourBuckets = Array.from({ length: 24 }, () => 0);
         rangeTickets.forEach((t) => {
           const hour = getHours(parseISO(t.created_date));
           hourBuckets[hour]++;
         });
 
-        // Number of days in the range
         const totalDays = Math.max(1, differenceInDays(end, start) + 1);
 
         return hourBuckets.map((count, hour) => ({
           name: HOUR_LABELS[hour],
           hour,
-          value: parseFloat((count / totalDays).toFixed(2)),
-          totalTickets: count,
+          value: count,
           totalDays,
           hourRange: `${HOUR_LABELS[hour]} → ${HOUR_LABELS[(hour + 1) % 24]}`,
         }));
@@ -1987,7 +1985,7 @@ const AnalyticsDashboard = ({
 
     // For VOLUME - use real-time tickets with created_date
     if (expandedMetric === "volume") {
-      // HOURLY VIEW for multi-user comparison
+      // HOURLY VIEW for multi-user comparison (raw counts)
       if (expandedGroupBy === "hourly") {
         const totalDays = Math.max(1, differenceInDays(rangeToUse.end, rangeToUse.start) + 1);
 
@@ -1999,39 +1997,39 @@ const AnalyticsDashboard = ({
         });
 
         dailyData = HOUR_LABELS.map((label, hour) => {
+          const hourTickets = rangeTickets.filter((t) => getHours(parseISO(t.created_date)) === hour);
           const dataPoint = { name: label, hour, totalDays };
 
-          // Per-user hourly averages
+          // "All" - total tickets at this hour (regardless of assignee)
+          dataPoint["All Tickets"] = hourTickets.length;
+
+          // Per-user hourly raw counts
           selectedUsers.forEach((user) => {
-            const count = rangeTickets.filter((t) => {
+            const count = hourTickets.filter((t) => {
               const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "";
-              return owner === user && getHours(parseISO(t.created_date)) === hour;
+              return owner === user;
             }).length;
-            dataPoint[user] = parseFloat((count / totalDays).toFixed(2));
+            dataPoint[user] = count;
           });
 
-          // Team & GST hourly averages
+          // Team & GST hourly raw counts
           if (showTeam || showGST) {
-            const hourTickets = rangeTickets.filter((t) => getHours(parseISO(t.created_date)) === hour);
-
             if (showTeam) {
               const teamMembers = TEAM_GROUPS[selectedUserTeamName?.replace("Team ", "")]
                 ? Object.values(TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")])
                 : [];
-              const teamCount = hourTickets.filter((t) => {
+              dataPoint.compare_team = hourTickets.filter((t) => {
                 const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
                 return teamMembers.includes(owner);
               }).length;
-              dataPoint.compare_team = parseFloat((teamCount / totalDays).toFixed(2));
             }
 
             if (showGST) {
               const gstMembers = Object.values(FLAT_TEAM_MAP);
-              const gstCount = hourTickets.filter((t) => {
+              dataPoint.compare_gst = hourTickets.filter((t) => {
                 const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
                 return gstMembers.includes(owner);
               }).length;
-              dataPoint.compare_gst = parseFloat((gstCount / totalDays).toFixed(2));
             }
           }
 
@@ -2621,7 +2619,7 @@ const AnalyticsDashboard = ({
                         tickLine={false}
                         dx={-10}
                         label={{
-                          value: "Avg Tickets / Day",
+                          value: "Tickets Created",
                           angle: -90,
                           position: "insideLeft",
                           style: {
@@ -2655,10 +2653,10 @@ const AnalyticsDashboard = ({
                           return [
                             <span>
                               <span className="text-lg font-bold text-indigo-600">
-                                {value} <span className="text-sm font-medium text-slate-400">avg/day</span>
+                                {value} <span className="text-sm font-medium text-slate-400">tickets</span>
                               </span>
                               <span className="block text-xs text-slate-400 mt-1">
-                                {data?.totalTickets} total tickets over {data?.totalDays} days
+                                Over {data?.totalDays} days in selected range
                               </span>
                             </span>,
                             "Volume",
@@ -3076,7 +3074,7 @@ const AnalyticsDashboard = ({
                       axisLine={false}
                       tickLine={false}
                       label={{
-                        value: "Avg Tickets / Day",
+                        value: "Tickets Created",
                         angle: -90,
                         position: "insideLeft",
                         style: {
@@ -3099,6 +3097,16 @@ const AnalyticsDashboard = ({
                       iconType="circle"
                     />
 
+                    {/* All Tickets - always shown as background context */}
+                    <Bar
+                      dataKey="All Tickets"
+                      name="All Tickets"
+                      fill={isDark ? "#334155" : "#cbd5e1"}
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={30}
+                      opacity={0.5}
+                    />
+
                     {selectedUsers.map((user, index) => (
                       <Bar
                         key={user}
@@ -3113,7 +3121,7 @@ const AnalyticsDashboard = ({
                     {showTeam && (
                       <Bar
                         dataKey="compare_team"
-                        name="Team Avg"
+                        name="Team Total"
                         fill="url(#hourlyBarTeam)"
                         radius={[4, 4, 0, 0]}
                         maxBarSize={30}
@@ -3122,7 +3130,7 @@ const AnalyticsDashboard = ({
                     {showGST && (
                       <Bar
                         dataKey="compare_gst"
-                        name="GST Avg"
+                        name="GST Total"
                         fill="url(#hourlyBarGST)"
                         radius={[4, 4, 0, 0]}
                         maxBarSize={30}

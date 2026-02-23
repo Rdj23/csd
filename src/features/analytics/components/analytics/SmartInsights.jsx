@@ -61,12 +61,12 @@ const SmartInsights = ({
     firstHalfTotal > 0 ? Math.round((trendDiff / firstHalfTotal) * 100) : 100;
 
   const isGroup = selectedUsers.length > 1;
-  const subjectLabel = isGroup ? "Group Velocity" : "My Velocity";
+  const subjectLabel = isGroup ? "Group Tickets" : "My Tickets";
   const subjectText = isGroup ? "Selected users" : "You";
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      {/* My/Group Velocity */}
+      {/* My/Group Tickets */}
       <div className="bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-900/20 dark:to-slate-900 border border-indigo-100 dark:border-indigo-500/20 p-4 rounded-2xl shadow-sm relative overflow-hidden">
         <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">
           {subjectLabel}
