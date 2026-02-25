@@ -233,7 +233,7 @@ const TicketList = ({
                       {(() => {
                         const label = t.cohort
                           ? t.cohort.replace(/\s*Accounts?\s*$/i, "")
-                          : "C4S";
+                          : "c4s";
                         const cohortColor =
                           label === "Enterprise"
                             ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
