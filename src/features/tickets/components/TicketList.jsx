@@ -230,13 +230,24 @@ const TicketList = ({
 
                     {/* 2b. Cohort */}
                     <td className="px-4 py-3.5 align-middle">
-                      {t.cohort ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 whitespace-nowrap">
-                          {t.cohort.replace(/\s*Accounts?\s*$/i, "")}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 text-xs">-</span>
-                      )}
+                      {(() => {
+                        const label = t.cohort
+                          ? t.cohort.replace(/\s*Accounts?\s*$/i, "")
+                          : "C4S";
+                        const cohortColor =
+                          label === "Enterprise"
+                            ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                            : label === "Key Commercial"
+                              ? "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                              : label === "Commercial"
+                                ? "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400";
+                        return (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${cohortColor}`}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* 3. Owner (Clickable) */}
