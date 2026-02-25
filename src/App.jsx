@@ -47,6 +47,7 @@ import {
   ChevronDown,
   LayoutGrid,
   Import,
+  Tag,
 } from "lucide-react";
 import {
   parseISO,
@@ -86,6 +87,7 @@ const EMPTY_FILTERS = {
   accounts: [],
   csms: [],
   tams: [],
+  cohorts: [],
   dateRange: { start: "", end: "" },
   dependency: ["with_dependency", "no_dependency"], // Both selected by default
   dependencyTeams: ["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"], // All teams selected by default
@@ -93,6 +95,7 @@ const EMPTY_FILTERS = {
 
 const FILTER_CONFIG = [
   { key: "regions", label: "Region", icon: Globe },
+  { key: "cohorts", label: "Cohort", icon: Tag },
   { key: "accounts", label: "Account", icon: Building2 },
   { key: "csms", label: "CSM", icon: Briefcase },
   { key: "tams", label: "TAM", icon: UserCircle },
@@ -654,6 +657,7 @@ const App = () => {
       teams: Object.keys(TEAM_GROUPS),
       owners: Object.values(FLAT_TEAM_MAP).sort(),
       accounts: new Set(),
+      cohorts: new Set(),
       csms: new Set(),
       tams: new Set(),
       stages: ["Open", "Pending", "On Hold", "Solved"],
@@ -664,12 +668,15 @@ const App = () => {
         opts.regions.add(t.custom_fields.tnt__region_salesforce);
       if (t.custom_fields?.tnt__instance_account_name)
         opts.accounts.add(t.custom_fields.tnt__instance_account_name);
+      if (t.custom_fields?.tnt__account_cohort_fy_25)
+        opts.cohorts.add(t.custom_fields.tnt__account_cohort_fy_25);
       if (t.custom_fields?.tnt__csm_email_id)
         opts.csms.add(t.custom_fields.tnt__csm_email_id);
       if (t.custom_fields?.tnt__tam) opts.tams.add(t.custom_fields.tnt__tam);
     });
     return {
       regions: Array.from(opts.regions).sort(),
+      cohorts: Array.from(opts.cohorts).sort(),
       accounts: Array.from(opts.accounts).sort(),
       csms: Array.from(opts.csms).sort(),
       tams: Array.from(opts.tams).sort(),
@@ -731,6 +738,7 @@ const App = () => {
           isCSD,
         );
         const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
+        const cohort = t.custom_fields?.tnt__account_cohort_fy_25 || "";
         const accountName =
           t.custom_fields?.tnt__instance_account_name || "Unknown";
         const csm = t.custom_fields?.tnt__csm_email_id || "Unknown";
@@ -751,6 +759,7 @@ const App = () => {
           days,
           priority,
           region,
+          cohort,
           rwtMs,
           isCSD,
           isActive,
@@ -844,6 +853,11 @@ const App = () => {
         if (
           currentFilters.regions?.length > 0 &&
           !currentFilters.regions.includes(t.region)
+        )
+          return false;
+        if (
+          currentFilters.cohorts?.length > 0 &&
+          !currentFilters.cohorts.includes(t.cohort)
         )
           return false;
         if (

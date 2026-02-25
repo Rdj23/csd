@@ -121,7 +121,7 @@ const TicketList = ({
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col"
            style={{ boxShadow: 'var(--shadow-card)' }}>
         <div className="overflow-x-auto min-h-[400px]">
-          <table className="w-full text-left border-collapse min-w-[1400px]">
+          <table className="w-full text-left border-collapse min-w-[1520px]">
             <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700/60 text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-widest font-semibold">
               <tr>
                 {/* 1. Ticket (Sticky Left) */}
@@ -129,6 +129,7 @@ const TicketList = ({
                   Ticket
                 </th>
                 <th className="px-4 py-3 w-[150px] align-middle">Region</th>
+                <th className="px-4 py-3 w-[120px] align-middle">Cohort</th>
                 <th className="px-4 py-3 w-[180px] align-middle">Owner</th>
                 <th className="px-4 py-3 w-[180px] align-middle">CSM</th>
                 <th className="px-4 py-3 w-[180px] align-middle">TAM</th>
@@ -225,6 +226,17 @@ const TicketList = ({
                       <span className="badge badge-neutral text-[10px]">
                         {t.region}
                       </span>
+                    </td>
+
+                    {/* 2b. Cohort */}
+                    <td className="px-4 py-3.5 align-middle">
+                      {t.cohort ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 whitespace-nowrap">
+                          {t.cohort.replace(/\s*Accounts?\s*$/i, "")}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">-</span>
+                      )}
                     </td>
 
                     {/* 3. Owner (Clickable) */}
