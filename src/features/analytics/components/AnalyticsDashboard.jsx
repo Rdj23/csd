@@ -16,6 +16,7 @@ import {
   differenceInHours,
   differenceInDays,
   getHours,
+  endOfDay,
 } from "date-fns";
 import {
   ResponsiveContainer,
@@ -169,7 +170,7 @@ const AnalyticsDashboard = ({
     ) {
       try {
         const startDate = parseISO(dateRange.start);
-        const endDate = parseISO(dateRange.end);
+        const endDate = endOfDay(parseISO(dateRange.end));
 
         if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
           return {
@@ -242,7 +243,7 @@ const AnalyticsDashboard = ({
               : expandedDateRange.start;
           const end =
             typeof expandedDateRange.end === "string"
-              ? parseISO(expandedDateRange.end)
+              ? endOfDay(parseISO(expandedDateRange.end))
               : expandedDateRange.end;
 
           // Validate parsed dates
