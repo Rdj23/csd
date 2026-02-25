@@ -82,6 +82,7 @@ export const quickFetchTickets = async () => {
           tnt__customer_wait_time: cf.tnt__customer_wait_time,
           tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
           tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
+          tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
         },
         tags: t.tags,
         isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
@@ -146,6 +147,7 @@ export const fetchAndCacheTickets = async (source = "auto") => {
             tnt__customer_wait_time: cf.tnt__customer_wait_time,
             tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
             tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
+            tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
           };
 
           return {
