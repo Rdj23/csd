@@ -150,6 +150,30 @@ export const getDrillDown = async (req, res) => {
       } catch (_) { /* Redis unavailable — skip */ }
     }
 
+    // For co-op entries where we still don't have the owner, try to infer from
+    // other entries on the same ticket where is_coop=false (those belong to the owner)
+    const coopTicketsMissingOwner = entries
+      .filter((e) => e.is_coop && !ticketMap[e.ticket_display_id]?.owner)
+      .map((e) => e.ticket_display_id)
+      .filter(Boolean);
+
+    if (coopTicketsMissingOwner.length > 0) {
+      const uniqueMissing = [...new Set(coopTicketsMissingOwner)];
+      const ownerEntries = await UserActivityEntry.find(
+        { ticket_display_id: { $in: uniqueMissing }, is_coop: false },
+        { ticket_display_id: 1, user_name: 1 },
+      ).lean();
+
+      for (const oe of ownerEntries) {
+        if (!ticketMap[oe.ticket_display_id]) {
+          ticketMap[oe.ticket_display_id] = {};
+        }
+        if (!ticketMap[oe.ticket_display_id].owner) {
+          ticketMap[oe.ticket_display_id].owner = oe.user_name;
+        }
+      }
+    }
+
     // Attach enrichment to each entry
     const enriched = entries.map((e) => {
       const ticket = ticketMap[e.ticket_display_id] || {};
@@ -287,6 +311,7 @@ export const searchActivity = async (req, res) => {
         _id: 0,
         entry_id: 1,
         ticket_display_id: 1,
+        user_name: 1,
         visibility: 1,
         created_date: 1,
         text_body: 1,

@@ -448,6 +448,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             <div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
                 Found <span className="font-bold text-indigo-600 dark:text-indigo-400">{searchResults.match_count}</span> match{searchResults.match_count !== 1 ? "es" : ""} for &ldquo;{searchResults.query}&rdquo;
+                <span className="ml-2 text-slate-400 dark:text-slate-600">
+                  (showing comments by <span className="font-medium text-slate-500 dark:text-slate-400">{selectedUser}</span> only)
+                </span>
               </div>
               {searchResults.entries.length > 0 && (
                 <div className="max-h-64 overflow-y-auto space-y-2">
@@ -457,9 +460,14 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
                       className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50"
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400">
+                        <a
+                          href={`https://app.devrev.ai/clevertapsupport/works/${e.ticket_display_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
                           {e.ticket_display_id}
-                        </span>
+                        </a>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                           e.visibility === "external"
                             ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
@@ -467,6 +475,11 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
                         }`}>
                           {e.visibility}
                         </span>
+                        {e.is_coop && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                            co-op
+                          </span>
+                        )}
                         <span className="text-[10px] text-slate-400">
                           {new Date(e.created_date).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
                         </span>
