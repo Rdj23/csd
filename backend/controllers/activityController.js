@@ -1,7 +1,8 @@
-import { UserActivityEntry, UserActivityDaily } from "../models/index.js";
+import { UserActivityEntry, UserActivityDaily, AnalyticsTicket } from "../models/index.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { getActivitySyncQueue } from "../lib/queues.js";
-import { GST_MEMBERS } from "../config/constants.js";
+import { redisGet } from "../config/database.js";
+import { GST_MEMBERS, resolveOwnerName } from "../config/constants.js";
 import logger from "../config/logger.js";
 
 // ---------------------------------------------------------------------------
@@ -73,25 +74,34 @@ export const getCalendar = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// GET /api/activity/drill-down?user=Rohan&date=2026-02-28&hour=14 (hour optional)
-// Returns: ticket-level entries for that user/day (optionally filtered by hour)
+// GET /api/activity/drill-down?user=Rohan&date=2026-02-28&hour=14
+//   OR  /api/activity/drill-down?user=Rohan&start=2026-02-14&end=2026-02-28
+// Returns: ticket-level entries enriched with co-op owner name and dependency team
 // ---------------------------------------------------------------------------
 export const getDrillDown = async (req, res) => {
   try {
-    const { user, date, hour } = req.query;
-    if (!user || !date) {
-      return res.status(400).json({ error: "user and date are required" });
+    const { user, date, start, end, hour } = req.query;
+    if (!user || (!date && (!start || !end))) {
+      return res.status(400).json({ error: "user and (date OR start+end) are required" });
     }
 
-    const filter = { user_name: user, date_bucket: date };
+    // Build date filter: single date or range
+    const filter = { user_name: user };
+    if (start && end) {
+      filter.date_bucket = { $gte: start, $lte: end };
+    } else {
+      filter.date_bucket = date;
+    }
     if (hour !== undefined) filter.hour_bucket = Number(hour);
 
     const entries = await UserActivityEntry.find(filter, {
       _id: 0,
       entry_id: 1,
+      ticket_id: 1,
       ticket_display_id: 1,
       visibility: 1,
       created_date: 1,
+      date_bucket: 1,
       hour_bucket: 1,
       is_coop: 1,
       points: 1,
@@ -101,7 +111,54 @@ export const getDrillDown = async (req, res) => {
       .sort({ created_date: 1 })
       .lean();
 
-    res.json({ user, date, entries });
+    // --- Enrich with co-op owner names and dependency (team) info ---
+    const uniqueTicketIds = [...new Set(entries.map((e) => e.ticket_display_id).filter(Boolean))];
+
+    // Batch-lookup from AnalyticsTicket for owner + is_noc
+    const ticketDocs = uniqueTicketIds.length > 0
+      ? await AnalyticsTicket.find(
+          { ticket_id: { $in: uniqueTicketIds } },
+          { ticket_id: 1, owner: 1, is_noc: 1, noc_issue_id: 1 },
+        ).lean()
+      : [];
+
+    const ticketMap = {};
+    for (const t of ticketDocs) {
+      ticketMap[t.ticket_id] = t;
+    }
+
+    // Also check Redis active tickets for those not found in AnalyticsTicket
+    const missingIds = uniqueTicketIds.filter((id) => !ticketMap[id]);
+    if (missingIds.length > 0) {
+      try {
+        const active = await redisGet("tickets:active");
+        if (active) {
+          for (const t of active) {
+            if (missingIds.includes(t.display_id)) {
+              ticketMap[t.display_id] = {
+                ticket_id: t.display_id,
+                owner: t.owned_by?.[0]?.display_name
+                  ? resolveOwnerName(t.owned_by[0].display_name)
+                  : null,
+                is_noc: false,
+              };
+            }
+          }
+        }
+      } catch (_) { /* Redis unavailable — skip */ }
+    }
+
+    // Attach enrichment to each entry
+    const enriched = entries.map((e) => {
+      const ticket = ticketMap[e.ticket_display_id] || {};
+      return {
+        ...e,
+        coop_with: e.is_coop ? (ticket.owner || null) : null,
+        dep_team: ticket.is_noc ? "NOC" : null,
+      };
+    });
+
+    res.json({ user, date: date || `${start} to ${end}`, entries: enriched });
   } catch (err) {
     logger.error({ err: err.message }, "getDrillDown error");
     res.status(500).json({ error: "Internal server error" });

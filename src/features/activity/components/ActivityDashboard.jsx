@@ -4,8 +4,8 @@ import {
   ChevronLeft, ChevronRight, Zap, Search,
 } from "lucide-react";
 import {
-  fetchMembers, fetchDailySummary,
-  fetchDrillDown, triggerActivitySync,
+  fetchMembers, fetchDailySummary, fetchSummary,
+  fetchDrillDown, fetchRangeDrillDown, triggerActivitySync,
   fetchActivityLeaderboard, searchActivityText,
 } from "../../../api/activityApi";
 import HourlyChart from "./HourlyChart";
@@ -24,6 +24,8 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const [daily, setDaily] = useState(null);
   const [drillDownEntries, setDrillDownEntries] = useState(null);
   const [drillDownHour, setDrillDownHour] = useState(null);
+
+  const [rangeSummary, setRangeSummary] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -64,6 +66,14 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       .finally(() => setLoading(false));
   }, [selectedUser, selectedDate]);
 
+  // --- Load range summary when user or date range changes ---
+  useEffect(() => {
+    if (!selectedUser || !dateRange.start || !dateRange.end) return;
+    fetchSummary(selectedUser, dateRange.start, dateRange.end)
+      .then(setRangeSummary)
+      .catch(console.error);
+  }, [selectedUser, dateRange.start, dateRange.end]);
+
   // --- Load leaderboard when date range changes ---
   useEffect(() => {
     if (!dateRange.start || !dateRange.end) return;
@@ -79,11 +89,14 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     setSearchResults(null);
   }, [selectedUser, dateRange.start, dateRange.end]);
 
+  const isRangeMultiDay = dateRange.start && dateRange.end && dateRange.start !== dateRange.end;
+
   // --- Drill down ---
   const openDrillDown = useCallback(
     (hour) => {
       if (!selectedUser) return;
       setDrillDownHour(hour);
+      // Hourly drill-down always uses the single selectedDate
       fetchDrillDown(selectedUser, selectedDate, hour)
         .then(setDrillDownEntries)
         .catch(console.error);
@@ -94,10 +107,14 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const openCoopDrillDown = useCallback(() => {
     if (!selectedUser) return;
     setDrillDownHour("coop");
-    fetchDrillDown(selectedUser, selectedDate)
+    // Co-op drill-down uses the full date range
+    const fetcher = isRangeMultiDay
+      ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
+      : fetchDrillDown(selectedUser, selectedDate);
+    fetcher
       .then((entries) => setDrillDownEntries(entries.filter((e) => e.is_coop)))
       .catch(console.error);
-  }, [selectedUser, selectedDate]);
+  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange]);
 
   const closeDrillDown = () => {
     setDrillDownEntries(null);
@@ -147,14 +164,27 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     ? members.filter((m) => m.toLowerCase().includes(memberSearch.toLowerCase()))
     : members;
 
-  const ext = daily?.external_count || 0;
-  const int_ = daily?.internal_count || 0;
-  const pts = daily?.total_points || 0;
-  const coopCount = daily?.coop_count || 0;
+  // Use range summary when multi-day, otherwise single-day data
+  const ext = isRangeMultiDay
+    ? (rangeSummary?.total_external || 0)
+    : (daily?.external_count || 0);
+  const int_ = isRangeMultiDay
+    ? (rangeSummary?.total_internal || 0)
+    : (daily?.internal_count || 0);
+  const pts = isRangeMultiDay
+    ? (rangeSummary?.total_points || 0)
+    : (daily?.total_points || 0);
+  const coopCount = isRangeMultiDay
+    ? (rangeSummary?.total_coop || 0)
+    : (daily?.coop_count || 0);
 
   // Filtered counts based on visibility checkboxes
   const filteredExt = visibilityFilter.external ? ext : 0;
   const filteredInt = visibilityFilter.internal ? int_ : 0;
+
+  const dateLabel = isRangeMultiDay
+    ? `${dateRange.start} to ${dateRange.end}`
+    : selectedDate;
 
   return (
     <div className="flex gap-4 h-full min-h-0">
@@ -297,7 +327,10 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             <ChevronRight className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setSelectedDate(TODAY)}
+            onClick={() => {
+              setSelectedDate(TODAY);
+              setDateRange({ start: TODAY, end: TODAY });
+            }}
             className="text-xs text-indigo-500 hover:text-indigo-600 font-medium ml-1"
           >
             Today
@@ -307,7 +340,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         {/* 24-HOUR BAR CHART */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
-            24-Hour Activity — {selectedDate}
+            {isRangeMultiDay ? "Activity" : "24-Hour Activity"} — {dateLabel}
           </h3>
           {loading ? (
             <div className="h-72 flex items-center justify-center text-slate-400 text-sm">Loading...</div>
@@ -324,7 +357,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         {/* SUMMARY ROW */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
           <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">
-            Summary — {selectedDate}
+            Summary — {dateLabel}
           </h3>
           <div className="grid grid-cols-5 gap-4 text-center">
             <Stat label="External" value={filteredExt} color="blue" />
@@ -454,7 +487,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           entries={drillDownEntries}
           hour={drillDownHour}
           date={selectedDate}
+          dateRange={isRangeMultiDay ? dateRange : null}
           user={selectedUser}
+          coopCount={coopCount}
           onClose={closeDrillDown}
           isDark={isDark}
         />

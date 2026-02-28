@@ -33,6 +33,13 @@ export const fetchDrillDown = async (user, date, hour) => {
   return res.data.entries;
 };
 
+/** Fetch drill-down for a date range (all entries across days) */
+export const fetchRangeDrillDown = async (user, start, end) => {
+  const url = `${API_URL}/api/activity/drill-down?user=${encodeURIComponent(user)}&start=${start}&end=${end}`;
+  const res = await authAxios.get(url);
+  return res.data.entries;
+};
+
 /** Fetch leaderboard for a date range */
 export const fetchActivityLeaderboard = async (start, end) => {
   const res = await authAxios.get(
