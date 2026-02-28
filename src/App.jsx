@@ -668,8 +668,7 @@ const App = () => {
         opts.regions.add(t.custom_fields.tnt__region_salesforce);
       if (t.custom_fields?.tnt__instance_account_name)
         opts.accounts.add(t.custom_fields.tnt__instance_account_name);
-      if (t.custom_fields?.tnt__account_cohort_fy_25)
-        opts.cohorts.add(t.custom_fields.tnt__account_cohort_fy_25);
+      opts.cohorts.add(t.custom_fields?.tnt__account_cohort_fy_25 || "C4S");
       if (t.custom_fields?.tnt__csm_email_id)
         opts.csms.add(t.custom_fields.tnt__csm_email_id);
       if (t.custom_fields?.tnt__tam) opts.tams.add(t.custom_fields.tnt__tam);
@@ -738,7 +737,7 @@ const App = () => {
           isCSD,
         );
         const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
-        const cohort = t.custom_fields?.tnt__account_cohort_fy_25 || "";
+        const cohort = t.custom_fields?.tnt__account_cohort_fy_25 || "C4S";
         const accountName =
           t.custom_fields?.tnt__instance_account_name || "Unknown";
         const csm = t.custom_fields?.tnt__csm_email_id || "Unknown";
