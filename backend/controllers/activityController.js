@@ -1,4 +1,4 @@
-import { UserActivityEntry, UserActivityDaily, AnalyticsTicket } from "../models/index.js";
+import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, ActivitySyncedTicket } from "../models/index.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { getActivitySyncQueue } from "../lib/queues.js";
 import { redisGet } from "../config/database.js";
@@ -357,5 +357,52 @@ export const triggerActivitySync = async (req, res) => {
   } catch (err) {
     logger.error({ err: err.message }, "Manual activity sync failed");
     res.status(500).json({ error: "Activity sync failed" });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/activity-resync  — clear synced tracker & full backfill
+// body: { quarter?: string, clearDaily?: boolean }
+// ---------------------------------------------------------------------------
+export const resyncActivity = async (req, res) => {
+  const { quarter = "Q1_26", clearDaily = false } = req.body || {};
+
+  try {
+    // 1. Clear the "already synced" tracker so all tickets are re-processed
+    const { deletedCount: clearedSynced } = await ActivitySyncedTicket.deleteMany({});
+    logger.info({ clearedSynced }, "Cleared ActivitySyncedTicket tracker");
+
+    // 2. Optionally wipe existing daily rollups + entries for a clean slate
+    if (clearDaily) {
+      const { deletedCount: clearedEntries } = await UserActivityEntry.deleteMany({});
+      const { deletedCount: clearedDaily } = await UserActivityDaily.deleteMany({});
+      logger.info({ clearedEntries, clearedDaily }, "Cleared activity entries & daily rollups");
+    }
+
+    // 3. Queue a full backfill
+    const queue = getActivitySyncQueue();
+    if (queue) {
+      try {
+        const job = await queue.add("backfill", { fullBackfill: true, quarter }, {
+          jobId: `resync-activity-${Date.now()}`,
+        });
+        return res.json({
+          status: "queued",
+          jobId: job.id,
+          clearedSynced,
+          clearDaily,
+          quarter,
+        });
+      } catch (err) {
+        logger.warn({ err }, "BullMQ unavailable, running resync directly");
+      }
+    }
+
+    // Fallback: run directly
+    const result = await syncActivityBatch({ fullBackfill: true, quarter });
+    res.json({ status: "completed", clearedSynced, clearDaily, quarter, ...result });
+  } catch (err) {
+    logger.error({ err: err.message }, "Activity resync failed");
+    res.status(500).json({ error: "Activity resync failed" });
   }
 };

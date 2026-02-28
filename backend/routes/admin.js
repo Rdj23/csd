@@ -11,7 +11,7 @@ import {
   syncSingleTicket,
   cleanupOldTickets,
 } from "../controllers/adminController.js";
-import { triggerActivitySync } from "../controllers/activityController.js";
+import { triggerActivitySync, resyncActivity } from "../controllers/activityController.js";
 import { validate } from "../middleware/validate.js";
 import { jobStatusSchema, syncTicketSchema } from "../validations/adminSchemas.js";
 
@@ -28,5 +28,6 @@ router.post("/admin/test-slack", testSlack);
 router.post("/admin/sync-ticket", validate(syncTicketSchema), syncSingleTicket);
 router.post("/admin/cleanup-old-tickets", cleanupOldTickets);
 router.post("/admin/activity-sync", triggerActivitySync);
+router.post("/admin/activity-resync", resyncActivity);
 
 export default router;

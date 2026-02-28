@@ -6,9 +6,10 @@ import {
 import {
   fetchMembers, fetchDailySummary, fetchSummary,
   fetchDrillDown, fetchRangeDrillDown, triggerActivitySync,
-  fetchActivityLeaderboard, searchActivityText,
+  fetchActivityLeaderboard, searchActivityText, fetchCalendar,
 } from "../../../api/activityApi";
 import HourlyChart from "./HourlyChart";
+import DailyChart from "./DailyChart";
 import DrillDownModal from "./DrillDownModal";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
 
@@ -41,6 +42,10 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
+  // Calendar days (per-day data for multi-day chart)
+  const [calendarDays, setCalendarDays] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+
   // Text search
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState(null);
@@ -56,15 +61,16 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       .catch(console.error);
   }, []);
 
-  // --- Load daily summary when user or date changes ---
+  // --- Load daily summary when user or date changes (skip in multi-day mode) ---
   useEffect(() => {
     if (!selectedUser) return;
+    if (dateRange.start && dateRange.end && dateRange.start !== dateRange.end) return;
     setLoading(true);
     fetchDailySummary(selectedUser, selectedDate)
       .then(setDaily)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [selectedUser, selectedDate]);
+  }, [selectedUser, selectedDate, dateRange.start, dateRange.end]);
 
   // --- Load range summary when user or date range changes ---
   useEffect(() => {
@@ -72,6 +78,20 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     fetchSummary(selectedUser, dateRange.start, dateRange.end)
       .then(setRangeSummary)
       .catch(console.error);
+  }, [selectedUser, dateRange.start, dateRange.end]);
+
+  // --- Load calendar days for multi-day chart ---
+  useEffect(() => {
+    if (!selectedUser || !dateRange.start || !dateRange.end) return;
+    if (dateRange.start === dateRange.end) {
+      setCalendarDays([]);
+      return;
+    }
+    setCalendarLoading(true);
+    fetchCalendar(selectedUser, dateRange.start, dateRange.end)
+      .then(setCalendarDays)
+      .catch(console.error)
+      .finally(() => setCalendarLoading(false));
   }, [selectedUser, dateRange.start, dateRange.end]);
 
   // --- Load leaderboard when date range changes ---
@@ -362,8 +382,18 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
               View All Entries &rarr;
             </button>
           </div>
-          {loading ? (
+          {(isRangeMultiDay ? calendarLoading : loading) ? (
             <div className="h-72 flex items-center justify-center text-slate-400 text-sm">Loading...</div>
+          ) : isRangeMultiDay ? (
+            <DailyChart
+              days={calendarDays}
+              onDayClick={(date) => {
+                setSelectedDate(date);
+                setDateRange({ start: date, end: date });
+              }}
+              isDark={isDark}
+              visibilityFilter={visibilityFilter}
+            />
           ) : (
             <HourlyChart
               hourly={daily?.hourly || {}}
