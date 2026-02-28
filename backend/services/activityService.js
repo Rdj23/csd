@@ -1,7 +1,7 @@
 import axios from "axios";
 import { DEVREV_API, HEADERS } from "./devrevApi.js";
 import { redisGet } from "../config/database.js";
-import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata } from "../models/index.js";
+import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata, ActivitySyncedTicket } from "../models/index.js";
 import {
   GST_NAME_MAP, GST_MEMBERS, GST_DEVU_MAP,
   resolveOwnerName, getQuarterDateRange,
@@ -287,17 +287,30 @@ export const syncActivityBatch = async (opts = {}) => {
       { ticket_id: 1, devrev_id: 1, owner: 1, owner_id: 1, account_cohort: 1, stage_name: 1 },
     ).lean();
 
+    // Load already-synced ticket IDs to skip them
+    const syncedDocs = await ActivitySyncedTicket.find({}, { ticket_display_id: 1 }).lean();
+    const syncedSet = new Set(syncedDocs.map((d) => d.ticket_display_id));
+
+    let skippedCount = 0;
     for (const t of solved) {
+      if (syncedSet.has(t.ticket_id)) {
+        skippedCount++;
+        continue;
+      }
       tickets.push({
         devrev_id: t.devrev_id,
         display_id: t.ticket_id,
         owner: t.owner,
         accountCohort: t.account_cohort,
         stage: t.stage_name,
+        isSolved: true,
       });
     }
+    if (skippedCount > 0) {
+      logger.info({ skippedCount }, "Skipped already-synced solved tickets");
+    }
 
-    // Active tickets from Redis
+    // Active tickets from Redis (always sync — they can get new comments)
     const active = await redisGet("tickets:active");
     if (active) {
       for (const t of active) {
@@ -311,6 +324,7 @@ export const syncActivityBatch = async (opts = {}) => {
           owner,
           accountCohort: t.custom_fields?.tnt__account_cohort_fy_25,
           stage: t.stage?.name,
+          isSolved: false,
         });
       }
     }
@@ -319,7 +333,7 @@ export const syncActivityBatch = async (opts = {}) => {
     const active = await redisGet("tickets:active");
     if (!active) {
       logger.warn("No active tickets in Redis — skipping activity sync");
-      return { totalProcessed: 0, ticketsProcessed: 0 };
+      return { totalProcessed: 0, ticketsProcessed: 0, skipped: 0 };
     }
     const sinceDate = since ? new Date(since) : new Date(Date.now() - 24 * 60 * 60 * 1000);
     for (const t of active) {
@@ -332,6 +346,7 @@ export const syncActivityBatch = async (opts = {}) => {
         owner,
         accountCohort: t.custom_fields?.tnt__account_cohort_fy_25,
         stage: t.stage?.name,
+        isSolved: false,
       });
     }
   }
@@ -339,6 +354,7 @@ export const syncActivityBatch = async (opts = {}) => {
   logger.info({ ticketCount: tickets.length, fullBackfill }, "Activity sync batch starting");
 
   let totalProcessed = 0;
+  const solvedToMark = [];
   const RATE_LIMIT_MS = 2000; // ~30 req/min headroom
 
   for (let i = 0; i < tickets.length; i++) {
@@ -356,6 +372,11 @@ export const syncActivityBatch = async (opts = {}) => {
       });
       totalProcessed += count;
 
+      // Mark solved tickets as fully synced so future backfills skip them
+      if (t.isSolved) {
+        solvedToMark.push(t.display_id);
+      }
+
       if (count > 0) {
         logger.info(
           { ticket: t.display_id, entries: count, progress: `${i + 1}/${tickets.length}` },
@@ -370,6 +391,19 @@ export const syncActivityBatch = async (opts = {}) => {
     if (i < tickets.length - 1) {
       await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
     }
+  }
+
+  // Batch-mark solved tickets as synced
+  if (solvedToMark.length > 0) {
+    const bulkOps = solvedToMark.map((id) => ({
+      updateOne: {
+        filter: { ticket_display_id: id },
+        update: { $setOnInsert: { ticket_display_id: id, synced_at: new Date() } },
+        upsert: true,
+      },
+    }));
+    await ActivitySyncedTicket.bulkWrite(bulkOps, { ordered: false });
+    logger.info({ count: solvedToMark.length }, "Marked solved tickets as synced");
   }
 
   // Persist last sync timestamp

@@ -128,6 +128,19 @@ export const UserActivityEntry = mongoose.model(
   UserActivityEntrySchema,
 );
 
+// Tracks tickets that have been fully synced (skip on future backfills)
+const ActivitySyncedTicketSchema = new mongoose.Schema(
+  {
+    ticket_display_id: { type: String, unique: true, index: true },
+    synced_at: { type: Date, default: Date.now },
+  },
+  { versionKey: false },
+);
+export const ActivitySyncedTicket = mongoose.model(
+  "ActivitySyncedTicket",
+  ActivitySyncedTicketSchema,
+);
+
 // Pre-aggregated daily rollup (dashboard reads hit this — no aggregation at query time)
 const UserActivityDailySchema = new mongoose.Schema(
   {
