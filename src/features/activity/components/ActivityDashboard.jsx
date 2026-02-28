@@ -96,7 +96,6 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     (hour) => {
       if (!selectedUser) return;
       setDrillDownHour(hour);
-      // Hourly drill-down always uses the single selectedDate
       fetchDrillDown(selectedUser, selectedDate, hour)
         .then(setDrillDownEntries)
         .catch(console.error);
@@ -104,10 +103,21 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     [selectedUser, selectedDate],
   );
 
+  // Open drill-down for ALL entries in the date range
+  const openAllDrillDown = useCallback(() => {
+    if (!selectedUser) return;
+    setDrillDownHour("all");
+    const fetcher = isRangeMultiDay
+      ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
+      : fetchDrillDown(selectedUser, selectedDate);
+    fetcher
+      .then(setDrillDownEntries)
+      .catch(console.error);
+  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange]);
+
   const openCoopDrillDown = useCallback(() => {
     if (!selectedUser) return;
     setDrillDownHour("coop");
-    // Co-op drill-down uses the full date range
     const fetcher = isRangeMultiDay
       ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
       : fetchDrillDown(selectedUser, selectedDate);
@@ -341,9 +351,17 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
 
         {/* 24-HOUR BAR CHART */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
-            {isRangeMultiDay ? "Activity" : "24-Hour Activity"} — {dateLabel}
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              {isRangeMultiDay ? `Activity — ${dateLabel}` : `24-Hour Activity — ${dateLabel}`}
+            </h3>
+            <button
+              onClick={openAllDrillDown}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
+            >
+              View All Entries &rarr;
+            </button>
+          </div>
           {loading ? (
             <div className="h-72 flex items-center justify-center text-slate-400 text-sm">Loading...</div>
           ) : (
@@ -502,7 +520,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           entries={drillDownEntries}
           hour={drillDownHour}
           date={selectedDate}
-          dateRange={isRangeMultiDay && drillDownHour === "coop" ? dateRange : null}
+          dateRange={isRangeMultiDay && (drillDownHour === "coop" || drillDownHour === "all") ? dateRange : null}
           user={selectedUser}
           coopCount={coopCount}
           onClose={closeDrillDown}

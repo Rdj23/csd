@@ -1,9 +1,23 @@
-import React from "react";
-import { X, ExternalLink, Eye, EyeOff, Users, Zap } from "lucide-react";
+import React, { useState, useMemo } from "react";
+import { X, ExternalLink, Eye, EyeOff, Users, Zap, ChevronUp, ChevronDown } from "lucide-react";
 
 const DEVREV_BASE = "https://app.devrev.ai/clevertapsupport/works";
 
-export default function DrillDownModal({ entries = [], hour, date, dateRange, user, coopCount, onClose, isDark }) {
+const COLUMNS = [
+  { key: "ticket_display_id", label: "Ticket" },
+  { key: "date_bucket", label: "Date" },
+  { key: "visibility", label: "Type" },
+  { key: "created_date", label: "Time" },
+  { key: "points", label: "Pts", center: true },
+  { key: "is_coop", label: "Co-op" },
+  { key: "account_cohort", label: "Cohort" },
+  { key: "dep_team", label: "Team" },
+];
+
+export default function DrillDownModal({ entries = [], hour, date, dateRange, user, coopCount, onClose }) {
+  const [sortKey, setSortKey] = useState("created_date");
+  const [sortAsc, setSortAsc] = useState(true);
+
   const dateDisplay = dateRange
     ? `${dateRange.start} to ${dateRange.end}`
     : date;
@@ -11,21 +25,58 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
   const title =
     hour === "coop"
       ? `Co-op Tickets — ${user} — ${dateDisplay}`
-      : `Activity — ${user} — ${dateDisplay} ${hour !== null && hour !== undefined && hour !== "coop" ? `@ ${String(hour).padStart(2, "0")}:00` : ""}`;
+      : hour === "all"
+        ? `All Entries — ${user} — ${dateDisplay}`
+        : `Activity — ${user} — ${dateDisplay} ${hour !== null && hour !== undefined && hour !== "coop" && hour !== "all" ? `@ ${String(hour).padStart(2, "0")}:00` : ""}`;
 
   const coopEntries = entries.filter((e) => e.is_coop);
+
+  // Sort entries
+  const sorted = useMemo(() => {
+    const list = [...entries];
+    list.sort((a, b) => {
+      let aVal = a[sortKey];
+      let bVal = b[sortKey];
+      // Handle booleans
+      if (typeof aVal === "boolean") { aVal = aVal ? 1 : 0; bVal = bVal ? 1 : 0; }
+      // Handle nulls
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      // Compare
+      if (aVal < bVal) return sortAsc ? -1 : 1;
+      if (aVal > bVal) return sortAsc ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [entries, sortKey, sortAsc]);
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortKey(key);
+      setSortAsc(true);
+    }
+  };
+
+  const SortIcon = ({ colKey }) => {
+    if (sortKey !== colKey) return null;
+    return sortAsc
+      ? <ChevronUp className="w-3 h-3 inline ml-0.5" />
+      : <ChevronDown className="w-3 h-3 inline ml-0.5" />;
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-5xl max-h-[85vh] flex flex-col"
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-6xl max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
           <div className="flex items-center gap-3">
-            {/* Co-op count badge */}
             {coopCount > 0 && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/30 text-xs font-semibold text-purple-700 dark:text-purple-300">
                 <Users className="w-3.5 h-3.5 text-purple-500" />
@@ -44,24 +95,27 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
             <div className="text-center text-slate-400 py-12 text-sm">No entries found</div>
           ) : (
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
                 <tr className="text-left text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
-                  <th className="pb-2 font-medium">Ticket</th>
-                  <th className="pb-2 font-medium">Type</th>
-                  <th className="pb-2 font-medium">Time</th>
-                  <th className="pb-2 font-medium text-center">Pts</th>
-                  <th className="pb-2 font-medium">Co-op</th>
-                  <th className="pb-2 font-medium">Cohort</th>
-                  <th className="pb-2 font-medium">Team</th>
+                  {COLUMNS.map((col) => (
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key)}
+                      className={`pb-2 font-medium cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none transition-colors ${col.center ? "text-center" : ""}`}
+                    >
+                      {col.label}
+                      <SortIcon colKey={col.key} />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e, i) => (
+                {sorted.map((e, i) => (
                   <tr
                     key={e.entry_id || i}
                     className="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
                   >
-                    {/* Clickable ticket link */}
+                    {/* Ticket */}
                     <td className="py-2.5">
                       <a
                         href={`${DEVREV_BASE}/${e.ticket_display_id}`}
@@ -73,6 +127,11 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                         <ExternalLink className="w-3 h-3 opacity-50" />
                       </a>
                     </td>
+                    {/* Date */}
+                    <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                      {e.date_bucket || "—"}
+                    </td>
+                    {/* Type */}
                     <td className="py-2.5">
                       {e.visibility === "external" ? (
                         <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
@@ -84,9 +143,11 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400">
+                    {/* Time */}
+                    <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                       {e.created_date ? new Date(e.created_date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}
                     </td>
+                    {/* Points */}
                     <td className="py-2.5 text-center">
                       {e.points > 0 ? (
                         <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
@@ -96,7 +157,7 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                         <span className="text-xs text-slate-300 dark:text-slate-600">0</span>
                       )}
                     </td>
-                    {/* Co-op: show owner name */}
+                    {/* Co-op */}
                     <td className="py-2.5">
                       {e.is_coop ? (
                         <span className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 font-medium">
@@ -107,10 +168,11 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                         <span className="text-xs text-slate-300 dark:text-slate-600">—</span>
                       )}
                     </td>
+                    {/* Cohort */}
                     <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[120px]">
                       {e.account_cohort || "—"}
                     </td>
-                    {/* Dependency team */}
+                    {/* Team */}
                     <td className="py-2.5">
                       {e.dep_team ? (
                         <span className="inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-300">
