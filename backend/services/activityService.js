@@ -206,12 +206,18 @@ export const processTimelineEntry = async (entry, ctx = {}) => {
     { upsert: true },
   );
 
-  // Recalculate coop_count from the array length (safe, atomic per user+day)
+  // Recalculate coop_count from the array length
   if (isCoop) {
-    await UserActivityDaily.updateOne(
+    const daily = await UserActivityDaily.findOne(
       { user_name: userName, date_bucket: dateBucket },
-      [{ $set: { coop_count: { $size: { $ifNull: ["$coop_tickets", []] } } } }],
-    );
+      { coop_tickets: 1 },
+    ).lean();
+    if (daily) {
+      await UserActivityDaily.updateOne(
+        { user_name: userName, date_bucket: dateBucket },
+        { $set: { coop_count: (daily.coop_tickets || []).length } },
+      );
+    }
   }
 
   return doc;
