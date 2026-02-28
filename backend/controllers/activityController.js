@@ -135,10 +135,12 @@ export const getDrillDown = async (req, res) => {
         if (active) {
           for (const t of active) {
             if (missingIds.includes(t.display_id)) {
+              const rawName = t.owned_by?.[0]?.display_name;
               ticketMap[t.display_id] = {
                 ticket_id: t.display_id,
-                owner: t.owned_by?.[0]?.display_name
-                  ? resolveOwnerName(t.owned_by[0].display_name)
+                // Use GST short name if available, otherwise raw display name
+                owner: rawName
+                  ? (resolveOwnerName(rawName) || rawName)
                   : null,
                 is_noc: false,
               };
@@ -228,13 +230,19 @@ export const getSummary = async (req, res) => {
           total_internal: { $sum: "$internal_count" },
           total_external: { $sum: "$external_count" },
           total_points: { $sum: "$total_points" },
-          total_coop: { $sum: "$coop_count" },
           key_ext_points: { $sum: "$point_breakdown.key_ext" },
           non_key_ext_points: { $sum: "$point_breakdown.non_key_ext" },
           days_active: { $sum: 1 },
         },
       },
     ]);
+
+    // Get truly distinct co-op ticket count across the entire range
+    const coopTickets = await UserActivityEntry.distinct("ticket_display_id", {
+      user_name: user,
+      date_bucket: { $gte: start, $lte: end },
+      is_coop: true,
+    });
 
     res.json({
       user,
@@ -244,11 +252,11 @@ export const getSummary = async (req, res) => {
         total_internal: 0,
         total_external: 0,
         total_points: 0,
-        total_coop: 0,
         key_ext_points: 0,
         non_key_ext_points: 0,
         days_active: 0,
       }),
+      total_coop: coopTickets.length,
     });
   } catch (err) {
     logger.error({ err: err.message }, "getSummary error");

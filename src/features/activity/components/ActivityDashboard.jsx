@@ -319,7 +319,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             value={dateRange}
             onChange={(val) => {
               setDateRange(val);
-              if (val.start) setSelectedDate(val.start);
+              // Set selectedDate to the END of the range (most recent day) so the chart shows latest data
+              if (val.end) setSelectedDate(val.end);
+              else if (val.start) setSelectedDate(val.start);
             }}
             allowAllTime={false}
           />
@@ -487,7 +489,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           entries={drillDownEntries}
           hour={drillDownHour}
           date={selectedDate}
-          dateRange={isRangeMultiDay ? dateRange : null}
+          dateRange={isRangeMultiDay && drillDownHour === "coop" ? dateRange : null}
           user={selectedUser}
           coopCount={coopCount}
           onClose={closeDrillDown}
