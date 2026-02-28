@@ -587,8 +587,8 @@ const App = () => {
             t.iterations || "-",
             t.csat || "-",
             t.frr || "-",
-            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
             `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
+            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
           ];
           csvContent += row.join(",") + "\n";
         });

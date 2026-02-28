@@ -614,8 +614,8 @@ const DrillDownModal = ({
             t.iterations || "-",
             t.csat || "-",
             t.frr || "-",
-            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
             `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
+            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
           ];
           csvContent += row.join(",") + "\n";
         });
@@ -1858,8 +1858,8 @@ const AllTicketsView = ({
               t.iterations || "-",
               t.csat || "-",
               t.frr || "-",
-              `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
               `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
+              `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
             ].join(",") + "\n";
         });
       }

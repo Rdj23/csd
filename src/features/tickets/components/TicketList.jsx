@@ -45,13 +45,13 @@ const TicketList = ({
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
     if (sortConfig.key === "ct_updated") {
-      const valA = new Date(a.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
-      const valB = new Date(b.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
+      const valA = new Date(a.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
+      const valB = new Date(b.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
     if (sortConfig.key === "cust_updated") {
-      const valA = new Date(a.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
-      const valB = new Date(b.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
+      const valA = new Date(a.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
+      const valB = new Date(b.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
 
@@ -373,8 +373,8 @@ const TicketList = ({
                     {/* 12. CT Updated (Sticky Right 2) */}
                     <td className="px-3 py-2 align-middle sticky right-[310px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                        {t.custom_fields?.tnt__last_revu_message_ts
-                          ? new Date(t.custom_fields.tnt__last_revu_message_ts).toLocaleString("en-IN", {
+                        {t.custom_fields?.tnt__last_devu_message_ts
+                          ? new Date(t.custom_fields.tnt__last_devu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
                               day: "2-digit",
                               month: "short",
@@ -389,8 +389,8 @@ const TicketList = ({
                     {/* 13. Customer Updated (Sticky Right 3) */}
                     <td className="px-3 py-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
                       <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                        {t.custom_fields?.tnt__last_devu_message_ts
-                          ? new Date(t.custom_fields.tnt__last_devu_message_ts).toLocaleString("en-IN", {
+                        {t.custom_fields?.tnt__last_revu_message_ts
+                          ? new Date(t.custom_fields.tnt__last_revu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
                               day: "2-digit",
                               month: "short",
