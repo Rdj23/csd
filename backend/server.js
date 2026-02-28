@@ -79,7 +79,7 @@ const isHybrid = NODE_ROLE === "hybrid";
 const runWorkers = NODE_ROLE === "worker" || isHybrid;
 
 // --- BullMQ Setup ---
-import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue } from "./lib/queues.js";
+import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue } from "./lib/queues.js";
 
 const bullmqConn = getBullMQConnection();
 if (bullmqConn) {
@@ -176,7 +176,7 @@ server.listen(PORT, async () => {
   if (runWorkers && bullmqConn) {
     try {
       // Clean up old repeatable schedules before registering new ones
-      for (const queue of [getHistoricalSyncQueue(), getAnalyticsQueue()]) {
+      for (const queue of [getHistoricalSyncQueue(), getAnalyticsQueue(), getActivitySyncQueue()]) {
         const repeatables = await queue.getRepeatableJobs();
         for (const job of repeatables) {
           await queue.removeRepeatableByKey(job.key);
@@ -191,6 +191,10 @@ server.listen(PORT, async () => {
       await getAnalyticsQueue().add(
         "precompute", { quarter: "Q1_26" },
         { repeat: { pattern: "30 4 * * *" }, jobId: "daily-analytics-q1-26" },  // 04:30 UTC = 10:00 AM IST (runs after sync)
+      );
+      await getActivitySyncQueue().add(
+        "incremental", {},
+        { repeat: { pattern: "0 5 * * *" }, jobId: "daily-activity-sync" },  // 05:00 UTC = 10:30 AM IST (runs after analytics)
       );
       logger.info("Cron jobs registered");
     } catch (e) {

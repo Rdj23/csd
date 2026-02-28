@@ -12,6 +12,7 @@ import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
 import AllTicketsView from "./features/tickets/components/Allticketsview";
 
 import GamificationView from "./features/gamification/components/GamificationView";
+import ActivityDashboard from "./features/activity/components/ActivityDashboard";
 
 import {
   Users,
@@ -1428,6 +1429,9 @@ const App = () => {
               { id: "csd",          icon: Star,        label: "CSD Highlighted" },
               { id: "vistas",       icon: Layout,      label: "My Views" },
               { id: "analytics",    icon: BarChart3,   label: "Analytics" },
+              ...(SUPER_ADMIN_EMAILS.includes(currentUser?.email)
+                ? [{ id: "activity", icon: Activity, label: "Activity Intel" }]
+                : []),
               ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
                 ? [{ id: "gamification", icon: Trophy, label: "Gamification" }]
                 : []),
@@ -1506,8 +1510,8 @@ const App = () => {
 
           {/* RIGHT COLUMN: Filters (Fixed) + Content (Scrollable) */}
           <div className="flex-1 flex flex-col min-w-0 h-full">
-            {/* FIXED FILTERS BAR - Hidden for Gamification tab */}
-            {activeTab !== "gamification" && (
+            {/* FIXED FILTERS BAR - Hidden for Gamification/Activity tabs */}
+            {activeTab !== "gamification" && activeTab !== "activity" && (
             <div className="shrink-0 z-40 mb-4 bg-white dark:bg-slate-900/95 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center transition-colors relative"
                  style={{ boxShadow: 'var(--shadow-card)' }}>
               {/* LEFT: Filters */}
@@ -2195,6 +2199,14 @@ const App = () => {
                       }));
                     }}
                     isDark={theme === "dark"}
+                  />
+                </ErrorBoundary>
+              ) : activeTab === "activity" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
+                <ErrorBoundary level="section">
+                  <ActivityDashboard
+                    isDark={theme === "dark"}
+                    currentUser={currentUser}
+                    isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
                   />
                 </ErrorBoundary>
               ) : activeTab === "gamification" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (

@@ -20,11 +20,14 @@ export const View = mongoose.model("View", ViewSchema);
 const AnalyticsTicketSchema = new mongoose.Schema(
   {
     ticket_id: { type: String, unique: true, index: true },
+    devrev_id: String, // Full DevRev DON ID (for timeline-entries.list)
     display_id: String,
     title: String,
     created_date: Date,
     closed_date: { type: Date, index: true },
     owner: { type: String, index: true },
+    owner_id: String, // DevRev dev_user ID (for co-op detection)
+    account_cohort: String, // tnt__account_cohort_fy_25 (for point scoring)
     team: String,
     region: String,
     priority: String,
@@ -93,3 +96,61 @@ const SyncMetadataSchema = new mongoose.Schema({
   updated_at: { type: Date, default: Date.now },
 });
 export const SyncMetadata = mongoose.model("SyncMetadata", SyncMetadataSchema);
+
+// --- USER ACTIVITY INTELLIGENCE ---
+
+// Granular: one document per timeline comment (for drill-down)
+const UserActivityEntrySchema = new mongoose.Schema(
+  {
+    entry_id: { type: String, unique: true, index: true },
+    ticket_id: String, // Full DevRev DON ID
+    ticket_display_id: { type: String, index: true },
+    user_id: String, // DevRev created_by.id
+    user_name: { type: String, index: true },
+    visibility: { type: String, enum: ["internal", "external", "public"] },
+    created_date: { type: Date, index: true },
+    date_bucket: { type: String, index: true }, // "YYYY-MM-DD" IST
+    hour_bucket: Number, // 0-23 IST
+    is_coop: { type: Boolean, default: false },
+    account_cohort: String,
+    ticket_stage: String,
+    points: { type: Number, default: 0 },
+    text_body: { type: String, default: null },
+  },
+  { versionKey: false },
+);
+
+UserActivityEntrySchema.index({ user_name: 1, date_bucket: 1 });
+UserActivityEntrySchema.index({ date_bucket: 1, visibility: 1 });
+
+export const UserActivityEntry = mongoose.model(
+  "UserActivityEntry",
+  UserActivityEntrySchema,
+);
+
+// Pre-aggregated daily rollup (dashboard reads hit this — no aggregation at query time)
+const UserActivityDailySchema = new mongoose.Schema(
+  {
+    user_name: { type: String, index: true },
+    date_bucket: { type: String, index: true }, // "YYYY-MM-DD"
+    internal_count: { type: Number, default: 0 },
+    external_count: { type: Number, default: 0 },
+    total_points: { type: Number, default: 0 },
+    hourly: { type: Object, default: {} }, // { "9": { int: 1, ext: 3 }, ... }
+    coop_tickets: { type: [String], default: [] }, // Distinct ticket display IDs
+    coop_count: { type: Number, default: 0 },
+    point_breakdown: {
+      key_ext: { type: Number, default: 0 },
+      non_key_ext: { type: Number, default: 0 },
+    },
+  },
+  { versionKey: false },
+);
+
+UserActivityDailySchema.index({ user_name: 1, date_bucket: 1 }, { unique: true });
+UserActivityDailySchema.index({ date_bucket: 1 });
+
+export const UserActivityDaily = mongoose.model(
+  "UserActivityDaily",
+  UserActivityDailySchema,
+);

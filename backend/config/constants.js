@@ -183,6 +183,14 @@ export const EMAIL_TO_NAME_MAP = {
   "adish@clevertap.com": "Adish",
 };
 
+// Flat DEVU-ID → GST name mapping (built from TEAM_GROUPS)
+export const GST_DEVU_MAP = {};
+for (const members of Object.values(TEAM_GROUPS)) {
+  for (const [devuId, name] of Object.entries(members)) {
+    GST_DEVU_MAP[devuId] = name;
+  }
+}
+
 // Helper functions
 export const resolveOwnerName = (displayName) => {
   if (!displayName) return null;

@@ -462,11 +462,14 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
               update: {
                 $set: {
                   ticket_id: t.display_id,
+                  devrev_id: t.id,
                   display_id: t.display_id,
                   title: t.title,
                   created_date: new Date(t.created_date),
                   closed_date: closedDate,
                   owner,
+                  owner_id: t.owned_by?.[0]?.id || null,
+                  account_cohort: t.custom_fields?.tnt__account_cohort_fy_25 || null,
                   region: t.custom_fields?.tnt__region_salesforce || "Unknown",
                   priority: t.priority,
                   is_zendesk: t.tags?.some(

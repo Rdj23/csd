@@ -2,6 +2,7 @@ import { Worker } from "bullmq";
 import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/syncService.js";
 import { precomputeAnalytics } from "../services/analyticsService.js";
 import { syncRoster } from "../services/rosterService.js";
+import { syncActivityBatch } from "../services/activityService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";
 
@@ -51,7 +52,22 @@ export const registerAllWorkers = (connection) => {
     { ...opts, concurrency: 1, lockDuration: 120000 },
   );
 
-  const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, rosterWorker];
+  const activitySyncWorker = new Worker(
+    "activity-sync",
+    async (job) => {
+      logger.info({ jobName: job.name, data: job.data }, "[activity-sync] Processing");
+      if (job.name === "backfill") {
+        await syncActivityBatch({ fullBackfill: true, quarter: job.data.quarter || "Q1_26" });
+      } else {
+        // Daily incremental — sync last 24h of modified tickets
+        await syncActivityBatch({ since: job.data.since });
+      }
+      if (global.gc) global.gc();
+    },
+    { ...opts, concurrency: 1, lockDuration: 600000 },
+  );
+
+  const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, rosterWorker, activitySyncWorker];
 
   allWorkers.forEach((w) => {
     w.on("completed", (job) => logger.info({ worker: w.name, jobName: job.name }, "Job completed"));
