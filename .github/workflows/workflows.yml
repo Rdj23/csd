@@ -16,7 +16,7 @@ jobs:
         run: |
           echo "Triggering Cache Sync..."
           # Hitting /api/tickets triggers the 'fetchAndCacheTickets' function in your backend
-          curl -X GET "https://https://csd-backend-ljzq.onrender.com/api/tickets?limit=1" \
+          curl -X GET "https://csd-backend-ljzq.onrender.com/api/tickets?limit=1" \
           --header "Content-Type: application/json"
           
           echo "Request sent. Server should be syncing in background."
