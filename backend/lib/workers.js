@@ -58,6 +58,9 @@ export const registerAllWorkers = (connection) => {
       logger.info({ jobName: job.name, data: job.data }, "[activity-sync] Processing");
       if (job.name === "backfill") {
         await syncActivityBatch({ fullBackfill: true, quarter: job.data.quarter || "Q1_26" });
+      } else if (job.name === "frequent") {
+        // Every 10 min — look back 15 min (buffer to avoid gaps)
+        await syncActivityBatch({ since: new Date(Date.now() - 15 * 60 * 1000).toISOString() });
       } else {
         // Daily incremental — sync last 24h of modified tickets
         await syncActivityBatch({ since: job.data.since });

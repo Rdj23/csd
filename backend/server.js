@@ -196,6 +196,10 @@ server.listen(PORT, async () => {
         "incremental", {},
         { repeat: { pattern: "0 5 * * *" }, jobId: "daily-activity-sync" },  // 05:00 UTC = 10:30 AM IST (runs after analytics)
       );
+      await getActivitySyncQueue().add(
+        "frequent", {},
+        { repeat: { pattern: "*/10 * * * *" }, jobId: "frequent-activity-sync" },  // Every 10 min — near-real-time catch-up
+      );
       logger.info("Cron jobs registered");
     } catch (e) {
       logger.warn({ err: e }, "Failed to register cron jobs (Redis down?)");

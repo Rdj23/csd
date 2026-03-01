@@ -41,6 +41,15 @@ export const getDailySummary = async (req, res) => {
       });
     }
 
+    // Recompute coop_count from entries — external only, distinct tickets
+    const coopTickets = await UserActivityEntry.distinct("ticket_display_id", {
+      user_name: user,
+      date_bucket: date,
+      is_coop: true,
+      visibility: { $ne: "internal" },
+    });
+    daily.coop_count = coopTickets.length;
+
     res.json(daily);
   } catch (err) {
     logger.error({ err: err.message }, "getDailySummary error");
@@ -229,12 +238,23 @@ export const getLeaderboard = async (req, res) => {
       ticketMap[t._id] = t.ticket_count;
     }
 
+    // Distinct external-only co-op ticket count per user from entries
+    const coopCounts = await UserActivityEntry.aggregate([
+      { $match: { date_bucket: { $gte: start, $lte: end }, is_coop: true, visibility: { $ne: "internal" } } },
+      { $group: { _id: { user: "$user_name", ticket: "$ticket_display_id" } } },
+      { $group: { _id: "$_id.user", coop_count: { $sum: 1 } } },
+    ]);
+    const coopMap = {};
+    for (const c of coopCounts) {
+      coopMap[c._id] = c.coop_count;
+    }
+
     const result = dailyResult.map((d) => ({
       user_name: d._id,
       total_points: d.total_points,
       internal_count: d.internal_count,
       external_count: d.external_count,
-      coop_count: d.coop_count,
+      coop_count: coopMap[d._id] || 0,
       days_active: d.days_active,
       ticket_count: ticketMap[d._id] || 0,
     }));
