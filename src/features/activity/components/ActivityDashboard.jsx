@@ -161,7 +161,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
       : fetchDrillDown(selectedUser, selectedDate);
     fetcher
-      .then((entries) => setDrillDownEntries(entries.filter((e) => e.is_coop)))
+      .then((entries) => setDrillDownEntries(entries.filter((e) => e.is_coop && e.visibility !== "internal")))
       .catch(console.error);
   }, [selectedUser, selectedDate, isRangeMultiDay, dateRange]);
 
@@ -282,6 +282,11 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
 
       {/* ──────────── MAIN CONTENT ──────────── */}
       <div className="flex-1 flex flex-col gap-3 min-w-0 overflow-y-auto no-scrollbar">
+        {/* Info banner */}
+        <div className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-xs text-amber-700 dark:text-amber-300 font-medium">
+          Only 7 days of data can be shown here. Stats update based on the selected date range.
+        </div>
+
         {/* TOP ROW: Name + Counts + Filters + Co-op + Admin buttons */}
         <div className="flex items-center justify-between bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
           <div className="flex items-center gap-5">

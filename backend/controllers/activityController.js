@@ -272,11 +272,12 @@ export const getSummary = async (req, res) => {
       },
     ]);
 
-    // Get truly distinct co-op ticket count across the entire range
+    // Get truly distinct co-op ticket count across the entire range (external only)
     const coopTickets = await UserActivityEntry.distinct("ticket_display_id", {
       user_name: user,
       date_bucket: { $gte: start, $lte: end },
       is_coop: true,
+      visibility: { $ne: "internal" },
     });
 
     res.json({
@@ -316,7 +317,11 @@ export const rebuildDailyRollups = async (_req, res) => {
           coop_tickets: {
             $addToSet: {
               $cond: [
-                { $and: [{ $eq: ["$is_coop", true] }, { $ne: ["$ticket_display_id", null] }] },
+                { $and: [
+                  { $eq: ["$is_coop", true] },
+                  { $ne: ["$visibility", "internal"] },
+                  { $ne: ["$ticket_display_id", null] },
+                ] },
                 "$ticket_display_id",
                 "$$REMOVE",
               ],

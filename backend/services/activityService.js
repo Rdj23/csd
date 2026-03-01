@@ -218,7 +218,8 @@ const upsertDailyRollup = async (userName, dateBucket, hourBucket, visibility, p
     $setOnInsert: { user_name: userName, date_bucket: dateBucket },
   };
 
-  if (isCoop) {
+  // Only count external co-op entries for the co-op ticket list
+  if (isCoop && !isInt) {
     updateOps.$addToSet = { coop_tickets: ticketRef };
   }
 
@@ -229,7 +230,7 @@ const upsertDailyRollup = async (userName, dateBucket, hourBucket, visibility, p
   );
 
   // Update coop_count from actual array length (single op, no extra find)
-  if (isCoop && result) {
+  if (isCoop && !isInt && result) {
     const len = (result.coop_tickets || []).length;
     await UserActivityDaily.updateOne(
       { user_name: userName, date_bucket: dateBucket },
@@ -410,7 +411,7 @@ export const syncActivityBatch = async (opts = {}) => {
         display_id: t.ticket_id,
         owner: t.owner,
         accountCohort: t.account_cohort,
-        stage: t.stage_name,
+        stage: t.stage_name || "solved",
         isSolved: true,
       });
     }

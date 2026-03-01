@@ -2,8 +2,6 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Calendar, ChevronDown } from "lucide-react";
 import { format, subDays, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
 
-const MAX_RANGE_DAYS = 7;
-
 const SmartDateRangePicker = ({ value, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showCustomRange, setShowCustomRange] = useState(false);
@@ -95,10 +93,6 @@ const SmartDateRangePicker = ({ value, onChange }) => {
       setRangeError("End date must be after start date");
       return;
     }
-    if (diff >= MAX_RANGE_DAYS) {
-      setRangeError(`Max ${MAX_RANGE_DAYS} days allowed`);
-      return;
-    }
 
     setRangeError("");
     onChange({ start: customStart, end: customEnd });
@@ -184,7 +178,7 @@ const SmartDateRangePicker = ({ value, onChange }) => {
                 {rangeError && (
                   <p className="text-[11px] text-rose-500 font-medium">{rangeError}</p>
                 )}
-                <p className="text-[10px] text-slate-400">Max {MAX_RANGE_DAYS} days</p>
+                <p className="text-[10px] text-slate-400">Select any date range</p>
                 <button
                   onClick={handleCustomRange}
                   disabled={!customStart || !customEnd}
