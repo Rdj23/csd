@@ -300,6 +300,98 @@ export const getSummary = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
+// POST /api/admin/activity-rebuild-dailies — rebuild daily rollups from entries
+// No external API calls — purely recalculates from existing UserActivityEntry docs
+// ---------------------------------------------------------------------------
+export const rebuildDailyRollups = async (_req, res) => {
+  try {
+    // 1. Aggregate entries grouped by user + date
+    const groups = await UserActivityEntry.aggregate([
+      {
+        $group: {
+          _id: { user: "$user_name", date: "$date_bucket" },
+          internal_count: { $sum: { $cond: [{ $eq: ["$visibility", "internal"] }, 1, 0] } },
+          external_count: { $sum: { $cond: [{ $ne: ["$visibility", "internal"] }, 1, 0] } },
+          total_points: { $sum: "$points" },
+          coop_tickets: {
+            $addToSet: {
+              $cond: [
+                { $and: [{ $eq: ["$is_coop", true] }, { $ne: ["$ticket_display_id", null] }] },
+                "$ticket_display_id",
+                "$$REMOVE",
+              ],
+            },
+          },
+          entries: {
+            $push: {
+              hour: "$hour_bucket",
+              vis: "$visibility",
+              points: "$points",
+              cohort: "$account_cohort",
+              is_coop: "$is_coop",
+            },
+          },
+        },
+      },
+    ]);
+
+    logger.info({ groupCount: groups.length }, "Aggregated entry groups for daily rebuild");
+
+    // 2. Build daily docs
+    const dailyDocs = groups.map((g) => {
+      const hourly = {};
+      let keyExtPts = 0;
+      let nonKeyExtPts = 0;
+
+      for (const e of g.entries) {
+        const h = String(e.hour);
+        if (!hourly[h]) hourly[h] = { int: 0, ext: 0 };
+        if (e.vis === "internal") {
+          hourly[h].int += 1;
+        } else {
+          hourly[h].ext += 1;
+        }
+        if (e.points > 0) {
+          const cohort = (e.cohort || "").toLowerCase();
+          const isKey = cohort.includes("key") || cohort.includes("strategic");
+          if (isKey) keyExtPts += e.points;
+          else nonKeyExtPts += e.points;
+        }
+      }
+
+      // Filter out $$REMOVE artifacts (empty strings) from coop_tickets
+      const coopTickets = (g.coop_tickets || []).filter(Boolean);
+
+      return {
+        user_name: g._id.user,
+        date_bucket: g._id.date,
+        internal_count: g.internal_count,
+        external_count: g.external_count,
+        total_points: g.total_points,
+        hourly,
+        coop_tickets: coopTickets,
+        coop_count: coopTickets.length,
+        point_breakdown: { key_ext: keyExtPts, non_key_ext: nonKeyExtPts },
+      };
+    });
+
+    // 3. Drop existing dailies and bulk insert fresh ones
+    const { deletedCount } = await UserActivityDaily.deleteMany({});
+    let insertedCount = 0;
+    if (dailyDocs.length > 0) {
+      const result = await UserActivityDaily.insertMany(dailyDocs, { ordered: false });
+      insertedCount = result.length;
+    }
+
+    logger.info({ deletedCount, insertedCount }, "Daily rollups rebuilt from entries");
+    res.json({ status: "completed", deletedCount, insertedCount });
+  } catch (err) {
+    logger.error({ err: err.message }, "rebuildDailyRollups error");
+    res.status(500).json({ error: "Failed to rebuild daily rollups" });
+  }
+};
+
+// ---------------------------------------------------------------------------
 // POST /api/admin/activity-sync  — manual sync (admin only)
 // body: { fullBackfill?: boolean, quarter?: string }
 // ---------------------------------------------------------------------------

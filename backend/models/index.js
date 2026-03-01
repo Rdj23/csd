@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 // --- SCHEMAS ---
 const RemarkSchema = new mongoose.Schema({
-  ticketId: String,
+  ticketId: { type: String, index: true },
   user: String,
   text: String,
   timestamp: { type: Date, default: Date.now },
@@ -10,7 +10,7 @@ const RemarkSchema = new mongoose.Schema({
 export const Remark = mongoose.model("Remark", RemarkSchema);
 
 const ViewSchema = new mongoose.Schema({
-  userId: String,
+  userId: { type: String, index: true },
   name: String,
   filters: Object,
   createdAt: { type: Date, default: Date.now },
@@ -80,6 +80,7 @@ const AnalyticsCacheSchema = new mongoose.Schema({
   badTickets: Array,
   individualTrends: Object,
 });
+AnalyticsCacheSchema.index({ computed_at: 1 }, { expireAfterSeconds: 86400 }); // Auto-expire after 24h
 export const AnalyticsCache = mongoose.model("AnalyticsCache", AnalyticsCacheSchema);
 
 const PrecomputedDashboardSchema = new mongoose.Schema({
@@ -88,6 +89,7 @@ const PrecomputedDashboardSchema = new mongoose.Schema({
   data: Object,
   computing: { type: Boolean, default: false },
 });
+PrecomputedDashboardSchema.index({ computed_at: 1 }, { expireAfterSeconds: 172800 }); // Auto-expire after 48h
 export const PrecomputedDashboard = mongoose.model("PrecomputedDashboard", PrecomputedDashboardSchema);
 
 const SyncMetadataSchema = new mongoose.Schema({

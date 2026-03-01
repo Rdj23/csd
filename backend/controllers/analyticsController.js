@@ -4,6 +4,9 @@ import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import { getQuarterDateRange } from "../config/constants.js";
 import logger from "../config/logger.js";
 
+/** Escape special regex characters so user input is treated as a literal string. */
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export const getAnalytics = async (req, res) => {
   try {
     const {
@@ -62,7 +65,7 @@ export const getAnalytics = async (req, res) => {
     const matchConditions = { closed_date: { $gte: start, $lte: end } };
     if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
     if (excludeNOC === "true") matchConditions.is_noc = { $ne: true };
-    if (owner && owner !== "All") matchConditions.owner = { $regex: owner, $options: "i" };
+    if (owner && owner !== "All") matchConditions.owner = { $regex: escapeRegex(owner), $options: "i" };
 
     // Aggregate Stats
     const [statsResult] = await AnalyticsTicket.aggregate([

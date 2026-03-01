@@ -150,6 +150,7 @@ export const connectMongoDB = async () => {
         serverSelectionTimeoutMS: 10000,
         connectTimeoutMS: 10000,
         socketTimeoutMS: 30000,
+        retryWrites: true,
       });
       logger.info("MongoDB connected");
       return;

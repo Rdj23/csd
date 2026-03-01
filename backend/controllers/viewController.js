@@ -8,7 +8,8 @@ export const getViews = async (req, res) => {
 };
 
 export const createView = async (req, res) => {
-  const view = await View.create(req.body);
+  const { userId, name, filters } = req.body;
+  const view = await View.create({ userId, name, filters });
   ok(res, { view });
 };
 
