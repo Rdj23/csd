@@ -1429,7 +1429,7 @@ const App = () => {
               { id: "csd",          icon: Star,        label: "CSD Highlighted" },
               { id: "vistas",       icon: Layout,      label: "My Views" },
               { id: "analytics",    icon: BarChart3,   label: "Analytics" },
-              ...(SUPER_ADMIN_EMAILS.includes(currentUser?.email)
+              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
                 ? [{ id: "activity", icon: Activity, label: "Activity Intel" }]
                 : []),
               ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
