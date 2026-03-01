@@ -56,14 +56,6 @@ export const fetchSummary = async (user, start, end) => {
   return res.data;
 };
 
-/** Search comment text for a user within a date range (T-1 data) */
-export const searchActivityText = async (user, query, start, end) => {
-  const res = await authAxios.get(
-    `${API_URL}/api/activity/search?user=${encodeURIComponent(user)}&query=${encodeURIComponent(query)}&start=${start}&end=${end}`,
-  );
-  return res.data;
-};
-
 /** Admin: trigger activity sync */
 export const triggerActivitySync = async (fullBackfill = false, quarter = "Q1_26") => {
   const res = await authAxios.post(`${API_URL}/api/admin/activity-sync`, {

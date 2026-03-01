@@ -115,7 +115,6 @@ const UserActivityEntrySchema = new mongoose.Schema(
     account_cohort: String,
     ticket_stage: String,
     points: { type: Number, default: 0 },
-    text_body: { type: String, default: null },
   },
   { versionKey: false },
 );

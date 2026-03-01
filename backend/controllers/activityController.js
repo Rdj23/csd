@@ -289,48 +289,6 @@ export const getSummary = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// GET /api/activity/search?user=Rohan&query=please+allow&start=2026-01-01&end=2026-03-31
-// Returns: entries where text_body matches the query (case-insensitive regex)
-// ---------------------------------------------------------------------------
-export const searchActivity = async (req, res) => {
-  try {
-    const { user, query, start, end } = req.query;
-    if (!user || !query || !start || !end) {
-      return res.status(400).json({ error: "user, query, start, and end are required" });
-    }
-
-    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-    const entries = await UserActivityEntry.find(
-      {
-        user_name: user,
-        date_bucket: { $gte: start, $lte: end },
-        text_body: { $regex: escapedQuery, $options: "i" },
-      },
-      {
-        _id: 0,
-        entry_id: 1,
-        ticket_display_id: 1,
-        user_name: 1,
-        visibility: 1,
-        created_date: 1,
-        text_body: 1,
-        points: 1,
-        is_coop: 1,
-      },
-    )
-      .sort({ created_date: -1 })
-      .limit(100)
-      .lean();
-
-    res.json({ user, query, match_count: entries.length, entries });
-  } catch (err) {
-    logger.error({ err: err.message }, "searchActivity error");
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// ---------------------------------------------------------------------------
 // POST /api/admin/activity-sync  — manual sync (admin only)
 // body: { fullBackfill?: boolean, quarter?: string }
 // ---------------------------------------------------------------------------

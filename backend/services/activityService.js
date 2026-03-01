@@ -138,17 +138,9 @@ export const processTimelineEntry = async (entry, ctx = {}) => {
   const userName = resolveUserName(entry.created_by);
   if (!userName) return null; // Not a GST dev_user
 
-  // Dedup by entry_id (backfill text_body on existing entries if missing)
-  const existing = await UserActivityEntry.findOne({ entry_id: entry.id }, { text_body: 1 }).lean();
-  if (existing) {
-    if (!existing.text_body && entry.body) {
-      await UserActivityEntry.updateOne(
-        { entry_id: entry.id },
-        { $set: { text_body: entry.body } },
-      );
-    }
-    return null;
-  }
+  // Dedup by entry_id
+  const existing = await UserActivityEntry.findOne({ entry_id: entry.id }, { _id: 1 }).lean();
+  if (existing) return null;
 
   const ticketId = ctx.ticketId || entry.object;
   const ticketDisplayId = ctx.ticketDisplayId || entry.object_display_id;
@@ -175,7 +167,6 @@ export const processTimelineEntry = async (entry, ctx = {}) => {
     account_cohort: accountCohort,
     ticket_stage: ctx.stage || null,
     points,
-    text_body: entry.body || null,
   });
 
   // --- Atomic daily rollup ---

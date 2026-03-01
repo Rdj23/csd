@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   RefreshCw, Users, Eye, EyeOff,
-  ChevronLeft, ChevronRight, Zap, Search,
+  ChevronLeft, ChevronRight, Zap,
 } from "lucide-react";
 import {
   fetchMembers, fetchDailySummary, fetchSummary,
   fetchDrillDown, fetchRangeDrillDown, triggerActivitySync,
-  fetchActivityLeaderboard, searchActivityText, fetchCalendar,
+  fetchActivityLeaderboard, fetchCalendar,
 } from "../../../api/activityApi";
 import HourlyChart from "./HourlyChart";
 import DailyChart from "./DailyChart";
@@ -46,10 +46,6 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const [calendarDays, setCalendarDays] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
 
-  // Text search
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState(null);
-  const [searching, setSearching] = useState(false);
 
   // --- Load members ---
   useEffect(() => {
@@ -103,11 +99,6 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       .catch(console.error)
       .finally(() => setLeaderboardLoading(false));
   }, [dateRange.start, dateRange.end]);
-
-  // --- Clear search results when user/range changes ---
-  useEffect(() => {
-    setSearchResults(null);
-  }, [selectedUser, dateRange.start, dateRange.end]);
 
   const isRangeMultiDay = dateRange.start && dateRange.end && dateRange.start !== dateRange.end;
 
@@ -169,25 +160,6 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     d.setDate(d.getDate() + days);
     setSelectedDate(d.toISOString().slice(0, 10));
   };
-
-  // --- Text search ---
-  const handleSearch = useCallback(async () => {
-    if (!selectedUser || !searchQuery.trim() || !dateRange.start || !dateRange.end) return;
-    setSearching(true);
-    try {
-      const result = await searchActivityText(
-        selectedUser,
-        searchQuery.trim(),
-        dateRange.start,
-        dateRange.end,
-      );
-      setSearchResults(result);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSearching(false);
-    }
-  }, [selectedUser, searchQuery, dateRange]);
 
   // --- Filtered members ---
   const filteredMembers = memberSearch
@@ -462,86 +434,6 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           )}
         </div>
 
-        {/* COMMENT TEXT SEARCH */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-              Comment Search — {selectedUser || "Select a user"}
-            </h3>
-            <span className="text-[10px] text-slate-400 dark:text-slate-600">T-1 data (up to yesterday)</span>
-          </div>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                placeholder='Search comment text (e.g. "please allow me some time")'
-                className="w-full pl-8 pr-3 py-2 text-sm rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-              />
-            </div>
-            <button
-              onClick={handleSearch}
-              disabled={searching || !searchQuery.trim()}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {searching ? "Searching..." : "Search"}
-            </button>
-          </div>
-
-          {/* Search Results */}
-          {searchResults && (
-            <div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                Found <span className="font-bold text-indigo-600 dark:text-indigo-400">{searchResults.match_count}</span> match{searchResults.match_count !== 1 ? "es" : ""} for &ldquo;{searchResults.query}&rdquo;
-                <span className="ml-2 text-slate-400 dark:text-slate-600">
-                  (showing comments by <span className="font-medium text-slate-500 dark:text-slate-400">{selectedUser}</span> only)
-                </span>
-              </div>
-              {searchResults.entries.length > 0 && (
-                <div className="max-h-64 overflow-y-auto space-y-2">
-                  {searchResults.entries.map((e) => (
-                    <div
-                      key={e.entry_id}
-                      className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50"
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <a
-                          href={`https://app.devrev.ai/clevertapsupport/works/${e.ticket_display_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-                        >
-                          {e.ticket_display_id}
-                        </a>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          e.visibility === "external"
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                        }`}>
-                          {e.visibility}
-                        </span>
-                        {e.is_coop && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-                            co-op
-                          </span>
-                        )}
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(e.created_date).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-3">
-                        {e.text_body}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* DRILL-DOWN MODAL */}
