@@ -9,6 +9,19 @@ import {
 import logger from "../config/logger.js";
 
 // ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+// Only ingest comments from this date onwards (IST)
+const ACTIVITY_START_DATE = new Date("2025-12-31T18:30:00Z"); // Jan 1 2026 00:00 IST
+
+// Concurrency: process N tickets in parallel
+const CONCURRENCY = 3;
+
+// Delay between each concurrent batch (ms) — keeps DevRev API happy
+const BATCH_DELAY_MS = 500;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -124,6 +137,7 @@ const calculatePoints = (visibility, accountCohort) => {
 
 // ---------------------------------------------------------------------------
 // Core: process a single timeline entry → granular doc + daily rollup
+// (Used by webhook flow — single entry at a time)
 // ---------------------------------------------------------------------------
 
 /**
@@ -170,6 +184,16 @@ export const processTimelineEntry = async (entry, ctx = {}) => {
   });
 
   // --- Atomic daily rollup ---
+  await upsertDailyRollup(userName, dateBucket, hourBucket, visibility, points, accountCohort, isCoop, ticketDisplayId || ticketId);
+
+  return doc;
+};
+
+// ---------------------------------------------------------------------------
+// Shared: atomic daily rollup upsert
+// ---------------------------------------------------------------------------
+
+const upsertDailyRollup = async (userName, dateBucket, hourBucket, visibility, points, accountCohort, isCoop, ticketRef) => {
   const isInt = visibility === "internal";
   const cohort = (accountCohort || "").toLowerCase();
   const isKey = cohort.includes("key") || cohort.includes("strategic");
@@ -188,39 +212,46 @@ export const processTimelineEntry = async (entry, ctx = {}) => {
   };
 
   if (isCoop) {
-    updateOps.$addToSet = { coop_tickets: ticketDisplayId || ticketId };
+    updateOps.$addToSet = { coop_tickets: ticketRef };
   }
 
-  await UserActivityDaily.updateOne(
+  const result = await UserActivityDaily.findOneAndUpdate(
     { user_name: userName, date_bucket: dateBucket },
     updateOps,
-    { upsert: true },
+    { upsert: true, returnDocument: "after", projection: { coop_tickets: 1 } },
   );
 
-  // Recalculate coop_count from the array length
-  if (isCoop) {
-    const daily = await UserActivityDaily.findOne(
+  // Update coop_count from actual array length (single op, no extra find)
+  if (isCoop && result) {
+    const len = (result.coop_tickets || []).length;
+    await UserActivityDaily.updateOne(
       { user_name: userName, date_bucket: dateBucket },
-      { coop_tickets: 1 },
-    ).lean();
-    if (daily) {
-      await UserActivityDaily.updateOne(
-        { user_name: userName, date_bucket: dateBucket },
-        { $set: { coop_count: (daily.coop_tickets || []).length } },
-      );
-    }
+      { $set: { coop_count: len } },
+    );
   }
-
-  return doc;
 };
 
 // ---------------------------------------------------------------------------
-// Sync: fetch timeline entries for a single ticket
+// Batch sync for a single ticket — optimized with batch dedup + date filter
 // ---------------------------------------------------------------------------
 
 export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) => {
+  // Pre-load all existing entry IDs for this ticket to avoid N individual findOne queries
+  const existingDocs = await UserActivityEntry.find(
+    { ticket_display_id: ticketDisplayId },
+    { entry_id: 1 },
+  ).lean();
+  const existingIds = new Set(existingDocs.map((d) => d.entry_id));
+
+  // Resolve owner & accountCohort once per ticket (not per entry)
+  // Uses the same DB → Redis → API fallback chain as before
+  const owner = ctx.owner ?? (await getTicketOwner(ticketId, ticketDisplayId));
+  const accountCohort = ctx.accountCohort ?? (await getAccountCohort(ticketId, ticketDisplayId));
+
   let cursor = null;
   let processed = 0;
+  let skippedOld = 0;
+  let skippedDup = 0;
 
   do {
     try {
@@ -236,13 +267,84 @@ export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) =>
       const entries = res.data?.timeline_entries || [];
       if (!entries.length) break;
 
+      // Prepare batch of new entries to insert
+      const toInsert = [];
+      // Track daily rollup updates (indexed to match toInsert for partial-failure handling)
+      const dailyUpdates = [];
+
       for (const entry of entries) {
-        const result = await processTimelineEntry(entry, {
-          ticketId,
-          ticketDisplayId,
-          ...ctx,
+        if (entry.type !== "timeline_comment") continue;
+
+        // Skip entries before activity start date
+        const createdDate = new Date(entry.created_date);
+        if (createdDate < ACTIVITY_START_DATE) {
+          skippedOld++;
+          continue;
+        }
+
+        // In-memory dedup (no DB query per entry)
+        if (existingIds.has(entry.id)) {
+          skippedDup++;
+          continue;
+        }
+
+        const userName = resolveUserName(entry.created_by);
+        if (!userName) continue;
+
+        const isCoop = !!(owner && owner !== userName);
+        const visibility = entry.visibility || "internal";
+        const points = calculatePoints(visibility, accountCohort);
+        const { dateBucket, hourBucket } = toISTBucket(createdDate);
+
+        toInsert.push({
+          entry_id: entry.id,
+          ticket_id: ticketId,
+          ticket_display_id: ticketDisplayId,
+          user_id: entry.created_by?.id,
+          user_name: userName,
+          visibility,
+          created_date: createdDate,
+          date_bucket: dateBucket,
+          hour_bucket: hourBucket,
+          is_coop: isCoop,
+          account_cohort: accountCohort,
+          ticket_stage: ctx.stage || null,
+          points,
         });
-        if (result) processed++;
+
+        dailyUpdates.push({
+          userName, dateBucket, hourBucket, visibility, points, accountCohort, isCoop,
+          ticketRef: ticketDisplayId || ticketId,
+        });
+
+        // Mark as seen so later pages don't re-process
+        existingIds.add(entry.id);
+      }
+
+      // Bulk insert entries (skip duplicates via ordered:false)
+      // Track which indices failed so we skip their rollup updates
+      const failedIndices = new Set();
+      if (toInsert.length > 0) {
+        try {
+          await UserActivityEntry.insertMany(toInsert, { ordered: false });
+        } catch (err) {
+          if (err.code === 11000 || err.writeErrors) {
+            // Collect indices of duplicate entries so we don't double-count in rollups
+            for (const we of (err.writeErrors || [])) {
+              failedIndices.add(we.index);
+            }
+          } else {
+            throw err;
+          }
+        }
+        processed += toInsert.length - failedIndices.size;
+      }
+
+      // Apply daily rollup updates only for successfully inserted entries
+      for (let j = 0; j < dailyUpdates.length; j++) {
+        if (failedIndices.has(j)) continue;
+        const u = dailyUpdates[j];
+        await upsertDailyRollup(u.userName, u.dateBucket, u.hourBucket, u.visibility, u.points, u.accountCohort, u.isCoop, u.ticketRef);
       }
 
       cursor = res.data?.next_cursor;
@@ -251,6 +353,10 @@ export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) =>
       break;
     }
   } while (cursor);
+
+  if (skippedOld > 0 || skippedDup > 0) {
+    logger.debug({ ticketId: ticketDisplayId, skippedOld, skippedDup, processed }, "Ticket sync stats");
+  }
 
   return processed;
 };
@@ -282,12 +388,16 @@ export const syncActivityBatch = async (opts = {}) => {
     const syncedDocs = await ActivitySyncedTicket.find({}, { ticket_display_id: 1 }).lean();
     const syncedSet = new Set(syncedDocs.map((d) => d.ticket_display_id));
 
+    // Use Set for O(1) dedup of solved display IDs
+    const solvedDisplayIds = new Set();
+
     let skippedCount = 0;
     for (const t of solved) {
       if (syncedSet.has(t.ticket_id)) {
         skippedCount++;
         continue;
       }
+      solvedDisplayIds.add(t.ticket_id);
       tickets.push({
         devrev_id: t.devrev_id,
         display_id: t.ticket_id,
@@ -307,8 +417,8 @@ export const syncActivityBatch = async (opts = {}) => {
       for (const t of active) {
         const owner = resolveOwnerName(t.owned_by?.[0]?.display_name);
         if (!owner) continue;
-        // Skip if already in solved list
-        if (tickets.some((s) => s.display_id === t.display_id)) continue;
+        // O(1) lookup instead of .some()
+        if (solvedDisplayIds.has(t.display_id)) continue;
         tickets.push({
           devrev_id: t.id,
           display_id: t.display_id,
@@ -345,65 +455,75 @@ export const syncActivityBatch = async (opts = {}) => {
   logger.info({ ticketCount: tickets.length, fullBackfill }, "Activity sync batch starting");
 
   let totalProcessed = 0;
+  let ticketsCompleted = 0;
   const solvedToMark = [];
-  const RATE_LIMIT_MS = 2000; // ~30 req/min headroom
 
-  for (let i = 0; i < tickets.length; i++) {
-    const t = tickets[i];
+  // --- Process tickets in concurrent batches ---
+  for (let i = 0; i < tickets.length; i += CONCURRENCY) {
+    const batch = tickets.slice(i, i + CONCURRENCY);
 
-    // Resolve missing devrev_id via DevRev API using display_id
-    if (!t.devrev_id && t.display_id) {
-      try {
-        const lookupRes = await axios.post(
-          `${DEVREV_API}/works.get`,
-          { id: t.display_id },
-          { headers: HEADERS, timeout: 10000 },
-        );
-        const resolvedId = lookupRes.data?.work?.id;
-        if (resolvedId) {
-          t.devrev_id = resolvedId;
-          // Cache back to AnalyticsTicket so future syncs don't need this lookup
-          await AnalyticsTicket.updateOne(
-            { ticket_id: t.display_id },
-            { $set: { devrev_id: resolvedId } },
-          );
+    const results = await Promise.allSettled(
+      batch.map(async (t) => {
+        // Resolve missing devrev_id via DevRev API using display_id
+        if (!t.devrev_id && t.display_id) {
+          try {
+            const lookupRes = await axios.post(
+              `${DEVREV_API}/works.get`,
+              { id: t.display_id },
+              { headers: HEADERS, timeout: 10000 },
+            );
+            const resolvedId = lookupRes.data?.work?.id;
+            if (resolvedId) {
+              t.devrev_id = resolvedId;
+              await AnalyticsTicket.updateOne(
+                { ticket_id: t.display_id },
+                { $set: { devrev_id: resolvedId } },
+              );
+            }
+          } catch (err) {
+            logger.warn({ display_id: t.display_id, err: err.message }, "Failed to resolve devrev_id");
+          }
         }
-      } catch (err) {
-        logger.warn({ display_id: t.display_id, err: err.message }, "Failed to resolve devrev_id");
+
+        if (!t.devrev_id) {
+          logger.warn({ display_id: t.display_id }, "Missing devrev_id, skipping");
+          return 0;
+        }
+
+        const count = await syncTicketActivity(t.devrev_id, t.display_id, {
+          owner: t.owner,
+          accountCohort: t.accountCohort,
+          stage: t.stage,
+        });
+
+        if (t.isSolved) {
+          solvedToMark.push(t.display_id);
+        }
+
+        return count;
+      }),
+    );
+
+    for (const r of results) {
+      ticketsCompleted++;
+      if (r.status === "fulfilled") {
+        totalProcessed += r.value;
+      } else {
+        logger.error({ err: r.reason?.message }, "Ticket activity sync failed");
       }
     }
 
-    if (!t.devrev_id) {
-      logger.warn({ display_id: t.display_id }, "Missing devrev_id, skipping");
-      continue;
+    // Progress log every batch
+    if (totalProcessed > 0 || ticketsCompleted % 30 === 0) {
+      logger.info(
+        { progress: `${ticketsCompleted}/${tickets.length}`, totalProcessed },
+        "Activity sync progress",
+      );
     }
 
-    try {
-      const count = await syncTicketActivity(t.devrev_id, t.display_id, {
-        owner: t.owner,
-        accountCohort: t.accountCohort,
-        stage: t.stage,
-      });
-      totalProcessed += count;
-
-      // Mark solved tickets as fully synced so future backfills skip them
-      if (t.isSolved) {
-        solvedToMark.push(t.display_id);
-      }
-
-      if (count > 0) {
-        logger.info(
-          { ticket: t.display_id, entries: count, progress: `${i + 1}/${tickets.length}` },
-          "Ticket activity synced",
-        );
-      }
-    } catch (err) {
-      logger.error({ ticket: t.display_id, err: err.message }, "Ticket activity sync failed");
-    }
-
-    // Rate-limit between tickets
-    if (i < tickets.length - 1) {
-      await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
+    // Rate-limit between batches (not between individual tickets)
+    if (i + CONCURRENCY < tickets.length) {
+      await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
     }
   }
 

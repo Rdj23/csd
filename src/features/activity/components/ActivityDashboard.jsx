@@ -108,13 +108,20 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       if (!selectedUser) return;
       setDrillDownHour(hour);
       fetchDrillDown(selectedUser, selectedDate, hour)
-        .then(setDrillDownEntries)
+        .then((entries) => {
+          const filtered = entries.filter((e) => {
+            if (e.visibility === "internal" && !visibilityFilter.internal) return false;
+            if (e.visibility !== "internal" && !visibilityFilter.external) return false;
+            return true;
+          });
+          setDrillDownEntries(filtered);
+        })
         .catch(console.error);
     },
-    [selectedUser, selectedDate],
+    [selectedUser, selectedDate, visibilityFilter],
   );
 
-  // Open drill-down for ALL entries in the date range
+  // Open drill-down for ALL entries in the date range (respects visibility filter)
   const openAllDrillDown = useCallback(() => {
     if (!selectedUser) return;
     setDrillDownHour("all");
@@ -122,9 +129,17 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
       : fetchDrillDown(selectedUser, selectedDate);
     fetcher
-      .then(setDrillDownEntries)
+      .then((entries) => {
+        // Filter by visibility checkboxes
+        const filtered = entries.filter((e) => {
+          if (e.visibility === "internal" && !visibilityFilter.internal) return false;
+          if (e.visibility !== "internal" && !visibilityFilter.external) return false;
+          return true;
+        });
+        setDrillDownEntries(filtered);
+      })
       .catch(console.error);
-  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange]);
+  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange, visibilityFilter]);
 
   const openCoopDrillDown = useCallback(() => {
     if (!selectedUser) return;
@@ -133,9 +148,17 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
       : fetchDrillDown(selectedUser, selectedDate);
     fetcher
-      .then((entries) => setDrillDownEntries(entries.filter((e) => e.is_coop)))
+      .then((entries) => {
+        const filtered = entries.filter((e) => {
+          if (!e.is_coop) return false;
+          if (e.visibility === "internal" && !visibilityFilter.internal) return false;
+          if (e.visibility !== "internal" && !visibilityFilter.external) return false;
+          return true;
+        });
+        setDrillDownEntries(filtered);
+      })
       .catch(console.error);
-  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange]);
+  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange, visibilityFilter]);
 
   const closeDrillDown = () => {
     setDrillDownEntries(null);
