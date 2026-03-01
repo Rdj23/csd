@@ -298,11 +298,11 @@ const AnalyticsDashboard = ({
     excludeNOC,
   ]);
 
-  // 1. Common Filters (Team, Owner, Region, etc.) - applied to ALL tickets first
-  const baseFilteredTickets = useMemo(() => {
+  // 1. Core Filters (Team, Owner, Region, Zendesk) - all filters EXCEPT NOC
+  const coreFilteredTickets = useMemo(() => {
     return tickets.filter((t) => {
       // Exclude Zendesk if toggle is on
-      // Inside AnalyticsDashboard.jsx -> baseFilteredTickets
+      // Inside AnalyticsDashboard.jsx -> coreFilteredTickets
       if (excludeZendesk) {
         const isZendesk = t.tags?.some(
           (tagObj) => tagObj.tag?.name === "Zendesk import",
@@ -338,18 +338,19 @@ const AnalyticsDashboard = ({
         if (!filters.regions.includes(region)) return false;
       }
 
-      // Exclude NOC tickets
-      if (excludeNOC) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        if (dep?.hasDependency && dep?.issues?.some((i) => i.team === "NOC")) {
-          return false;
-        }
-      }
-
       return true;
     });
-  }, [tickets, filters, excludeZendesk, excludeNOC, dependencies]);
+  }, [tickets, filters, excludeZendesk]);
+
+  // 1b. Apply NOC filter on top of core filters (for non-CSAT metrics)
+  const baseFilteredTickets = useMemo(() => {
+    if (!excludeNOC) return coreFilteredTickets;
+    return coreFilteredTickets.filter((t) => {
+      const ticketId = t.display_id?.replace("TKT-", "");
+      const dep = dependencies[ticketId];
+      return !(dep?.hasDependency && dep?.issues?.some((i) => i.team === "NOC"));
+    });
+  }, [coreFilteredTickets, excludeNOC, dependencies]);
 
   // 2. Volume Tickets: Strictly CREATED in the date range
   const volumeTickets = useMemo(() => {
@@ -382,6 +383,24 @@ const AnalyticsDashboard = ({
       );
     });
   }, [baseFilteredTickets, effectiveDateRange]);
+
+  // 3b. Solved tickets INCLUDING NOC (for CSAT/DSAT computation - NOC never excluded from CSAT)
+  const solvedTicketsForCSAT = useMemo(() => {
+    if (!excludeNOC) return solvedTickets;
+    return coreFilteredTickets.filter((t) => {
+      const closedDate = t.actual_close_date || t.closed_date;
+      if (!closedDate) return false;
+      const closed = parseISO(closedDate);
+      if (closed < effectiveDateRange.start || closed > effectiveDateRange.end)
+        return false;
+      const stage = t.stage?.name?.toLowerCase() || "";
+      return (
+        stage.includes("solved") ||
+        stage.includes("closed") ||
+        stage.includes("resolved")
+      );
+    });
+  }, [coreFilteredTickets, solvedTickets, excludeNOC, effectiveDateRange]);
 
   const handleDrillDown = useCallback(
     async (metricKey, dateKey, dataPointName, chartData) => {
@@ -1614,28 +1633,15 @@ const AnalyticsDashboard = ({
   }, [volumeTickets, effectiveDateRange, analyticsData, filters, excludeNOC]);
 
   const filteredStats = useMemo(() => {
-    // =====================================================
-    // EXCLUDE NOC: Filter solvedTickets if excludeNOC is ON
-    // =====================================================
-    let effectiveSolvedTickets = solvedTickets;
-    if (excludeNOC) {
-      // For DevRev tickets, check dependencies
-      effectiveSolvedTickets = solvedTickets.filter((t) => {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        // Exclude if has NOC dependency
-        return !(
-          dep?.hasDependency && dep?.issues?.some((i) => i.team === "NOC")
-        );
-      });
-    }
+    // NOC exclusion is already handled by baseFilteredTickets -> solvedTickets
+    // CSAT/DSAT uses solvedTicketsForCSAT which always includes NOC tickets
 
     // =================================================================================
     // SCENARIO 0: REGION FILTER APPLIED - Must use DevRev data (MongoDB doesn't have region per trend)
     // =================================================================================
     if (filters?.regions?.length > 0) {
       // When region filter is active, calculate from solvedTickets (already filtered by region in baseFilteredTickets)
-      let filteredSolved = effectiveSolvedTickets;
+      let filteredSolved = solvedTickets;
 
       // Also apply owner/team filter if present
       if (filters?.owners?.length > 0) {
@@ -1672,10 +1678,37 @@ const AnalyticsDashboard = ({
       const iterValues = filteredSolved
         .map((t) => t.custom_fields?.tnt__iteration_count)
         .filter((v) => v > 0);
-      const positiveCSAT = filteredSolved.filter(
+      // CSAT/DSAT: Use NOC-inclusive tickets (CSAT never excludes NOC)
+      const csatSource = solvedTicketsForCSAT.filter((t) => {
+        if (filters?.regions?.length > 0) {
+          const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
+          if (!filters.regions.includes(region)) return false;
+        }
+        if (filters?.owners?.length > 0) {
+          const ownerName = t.owned_by?.[0]?.display_name;
+          if (!filters.owners.some(
+            (o) =>
+              o.toLowerCase() === ownerName?.toLowerCase() ||
+              ownerName?.toLowerCase().includes(o.toLowerCase()),
+          )) return false;
+        }
+        if (filters?.teams?.length > 0) {
+          const ownerName = t.owned_by?.[0]?.display_name;
+          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+            Object.values(TEAM_GROUPS[teamKey]).some(
+              (m) =>
+                m.toLowerCase() === ownerName?.toLowerCase() ||
+                ownerName?.toLowerCase().includes(m.toLowerCase()),
+            ),
+          );
+          if (!filters.teams.some((team) => ownerTeams.includes(team))) return false;
+        }
+        return true;
+      });
+      const positiveCSAT = csatSource.filter(
         (t) => Number(t.custom_fields?.tnt__csatrating) === 2,
       ).length;
-      const negativeCSAT = filteredSolved.filter(
+      const negativeCSAT = csatSource.filter(
         (t) => Number(t.custom_fields?.tnt__csatrating) === 1,
       ).length;
       const frrMet = filteredSolved.filter(
@@ -1907,6 +1940,7 @@ const AnalyticsDashboard = ({
     analyticsData,
     volumeTickets,
     solvedTickets,
+    solvedTicketsForCSAT,
     filters,
     effectiveDateRange,
     excludeNOC,

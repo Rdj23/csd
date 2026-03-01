@@ -127,13 +127,13 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 font-mono text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline"
                       >
-                        {e.ticket_display_id || "\u2014"}
+                        {e.ticket_display_id || ""}
                         <ExternalLink className="w-3 h-3 opacity-50" />
                       </a>
                     </td>
                     {/* Date */}
                     <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                      {e.date_bucket || "\u2014"}
+                      {e.date_bucket || ""}
                     </td>
                     {/* Type */}
                     <td className="py-2.5">
@@ -149,7 +149,7 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                     </td>
                     {/* Time */}
                     <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                      {e.created_date ? new Date(e.created_date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "\u2014"}
+                      {e.created_date ? new Date(e.created_date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : ""}
                     </td>
                     {/* Points */}
                     <td className="py-2.5 text-center">
@@ -174,7 +174,7 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                     </td>
                     {/* Cohort */}
                     <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[120px]">
-                      {e.account_cohort || "\u2014"}
+                      {e.account_cohort || ""}
                     </td>
                     {/* Team */}
                     <td className="py-2.5">

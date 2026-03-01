@@ -284,7 +284,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           <div className="flex items-center gap-4">
             <div className="pr-4 border-r border-slate-200 dark:border-slate-700">
               <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Selected</div>
-              <div className="text-base font-semibold text-slate-800 dark:text-slate-100">{selectedUser || "\u2014"}</div>
+              <div className="text-base font-semibold text-slate-800 dark:text-slate-100">{selectedUser || ""}</div>
             </div>
 
             <Pill icon={Eye} label="External" value={filteredExt} cls="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30" />

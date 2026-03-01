@@ -67,6 +67,12 @@ export const getAnalytics = async (req, res) => {
     if (excludeNOC === "true") matchConditions.is_noc = { $ne: true };
     if (owner && owner !== "All") matchConditions.owner = { $regex: escapeRegex(owner), $options: "i" };
 
+    // CSAT/DSAT match conditions - never excludes NOC (CSAT/DSAT always includes all tickets)
+    const csatMatchConditions = { ...matchConditions };
+    delete csatMatchConditions.is_noc;
+
+    const nocExcluded = excludeNOC === "true";
+
     // Aggregate Stats
     const [statsResult] = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
@@ -108,18 +114,6 @@ export const getAnalytics = async (req, res) => {
       { $sort: { _id: 1 } },
       { $limit: 100 },
     ]);
-
-    const trendsWithFRRPercent = trends.map((t) => ({
-      _id: t._id,
-      solved: t.solved,
-      avgRWT: t.avgRWT,
-      avgFRT: t.avgFRT,
-      avgIterations: t.avgIterations,
-      positiveCSAT: t.positiveCSAT,
-      negativeCSAT: t.negativeCSAT,
-      frrMet: t.frrMet,
-      frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0,
-    }));
 
     // Backlog Clearance
     const backlogCleared = await AnalyticsTicket.aggregate([
@@ -168,12 +162,11 @@ export const getAnalytics = async (req, res) => {
       { $limit: 25 },
     ]);
 
-    // Bad CSAT
+    // Bad CSAT - never excludes NOC (DSAT always includes all tickets)
     const dsatMatch = { closed_date: { $gte: start, $lte: end }, csat: 1 };
     if (excludeZendesk === "true") dsatMatch.is_zendesk = { $ne: true };
-    if (excludeNOC === "true") dsatMatch.is_noc = { $ne: true };
     const badTickets = await AnalyticsTicket.find(dsatMatch, {
-      ticket_id: 1, display_id: 1, title: 1, owner: 1, created_date: 1, closed_date: 1,
+      ticket_id: 1, display_id: 1, title: 1, owner: 1, created_date: 1, closed_date: 1, is_noc: 1,
     }).sort({ closed_date: -1 }).limit(50).lean();
 
     // Individual trends
@@ -204,6 +197,93 @@ export const getAnalytics = async (req, res) => {
       { $sort: { "_id.date": 1 } },
     ]);
 
+    // When NOC is excluded, CSAT/DSAT must still include NOC tickets.
+    // Run separate CSAT-inclusive queries and merge the results.
+    let csatOverride = null;
+    let csatTrendsByDate = null;
+    let csatByOwner = null;
+    let csatIndividualByKey = null;
+
+    if (nocExcluded) {
+      const [csatStatsArr, csatTrendsArr, csatLeaderboardArr, csatIndTrendsArr] = await Promise.all([
+        // Overall CSAT stats (includes NOC)
+        AnalyticsTicket.aggregate([
+          { $match: csatMatchConditions },
+          {
+            $group: {
+              _id: null,
+              positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+              negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            },
+          },
+        ]),
+        // CSAT per date (includes NOC)
+        AnalyticsTicket.aggregate([
+          { $match: csatMatchConditions },
+          {
+            $group: {
+              _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
+              positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+              negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            },
+          },
+        ]),
+        // CSAT per owner (includes NOC) for leaderboard
+        AnalyticsTicket.aggregate([
+          { $match: csatMatchConditions },
+          {
+            $group: {
+              _id: "$owner",
+              goodCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+              badCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            },
+          },
+        ]),
+        // CSAT per owner-date (includes NOC) for individual trends
+        AnalyticsTicket.aggregate([
+          { $match: csatMatchConditions },
+          {
+            $group: {
+              _id: { date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } }, owner: "$owner" },
+              positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+              negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            },
+          },
+        ]),
+      ]);
+
+      csatOverride = csatStatsArr[0] || { positiveCSAT: 0, negativeCSAT: 0 };
+
+      csatTrendsByDate = {};
+      csatTrendsArr.forEach((t) => { csatTrendsByDate[t._id] = t; });
+
+      csatByOwner = {};
+      csatLeaderboardArr.forEach((l) => { csatByOwner[l._id] = l; });
+
+      csatIndividualByKey = {};
+      csatIndTrendsArr.forEach((t) => {
+        csatIndividualByKey[`${t._id.owner}:${t._id.date}`] = t;
+      });
+    }
+
+    // Use CSAT override (NOC-inclusive) when available, otherwise use stats from main query
+    const effectiveCSAT = csatOverride || { positiveCSAT: statsResult?.positiveCSAT || 0, negativeCSAT: statsResult?.negativeCSAT || 0 };
+
+    const trendsWithFRRPercent = trends.map((t) => {
+      const csat = csatTrendsByDate?.[t._id] || t;
+      return {
+        _id: t._id,
+        solved: t.solved,
+        avgRWT: t.avgRWT,
+        avgFRT: t.avgFRT,
+        avgIterations: t.avgIterations,
+        positiveCSAT: csat.positiveCSAT,
+        negativeCSAT: csat.negativeCSAT,
+        frrMet: t.frrMet,
+        frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0,
+      };
+    });
+
     const response = {
       cache_key: cacheKey,
       computed_at: new Date(),
@@ -214,11 +294,11 @@ export const getAnalytics = async (req, res) => {
         avgRWT: statsResult?.avgRWT ? Number(statsResult.avgRWT.toFixed(2)) : 0,
         avgFRT: statsResult?.avgFRT ? Number(statsResult.avgFRT.toFixed(2)) : 0,
         avgIterations: statsResult?.avgIterations ? Number(statsResult.avgIterations.toFixed(1)) : 0,
-        positiveCSAT: statsResult?.positiveCSAT || 0,
-        negativeCSAT: statsResult?.negativeCSAT || 0,
+        positiveCSAT: effectiveCSAT.positiveCSAT || 0,
+        negativeCSAT: effectiveCSAT.negativeCSAT || 0,
         csatPercent: (() => {
-          const pos = statsResult?.positiveCSAT || 0;
-          const neg = statsResult?.negativeCSAT || 0;
+          const pos = effectiveCSAT.positiveCSAT || 0;
+          const neg = effectiveCSAT.negativeCSAT || 0;
           return pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0;
         })(),
         frrPercent: statsResult?.frrTotal > 0 ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100) : 0,
@@ -238,15 +318,20 @@ export const getAnalytics = async (req, res) => {
           frrPercent: t.frrPercent || 0,
         };
       }),
-      leaderboard: leaderboard.map((l) => ({
-        name: l._id,
-        totalTickets: l.totalTickets,
-        goodCSAT: l.goodCSAT,
-        badCSAT: l.badCSAT,
-        winRate: Math.round(l.winRate || 0),
-        avgRWT: l.avgRWT ? Number(l.avgRWT.toFixed(2)) : 0,
-        avgFRT: l.avgFRT ? Number(l.avgFRT.toFixed(2)) : 0,
-      })),
+      leaderboard: leaderboard.map((l) => {
+        const ownerCsat = csatByOwner?.[l._id] || l;
+        const good = ownerCsat.goodCSAT || 0;
+        const bad = ownerCsat.badCSAT || 0;
+        return {
+          name: l._id,
+          totalTickets: l.totalTickets,
+          goodCSAT: good,
+          badCSAT: bad,
+          winRate: good + bad > 0 ? Math.round((good / (good + bad)) * 100) : 0,
+          avgRWT: l.avgRWT ? Number(l.avgRWT.toFixed(2)) : 0,
+          avgFRT: l.avgFRT ? Number(l.avgFRT.toFixed(2)) : 0,
+        };
+      }).sort((a, b) => b.goodCSAT - a.goodCSAT || b.winRate - a.winRate),
       badTickets: badTickets.map((t) => ({
         id: t.ticket_id,
         display_id: t.display_id,
@@ -254,18 +339,20 @@ export const getAnalytics = async (req, res) => {
         owner: t.owner,
         created_date: t.created_date,
         closed_date: t.closed_date,
+        is_noc: t.is_noc || false,
       })),
       individualTrends: individualTrends.reduce((acc, item) => {
         const { date, owner } = item._id;
         if (!acc[owner]) acc[owner] = [];
+        const csatData = csatIndividualByKey?.[`${owner}:${date}`] || item;
         acc[owner].push({
           date,
           solved: item.solved,
           avgRWT: item.avgRWT ? Number(item.avgRWT.toFixed(2)) : 0,
           avgFRT: item.avgFRT ? Number(item.avgFRT.toFixed(2)) : 0,
           avgIterations: item.avgIterations ? Number(item.avgIterations.toFixed(1)) : 0,
-          positiveCSAT: item.positiveCSAT || 0,
-          negativeCSAT: item.negativeCSAT || 0,
+          positiveCSAT: csatData.positiveCSAT || 0,
+          negativeCSAT: csatData.negativeCSAT || 0,
           frrMet: item.frrMet || 0,
           frrTotal: item.frrTotal || 0,
           frrPercent: item.frrTotal > 0 ? Math.round((item.frrMet / item.frrTotal) * 100) : 0,

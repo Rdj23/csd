@@ -17,26 +17,49 @@ export const getGamification = async (req, res) => {
 
     logger.info({ quarter, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
 
-    const stats = await AnalyticsTicket.aggregate([
-      {
-        $match: {
-          closed_date: { $gte: start, $lte: end },
-          owner: { $nin: [null, ""] },
-          is_noc: { $ne: true }
-        }
-      },
-      {
-        $group: {
-          _id: "$owner",
-          solved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+    // Main stats aggregation (excludes NOC for general metrics)
+    const [stats, csatStats] = await Promise.all([
+      AnalyticsTicket.aggregate([
+        {
+          $match: {
+            closed_date: { $gte: start, $lte: end },
+            owner: { $nin: [null, ""] },
+            is_noc: { $ne: true }
+          }
         },
-      },
+        {
+          $group: {
+            _id: "$owner",
+            solved: { $sum: 1 },
+            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          },
+        },
+      ]),
+      // CSAT/DSAT always includes NOC tickets
+      AnalyticsTicket.aggregate([
+        {
+          $match: {
+            closed_date: { $gte: start, $lte: end },
+            owner: { $nin: [null, ""] },
+          }
+        },
+        {
+          $group: {
+            _id: "$owner",
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          },
+        },
+      ]),
     ]);
+
+    // Build CSAT lookup from NOC-inclusive query
+    const csatByOwner = {};
+    csatStats.forEach(c => { csatByOwner[c._id] = c; });
 
     const data = { L1: [], L2: [] };
 
@@ -46,8 +69,12 @@ export const getGamification = async (req, res) => {
       const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
       const daysWorked = getDaysWorked(name, start);
       const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
-      const csatPercent = s.negativeCSAT > 0
-        ? Math.round((s.positiveCSAT / (s.positiveCSAT + s.negativeCSAT)) * 100)
+      // Use NOC-inclusive CSAT values
+      const ownerCsat = csatByOwner[name] || s;
+      const posCSAT = ownerCsat.positiveCSAT || 0;
+      const negCSAT = ownerCsat.negativeCSAT || 0;
+      const csatPercent = negCSAT > 0
+        ? Math.round((posCSAT / (posCSAT + negCSAT)) * 100)
         : 100;
       const frrPercent = s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0;
 
@@ -55,7 +82,7 @@ export const getGamification = async (req, res) => {
         name, team, designation, daysWorked,
         solved: s.solved,
         productivity, csatPercent,
-        positiveCSAT: s.positiveCSAT,
+        positiveCSAT: posCSAT,
         avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(1)) : 0,
         avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
         frrPercent,
@@ -201,30 +228,51 @@ export const getMyStats = async (req, res) => {
     const { start, end } = getQuarterDateRange(quarter);
     logger.info({ userName, email, quarter }, "My Stats request");
 
-    const stats = await AnalyticsTicket.aggregate([
-      {
-        $match: {
-          closed_date: { $gte: start, $lte: end },
-          owner: userName,
-          is_noc: { $ne: true }
-        }
-      },
-      {
-        $group: {
-          _id: "$owner",
-          solved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+    // Run general stats (NOC excluded) and CSAT stats (NOC included) in parallel
+    const [stats, myCSAT] = await Promise.all([
+      AnalyticsTicket.aggregate([
+        {
+          $match: {
+            closed_date: { $gte: start, $lte: end },
+            owner: userName,
+            is_noc: { $ne: true }
+          }
         },
-      },
+        {
+          $group: {
+            _id: "$owner",
+            solved: { $sum: 1 },
+            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          },
+        },
+      ]),
+      // CSAT/DSAT always includes NOC tickets
+      AnalyticsTicket.aggregate([
+        {
+          $match: {
+            closed_date: { $gte: start, $lte: end },
+            owner: userName,
+          }
+        },
+        {
+          $group: {
+            _id: "$owner",
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          },
+        },
+      ]),
     ]);
 
     const daysWorked = getDaysWorked(userName, start);
 
     if (stats.length === 0) {
+      // Even with no non-NOC tickets, check CSAT from NOC tickets
+      const myCsatData = myCSAT[0] || { positiveCSAT: 0, negativeCSAT: 0 };
       return ok(res, {
         quarter,
         dateRange: { start: start.toISOString(), end: end.toISOString() },
@@ -234,7 +282,10 @@ export const getMyStats = async (req, res) => {
           designation: DESIGNATION_MAP[userName] || "L1",
           daysWorked,
           solved: 0, productivity: 0,
-          csatPercent: 100, positiveCSAT: 0,
+          csatPercent: myCsatData.negativeCSAT > 0
+            ? Math.round((myCsatData.positiveCSAT / (myCsatData.positiveCSAT + myCsatData.negativeCSAT)) * 100)
+            : 100,
+          positiveCSAT: myCsatData.positiveCSAT || 0,
           avgRWT: 0, avgIterations: 0, frrPercent: 0,
           productivityPercentile: 0,
           csatPercentPercentile: 100,
@@ -249,35 +300,68 @@ export const getMyStats = async (req, res) => {
     }
 
     const s = stats[0];
+    // Use NOC-inclusive CSAT values
+    const myCsatData = myCSAT[0] || s;
+    const myPosCSAT = myCsatData.positiveCSAT || 0;
+    const myNegCSAT = myCsatData.negativeCSAT || 0;
     const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
-    const csatPercent = s.negativeCSAT > 0
-      ? Math.round((s.positiveCSAT / (s.positiveCSAT + s.negativeCSAT)) * 100)
+    const csatPercent = myNegCSAT > 0
+      ? Math.round((myPosCSAT / (myPosCSAT + myNegCSAT)) * 100)
       : 100;
     const frrPercent = s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0;
 
     const designation = DESIGNATION_MAP[userName] || "L1";
-    const allStats = await AnalyticsTicket.aggregate([
-      {
-        $match: {
-          closed_date: { $gte: start, $lte: end },
-          owner: { $nin: [null, ""] },
-          is_noc: { $ne: true }
-        }
-      },
-      {
-        $group: {
-          _id: "$owner",
-          solved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+    // Run all-team stats (NOC excluded) and all-team CSAT (NOC included) in parallel
+    const [allStats, allCSATStats] = await Promise.all([
+      AnalyticsTicket.aggregate([
+        {
+          $match: {
+            closed_date: { $gte: start, $lte: end },
+            owner: { $nin: [null, ""] },
+            is_noc: { $ne: true }
+          }
         },
-      },
+        {
+          $group: {
+            _id: "$owner",
+            solved: { $sum: 1 },
+            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+          },
+        },
+      ]),
+      // CSAT/DSAT for all owners (NOC included) for percentile calculation
+      AnalyticsTicket.aggregate([
+        {
+          $match: {
+            closed_date: { $gte: start, $lte: end },
+            owner: { $nin: [null, ""] },
+          }
+        },
+        {
+          $group: {
+            _id: "$owner",
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          },
+        },
+      ]),
     ]);
 
-    const teamData = allStats.filter(stat => (DESIGNATION_MAP[stat._id] || "L1") === designation);
+    // Build CSAT lookup for all owners
+    const allCSATByOwner = {};
+    allCSATStats.forEach(c => { allCSATByOwner[c._id] = c; });
+
+    // Merge NOC-inclusive CSAT into allStats for percentile calculation
+    const teamData = allStats
+      .filter(stat => (DESIGNATION_MAP[stat._id] || "L1") === designation)
+      .map(stat => {
+        const ownerCsat = allCSATByOwner[stat._id] || stat;
+        return { ...stat, positiveCSAT: ownerCsat.positiveCSAT || 0, negativeCSAT: ownerCsat.negativeCSAT || 0 };
+      });
 
     const calculatePercentile = (value, allValues, lowerIsBetter = false) => {
       if (allValues.length === 0) return 0;
@@ -309,7 +393,7 @@ export const getMyStats = async (req, res) => {
 
     const productivityPercentile = calculatePercentile(productivity, productivityValues);
     const csatPercentPercentile = calculatePercentile(csatPercent, csatPercentValues);
-    const positiveCSATPercentile = calculatePercentile(s.positiveCSAT, positiveCSATValues);
+    const positiveCSATPercentile = calculatePercentile(myPosCSAT, positiveCSATValues);
     const avgRWTPercentile = calculatePercentile(parseFloat((s.avgRWT || 0).toFixed(1)), avgRWTValues, true);
     const avgIterationsPercentile = calculatePercentile(parseFloat((s.avgIterations || 0).toFixed(2)), avgIterationsValues, true);
     const frrPercentPercentile = calculatePercentile(frrPercent, frrPercentValues);
@@ -343,7 +427,7 @@ export const getMyStats = async (req, res) => {
         daysWorked,
         solved: s.solved,
         productivity, csatPercent,
-        positiveCSAT: s.positiveCSAT,
+        positiveCSAT: myPosCSAT,
         avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(1)) : 0,
         avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
         frrPercent,
