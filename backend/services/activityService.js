@@ -126,10 +126,16 @@ const getAccountCohort = async (ticketId, ticketDisplayId) => {
   }
 };
 
-/** Calculate points for a single comment. */
-const calculatePoints = (visibility, accountCohort) => {
+/** Calculate points for a single comment.
+ *  Points only for co-op (helping others) AND only when ticket is solved/closed.
+ *  Interim comments on active tickets earn 0 — ownership can still change. */
+const calculatePoints = (visibility, accountCohort, isCoop, stage) => {
+  if (!isCoop) return 0;            // Own tickets = no points
   if (visibility === "internal") return 0;
-  // External / public
+  // Only award points when the ticket is solved/closed/resolved
+  const s = (stage || "").toLowerCase();
+  if (!s.includes("solved") && !s.includes("closed") && !s.includes("resolved")) return 0;
+  // External / public co-op on a solved ticket
   const cohort = (accountCohort || "").toLowerCase();
   const isKey = cohort.includes("key") || cohort.includes("strategic");
   return isKey ? 2 : 4;
@@ -162,7 +168,8 @@ export const processTimelineEntry = async (entry, ctx = {}) => {
   const isCoop = !!(owner && owner !== userName);
   const accountCohort = ctx.accountCohort ?? (await getAccountCohort(ticketId, ticketDisplayId));
   const visibility = entry.visibility || "internal";
-  const points = calculatePoints(visibility, accountCohort);
+  const stage = ctx.stage || null;
+  const points = calculatePoints(visibility, accountCohort, isCoop, stage);
   const createdDate = new Date(entry.created_date);
   const { dateBucket, hourBucket } = toISTBucket(createdDate);
 
@@ -293,7 +300,7 @@ export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) =>
 
         const isCoop = !!(owner && owner !== userName);
         const visibility = entry.visibility || "internal";
-        const points = calculatePoints(visibility, accountCohort);
+        const points = calculatePoints(visibility, accountCohort, isCoop, ctx.stage);
         const { dateBucket, hourBucket } = toISTBucket(createdDate);
 
         toInsert.push({

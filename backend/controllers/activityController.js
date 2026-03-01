@@ -202,7 +202,8 @@ export const getLeaderboard = async (req, res) => {
       return res.status(400).json({ error: "start and end are required" });
     }
 
-    const result = await UserActivityDaily.aggregate([
+    // Pre-aggregated daily rollups (fast)
+    const dailyResult = await UserActivityDaily.aggregate([
       { $match: { date_bucket: { $gte: start, $lte: end } } },
       {
         $group: {
@@ -215,18 +216,28 @@ export const getLeaderboard = async (req, res) => {
         },
       },
       { $sort: { total_points: -1 } },
-      {
-        $project: {
-          _id: 0,
-          user_name: "$_id",
-          total_points: 1,
-          internal_count: 1,
-          external_count: 1,
-          coop_count: 1,
-          days_active: 1,
-        },
-      },
     ]);
+
+    // Distinct ticket count per user from granular entries
+    const ticketCounts = await UserActivityEntry.aggregate([
+      { $match: { date_bucket: { $gte: start, $lte: end } } },
+      { $group: { _id: { user: "$user_name", ticket: "$ticket_display_id" } } },
+      { $group: { _id: "$_id.user", ticket_count: { $sum: 1 } } },
+    ]);
+    const ticketMap = {};
+    for (const t of ticketCounts) {
+      ticketMap[t._id] = t.ticket_count;
+    }
+
+    const result = dailyResult.map((d) => ({
+      user_name: d._id,
+      total_points: d.total_points,
+      internal_count: d.internal_count,
+      external_count: d.external_count,
+      coop_count: d.coop_count,
+      days_active: d.days_active,
+      ticket_count: ticketMap[d._id] || 0,
+    }));
 
     res.json({ leaderboard: result });
   } catch (err) {

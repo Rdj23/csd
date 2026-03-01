@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   RefreshCw, Users, Eye, EyeOff,
-  ChevronLeft, ChevronRight, Zap,
+  ChevronLeft, ChevronRight, Zap, ChevronUp, ChevronDown,
 } from "lucide-react";
 import {
   fetchMembers, fetchDailySummary, fetchSummary,
@@ -14,6 +14,16 @@ import DrillDownModal from "./DrillDownModal";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
 
 const TODAY = new Date().toISOString().slice(0, 10);
+
+const LEADERBOARD_COLS = [
+  { key: "user_name", label: "Name", center: false },
+  { key: "external_count", label: "External", center: true },
+  { key: "internal_count", label: "Internal", center: true },
+  { key: "coop_count", label: "Co-op", center: true },
+  { key: "total_points", label: "Points", center: true },
+  { key: "ticket_count", label: "Tickets", center: true },
+  { key: "days_active", label: "Days Active", center: true },
+];
 
 export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   // --- State ---
@@ -41,6 +51,8 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   // Leaderboard
   const [leaderboard, setLeaderboard] = useState([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [lbSortKey, setLbSortKey] = useState("total_points");
+  const [lbSortAsc, setLbSortAsc] = useState(false);
 
   // Calendar days (per-day data for multi-day chart)
   const [calendarDays, setCalendarDays] = useState([]);
@@ -141,6 +153,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       .catch(console.error);
   }, [selectedUser, selectedDate, isRangeMultiDay, dateRange, visibilityFilter]);
 
+  // Co-op drill-down: NO visibility filtering — co-op is co-op regardless
   const openCoopDrillDown = useCallback(() => {
     if (!selectedUser) return;
     setDrillDownHour("coop");
@@ -148,17 +161,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
       : fetchDrillDown(selectedUser, selectedDate);
     fetcher
-      .then((entries) => {
-        const filtered = entries.filter((e) => {
-          if (!e.is_coop) return false;
-          if (e.visibility === "internal" && !visibilityFilter.internal) return false;
-          if (e.visibility !== "internal" && !visibilityFilter.external) return false;
-          return true;
-        });
-        setDrillDownEntries(filtered);
-      })
+      .then((entries) => setDrillDownEntries(entries.filter((e) => e.is_coop)))
       .catch(console.error);
-  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange, visibilityFilter]);
+  }, [selectedUser, selectedDate, isRangeMultiDay, dateRange]);
 
   const closeDrillDown = () => {
     setDrillDownEntries(null);
@@ -181,7 +186,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const shiftDate = (days) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().slice(0, 10));
+    const newDate = d.toISOString().slice(0, 10);
+    setSelectedDate(newDate);
+    setDateRange({ start: newDate, end: newDate });
   };
 
   // --- Filtered members ---
@@ -210,6 +217,38 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const dateLabel = isRangeMultiDay
     ? `${dateRange.start} to ${dateRange.end}`
     : selectedDate;
+
+  // --- Leaderboard sorting ---
+  const handleLbSort = (key) => {
+    if (lbSortKey === key) {
+      setLbSortAsc(!lbSortAsc);
+    } else {
+      setLbSortKey(key);
+      setLbSortAsc(key === "user_name"); // alphabetical asc for name, desc for numbers
+    }
+  };
+
+  const sortedLeaderboard = useMemo(() => {
+    const list = [...leaderboard];
+    list.sort((a, b) => {
+      const aVal = a[lbSortKey];
+      const bVal = b[lbSortKey];
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      if (aVal < bVal) return lbSortAsc ? -1 : 1;
+      if (aVal > bVal) return lbSortAsc ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [leaderboard, lbSortKey, lbSortAsc]);
+
+  const LbSortIcon = ({ colKey }) => {
+    if (lbSortKey !== colKey) return null;
+    return lbSortAsc
+      ? <ChevronUp className="w-3 h-3 inline ml-0.5" />
+      : <ChevronDown className="w-3 h-3 inline ml-0.5" />;
+  };
 
   return (
     <div className="flex gap-4 h-full min-h-0">
@@ -250,7 +289,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             <div>
               <span className="text-xs text-slate-400 dark:text-slate-500">Selected</span>
               <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-                {selectedUser || "—"}
+                {selectedUser || "\u2014"}
               </h2>
             </div>
 
@@ -344,11 +383,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             value={dateRange}
             onChange={(val) => {
               setDateRange(val);
-              // Set selectedDate to the END of the range (most recent day) so the chart shows latest data
               if (val.end) setSelectedDate(val.end);
               else if (val.start) setSelectedDate(val.start);
             }}
-            allowAllTime={false}
           />
           <button onClick={() => shiftDate(1)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500">
             <ChevronRight className="w-4 h-4" />
@@ -368,7 +405,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-              {isRangeMultiDay ? `Activity — ${dateLabel}` : `24-Hour Activity — ${dateLabel}`}
+              {isRangeMultiDay ? `Activity \u2014 ${dateLabel}` : `24-Hour Activity \u2014 ${dateLabel}`}
             </h3>
             <button
               onClick={openAllDrillDown}
@@ -402,7 +439,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         {/* SUMMARY ROW */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
           <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">
-            Summary — {dateLabel}
+            Summary \u2014 {dateLabel}
           </h3>
           <div className="grid grid-cols-5 gap-4 text-center">
             <Stat label="External" value={filteredExt} color="blue" />
@@ -413,10 +450,10 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           </div>
         </div>
 
-        {/* OVERVIEW — Team Leaderboard */}
+        {/* OVERVIEW — Team Leaderboard (sortable) */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
           <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-3">
-            Overview — {dateRange.start === dateRange.end ? dateRange.start : `${dateRange.start} to ${dateRange.end}`}
+            Overview \u2014 {dateRange.start === dateRange.end ? dateRange.start : `${dateRange.start} to ${dateRange.end}`}
           </h3>
           {leaderboardLoading ? (
             <div className="text-sm text-slate-400 py-4 text-center">Loading...</div>
@@ -428,15 +465,20 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
                 <thead>
                   <tr className="text-left text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
                     <th className="pb-2 font-medium w-8">#</th>
-                    <th className="pb-2 font-medium">Name</th>
-                    <th className="pb-2 font-medium text-center">External</th>
-                    <th className="pb-2 font-medium text-center">Internal</th>
-                    <th className="pb-2 font-medium text-center">Points</th>
-                    <th className="pb-2 font-medium text-center">Days Active</th>
+                    {LEADERBOARD_COLS.map((col) => (
+                      <th
+                        key={col.key}
+                        onClick={() => handleLbSort(col.key)}
+                        className={`pb-2 font-medium cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none transition-colors ${col.center ? "text-center" : ""}`}
+                      >
+                        {col.label}
+                        <LbSortIcon colKey={col.key} />
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {leaderboard.map((entry, i) => (
+                  {sortedLeaderboard.map((entry, i) => (
                     <tr
                       key={entry.user_name}
                       onClick={() => setSelectedUser(entry.user_name)}
@@ -447,7 +489,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
                       <td className="py-2 font-medium text-slate-700 dark:text-slate-200">{entry.user_name}</td>
                       <td className="py-2 text-center text-blue-600 dark:text-blue-400 font-semibold">{entry.external_count}</td>
                       <td className="py-2 text-center text-emerald-600 dark:text-emerald-400 font-semibold">{entry.internal_count}</td>
+                      <td className="py-2 text-center text-purple-600 dark:text-purple-400 font-semibold">{entry.coop_count}</td>
                       <td className="py-2 text-center text-amber-600 dark:text-amber-400 font-bold">{entry.total_points}</td>
+                      <td className="py-2 text-center text-slate-600 dark:text-slate-300 font-semibold">{entry.ticket_count || 0}</td>
                       <td className="py-2 text-center text-slate-500">{entry.days_active}</td>
                     </tr>
                   ))}

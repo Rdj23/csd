@@ -24,12 +24,16 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
 
   const title =
     hour === "coop"
-      ? `Co-op Tickets — ${user} — ${dateDisplay}`
+      ? `Co-op Tickets \u2014 ${user} \u2014 ${dateDisplay}`
       : hour === "all"
-        ? `All Entries — ${user} — ${dateDisplay}`
-        : `Activity — ${user} — ${dateDisplay} ${hour !== null && hour !== undefined && hour !== "coop" && hour !== "all" ? `@ ${String(hour).padStart(2, "0")}:00` : ""}`;
+        ? `All Entries \u2014 ${user} \u2014 ${dateDisplay}`
+        : `Activity \u2014 ${user} \u2014 ${dateDisplay} ${hour !== null && hour !== undefined && hour !== "coop" && hour !== "all" ? `@ ${String(hour).padStart(2, "0")}:00` : ""}`;
 
   const coopEntries = entries.filter((e) => e.is_coop);
+  const distinctTickets = useMemo(
+    () => new Set(entries.map((e) => e.ticket_display_id).filter(Boolean)).size,
+    [entries],
+  );
 
   // Sort entries
   const sorted = useMemo(() => {
@@ -123,13 +127,13 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 font-mono text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline"
                       >
-                        {e.ticket_display_id || "—"}
+                        {e.ticket_display_id || "\u2014"}
                         <ExternalLink className="w-3 h-3 opacity-50" />
                       </a>
                     </td>
                     {/* Date */}
                     <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                      {e.date_bucket || "—"}
+                      {e.date_bucket || "\u2014"}
                     </td>
                     {/* Type */}
                     <td className="py-2.5">
@@ -145,7 +149,7 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                     </td>
                     {/* Time */}
                     <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                      {e.created_date ? new Date(e.created_date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}
+                      {e.created_date ? new Date(e.created_date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "\u2014"}
                     </td>
                     {/* Points */}
                     <td className="py-2.5 text-center">
@@ -165,12 +169,12 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                           {e.coop_with || "Yes"}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-300 dark:text-slate-600">—</span>
+                        <span className="text-xs text-slate-300 dark:text-slate-600">\u2014</span>
                       )}
                     </td>
                     {/* Cohort */}
                     <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[120px]">
-                      {e.account_cohort || "—"}
+                      {e.account_cohort || "\u2014"}
                     </td>
                     {/* Team */}
                     <td className="py-2.5">
@@ -179,7 +183,7 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                           {e.dep_team}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-300 dark:text-slate-600">—</span>
+                        <span className="text-xs text-slate-300 dark:text-slate-600">\u2014</span>
                       )}
                     </td>
                   </tr>
@@ -191,13 +195,16 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs text-slate-400">
-          <span>
+          <div className="flex items-center gap-3">
             {coopEntries.length > 0 && (
-              <span className="text-purple-500 font-medium mr-3">
+              <span className="text-purple-500 font-medium">
                 {coopEntries.length} co-op entr{coopEntries.length === 1 ? "y" : "ies"}
               </span>
             )}
-          </span>
+            <span className="text-slate-500 font-medium">
+              {distinctTickets} ticket{distinctTickets !== 1 ? "s" : ""}
+            </span>
+          </div>
           <span>{entries.length} {entries.length === 1 ? "entry" : "entries"}</span>
         </div>
       </div>
