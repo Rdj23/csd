@@ -24,10 +24,10 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
 
   const title =
     hour === "coop"
-      ? `Co-op Tickets \u2014 ${user} \u2014 ${dateDisplay}`
+      ? `Co-op Tickets - ${user} - ${dateDisplay}`
       : hour === "all"
-        ? `All Entries \u2014 ${user} \u2014 ${dateDisplay}`
-        : `Activity \u2014 ${user} \u2014 ${dateDisplay} ${hour !== null && hour !== undefined && hour !== "coop" && hour !== "all" ? `@ ${String(hour).padStart(2, "0")}:00` : ""}`;
+        ? `All Entries - ${user} - ${dateDisplay}`
+        : `Activity - ${user} - ${dateDisplay} ${hour !== null && hour !== undefined && hour !== "coop" && hour !== "all" ? `@ ${String(hour).padStart(2, "0")}:00` : ""}`;
 
   const coopEntries = entries.filter((e) => e.is_coop);
   const distinctTickets = useMemo(
@@ -169,7 +169,7 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                           {e.coop_with || "Yes"}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-300 dark:text-slate-600">\u2014</span>
+                        <span className="text-xs text-slate-300 dark:text-slate-600"></span>
                       )}
                     </td>
                     {/* Cohort */}
@@ -183,7 +183,7 @@ export default function DrillDownModal({ entries = [], hour, date, dateRange, us
                           {e.dep_team}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-300 dark:text-slate-600">\u2014</span>
+                        <span className="text-xs text-slate-300 dark:text-slate-600"></span>
                       )}
                     </td>
                   </tr>

@@ -352,7 +352,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-              {isMultiDay ? `Activity \u2014 ${dateLabel}` : `24-Hour Activity \u2014 ${dateLabel}`}
+              {isMultiDay ? `Activity - ${dateLabel}` : `24-Hour Activity - ${dateLabel}`}
             </h3>
             <button onClick={openAllDrillDown}
               className="text-xs font-medium px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors">
@@ -388,7 +388,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         {/* SUMMARY */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
           <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">
-            Summary \u2014 {dateLabel}
+            Summary - {dateLabel}
           </h3>
           <div className="grid grid-cols-5 gap-4 text-center">
             <Stat label="External" value={filteredExt} color="text-blue-600 dark:text-blue-400" />
@@ -402,7 +402,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         {/* LEADERBOARD */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
           <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-3">
-            Team Overview \u2014 {dateRange.start === dateRange.end ? dateRange.start : `${dateRange.start} to ${dateRange.end}`}
+            Team Overview - {dateRange.start === dateRange.end ? dateRange.start : `${dateRange.start} to ${dateRange.end}`}
           </h3>
           {leaderboardLoading ? (
             <div className="text-sm text-slate-400 py-4 text-center">Loading...</div>
@@ -444,7 +444,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             <h3 className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
               Co-op Dependency
             </h3>
-            <span className="text-[10px] text-slate-400 dark:text-slate-500">\u2014 who received help on their tickets</span>
+            <span className="text-[10px] text-slate-400 dark:text-slate-500">- who received help on their tickets</span>
           </div>
           {depLoading ? (
             <div className="text-sm text-slate-400 py-4 text-center">Loading...</div>
