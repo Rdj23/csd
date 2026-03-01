@@ -359,6 +359,29 @@ export const syncActivityBatch = async (opts = {}) => {
 
   for (let i = 0; i < tickets.length; i++) {
     const t = tickets[i];
+
+    // Resolve missing devrev_id via DevRev API using display_id
+    if (!t.devrev_id && t.display_id) {
+      try {
+        const lookupRes = await axios.post(
+          `${DEVREV_API}/works.get`,
+          { id: t.display_id },
+          { headers: HEADERS, timeout: 10000 },
+        );
+        const resolvedId = lookupRes.data?.work?.id;
+        if (resolvedId) {
+          t.devrev_id = resolvedId;
+          // Cache back to AnalyticsTicket so future syncs don't need this lookup
+          await AnalyticsTicket.updateOne(
+            { ticket_id: t.display_id },
+            { $set: { devrev_id: resolvedId } },
+          );
+        }
+      } catch (err) {
+        logger.warn({ display_id: t.display_id, err: err.message }, "Failed to resolve devrev_id");
+      }
+    }
+
     if (!t.devrev_id) {
       logger.warn({ display_id: t.display_id }, "Missing devrev_id, skipping");
       continue;
