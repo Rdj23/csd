@@ -56,6 +56,14 @@ export const fetchSummary = async (user, start, end) => {
   return res.data;
 };
 
+/** Fetch dependency table for a date range */
+export const fetchDependencyTable = async (start, end) => {
+  const res = await authAxios.get(
+    `${API_URL}/api/activity/dependency?start=${start}&end=${end}`,
+  );
+  return res.data.dependency;
+};
+
 /** Admin: trigger activity sync */
 export const triggerActivitySync = async (fullBackfill = false, quarter = "Q1_26") => {
   const res = await authAxios.post(`${API_URL}/api/admin/activity-sync`, {

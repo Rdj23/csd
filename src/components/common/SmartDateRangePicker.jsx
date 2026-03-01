@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Calendar, ChevronDown } from "lucide-react";
-import { format, subDays, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
+import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
 
 const SmartDateRangePicker = ({ value, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -20,10 +20,11 @@ const SmartDateRangePicker = ({ value, onChange }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Preset date ranges
   const presets = useMemo(() => {
     const today = new Date();
     const yesterday = subDays(today, 1);
+    const lastMonthStart = startOfMonth(subMonths(today, 1));
+    const lastMonthEnd = endOfMonth(subMonths(today, 1));
 
     return [
       { label: "Today", value: {
@@ -38,14 +39,20 @@ const SmartDateRangePicker = ({ value, onChange }) => {
         start: format(subDays(today, 6), "yyyy-MM-dd"),
         end: format(today, "yyyy-MM-dd"),
       }},
+      { label: "Last Month", value: {
+        start: format(lastMonthStart, "yyyy-MM-dd"),
+        end: format(lastMonthEnd, "yyyy-MM-dd"),
+      }},
+      { label: "Q1 2026", value: {
+        start: "2026-01-01",
+        end: "2026-03-31",
+      }},
     ];
   }, []);
 
-  // Get display label
   const displayLabel = useMemo(() => {
     if (!value?.start && !value?.end) return "Select Date";
 
-    // Single day
     if (value?.start === value?.end) {
       const matchedPreset = presets.find(
         p => p.value.start === value.start && p.value.end === value.end,
@@ -58,13 +65,11 @@ const SmartDateRangePicker = ({ value, onChange }) => {
       }
     }
 
-    // Check if matches a preset
     const matchedPreset = presets.find(
       p => p.value.start === value?.start && p.value.end === value?.end,
     );
     if (matchedPreset) return matchedPreset.label;
 
-    // Format custom range
     if (value?.start && value?.end) {
       try {
         const start = new Date(value.start);
@@ -100,7 +105,6 @@ const SmartDateRangePicker = ({ value, onChange }) => {
     setIsOpen(false);
   };
 
-  // Reset error when dates change
   const handleCustomStartChange = (val) => {
     setCustomStart(val);
     setRangeError("");
@@ -178,7 +182,6 @@ const SmartDateRangePicker = ({ value, onChange }) => {
                 {rangeError && (
                   <p className="text-[11px] text-rose-500 font-medium">{rangeError}</p>
                 )}
-                <p className="text-[10px] text-slate-400">Select any date range</p>
                 <button
                   onClick={handleCustomRange}
                   disabled={!customStart || !customEnd}

@@ -247,6 +247,66 @@ export const getLeaderboard = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
+// GET /api/activity/dependency?start=2026-01-01&end=2026-03-31
+// Returns: per-engineer co-op received (tickets where others helped on their tickets)
+// ---------------------------------------------------------------------------
+export const getDependencyTable = async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!start || !end) {
+      return res.status(400).json({ error: "start and end are required" });
+    }
+
+    // Step 1: Get all external co-op entries with their ticket IDs
+    const coopEntries = await UserActivityEntry.aggregate([
+      {
+        $match: {
+          date_bucket: { $gte: start, $lte: end },
+          is_coop: true,
+          visibility: { $ne: "internal" },
+        },
+      },
+      // Distinct (helper, ticket) pairs
+      { $group: { _id: { helper: "$user_name", ticket: "$ticket_display_id" } } },
+      // Lookup ticket owner from AnalyticsTicket
+      {
+        $lookup: {
+          from: "analyticstickets",
+          localField: "_id.ticket",
+          foreignField: "ticket_id",
+          as: "ticketInfo",
+        },
+      },
+      { $unwind: { path: "$ticketInfo", preserveNullAndEmptyArrays: true } },
+      // Group by ticket owner (the engineer who received help)
+      {
+        $group: {
+          _id: "$ticketInfo.owner",
+          coop_received: { $sum: 1 },
+          unique_tickets: { $addToSet: "$_id.ticket" },
+          helpers: { $addToSet: "$_id.helper" },
+        },
+      },
+      {
+        $project: {
+          engineer: "$_id",
+          coop_received: 1,
+          ticket_count: { $size: "$unique_tickets" },
+          helper_count: { $size: "$helpers" },
+        },
+      },
+      { $match: { engineer: { $ne: null } } },
+      { $sort: { coop_received: -1 } },
+    ]);
+
+    res.json({ dependency: coopEntries });
+  } catch (err) {
+    logger.error({ err: err.message }, "getDependencyTable error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ---------------------------------------------------------------------------
 // GET /api/activity/summary?user=Rohan&start=2026-01-01&end=2026-03-31
 // Returns: aggregated totals for the date range
 // ---------------------------------------------------------------------------
