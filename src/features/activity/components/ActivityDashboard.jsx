@@ -67,6 +67,9 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const [calendarDays, setCalendarDays] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
 
+  const [avgHourly, setAvgHourly] = useState({});
+  const [avgHourlyLoading, setAvgHourlyLoading] = useState(false);
+
   // Resolve logged-in user's GST name
   const myName = useMemo(() => {
     if (!currentUser?.email) return null;
@@ -116,6 +119,34 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     fetchCalendar(selectedUser, dateRange.start, dateRange.end)
       .then(setCalendarDays).catch(console.error).finally(() => setCalendarLoading(false));
   }, [selectedUser, dateRange.start, dateRange.end, chartBlocked]);
+
+  // Fetch hourly averages when chart is blocked (>7 days)
+  useEffect(() => {
+    if (!selectedUser || !chartBlocked) { setAvgHourly({}); return; }
+    setAvgHourlyLoading(true);
+    fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
+      .then((entries) => {
+        const daysActive = leaderboard.find((e) => e.user_name === selectedUser)?.days_active || 1;
+        const buckets = {};
+        for (let h = 0; h < 24; h++) buckets[h] = { ext: 0, int: 0 };
+        for (const entry of entries) {
+          if (!entry.created_date) continue;
+          const hour = new Date(entry.created_date).getHours();
+          if (entry.visibility === "internal") buckets[hour].int += 1;
+          else buckets[hour].ext += 1;
+        }
+        const avg = {};
+        for (let h = 0; h < 24; h++) {
+          avg[h] = {
+            ext: Math.round((buckets[h].ext / daysActive) * 10) / 10,
+            int: Math.round((buckets[h].int / daysActive) * 10) / 10,
+          };
+        }
+        setAvgHourly(avg);
+      })
+      .catch(console.error)
+      .finally(() => setAvgHourlyLoading(false));
+  }, [selectedUser, chartBlocked, dateRange.start, dateRange.end, leaderboard]);
 
   useEffect(() => {
     if (!dateRange.start || !dateRange.end) return;
@@ -360,38 +391,24 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             </button>
           </div>
 
-          {chartBlocked ? (() => {
-            const daysActive = leaderboard.find((e) => e.user_name === selectedUser)?.days_active || 0;
-            const avgExt = daysActive > 0 ? (ext / daysActive).toFixed(1) : "—";
-            const avgInt = daysActive > 0 ? (int_ / daysActive).toFixed(1) : "—";
-            const avgPts = daysActive > 0 ? (pts / daysActive).toFixed(1) : "—";
-            const avgCoop = daysActive > 0 ? (coopCount / daysActive).toFixed(1) : "—";
-            return (
-              <div className="h-56 flex flex-col items-center justify-center gap-4">
-                <p className="text-xs text-slate-400 dark:text-slate-500">
-                  Daily averages over <span className="font-semibold text-slate-600 dark:text-slate-300">{daysActive}</span> active day{daysActive !== 1 ? "s" : ""} — select a 7-day range to see the chart
+          {chartBlocked ? (
+            avgHourlyLoading ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Loading averages...</div>
+            ) : (
+              <div>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mb-2 text-center">
+                  Avg per hour over <span className="font-semibold text-slate-600 dark:text-slate-300">{leaderboard.find((e) => e.user_name === selectedUser)?.days_active || 0}</span> active days
                 </p>
-                <div className="grid grid-cols-4 gap-6 text-center">
-                  <div>
-                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{avgExt}</div>
-                    <div className="text-[11px] text-slate-400">Ext / day</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{avgInt}</div>
-                    <div className="text-[11px] text-slate-400">Int / day</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{avgPts}</div>
-                    <div className="text-[11px] text-slate-400">Pts / day</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{avgCoop}</div>
-                    <div className="text-[11px] text-slate-400">Co-op / day</div>
-                  </div>
-                </div>
+                <HourlyChart
+                  hourly={avgHourly}
+                  onBarClick={() => {}}
+                  isDark={isDark}
+                  visibilityFilter={visibilityFilter}
+                  isAverage
+                />
               </div>
-            );
-          })() : (isMultiDay ? calendarLoading : loading) ? (
+            )
+          ) : (isMultiDay ? calendarLoading : loading) ? (
             <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Loading...</div>
           ) : isMultiDay ? (
             <DailyChart

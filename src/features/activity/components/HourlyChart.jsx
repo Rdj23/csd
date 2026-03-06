@@ -2,7 +2,7 @@ import React, { useState } from "react";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-export default function HourlyChart({ hourly = {}, onBarClick, isDark, visibilityFilter = { external: true, internal: true } }) {
+export default function HourlyChart({ hourly = {}, onBarClick, isDark, visibilityFilter = { external: true, internal: true }, isAverage = false }) {
   const showExt = visibilityFilter.external;
   const showInt = visibilityFilter.internal;
   const [hoveredHour, setHoveredHour] = useState(null);
@@ -20,6 +20,7 @@ export default function HourlyChart({ hourly = {}, onBarClick, isDark, visibilit
   const hoveredExt = hoveredData && showExt ? (hoveredData.ext || 0) : 0;
   const hoveredInt = hoveredData && showInt ? (hoveredData.int || 0) : 0;
   const hoveredTotal = hoveredExt + hoveredInt;
+  const fmt = (v) => isAverage ? v.toFixed(1) : v;
 
   return (
     <div className="relative">
@@ -34,14 +35,14 @@ export default function HourlyChart({ hourly = {}, onBarClick, isDark, visibilit
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60">
               <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                Total: {hoveredTotal}
+                {isAverage ? "Avg" : "Total"}: {fmt(hoveredTotal)}
               </span>
             </div>
             {showExt && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/30">
                 <div className="w-2.5 h-2.5 rounded-sm bg-blue-400 dark:bg-blue-500" />
                 <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">
-                  Ext: {hoveredExt}
+                  Ext: {fmt(hoveredExt)}
                 </span>
               </div>
             )}
@@ -49,7 +50,7 @@ export default function HourlyChart({ hourly = {}, onBarClick, isDark, visibilit
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30">
                 <div className="w-2.5 h-2.5 rounded-sm bg-emerald-400 dark:bg-emerald-500" />
                 <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  Int: {hoveredInt}
+                  Int: {fmt(hoveredInt)}
                 </span>
               </div>
             )}
@@ -57,7 +58,7 @@ export default function HourlyChart({ hourly = {}, onBarClick, isDark, visibilit
         ) : (
           <>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/40">
-              <span className="text-xs text-slate-400 dark:text-slate-500">Hover a bar to see details</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">{isAverage ? "Hover a bar to see avg details" : "Hover a bar to see details"}</span>
             </div>
             {showExt && (
               <div className="flex items-center gap-1.5">
@@ -102,7 +103,7 @@ export default function HourlyChart({ hourly = {}, onBarClick, isDark, visibilit
                 <span className={`text-[11px] font-semibold -mb-0.5 ${
                   isHovered ? "text-slate-700 dark:text-slate-200" : "text-slate-400 dark:text-slate-500"
                 }`}>
-                  {total}
+                  {fmt(total)}
                 </span>
               )}
 

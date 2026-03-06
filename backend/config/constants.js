@@ -4,10 +4,12 @@ export const BACKFILL_CUTOFF = new Date("2026-02-20");
 
 // --- TEAM CONFIGURATION (Backend Copy) ---
 export const TEAM_GROUPS = {
-  "Mashnu": { "DEVU-1111": "Rohan", "DEVU-1114": "Archie", "DEVU-1072": "Neha", "DEVU-1115": "Shreya", "DEVU-1122": "Vaibhav", "DEVU-1076": "Adarsh", "DEVU-1108": "Abhishek" },
-  "Debashish": { "DEVU-1087": "Shubhankar", "DEVU-736": "Musaveer", "DEVU-550": "Anurag", "DEVU-1102": "Debashish" },
-  "Shweta": { "DEVU-5": "Aditya", "DEVU-1113": "Shweta", "DEVU-4": "Nikita" },
-  "Tuaha": { "DEVU-1123": "Tuaha Khan", "DEVU-1098": "Harsh", "DEVU-689": "Tamanna", "DEVU-1110": "Shreyas" },
+  "Rohan": { "DEVU-1111": "Rohan", "DEVU-550": "Anurag", "DEVU-1115": "Shreya", "DEVU-1087": "Shubhankar" },
+  "Shweta": { "DEVU-1113": "Shweta", "DEVU-1114": "Archie", "DEVU-736": "Musaveer" },
+  "Harsh": { "DEVU-1098": "Harsh", "DEVU-1072": "Neha", "DEVU-1122": "Vaibhav" },
+  "Aditya": { "DEVU-5": "Aditya", "DEVU-1702": "Rishabh", "DEVU-4": "Nikita", "DEVU-1110": "Shreyas" },
+  "Debashish": { "DEVU-1102": "Debashish", "DEVU-1076": "Adarsh", "DEVU-689": "Tamanna" },
+  "Tuaha": { "DEVU-1123": "Tuaha Khan" },
   "Adish": { "DEVU-1121": "Adish" }
 };
 
@@ -20,7 +22,6 @@ export const GST_NAME_MAP = {
   "Shreya Khale": "Shreya",
   "Vaibhav Agarwal": "Vaibhav",
   Adarsh: "Adarsh",
-  "Abhishek Vishwakarma": "Abhishek",
   Shubhankar: "Shubhankar",
   "Musaveer Manekia": "Musaveer",
   "Debashish Muni": "Debashish",
@@ -34,6 +35,9 @@ export const GST_NAME_MAP = {
   Tamanna: "Tamanna",
   Shreyas: "Shreyas",
   "Shreyas Naikwadi": "Shreyas",
+  Rishabh: "Rishabh",
+  "Rishabh J": "Rishabh",
+  "Rishabh Jain": "Rishabh",
 };
 
 // List of valid GST members
@@ -44,7 +48,7 @@ export const GST_MEMBERS = new Set([
   "Shreya",
   "Vaibhav",
   "Adarsh",
-  "Abhishek",
+  "Rishabh",
   "Shubhankar",
   "Musaveer",
   "Anurag",
@@ -89,7 +93,7 @@ export const DESIGNATION_MAP = {
   "Tuaha Khan": "L2", "Tuaha": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
   "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
   "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
-  "Abhishek": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
+  "Rishabh": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
 };
 
 // Map display names to roster names (for names that differ)
@@ -99,28 +103,30 @@ export const NAME_TO_ROSTER_MAP = {
 
 // Team mapping for backup lookups
 export const TEAM_MAPPING = {
-  "Debashish": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-  "Anurag": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-  "Musaveer": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
-  "Shubhankar": { team: "Debashish", members: ["Debashish", "Anurag", "Musaveer", "Shubhankar"] },
+  "Rohan": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
+  "Anurag": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
+  "Shreya": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
+  "Shubhankar": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
 
-  "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-  "Tuaha": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-  "Harsh": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-  "Tamanna": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
-  "Shreyas": { team: "Tuaha", members: ["Tuaha Khan", "Harsh", "Tamanna", "Shreyas"] },
+  "Shweta": { team: "Shweta", members: ["Shweta", "Archie", "Musaveer"] },
+  "Archie": { team: "Shweta", members: ["Shweta", "Archie", "Musaveer"] },
+  "Musaveer": { team: "Shweta", members: ["Shweta", "Archie", "Musaveer"] },
 
-  "Shweta": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-  "Aditya": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
-  "Nikita": { team: "Shweta", members: ["Shweta", "Aditya", "Nikita"] },
+  "Harsh": { team: "Harsh", members: ["Harsh", "Neha", "Vaibhav"] },
+  "Neha": { team: "Harsh", members: ["Harsh", "Neha", "Vaibhav"] },
+  "Vaibhav": { team: "Harsh", members: ["Harsh", "Neha", "Vaibhav"] },
 
-  "Rohan": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-  "Archie": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-  "Neha": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-  "Shreya": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-  "Abhishek": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-  "Adarsh": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
-  "Vaibhav": { team: "Mashnu", members: ["Rohan", "Archie", "Neha", "Shreya", "Abhishek", "Adarsh", "Vaibhav"] },
+  "Aditya": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
+  "Rishabh": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
+  "Nikita": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
+  "Shreyas": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
+
+  "Debashish": { team: "Debashish", members: ["Debashish", "Adarsh", "Tamanna"] },
+  "Adarsh": { team: "Debashish", members: ["Debashish", "Adarsh", "Tamanna"] },
+  "Tamanna": { team: "Debashish", members: ["Debashish", "Adarsh", "Tamanna"] },
+
+  "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan"] },
+  "Tuaha": { team: "Tuaha", members: ["Tuaha Khan"] },
 };
 
 // --- SLACK ALERT CONFIGURATION ---
@@ -148,16 +154,16 @@ export const GST_SLACK_MEMBER_IDS = {
   "Abhinav Srivastav": "<@U095564QECA>",
   "Shreyas Naikwadi": "<@U095JJM3X97>",
   "Vaibhav Agarwal": "<@U095434R8NR>",
-  "Abhishek Vishwakarma": "<@U095437RPKP>",
 };
 
 // Team mapping for gamification display
 export const GAMIFICATION_TEAM_MAP = {
-  "Debashish": "Debashish", "Anurag": "Debashish", "Musaveer": "Debashish", "Shubhankar": "Debashish",
-  "Tuaha Khan": "Tuaha", "Harsh": "Tuaha", "Tamanna": "Tuaha", "Shreyas": "Tuaha",
-  "Shweta": "Shweta", "Aditya": "Shweta", "Nikita": "Shweta",
-  "Rohan": "Mashnu", "Archie": "Mashnu", "Neha": "Mashnu", "Shreya": "Mashnu",
-  "Abhishek": "Mashnu", "Adarsh": "Mashnu", "Vaibhav": "Mashnu", "Adish": "Adish",
+  "Rohan": "Rohan", "Anurag": "Rohan", "Shreya": "Rohan", "Shubhankar": "Rohan",
+  "Shweta": "Shweta", "Archie": "Shweta", "Musaveer": "Shweta",
+  "Harsh": "Harsh", "Neha": "Harsh", "Vaibhav": "Harsh",
+  "Aditya": "Aditya", "Rishabh": "Aditya", "Nikita": "Aditya", "Shreyas": "Aditya",
+  "Debashish": "Debashish", "Adarsh": "Debashish", "Tamanna": "Debashish",
+  "Tuaha Khan": "Tuaha", "Adish": "Adish",
 };
 
 // Email to GST name mapping (for my-stats endpoint)
@@ -168,7 +174,7 @@ export const EMAIL_TO_NAME_MAP = {
   "shreya.khale@clevertap.com": "Shreya",
   "vaibhav.agarwal@clevertap.com": "Vaibhav",
   "adarsh.dubey@clevertap.com": "Adarsh",
-  "abhishek.vishwakarma@clevertap.com": "Abhishek",
+  "rishabh.j@clevertap.com": "Rishabh",
   "shubhankar@clevertap.com": "Shubhankar",
   "musaveer@clevertap.com": "Musaveer",
   "anurag.ghatge@clevertap.com": "Anurag",
