@@ -360,13 +360,38 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
             </button>
           </div>
 
-          {chartBlocked ? (
-            <div className="h-56 flex flex-col items-center justify-center gap-2 text-slate-400">
-              <AlertTriangle className="w-5 h-5 text-amber-400" />
-              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Chart limited to 7 days</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500">Select a 7-day range to see the chart. Stats below are for the full selected range.</p>
-            </div>
-          ) : (isMultiDay ? calendarLoading : loading) ? (
+          {chartBlocked ? (() => {
+            const daysActive = leaderboard.find((e) => e.user_name === selectedUser)?.days_active || 0;
+            const avgExt = daysActive > 0 ? (ext / daysActive).toFixed(1) : "—";
+            const avgInt = daysActive > 0 ? (int_ / daysActive).toFixed(1) : "—";
+            const avgPts = daysActive > 0 ? (pts / daysActive).toFixed(1) : "—";
+            const avgCoop = daysActive > 0 ? (coopCount / daysActive).toFixed(1) : "—";
+            return (
+              <div className="h-56 flex flex-col items-center justify-center gap-4">
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Daily averages over <span className="font-semibold text-slate-600 dark:text-slate-300">{daysActive}</span> active day{daysActive !== 1 ? "s" : ""} — select a 7-day range to see the chart
+                </p>
+                <div className="grid grid-cols-4 gap-6 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{avgExt}</div>
+                    <div className="text-[11px] text-slate-400">Ext / day</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{avgInt}</div>
+                    <div className="text-[11px] text-slate-400">Int / day</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{avgPts}</div>
+                    <div className="text-[11px] text-slate-400">Pts / day</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{avgCoop}</div>
+                    <div className="text-[11px] text-slate-400">Co-op / day</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })() : (isMultiDay ? calendarLoading : loading) ? (
             <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Loading...</div>
           ) : isMultiDay ? (
             <DailyChart

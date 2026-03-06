@@ -230,7 +230,7 @@ const App = () => {
     if (!currentUser?.name || !tickets.length) return null;
 
     // 1. Identify GST Roster Members
-    const allowedGroups = ["Mashnu", "Tuaha", "Debashish", "Shweta"];
+    const allowedGroups = ["Rohan", "Shweta", "Harsh", "Aditya", "Debashish", "Tuaha"];
     const allRosterNames = allowedGroups.flatMap((g) =>
       Object.values(TEAM_GROUPS[g] || {}),
     );

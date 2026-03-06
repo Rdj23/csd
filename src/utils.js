@@ -2,11 +2,13 @@ import { AlertOctagon, AlertTriangle, CheckCircle, Smile, Frown } from "lucide-r
 import { differenceInHours, differenceInMinutes, parseISO,differenceInDays } from "date-fns";
 // --- TEAM CONFIGURATION ---
 export const TEAM_GROUPS = {
-  "Mashnu": { "DEVU-1111": "Rohan", "DEVU-1114": "Archie", "DEVU-1072": "Neha", "DEVU-1115": "Shreya", "DEVU-1122": "Vaibhav", "DEVU-1076": "Adarsh", "DEVU-1108": "Abhishek" },
-  "Debashish": { "DEVU-1087": "Shubhankar", "DEVU-736": "Musaveer", "DEVU-550": "Anurag", "DEVU-1102": "Debashish" },
-  "Shweta": { "DEVU-5": "Aditya", "DEVU-1113": "Shweta", "DEVU-4": "Nikita" },
-  "Tuaha": { "DEVU-1123": "Tuaha Khan", "DEVU-1098": "Harsh", "DEVU-689": "Tamanna", "DEVU-1110": "Shreyas" },
-  "Adish": { "DEVU-1121": "Adish" } 
+  "Rohan": { "DEVU-1111": "Rohan", "DEVU-550": "Anurag", "DEVU-1115": "Shreya", "DEVU-1087": "Shubhankar" },
+  "Shweta": { "DEVU-1113": "Shweta", "DEVU-1114": "Archie", "DEVU-736": "Musaveer" },
+  "Harsh": { "DEVU-1098": "Harsh", "DEVU-1072": "Neha", "DEVU-1122": "Vaibhav" },
+  "Aditya": { "DEVU-5": "Aditya", "DEVU-1702": "Rishabh", "DEVU-4": "Nikita", "DEVU-1110": "Shreyas" },
+  "Debashish": { "DEVU-1102": "Debashish", "DEVU-1076": "Adarsh", "DEVU-689": "Tamanna" },
+  "Tuaha": { "DEVU-1123": "Tuaha Khan" },
+  "Adish": { "DEVU-1121": "Adish" }
 };
 
 export const TEAM_REGION_MAP = {
@@ -30,7 +32,6 @@ export const EMAIL_TO_NAME_MAP = {
   "shreya.khale@clevertap.com": "Shreya",
   "vaibhav.agarwal@clevertap.com": "Vaibhav",
   "adarsh.dubey@clevertap.com": "Adarsh",
-  "abhishek.vishwakarma@clevertap.com": "Abhishek",
   "shubhankar@clevertap.com": "Shubhankar",
   "musaveer@clevertap.com": "Musaveer",
   "anurag.ghatge@clevertap.com": "Anurag",
