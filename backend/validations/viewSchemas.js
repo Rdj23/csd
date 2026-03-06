@@ -10,7 +10,7 @@ export const createViewSchema = z.object({
   body: z.object({
     userId: z.string().min(1, "User ID is required"),
     name: z.string().min(1, "View name is required"),
-    filters: z.record(z.unknown()),
+    filters: z.record(z.string(), z.unknown()),
   }),
 });
 
