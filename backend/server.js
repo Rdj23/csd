@@ -55,9 +55,9 @@ import { mountRoutes } from "./routes/index.js";
 mountRoutes(app);
 
 // --- Global error handler (must be after routes) ---
-app.use((err, _req, res, _next) => {
-  logger.error({ err }, "Unhandled error");
-  res.status(500).json({ success: false, error: { message: "Internal server error" } });
+app.use((err, req, res, _next) => {
+  logger.error({ err, path: req.path, method: req.method }, "Unhandled error");
+  res.status(500).json({ success: false, error: { message: err.message || "Internal server error" } });
 });
 
 // --- Database connections ---

@@ -157,12 +157,12 @@ export const useTicketStore = create(
             body: JSON.stringify({ userId: currentUser.email, name, filters: currentFilters })
           });
           if (!res.ok) {
-            console.error("Failed to save view: HTTP", res.status);
-            return false;
-          }
-          const contentType = res.headers.get("content-type") || "";
-          if (!contentType.includes("application/json")) {
-            console.error("Failed to save view: non-JSON response");
+            try {
+              const errData = await res.json();
+              console.error("Failed to save view:", errData.error?.message || res.status);
+            } catch {
+              console.error("Failed to save view: HTTP", res.status);
+            }
             return false;
           }
           const data = await res.json();
