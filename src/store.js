@@ -156,9 +156,18 @@ export const useTicketStore = create(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: currentUser.email, name, filters: currentFilters })
           });
+          if (!res.ok) {
+            console.error("Failed to save view: HTTP", res.status);
+            return false;
+          }
           const data = await res.json();
           if (data.success) {
             set({ myViews: [data.view, ...myViews] });
+            return true;
+          }
+          // If API responded but without success flag, still try to add the view
+          if (data.view || data._id) {
+            set({ myViews: [data.view || data, ...myViews] });
             return true;
           }
         } catch (e) {
