@@ -7,7 +7,7 @@ export const TEAM_GROUPS = {
   "Rohan": { "DEVU-1111": "Rohan", "DEVU-550": "Anurag", "DEVU-1115": "Shreya", "DEVU-1087": "Shubhankar" },
   "Shweta": { "DEVU-1113": "Shweta", "DEVU-1114": "Archie", "DEVU-736": "Musaveer" },
   "Harsh": { "DEVU-1098": "Harsh", "DEVU-1072": "Neha", "DEVU-1122": "Vaibhav" },
-  "Aditya": { "DEVU-5": "Aditya", "DEVU-1702": "Rishabh", "DEVU-4": "Nikita", "DEVU-1110": "Shreyas" },
+  "Aditya": { "DEVU-5": "Aditya", "DEVU-2611": "Rishabh", "DEVU-4": "Nikita", "DEVU-1110": "Shreyas" },
   "Debashish": { "DEVU-1102": "Debashish", "DEVU-1076": "Adarsh", "DEVU-689": "Tamanna" },
   "Tuaha": { "DEVU-1123": "Tuaha Khan" },
   "Adish": { "DEVU-1121": "Adish" }
