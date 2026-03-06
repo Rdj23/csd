@@ -41,6 +41,7 @@ export const EMAIL_TO_NAME_MAP = {
   "nikita.narwani@clevertap.com": "Nikita",
   "mohammed.khan@clevertap.com": "Tuaha Khan",
   "harsh.singh@clevertap.com": "Harsh",
+  "rishabh.j@clevertap.com": "Rishabh",
   "tamanna@clevertap.com": "Tamanna",
   "shreyas.naikwadi@clevertap.com": "Shreyas",
   "adish@clevertap.com": "Adish",
