@@ -37,7 +37,7 @@ export const GST_NAME_MAP = {
   "Shreyas Naikwadi": "Shreyas",
   Rishabh: "Rishabh",
   "Rishabh J": "Rishabh",
-  "Rishabh Jain": "Rishabh",
+  "rishabh.j": "Rishabh",
 };
 
 // List of valid GST members
