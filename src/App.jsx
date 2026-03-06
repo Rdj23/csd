@@ -451,6 +451,8 @@ const App = () => {
       setShowSaveInput(false);
       showToast("✅ View Saved Successfully!");
     } else {
+      setNewViewName("");
+      setShowSaveInput(false);
       showToast("❌ Failed to save view. Please try again.");
     }
   };

@@ -160,6 +160,11 @@ export const useTicketStore = create(
             console.error("Failed to save view: HTTP", res.status);
             return false;
           }
+          const contentType = res.headers.get("content-type") || "";
+          if (!contentType.includes("application/json")) {
+            console.error("Failed to save view: non-JSON response");
+            return false;
+          }
           const data = await res.json();
           if (data.success) {
             set({ myViews: [data.view, ...myViews] });
