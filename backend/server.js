@@ -25,7 +25,7 @@ import {
   readinessCheck,
   setServerReady,
 } from "./middleware/server.js";
-import { apiLimiter, authLimiter, verifyToken, requireAdmin } from "./middleware/auth.js";
+import { apiLimiter, authLimiter, apiKeyLimiter, verifyToken, requireAdmin, checkApiKeyScope } from "./middleware/auth.js";
 
 const app = express();
 // Trust Render's reverse proxy so express-rate-limit can read X-Forwarded-For
@@ -46,8 +46,10 @@ app.use(readinessCheck);
 
 // --- Security layer ---
 app.use("/api/auth", authLimiter);
+app.use("/api", apiKeyLimiter);
 app.use("/api", apiLimiter);
 app.use("/api", verifyToken);
+app.use("/api", checkApiKeyScope);
 app.use("/api/admin", requireAdmin);
 
 // --- Routes ---

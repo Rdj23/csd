@@ -10,6 +10,9 @@ import {
   testSlack,
   syncSingleTicket,
   cleanupOldTickets,
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
 } from "../controllers/adminController.js";
 import { triggerActivitySync, resyncActivity, rebuildDailyRollups } from "../controllers/activityController.js";
 import { requireAdmin } from "../middleware/auth.js";
@@ -31,5 +34,10 @@ router.post("/admin/cleanup-old-tickets", requireAdmin, cleanupOldTickets);
 router.post("/admin/activity-sync", requireAdmin, triggerActivitySync);
 router.post("/admin/activity-resync", requireAdmin, resyncActivity);
 router.post("/admin/activity-rebuild-dailies", requireAdmin, rebuildDailyRollups);
+
+// API Key Management
+router.post("/admin/api-keys", requireAdmin, createApiKey);
+router.get("/admin/api-keys", requireAdmin, listApiKeys);
+router.delete("/admin/api-keys/:id", requireAdmin, revokeApiKey);
 
 export default router;

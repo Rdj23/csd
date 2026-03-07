@@ -1,8 +1,15 @@
 import { format } from "date-fns";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
 import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
-import { getQuarterDateRange } from "../config/constants.js";
+import {
+  getQuarterDateRange,
+  resolveDateRange,
+  EMAIL_TO_NAME_MAP,
+  TEAM_MAPPING,
+  GAMIFICATION_TEAM_MAP,
+} from "../config/constants.js";
 import logger from "../config/logger.js";
+import { ok, badRequest, fail, serverError } from "../utils/response.js";
 
 /** Escape special regex characters so user input is treated as a literal string. */
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -391,5 +398,133 @@ export const getAnalytics = async (req, res) => {
       badTickets: [],
       individualTrends: {},
     });
+  }
+};
+
+/**
+ * Centralized ticket drill-down API.
+ *
+ * Scopes:
+ *   - individual: single user (by email or owner name)
+ *   - team:       all members of a team lead's group (by team name)
+ *   - all:        entire GST
+ *
+ * Returns per-ticket RWT, FRR, CSAT, iterations + aggregated summary.
+ */
+export const getTicketDrillDown = async (req, res) => {
+  try {
+    const { quarter = "Q1_26", scope = "all", email, owner, team, startDate, endDate } = req.query;
+    const range = resolveDateRange({ quarter, startDate, endDate });
+    if (range.error) return badRequest(res, range.error);
+    const { start, end, label } = range;
+
+    // API keys can only access individual scope — block team/all to prevent oversharing
+    if (req.user?.isApiKey && scope !== "individual") {
+      return fail(res, 403, "Forbidden: API keys can only use scope=individual");
+    }
+
+    // Resolve owner filter based on scope
+    let ownerFilter = null; // null = all GST
+    let scopeLabel = "all";
+
+    if (scope === "individual") {
+      let userName = owner;
+      if (email) {
+        userName = EMAIL_TO_NAME_MAP[email.toLowerCase()];
+        if (!userName) return fail(res, 403, "Unauthorized: Not a GST user");
+      }
+      if (!userName) return badRequest(res, "email or owner is required for individual scope");
+      ownerFilter = [userName];
+      scopeLabel = userName;
+    } else if (scope === "team") {
+      if (!team) return badRequest(res, "team param is required for team scope (e.g. Rohan, Shweta, Harsh)");
+      const teamInfo = TEAM_MAPPING[team];
+      if (!teamInfo) return badRequest(res, `Unknown team: ${team}. Valid: Rohan, Shweta, Harsh, Aditya, Debashish, Tuaha, Adish`);
+      ownerFilter = teamInfo.members;
+      scopeLabel = `Team ${teamInfo.team}`;
+    }
+
+    logger.info({ scope, scopeLabel, quarter }, "Ticket drill-down request");
+
+    const matchConditions = {
+      closed_date: { $gte: start, $lte: end },
+      owner: { $nin: [null, ""] },
+      is_noc: { $ne: true },
+    };
+    if (ownerFilter) {
+      matchConditions.owner = ownerFilter.length === 1 ? ownerFilter[0] : { $in: ownerFilter };
+    }
+
+    // NOC-inclusive match for CSAT
+    const csatMatchConditions = { ...matchConditions };
+    delete csatMatchConditions.is_noc;
+
+    const [tickets, nocTickets, summary] = await Promise.all([
+      // All non-NOC tickets
+      AnalyticsTicket.find(matchConditions, {
+        display_id: 1, title: 1, closed_date: 1, created_date: 1, stage_name: 1,
+        owner: 1, account_name: 1, account_cohort: 1,
+        csat: 1, rwt: 1, frt: 1, iterations: 1, frr: 1, _id: 0,
+      }).sort({ closed_date: -1 }).lean(),
+
+      // NOC tickets (CSAT-relevant)
+      AnalyticsTicket.find(
+        { ...csatMatchConditions, is_noc: true },
+        {
+          display_id: 1, title: 1, closed_date: 1, owner: 1,
+          account_name: 1, csat: 1, stage_name: 1, _id: 0,
+        }
+      ).sort({ closed_date: -1 }).lean(),
+
+      // Aggregated summary per owner
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        {
+          $group: {
+            _id: "$owner",
+            solved: { $sum: 1 },
+            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+            avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+          },
+        },
+        { $sort: { solved: -1 } },
+      ]),
+    ]);
+
+    // Build per-owner summary with derived fields
+    const ownerSummary = summary.map(s => {
+      const pos = s.positiveCSAT || 0;
+      const neg = s.negativeCSAT || 0;
+      return {
+        owner: s._id,
+        team: GAMIFICATION_TEAM_MAP[s._id] || "Unknown",
+        solved: s.solved,
+        avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(2)) : 0,
+        avgFRT: s.avgFRT ? parseFloat(s.avgFRT.toFixed(2)) : 0,
+        avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
+        frrPercent: s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0,
+        csatPercent: pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 100,
+        positiveCSAT: pos,
+        negativeCSAT: neg,
+      };
+    });
+
+    ok(res, {
+      quarter: label,
+      scope: scopeLabel,
+      dateRange: { start: start.toISOString(), end: end.toISOString() },
+      totalSolved: tickets.length,
+      totalNOC: nocTickets.length,
+      ownerSummary,
+      tickets,
+      nocTickets,
+    });
+  } catch (e) {
+    logger.error({ err: e }, "Ticket drill-down error");
+    serverError(res, e.message);
   }
 };

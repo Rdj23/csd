@@ -99,6 +99,24 @@ const SyncMetadataSchema = new mongoose.Schema({
 });
 export const SyncMetadata = mongoose.model("SyncMetadata", SyncMetadataSchema);
 
+// --- API KEYS (Service-to-Service Auth) ---
+
+const ApiKeySchema = new mongoose.Schema(
+  {
+    key_hash: { type: String, unique: true, index: true },
+    prefix: { type: String, index: true }, // First 12 chars for identification
+    project_name: { type: String, required: true },
+    created_by: { type: String, required: true }, // Admin email
+    scopes: { type: [String], default: ["read:all"] },
+    is_active: { type: Boolean, default: true, index: true },
+    last_used_at: { type: Date, default: null },
+    expires_at: { type: Date, default: null },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+export const ApiKey = mongoose.model("ApiKey", ApiKeySchema);
+
 // --- USER ACTIVITY INTELLIGENCE ---
 
 // Granular: one document per timeline comment (for drill-down)

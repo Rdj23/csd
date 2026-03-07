@@ -11,6 +11,7 @@ import webhookRoutes from "./webhooks.js";
 import healthRoutes from "./health.js";
 import cacheRoutes from "./cache.js";
 import activityRoutes from "./activity.js";
+import externalRoutes from "./external.js";
 
 export const mountRoutes = (app) => {
   app.use("/api", authRoutes);
@@ -26,4 +27,5 @@ export const mountRoutes = (app) => {
   app.use("/api", healthRoutes);
   app.use("/api", cacheRoutes);
   app.use("/api", activityRoutes);
+  app.use("/api", externalRoutes);
 };

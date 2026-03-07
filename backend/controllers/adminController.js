@@ -1,10 +1,12 @@
+import crypto from "crypto";
 import axios from "axios";
-import { AnalyticsTicket } from "../models/index.js";
+import { AnalyticsTicket, ApiKey } from "../models/index.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/slackService.js";
 import { resolveOwnerName, GST_SLACK_MEMBER_IDS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 import { syncHistoricalToDB } from "../services/syncService.js";
+import { hashApiKey, VALID_SCOPES } from "../middleware/auth.js";
 import { ok, accepted, fail, badRequest, notFound, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 
@@ -402,6 +404,120 @@ export const cleanupOldTickets = async (req, res) => {
       message: `Deleted ${result.deletedCount} old tickets. ${remaining} tickets remaining.`,
     });
   } catch (e) {
+    serverError(res, e.message);
+  }
+};
+
+// --- API KEY MANAGEMENT ---
+
+export const createApiKey = async (req, res) => {
+  try {
+    const { project_name, scopes = ["read:all"], expires_in_days } = req.body;
+
+    if (!project_name || typeof project_name !== "string" || project_name.trim().length < 2) {
+      return badRequest(res, "project_name is required (min 2 characters)");
+    }
+
+    // Validate scopes
+    const invalidScopes = scopes.filter(s => !VALID_SCOPES.includes(s));
+    if (invalidScopes.length > 0) {
+      return badRequest(res, `Invalid scopes: ${invalidScopes.join(", ")}. Valid: ${VALID_SCOPES.join(", ")}`);
+    }
+
+    // Enforce max 10 active keys per project
+    const MAX_KEYS_PER_PROJECT = 10;
+    const activeCount = await ApiKey.countDocuments({ project_name: project_name.trim(), is_active: true });
+    if (activeCount >= MAX_KEYS_PER_PROJECT) {
+      return badRequest(res, `Maximum ${MAX_KEYS_PER_PROJECT} active API keys per project. Revoke unused keys first.`);
+    }
+
+    // Generate key: csd_live_ + 48 random hex chars
+    const rawKey = `csd_live_${crypto.randomBytes(24).toString("hex")}`;
+    const keyHash = hashApiKey(rawKey);
+    const prefix = rawKey.slice(0, 12);
+
+    const expiresAt = expires_in_days
+      ? new Date(Date.now() + expires_in_days * 24 * 60 * 60 * 1000)
+      : null;
+
+    await ApiKey.create({
+      key_hash: keyHash,
+      prefix,
+      project_name: project_name.trim(),
+      created_by: req.user.email,
+      scopes,
+      expires_at: expiresAt,
+    });
+
+    logger.info({ project: project_name, createdBy: req.user.email, scopes }, "API key created");
+
+    ok(res, {
+      message: "API key created. Copy it now — it will NOT be shown again.",
+      api_key: rawKey,
+      prefix,
+      project_name: project_name.trim(),
+      scopes,
+      expires_at: expiresAt?.toISOString() || "never",
+    });
+  } catch (e) {
+    if (e.code === 11000) {
+      return badRequest(res, "Duplicate key generated. Please try again.");
+    }
+    logger.error({ err: e }, "Create API key error");
+    serverError(res, e.message);
+  }
+};
+
+export const listApiKeys = async (req, res) => {
+  try {
+    const keys = await ApiKey.find({}, {
+      key_hash: 0, // Never expose the hash
+    }).sort({ createdAt: -1 }).lean();
+
+    ok(res, {
+      total: keys.length,
+      keys: keys.map(k => ({
+        id: k._id,
+        prefix: k.prefix,
+        project_name: k.project_name,
+        created_by: k.created_by,
+        scopes: k.scopes,
+        is_active: k.is_active,
+        last_used_at: k.last_used_at,
+        expires_at: k.expires_at,
+        created_at: k.createdAt,
+      })),
+    });
+  } catch (e) {
+    logger.error({ err: e }, "List API keys error");
+    serverError(res, e.message);
+  }
+};
+
+export const revokeApiKey = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const key = await ApiKey.findByIdAndUpdate(
+      id,
+      { $set: { is_active: false } },
+      { new: true },
+    );
+
+    if (!key) {
+      return notFound(res, "API key not found");
+    }
+
+    logger.info({ project: key.project_name, revokedBy: req.user.email }, "API key revoked");
+
+    ok(res, {
+      message: `API key for '${key.project_name}' has been revoked.`,
+      prefix: key.prefix,
+      project_name: key.project_name,
+      is_active: false,
+    });
+  } catch (e) {
+    logger.error({ err: e }, "Revoke API key error");
     serverError(res, e.message);
   }
 };

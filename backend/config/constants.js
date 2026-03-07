@@ -324,3 +324,28 @@ export const getQuarterDateRange = (quarter) => {
       return { start, end: now };
   }
 };
+
+/**
+ * Resolve date range from query params.
+ * Priority: startDate/endDate > quarter preset.
+ * Returns { start: Date, end: Date, label: string }.
+ */
+export const resolveDateRange = ({ quarter, startDate, endDate }) => {
+  if (startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(`${endDate}T23:59:59Z`);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return { error: "Invalid startDate or endDate. Use YYYY-MM-DD format." };
+    }
+    if (start > end) {
+      return { error: "startDate must be before endDate." };
+    }
+    const MAX_RANGE_MS = 365 * 24 * 60 * 60 * 1000;
+    if (end - start > MAX_RANGE_MS) {
+      return { error: "Date range cannot exceed 365 days." };
+    }
+    return { start, end, label: `${startDate} to ${endDate}` };
+  }
+  const { start, end } = getQuarterDateRange(quarter || "Q1_26");
+  return { start, end, label: quarter || "Q1_26" };
+};

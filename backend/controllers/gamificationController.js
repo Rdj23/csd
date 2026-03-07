@@ -1,6 +1,7 @@
 import { AnalyticsTicket } from "../models/index.js";
 import {
   getQuarterDateRange,
+  resolveDateRange,
   DESIGNATION_MAP,
   GAMIFICATION_TEAM_MAP,
   NAME_TO_ROSTER_MAP,
@@ -12,10 +13,12 @@ import logger from "../config/logger.js";
 
 export const getGamification = async (req, res) => {
   try {
-    const { quarter = "Q1_26" } = req.query;
-    const { start, end } = getQuarterDateRange(quarter);
+    const { quarter = "Q1_26", startDate, endDate } = req.query;
+    const range = resolveDateRange({ quarter, startDate, endDate });
+    if (range.error) return badRequest(res, range.error);
+    const { start, end, label } = range;
 
-    logger.info({ quarter, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
+    logger.info({ label, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
 
     // Main stats aggregation (excludes NOC for general metrics)
     const [stats, csatStats] = await Promise.all([
@@ -199,7 +202,7 @@ export const getGamification = async (req, res) => {
     });
 
     ok(res, {
-      quarter,
+      quarter: label,
       dateRange: { start: start.toISOString(), end: end.toISOString() },
       data,
       totalL1: data.L1.length,
@@ -212,9 +215,9 @@ export const getGamification = async (req, res) => {
   }
 };
 
-export const getMyStats = async (req, res) => {
+export const getMyTickets = async (req, res) => {
   try {
-    const { quarter = "Q1_26", email } = req.query;
+    const { quarter = "Q1_26", email, startDate, endDate } = req.query;
 
     if (!email) {
       return badRequest(res, "Email is required");
@@ -225,8 +228,69 @@ export const getMyStats = async (req, res) => {
       return fail(res, 403, "Unauthorized: Not a GST user");
     }
 
-    const { start, end } = getQuarterDateRange(quarter);
-    logger.info({ userName, email, quarter }, "My Stats request");
+    const range = resolveDateRange({ quarter, startDate, endDate });
+    if (range.error) return badRequest(res, range.error);
+    const { start, end, label } = range;
+    logger.info({ userName, email, label }, "My Tickets request");
+
+    const tickets = await AnalyticsTicket.find(
+      {
+        closed_date: { $gte: start, $lte: end },
+        owner: userName,
+        is_noc: { $ne: true },
+      },
+      {
+        display_id: 1, title: 1, closed_date: 1, stage_name: 1,
+        account_name: 1, csat: 1, rwt: 1, iterations: 1, frr: 1,
+        account_cohort: 1, _id: 0,
+      }
+    ).sort({ closed_date: -1 }).lean();
+
+    // Also fetch NOC tickets separately (they affect CSAT)
+    const nocTickets = await AnalyticsTicket.find(
+      {
+        closed_date: { $gte: start, $lte: end },
+        owner: userName,
+        is_noc: true,
+      },
+      {
+        display_id: 1, title: 1, closed_date: 1, stage_name: 1,
+        account_name: 1, csat: 1, _id: 0,
+      }
+    ).sort({ closed_date: -1 }).lean();
+
+    ok(res, {
+      quarter: label,
+      dateRange: { start: start.toISOString(), end: end.toISOString() },
+      owner: userName,
+      totalSolved: tickets.length,
+      totalNOC: nocTickets.length,
+      tickets,
+      nocTickets,
+    });
+  } catch (e) {
+    logger.error({ err: e }, "My Tickets error");
+    serverError(res, e.message);
+  }
+};
+
+export const getMyStats = async (req, res) => {
+  try {
+    const { quarter = "Q1_26", email, startDate, endDate } = req.query;
+
+    if (!email) {
+      return badRequest(res, "Email is required");
+    }
+
+    const userName = EMAIL_TO_NAME_MAP[email.toLowerCase()];
+    if (!userName) {
+      return fail(res, 403, "Unauthorized: Not a GST user");
+    }
+
+    const range = resolveDateRange({ quarter, startDate, endDate });
+    if (range.error) return badRequest(res, range.error);
+    const { start, end, label } = range;
+    logger.info({ userName, email, label }, "My Stats request");
 
     // Run general stats (NOC excluded) and CSAT stats (NOC included) in parallel
     const [stats, myCSAT] = await Promise.all([
@@ -274,7 +338,7 @@ export const getMyStats = async (req, res) => {
       // Even with no non-NOC tickets, check CSAT from NOC tickets
       const myCsatData = myCSAT[0] || { positiveCSAT: 0, negativeCSAT: 0 };
       return ok(res, {
-        quarter,
+        quarter: label,
         dateRange: { start: start.toISOString(), end: end.toISOString() },
         userData: {
           name: userName,
@@ -418,7 +482,7 @@ export const getMyStats = async (req, res) => {
     );
 
     ok(res, {
-      quarter,
+      quarter: label,
       dateRange: { start: start.toISOString(), end: end.toISOString() },
       userData: {
         name: userName,
