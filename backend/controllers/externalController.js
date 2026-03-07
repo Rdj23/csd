@@ -118,13 +118,11 @@ export const getAnalyticsSummary = async (req, res) => {
 
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
-      owner: { $nin: [null, ""] },
       is_noc: { $ne: true },
     };
 
     // CSAT always includes NOC tickets
-    const csatMatch = { ...matchConditions };
-    delete csatMatch.is_noc;
+    const csatMatch = { closed_date: { $gte: start, $lte: end } };
 
     const [overallArr, csatArr, lastTicket] = await Promise.all([
       // Overall stats (NOC excluded)
@@ -156,7 +154,7 @@ export const getAnalyticsSummary = async (req, res) => {
 
       // Latest closed_date for freshness indicator
       AnalyticsTicket.findOne(
-        { closed_date: { $gte: start, $lte: end }, owner: { $nin: [null, ""] } },
+        { closed_date: { $gte: start, $lte: end } },
         { closed_date: 1, _id: 0 },
       ).sort({ closed_date: -1 }).lean(),
     ]);
