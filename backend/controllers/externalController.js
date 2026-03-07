@@ -40,17 +40,23 @@ export const getCSATBreakdown = async (req, res) => {
 
     logger.info({ label, email: email || "all" }, "External CSAT breakdown request");
 
-    const perUser = await AnalyticsTicket.aggregate([
-      { $match: matchConditions },
-      {
-        $group: {
-          _id: "$owner",
-          positive: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negative: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          total: { $sum: 1 },
+    const [perUser, lastTicket] = await Promise.all([
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        {
+          $group: {
+            _id: "$owner",
+            positive: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negative: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            total: { $sum: 1 },
+          },
         },
-      },
-      { $sort: { positive: -1 } },
+        { $sort: { positive: -1 } },
+      ]),
+      AnalyticsTicket.findOne(
+        { closed_date: { $gte: start, $lte: end }, owner: { $nin: [null, ""] } },
+        { closed_date: 1, _id: 0 },
+      ).sort({ closed_date: -1 }).lean(),
     ]);
 
     const users = perUser.map((u) => {
@@ -73,6 +79,7 @@ export const getCSATBreakdown = async (req, res) => {
     ok(res, {
       quarter: label,
       date_range: { start: start.toISOString(), end: end.toISOString() },
+      last_updated: lastTicket?.closed_date?.toISOString() || null,
       overall: {
         total_rated: totalPositive + totalNegative,
         positive: totalPositive,
@@ -90,10 +97,11 @@ export const getCSATBreakdown = async (req, res) => {
 };
 
 /**
- * External API: Overall analytics summary.
+ * External API: GST-wide analytics summary.
  *
- * Returns high-level numbers: total solved, avg RWT, avg FRT,
- * avg iterations, FRR %, CSAT %, and per-owner leaderboard.
+ * Returns overall GST team numbers — total solved, avg RWT, avg FRT,
+ * avg iterations, FRR %, CSAT %. No individual breakdown.
+ * Includes last_updated (latest closed_date) so consumers know data freshness.
  *
  * GET /external/analytics?quarter=Q1_26
  * GET /external/analytics?startDate=2026-01-01&endDate=2026-03-31
@@ -118,7 +126,7 @@ export const getAnalyticsSummary = async (req, res) => {
     const csatMatch = { ...matchConditions };
     delete csatMatch.is_noc;
 
-    const [overallArr, csatArr, perOwner] = await Promise.all([
+    const [overallArr, csatArr, lastTicket] = await Promise.all([
       // Overall stats (NOC excluded)
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
@@ -146,23 +154,11 @@ export const getAnalyticsSummary = async (req, res) => {
         },
       ]),
 
-      // Per-owner breakdown (NOC excluded for general, but includes CSAT from all)
-      AnalyticsTicket.aggregate([
-        { $match: matchConditions },
-        {
-          $group: {
-            _id: "$owner",
-            solved: { $sum: 1 },
-            avg_rwt: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-            avg_frt: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-            avg_iterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-            frr_met: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-            positive_csat: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negative_csat: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          },
-        },
-        { $sort: { solved: -1 } },
-      ]),
+      // Latest closed_date for freshness indicator
+      AnalyticsTicket.findOne(
+        { closed_date: { $gte: start, $lte: end }, owner: { $nin: [null, ""] } },
+        { closed_date: 1, _id: 0 },
+      ).sort({ closed_date: -1 }).lean(),
     ]);
 
     const overall = overallArr[0] || {};
@@ -173,6 +169,7 @@ export const getAnalyticsSummary = async (req, res) => {
     ok(res, {
       quarter: label,
       date_range: { start: start.toISOString(), end: end.toISOString() },
+      last_updated: lastTicket?.closed_date?.toISOString() || null,
       summary: {
         total_solved: overall.total_solved || 0,
         avg_rwt: overall.avg_rwt ? parseFloat(overall.avg_rwt.toFixed(2)) : 0,
@@ -185,22 +182,6 @@ export const getAnalyticsSummary = async (req, res) => {
         csat_negative: neg,
         csat_percent: pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0,
       },
-      per_owner: perOwner.map((o) => {
-        const p = o.positive_csat || 0;
-        const n = o.negative_csat || 0;
-        return {
-          owner: o._id,
-          team: GAMIFICATION_TEAM_MAP[o._id] || "Unknown",
-          solved: o.solved,
-          avg_rwt: o.avg_rwt ? parseFloat(o.avg_rwt.toFixed(2)) : 0,
-          avg_frt: o.avg_frt ? parseFloat(o.avg_frt.toFixed(2)) : 0,
-          avg_iterations: o.avg_iterations ? parseFloat(o.avg_iterations.toFixed(2)) : 0,
-          frr_percent: o.solved > 0 ? Math.round((o.frr_met / o.solved) * 100) : 0,
-          positive_csat: p,
-          negative_csat: n,
-          csat_percent: p + n > 0 ? Math.round((p / (p + n)) * 100) : 0,
-        };
-      }),
     });
   } catch (e) {
     logger.error({ err: e }, "External analytics summary error");
