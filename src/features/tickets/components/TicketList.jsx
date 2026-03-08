@@ -12,10 +12,12 @@ import {
 } from "lucide-react";
 
 const SENTIMENT_EMOJI = {
-  Happy: "😊",
-  Neutral: "😐",
-  Frustrated: "😤",
+  happy: "😊",
+  neutral: "😐",
+  frustrated: "😤",
 };
+const getSentimentEmoji = (label) =>
+  label ? SENTIMENT_EMOJI[label.toLowerCase()] : null;
 import { FLAT_TEAM_MAP, STAGE_MAP } from "../../../utils";
 import RemarkPopover from "../../remarks/components/RemarkPopover";
 
@@ -212,12 +214,12 @@ const TicketList = ({
                         >
                           <ExternalLink className="w-3 h-3" />
                         </a>
-                        {t.sentimentLabel && SENTIMENT_EMOJI[t.sentimentLabel] && (
+                        {getSentimentEmoji(t.sentimentLabel) && (
                           <span
                             className="text-[13px] leading-none"
                             title={t.sentimentLabel}
                           >
-                            {SENTIMENT_EMOJI[t.sentimentLabel]}
+                            {getSentimentEmoji(t.sentimentLabel)}
                           </span>
                         )}
                       </div>

@@ -85,6 +85,7 @@ export const quickFetchTickets = async () => {
           tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
         },
         tags: t.tags,
+        sentiment: t.sentiment,
         isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
         actual_close_date: t.actual_close_date,
       };
@@ -163,6 +164,7 @@ export const fetchAndCacheTickets = async (source = "auto") => {
             modified_date: t.modified_date,
             custom_fields: trimmedCF,
             tags: t.tags,
+            sentiment: t.sentiment,
             isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
             actual_close_date: t.actual_close_date,
           };
