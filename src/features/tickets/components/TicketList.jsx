@@ -10,6 +10,12 @@ import {
   AlertTriangle,
   Building2,
 } from "lucide-react";
+
+const SENTIMENT_EMOJI = {
+  Happy: "😊",
+  Neutral: "😐",
+  Frustrated: "😤",
+};
 import { FLAT_TEAM_MAP, STAGE_MAP } from "../../../utils";
 import RemarkPopover from "../../remarks/components/RemarkPopover";
 
@@ -206,6 +212,14 @@ const TicketList = ({
                         >
                           <ExternalLink className="w-3 h-3" />
                         </a>
+                        {t.sentimentLabel && SENTIMENT_EMOJI[t.sentimentLabel] && (
+                          <span
+                            className="text-[13px] leading-none"
+                            title={t.sentimentLabel}
+                          >
+                            {SENTIMENT_EMOJI[t.sentimentLabel]}
+                          </span>
+                        )}
                       </div>
                       <div
                         className="text-[13px] font-medium text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug"

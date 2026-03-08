@@ -89,6 +89,7 @@ const EMPTY_FILTERS = {
   csms: [],
   tams: [],
   cohorts: [],
+  sentiments: [],
   dateRange: { start: "", end: "" },
   dependency: ["with_dependency", "no_dependency"], // Both selected by default
   dependencyTeams: ["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"], // All teams selected by default
@@ -102,6 +103,7 @@ const FILTER_CONFIG = [
   { key: "tams", label: "TAM", icon: UserCircle },
   { key: "stages", label: "Stage", icon: Filter },
   { key: "health", label: "Health", icon: Activity },
+  { key: "sentiments", label: "Sentiment", icon: Smile },
   { key: "dependency", label: "Dependency", icon: Link2 },
 ];
 
@@ -667,6 +669,7 @@ const App = () => {
       tams: new Set(),
       stages: ["Open", "Pending", "On Hold", "Solved"],
       health: ["Healthy", "Needs Attention", "Action Immediately"],
+      sentiments: new Set(),
     };
     tickets.forEach((t) => {
       if (t.custom_fields?.tnt__region_salesforce)
@@ -677,6 +680,10 @@ const App = () => {
       if (t.custom_fields?.tnt__csm_email_id)
         opts.csms.add(t.custom_fields.tnt__csm_email_id);
       if (t.custom_fields?.tnt__tam) opts.tams.add(t.custom_fields.tnt__tam);
+      const sentimentLabel = typeof t.sentiment === "string"
+        ? t.sentiment
+        : t.sentiment?.label;
+      if (sentimentLabel) opts.sentiments.add(sentimentLabel);
     });
     return {
       regions: Array.from(opts.regions).sort(),
@@ -688,6 +695,7 @@ const App = () => {
       owners: opts.owners,
       stages: opts.stages,
       health: opts.health,
+      sentiments: Array.from(opts.sentiments).sort(),
     };
   }, [tickets]);
 
@@ -755,6 +763,10 @@ const App = () => {
             !stageName.toLowerCase().includes("solved") &&
             !stageName.toLowerCase().includes("closed"));
 
+        const sentimentLabel = typeof t.sentiment === "string"
+          ? t.sentiment
+          : t.sentiment?.label || null;
+
         return {
           ...t,
           uiStatus: status,
@@ -770,6 +782,7 @@ const App = () => {
           accountName,
           csm,
           tam,
+          sentimentLabel,
           // Metrics for CSV export
           rwt: t.custom_fields?.tnt__rwt_business_hours || null,
           frt: t.custom_fields?.tnt__frt_hours || null,
@@ -877,6 +890,11 @@ const App = () => {
         if (
           currentFilters.tams?.length > 0 &&
           !currentFilters.tams.includes(t.tam)
+        )
+          return false;
+        if (
+          currentFilters.sentiments?.length > 0 &&
+          !currentFilters.sentiments.includes(t.sentimentLabel)
         )
           return false;
 
