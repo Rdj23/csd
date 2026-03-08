@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 
 const SENTIMENT_EMOJI = {
+  delighted: "😄",
   happy: "😊",
   neutral: "😐",
   frustrated: "😤",
+  unhappy: "😞",
 };
 const getSentimentEmoji = (label) =>
   label ? SENTIMENT_EMOJI[label.toLowerCase()] : null;
