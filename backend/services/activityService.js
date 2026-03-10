@@ -273,7 +273,10 @@ export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) =>
       );
 
       const entries = res.data?.timeline_entries || [];
-      if (!entries.length) break;
+      // Update cursor BEFORE processing, so we capture next_cursor even if entries is empty
+      cursor = res.data?.next_cursor;
+
+      if (!entries.length) continue;
 
       // Prepare batch of new entries to insert
       const toInsert = [];
@@ -354,8 +357,6 @@ export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) =>
         const u = dailyUpdates[j];
         await upsertDailyRollup(u.userName, u.dateBucket, u.hourBucket, u.visibility, u.points, u.accountCohort, u.isCoop, u.ticketRef);
       }
-
-      cursor = res.data?.next_cursor;
     } catch (err) {
       logger.error({ ticketId, err: err.message }, "Timeline fetch error");
       break;
