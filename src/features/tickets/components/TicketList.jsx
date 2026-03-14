@@ -201,7 +201,7 @@ const TicketList = ({
 
                 {/* Age (Sticky Right 1) */}
                 <th
-                  className={`px-2 py-3 w-[75px] align-middle sticky right-[320px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[75px] align-middle sticky right-[435px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "days"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
@@ -215,7 +215,7 @@ const TicketList = ({
 
                 {/* CT Updated (Sticky Right 2) */}
                 <th
-                  className={`px-2 py-3 w-[110px] align-middle sticky right-[245px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[140px] align-middle sticky right-[270px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "ct_updated"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
@@ -223,13 +223,13 @@ const TicketList = ({
                   onClick={() => handleSort("ct_updated")}
                 >
                   <div className="flex items-center justify-center gap-0.5 text-[8px]">
-                    CT <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "ct_updated" ? "opacity-100" : "opacity-50"}`} />
+                    CT REPLY <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "ct_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* Customer Updated (Sticky Right 3) */}
                 <th
-                  className={`px-2 py-3 w-[110px] align-middle sticky right-[135px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[160px] align-middle sticky right-[135px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "cust_updated"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
@@ -237,7 +237,7 @@ const TicketList = ({
                   onClick={() => handleSort("cust_updated")}
                 >
                   <div className="flex items-center justify-center gap-0.5 text-[8px]">
-                    Cust <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "cust_updated" ? "opacity-100" : "opacity-50"}`} />
+                    CUSTOMER REPLY <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "cust_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
@@ -454,38 +454,36 @@ const TicketList = ({
                     </td>
 
                     {/* 11. Age (Sticky Right 1) */}
-                    <td className="px-1.5 py-3.5 align-middle sticky right-[320px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                    <td className="px-1.5 py-3.5 align-middle sticky right-[435px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 text-center block">{t.days}d</span>
                     </td>
 
                     {/* 12. CT Updated (Sticky Right 2) */}
-                    <td className="px-1.5 py-3.5 align-middle sticky right-[245px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
-                      <span className="text-[10px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
+                    <td className="px-1.5 py-3.5 align-middle sticky right-[295px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-[9px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_devu_message_ts
-                          ? new Date(t.custom_fields.tnt__last_devu_message_ts).toLocaleString("en-IN", {
-                              timeZone: "Asia/Kolkata",
-                              day: "2-digit",
-                              month: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              hour12: false,
-                            }).split(",")[0]
+                          ? (() => {
+                              const date = new Date(t.custom_fields.tnt__last_devu_message_ts);
+                              const day = date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit" });
+                              const month = date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", month: "short" }).toLowerCase();
+                              const time = date.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+                              return `${day} ${month} ${time}`;
+                            })()
                           : "-"}
                       </span>
                     </td>
 
                     {/* 13. Customer Updated (Sticky Right 3) */}
                     <td className="px-1.5 py-3.5 align-middle sticky right-[135px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
-                      <span className="text-[10px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
+                      <span className="text-[9px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_revu_message_ts
-                          ? new Date(t.custom_fields.tnt__last_revu_message_ts).toLocaleString("en-IN", {
-                              timeZone: "Asia/Kolkata",
-                              day: "2-digit",
-                              month: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              hour12: false,
-                            }).split(",")[0]
+                          ? (() => {
+                              const date = new Date(t.custom_fields.tnt__last_revu_message_ts);
+                              const day = date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit" });
+                              const month = date.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", month: "short" }).toLowerCase();
+                              const time = date.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+                              return `${day} ${month} ${time}`;
+                            })()
                           : "-"}
                       </span>
                     </td>
