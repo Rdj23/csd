@@ -1254,42 +1254,68 @@ const App = () => {
     filterVal,
     textClassLight,
     textClassDark,
-  }) => (
+  }) => {
+    const isDisabled = count === 0;
+
+    return (
     <button
-      onClick={() => handleKPIFilter(filterVal)}
+      onClick={() => !isDisabled && handleKPIFilter(filterVal)}
+      disabled={isDisabled}
       className={`relative group text-left w-full rounded-xl border overflow-hidden
-        transition-all duration-200 hover:-translate-y-0.5
-        ${filterVal === "Healthy"
+        transition-all duration-200
+        ${isDisabled
+          ? "opacity-60 cursor-not-allowed bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700"
+          : "hover:-translate-y-0.5 cursor-pointer"
+        }
+        ${!isDisabled && (filterVal === "Healthy"
           ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/60"
           : filterVal === "Needs Attention"
           ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800/60"
-          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-800/60"
+          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-800/60")
         }`}
-      style={{ boxShadow: 'var(--shadow-card)' }}
+      style={{ boxShadow: isDisabled ? '0 1px 2px rgba(0,0,0,0.05)' : 'var(--shadow-card)' }}
+      title={isDisabled ? "No tickets in this category" : undefined}
     >
       {/* Left accent bar */}
-      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${borderClass.replace('border-l-4 border-l-', 'bg-')}`} />
+      <div className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
+        borderClass.replace('border-l-4 border-l-', 'bg-')
+      } ${isDisabled && "opacity-20"}`} />
 
       <div className="pl-5 pr-4 py-4 flex items-center justify-between">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">
+        <div className="flex-1">
+          <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${
+            isDisabled
+              ? "text-slate-400 dark:text-slate-500"
+              : "text-slate-500 dark:text-slate-400"
+          }`}>
             {label}
           </p>
-          <p className={`text-3xl font-bold tracking-tight leading-none ${textClassLight} ${textClassDark}`}>
+          <p className={`text-4xl font-bold tracking-tight leading-none transition-colors duration-200 ${
+            isDisabled
+              ? "text-slate-400 dark:text-slate-500"
+              : `${textClassLight} ${textClassDark}`
+          }`}>
             {count}
           </p>
         </div>
-        <div className={`w-9 h-9 rounded-full flex items-center justify-center
-          transition-transform duration-200 group-hover:scale-110
-          ${filterVal === "Healthy" ? "bg-emerald-50 dark:bg-emerald-900/20"
-            : filterVal === "Needs Attention" ? "bg-amber-50 dark:bg-amber-900/20"
-            : "bg-rose-50 dark:bg-rose-900/20"}`}
+        <div className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ml-2
+          transition-all duration-200 ${!isDisabled && "group-hover:scale-110"}
+          ${isDisabled
+            ? "bg-slate-200 dark:bg-slate-700"
+            : filterVal === "Healthy" ? "bg-emerald-100 dark:bg-emerald-900/30"
+            : filterVal === "Needs Attention" ? "bg-amber-100 dark:bg-amber-900/30"
+            : "bg-rose-100 dark:bg-rose-900/30"}`}
         >
-          <Icon className={`w-4 h-4 ${textClassLight} ${textClassDark} opacity-75`} />
+          <Icon className={`w-5 h-5 ${
+            isDisabled
+              ? "text-slate-500 dark:text-slate-400 opacity-60"
+              : `${textClassLight} ${textClassDark} opacity-80`
+          }`} />
         </div>
       </div>
     </button>
-  );
+    );
+  };
 
   if (!googleClientId)
     return (
@@ -1844,6 +1870,18 @@ const App = () => {
                         setTabFilters((prev) => ({
                           ...prev,
                           analytics: { ...prev.analytics, regions: v },
+                        }))
+                      }
+                    />
+                    <MultiSelectFilter
+                      icon={Tag}
+                      label="Cohort"
+                      options={options.cohorts}
+                      selected={tabFilters.analytics?.cohorts || []}
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          analytics: { ...prev.analytics, cohorts: v },
                         }))
                       }
                     />

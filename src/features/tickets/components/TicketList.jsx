@@ -54,6 +54,11 @@ const TicketList = ({
       const valB = b.rwt || 0;
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
+    if (sortConfig.key === "itr") {
+      const valA = a.iterations || 0;
+      const valB = b.iterations || 0;
+      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
+    }
     if (sortConfig.key === "ct_updated") {
       const valA = new Date(a.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
       const valB = new Date(b.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
@@ -62,6 +67,12 @@ const TicketList = ({
     if (sortConfig.key === "cust_updated") {
       const valA = new Date(a.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
       const valB = new Date(b.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
+      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
+    }
+    if (sortConfig.key === "sentiment") {
+      const sentimentOrder = { delighted: 5, happy: 4, neutral: 3, frustrated: 2, unhappy: 1 };
+      const valA = sentimentOrder[a.sentimentLabel?.toLowerCase()] || 0;
+      const valB = sentimentOrder[b.sentimentLabel?.toLowerCase()] || 0;
       return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
 
@@ -128,15 +139,38 @@ const TicketList = ({
   return (
     <div className="space-y-3 animate-fade-in pb-20 relative">
       {/* TABLE */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col"
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col transition-all duration-300"
            style={{ boxShadow: 'var(--shadow-card)' }}>
-        <div className="overflow-x-auto min-h-[400px]">
-          <table className="w-full text-left border-collapse min-w-[1520px]">
-            <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700/60 text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-widest font-semibold">
+        {paginatedTickets.length === 0 && sortedTickets.length === 0 ? (
+          // Empty state
+          <div className="min-h-[400px] flex flex-col items-center justify-center px-6 py-20">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Inbox className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+              </div>
+              <div className="text-center">
+                <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No tickets found</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Adjust your filters or try a different search</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+        <div className="overflow-x-auto min-h-[400px] scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500">
+          <table className="w-full text-left border-collapse min-w-[1600px]">
+            <thead className="bg-gradient-to-b from-slate-50 to-slate-40 dark:from-slate-800/80 dark:to-slate-800/50 border-b border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-widest font-semibold sticky top-0 z-10">
               <tr>
                 {/* 1. Ticket (Sticky Left) */}
-                <th className="px-4 py-3 w-[300px] align-middle sticky left-0 z-20 bg-slate-50 dark:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700/60 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                <th className="px-4 py-3 w-[320px] align-middle sticky left-0 z-30 bg-slate-50 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/60 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
                   Ticket
+                </th>
+                <th className={`px-4 py-3 w-[100px] align-middle cursor-pointer select-none transition-colors duration-200 ${
+                  sortConfig.key === "sentiment"
+                    ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
+                    : "hover:text-slate-600 dark:hover:text-slate-300"
+                }`} onClick={() => handleSort("sentiment")}>
+                  <div className="flex items-center gap-1">
+                    Sentiment <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "sentiment" ? "opacity-100" : "opacity-50"}`} />
+                  </div>
                 </th>
                 <th className="px-4 py-3 w-[150px] align-middle">Region</th>
                 <th className="px-4 py-3 w-[120px] align-middle">Cohort</th>
@@ -146,41 +180,69 @@ const TicketList = ({
                 <th className="px-3 py-3 text-center w-[120px]">Team</th>
                 <th className="px-3 py-3 text-center w-[140px]">Assignee</th>
                 <th className="px-4 py-3 w-[120px] align-middle">Stage</th>
-                <th className="px-4 py-3 w-[100px] align-middle text-center">RWT</th>
-                <th className="px-4 py-3 w-[100px] align-middle text-center">Iter</th>
+                <th className={`px-4 py-3 w-[100px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
+                  sortConfig.key === "rwt"
+                    ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
+                    : "hover:text-slate-600 dark:hover:text-slate-300"
+                }`} onClick={() => handleSort("rwt")}>
+                  <div className="flex items-center justify-center gap-1">
+                    RWT <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "rwt" ? "opacity-100" : "opacity-50"}`} />
+                  </div>
+                </th>
+                <th className={`px-4 py-3 w-[100px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
+                  sortConfig.key === "itr"
+                    ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
+                    : "hover:text-slate-600 dark:hover:text-slate-300"
+                }`} onClick={() => handleSort("itr")}>
+                  <div className="flex items-center justify-center gap-1">
+                    ITR <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "itr" ? "opacity-100" : "opacity-50"}`} />
+                  </div>
+                </th>
 
                 {/* Age (Sticky Right 1) */}
                 <th
-                  className="px-4 py-3 w-[100px] align-middle sticky right-[440px] z-20 bg-slate-50 dark:bg-slate-800/80 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)] cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none"
+                  className={`px-3 py-3 w-[85px] align-middle sticky right-[360px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${
+                    sortConfig.key === "days"
+                      ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
+                      : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
+                  }`}
                   onClick={() => handleSort("days")}
                 >
                   <div className="flex items-center gap-1">
-                    Age <ArrowUpDown className="w-3 h-3 opacity-50" />
+                    Age <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "days" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* CT Updated (Sticky Right 2) */}
                 <th
-                  className="px-4 py-3 w-[130px] align-middle sticky right-[310px] z-20 bg-slate-50 dark:bg-slate-800/80 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none"
+                  className={`px-3 py-3 w-[120px] align-middle sticky right-[275px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                    sortConfig.key === "ct_updated"
+                      ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
+                      : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
+                  }`}
                   onClick={() => handleSort("ct_updated")}
                 >
-                  <div className="flex items-center gap-1">
-                    CT Reply <ArrowUpDown className="w-3 h-3 opacity-50" />
+                  <div className="flex items-center gap-1 text-[9px]">
+                    CT Reply <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "ct_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* Customer Updated (Sticky Right 3) */}
                 <th
-                  className="px-4 py-3 w-[130px] align-middle sticky right-[180px] z-20 bg-slate-50 dark:bg-slate-800/80 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer hover:text-slate-600 dark:hover:text-slate-300 select-none"
+                  className={`px-3 py-3 w-[120px] align-middle sticky right-[155px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                    sortConfig.key === "cust_updated"
+                      ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
+                      : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
+                  }`}
                   onClick={() => handleSort("cust_updated")}
                 >
-                  <div className="flex items-center gap-1">
-                    Cust Reply <ArrowUpDown className="w-3 h-3 opacity-50" />
+                  <div className="flex items-center gap-1 text-[9px]">
+                    Cust Reply <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "cust_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* Status (Sticky Right 4) */}
-                <th className="px-4 py-3 w-[180px] min-w-[180px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800/80 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                <th className="px-3 py-3 w-[155px] min-w-[155px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800/80 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   Status
                 </th>
               </tr>
@@ -200,10 +262,10 @@ const TicketList = ({
                 return (
                   <tr
                     key={t.id}
-                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors duration-100 group text-sm"
+                    className="hover:bg-indigo-50/40 dark:hover:bg-indigo-900/10 transition-colors duration-150 group text-sm hover:shadow-sm"
                   >
                     {/* 1. Ticket (Sticky Left) */}
-                    <td className="px-4 py-3.5 align-middle sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50/80 dark:group-hover:bg-slate-800/40 border-r border-slate-100 dark:border-slate-800">
+                    <td className="px-4 py-3.5 w-[320px] align-middle sticky left-0 z-30 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-r border-slate-100 dark:border-slate-800 transition-colors duration-150 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-mono text-[11px] font-semibold text-slate-400 dark:text-slate-500">
                           {t.display_id}
@@ -216,14 +278,6 @@ const TicketList = ({
                         >
                           <ExternalLink className="w-3 h-3" />
                         </a>
-                        {getSentimentEmoji(t.sentimentLabel) && (
-                          <span
-                            className="text-[13px] leading-none"
-                            title={t.sentimentLabel}
-                          >
-                            {getSentimentEmoji(t.sentimentLabel)}
-                          </span>
-                        )}
                       </div>
                       <div
                         className="text-[13px] font-medium text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug"
@@ -236,6 +290,22 @@ const TicketList = ({
                           <Building2 className="w-3 h-3 flex-shrink-0" />
                           <span className="truncate">{t.accountName}</span>
                         </div>
+                      )}
+                    </td>
+
+                    {/* Sentiment Column */}
+                    <td className="px-4 py-3.5 align-middle text-center">
+                      {getSentimentEmoji(t.sentimentLabel) ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-2xl leading-none" title={t.sentimentLabel}>
+                            {getSentimentEmoji(t.sentimentLabel)}
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 capitalize font-medium">
+                            {t.sentimentLabel || "—"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>
                       )}
                     </td>
 
@@ -384,44 +454,44 @@ const TicketList = ({
                     </td>
 
                     {/* 11. Age (Sticky Right 1) */}
-                    <td className="px-2 align-middle sticky right-[440px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
-                      <span className="text-sm font-medium">{t.days} Days</span>
+                    <td className="px-2 py-3.5 align-middle sticky right-[360px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{t.days}d</span>
                     </td>
 
                     {/* 12. CT Updated (Sticky Right 2) */}
-                    <td className="px-3 py-2 align-middle sticky right-[310px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
-                      <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                    <td className="px-2 py-3.5 align-middle sticky right-[275px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_devu_message_ts
                           ? new Date(t.custom_fields.tnt__last_devu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
                               day: "2-digit",
-                              month: "short",
+                              month: "2-digit",
                               hour: "2-digit",
                               minute: "2-digit",
-                              hour12: true,
-                            })
+                              hour12: false,
+                            }).replace(/,/g, " ")
                           : "-"}
                       </span>
                     </td>
 
                     {/* 13. Customer Updated (Sticky Right 3) */}
-                    <td className="px-3 py-2 align-middle sticky right-[180px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800">
-                      <span className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                    <td className="px-2 py-3.5 align-middle sticky right-[155px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_revu_message_ts
                           ? new Date(t.custom_fields.tnt__last_revu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
                               day: "2-digit",
-                              month: "short",
+                              month: "2-digit",
                               hour: "2-digit",
                               minute: "2-digit",
-                              hour12: true,
-                            })
+                              hour12: false,
+                            }).replace(/,/g, " ")
                           : "-"}
                       </span>
                     </td>
 
                     {/* 14. Status (Sticky Right 4) */}
-                    <td className="p-4 align-middle min-w-[180px] w-[180px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent">
+                    <td className="p-3 align-middle min-w-[155px] w-[155px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent transition-colors duration-150">
                       <div className="flex items-center gap-2 relative">
                         <span
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border whitespace-nowrap ${t.uiColor}`}
@@ -450,10 +520,12 @@ const TicketList = ({
             </tbody>
           </table>
         </div>
+        )}
+
 
         {/* PAGINATION */}
         {sortedTickets.length > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-800/20">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-slate-800/60 bg-gradient-to-r from-slate-50 to-slate-40/50 dark:from-slate-800/30 dark:to-slate-900/20">
             <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium tabular-nums">
               {(currentPage - 1) * 20 + 1}–{Math.min(currentPage * 20, sortedTickets.length)} of {sortedTickets.length} tickets
             </div>

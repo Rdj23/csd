@@ -1412,6 +1412,7 @@ const AnalyticsDashboard = ({
         excludeZendesk,
         excludeNOC,
         owner: filterOwner !== "All" ? filterOwner : null,
+        cohorts: filters?.cohorts?.length > 0 ? filters.cohorts.join(",") : null,
         groupBy,
       });
     }, 150); // 150ms debounce
@@ -1424,6 +1425,7 @@ const AnalyticsDashboard = ({
     excludeZendesk,
     excludeNOC,
     filterOwner,
+    filters?.cohorts,
     groupBy,
   ]);
   // Fetch expanded trends only when modal is open, with debouncing

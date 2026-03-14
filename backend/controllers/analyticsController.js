@@ -24,13 +24,14 @@ export const getAnalytics = async (req, res) => {
       owners,
       region,
       cohort,
+      cohorts,
       forceRefresh,
       groupBy = "daily",
     } = req.query;
-    const cacheKey = `analytics:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohort || "none"}:${groupBy}`;
+    const cacheKey = `analytics:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohorts || cohort || "none"}:${groupBy}`;
 
     // Check pre-computed cache first (FASTEST - instant response)
-    const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && !cohort && groupBy === "daily";
+    const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && !cohort && !cohorts && groupBy === "daily";
     if (isDefaultQuery && forceRefresh !== "true") {
       const cacheType = quarter.toLowerCase().replace("_", "");
       const precomputed = await PrecomputedDashboard.findOne({ cache_type: cacheType }).lean();
@@ -74,7 +75,17 @@ export const getAnalytics = async (req, res) => {
     if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
     if (excludeNOC === "true") matchConditions.is_noc = { $ne: true };
     if (owner && owner !== "All") matchConditions.owner = { $regex: escapeRegex(owner), $options: "i" };
-    if (cohort) matchConditions.account_cohort = { $regex: escapeRegex(cohort), $options: "i" };
+
+    // Handle both single cohort (backwards compatibility) and multiple cohorts
+    const cohortFilter = cohorts || cohort;
+    if (cohortFilter) {
+      const cohortList = cohortFilter.split(",").map(c => c.trim());
+      if (cohortList.length === 1) {
+        matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
+      } else {
+        matchConditions.account_cohort = { $in: cohortList.map(c => new RegExp(escapeRegex(c), "i")) };
+      }
+    }
 
     // CSAT/DSAT match conditions - never excludes NOC (CSAT/DSAT always includes all tickets)
     const csatMatchConditions = { ...matchConditions };
@@ -174,7 +185,14 @@ export const getAnalytics = async (req, res) => {
     // Bad CSAT - never excludes NOC (DSAT always includes all tickets)
     const dsatMatch = { closed_date: { $gte: start, $lte: end }, csat: 1 };
     if (excludeZendesk === "true") dsatMatch.is_zendesk = { $ne: true };
-    if (cohort) dsatMatch.account_cohort = { $regex: escapeRegex(cohort), $options: "i" };
+    if (cohortFilter) {
+      const cohortList = cohortFilter.split(",").map(c => c.trim());
+      if (cohortList.length === 1) {
+        dsatMatch.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
+      } else {
+        dsatMatch.account_cohort = { $in: cohortList.map(c => new RegExp(escapeRegex(c), "i")) };
+      }
+    }
     const badTickets = await AnalyticsTicket.find(dsatMatch, {
       ticket_id: 1, display_id: 1, title: 1, owner: 1, created_date: 1, closed_date: 1, is_noc: 1,
     }).sort({ closed_date: -1 }).limit(50).lean();
@@ -416,7 +434,7 @@ export const getAnalytics = async (req, res) => {
  */
 export const getTicketDrillDown = async (req, res) => {
   try {
-    const { quarter = "Q1_26", scope = "all", email, owner, team, cohort, startDate, endDate } = req.query;
+    const { quarter = "Q1_26", scope = "all", email, owner, team, cohort, cohorts, startDate, endDate } = req.query;
     const range = resolveDateRange({ quarter, startDate, endDate });
     if (range.error) return badRequest(res, range.error);
     const { start, end, label } = range;
@@ -457,8 +475,16 @@ export const getTicketDrillDown = async (req, res) => {
     if (ownerFilter) {
       matchConditions.owner = ownerFilter.length === 1 ? ownerFilter[0] : { $in: ownerFilter };
     }
-    if (cohort) {
-      matchConditions.account_cohort = { $regex: escapeRegex(cohort), $options: "i" };
+
+    // Handle both single cohort (backwards compatibility) and multiple cohorts
+    const cohortFilter = cohorts || cohort;
+    if (cohortFilter) {
+      const cohortList = cohortFilter.split(",").map(c => c.trim());
+      if (cohortList.length === 1) {
+        matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
+      } else {
+        matchConditions.account_cohort = { $in: cohortList.map(c => new RegExp(escapeRegex(c), "i")) };
+      }
     }
 
     // NOC-inclusive match for CSAT

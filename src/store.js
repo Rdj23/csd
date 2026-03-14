@@ -329,8 +329,9 @@ fetchAnalyticsData: async (filters = {}) => {
     if (filters.excludeZendesk) params.append('excludeZendesk', 'true');
     if (filters.excludeNOC) params.set("excludeNOC", "true");
     if (filters.owner) params.append('owner', filters.owner);
+    if (filters.cohorts) params.append('cohorts', filters.cohorts);
     if (filters.forceRefresh) params.append('forceRefresh', 'true');
-    if (filters.groupBy) params.append('groupBy', filters.groupBy); // ADD THIS LINE
+    if (filters.groupBy) params.append('groupBy', filters.groupBy);
 
     const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
     console.log("📊 [Store] Fetching analytics:", url);
