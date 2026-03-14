@@ -1234,25 +1234,14 @@ const App = () => {
       });
   }, [tickets, tabFilters.alltickets, activeTab, dependencies]);
 
-  // ✅ KPI STATS - Count tickets by priority for the current tab
-  // Shows actual counts in each priority bucket regardless of health filter
+  // ✅ KPI STATS - Count from displayTickets which already has priority computed
   const stats = useMemo(() => {
-    // Only filter by tab and Anmol exclusion - KPI counts shouldn't be affected by search/owner/date/stage filters
-    const baseTickets = tickets.filter((t) => {
-      // Exclude Anmol's tickets (consistent with displayTickets logic)
-      const ownerName =
-        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-        t.owned_by?.[0]?.display_name ||
-        "";
-      return !ownerName.toLowerCase().includes("anmol");
-    });
-
     return {
-      red: baseTickets.filter((t) => t.priority === 1).length,
-      yellow: baseTickets.filter((t) => t.priority === 2).length,
-      green: baseTickets.filter((t) => t.priority === 3).length,
+      red: displayTickets.filter((t) => t.priority === 1).length,
+      yellow: displayTickets.filter((t) => t.priority === 2).length,
+      green: displayTickets.filter((t) => t.priority === 3).length,
     };
-  }, [tickets]);
+  }, [displayTickets]);
 
   const labels =
     activeTab === "csd"
@@ -1268,57 +1257,61 @@ const App = () => {
     textClassLight,
     textClassDark,
   }) => {
-    const isActive = currentFilters.health?.includes(filterVal);
+    const isDisabled = count === 0;
 
     return (
     <button
-      onClick={() => handleKPIFilter(filterVal)}
+      onClick={() => !isDisabled && handleKPIFilter(filterVal)}
+      disabled={isDisabled}
       className={`relative group text-left w-full rounded-xl border overflow-hidden
-        transition-all duration-200 hover:-translate-y-0.5 cursor-pointer
-        ${isActive
-          ? filterVal === "Healthy"
-            ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/60"
-            : filterVal === "Needs Attention"
-            ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800/60"
-            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-800/60"
-          : "opacity-65 bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700"
+        transition-all duration-200
+        ${isDisabled
+          ? "opacity-60 cursor-not-allowed bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700"
+          : "hover:-translate-y-0.5 cursor-pointer"
+        }
+        ${!isDisabled && (filterVal === "Healthy"
+          ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/60"
+          : filterVal === "Needs Attention"
+          ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800/60"
+          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-800/60")
         }`}
-      style={{ boxShadow: isActive ? 'var(--shadow-card)' : '0 1px 2px rgba(0,0,0,0.05)' }}
+      style={{ boxShadow: isDisabled ? '0 1px 2px rgba(0,0,0,0.05)' : 'var(--shadow-card)' }}
+      title={isDisabled ? "No tickets in this category" : undefined}
     >
       {/* Left accent bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
         borderClass.replace('border-l-4 border-l-', 'bg-')
-      } ${!isActive && "opacity-30"}`} />
+      } ${isDisabled && "opacity-20"}`} />
 
       <div className="pl-5 pr-4 py-4 flex items-center justify-between">
         <div className="flex-1">
-          <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 transition-colors duration-200 ${
-            isActive
-              ? "text-slate-500 dark:text-slate-400"
-              : "text-slate-400 dark:text-slate-500"
+          <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${
+            isDisabled
+              ? "text-slate-400 dark:text-slate-500"
+              : "text-slate-500 dark:text-slate-400"
           }`}>
             {label}
           </p>
           <p className={`text-4xl font-bold tracking-tight leading-none transition-colors duration-200 ${
-            isActive
-              ? `${textClassLight} ${textClassDark}`
-              : "text-slate-600 dark:text-slate-300"
+            isDisabled
+              ? "text-slate-400 dark:text-slate-500"
+              : `${textClassLight} ${textClassDark}`
           }`}>
             {count}
           </p>
         </div>
         <div className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ml-2
-          transition-all duration-200 group-hover:scale-110
-          ${isActive
-            ? filterVal === "Healthy" ? "bg-emerald-100 dark:bg-emerald-900/30"
+          transition-all duration-200 ${!isDisabled && "group-hover:scale-110"}
+          ${isDisabled
+            ? "bg-slate-200 dark:bg-slate-700"
+            : filterVal === "Healthy" ? "bg-emerald-100 dark:bg-emerald-900/30"
             : filterVal === "Needs Attention" ? "bg-amber-100 dark:bg-amber-900/30"
-            : "bg-rose-100 dark:bg-rose-900/30"
-            : "bg-slate-200 dark:bg-slate-700"}`}
+            : "bg-rose-100 dark:bg-rose-900/30"}`}
         >
-          <Icon className={`w-5 h-5 transition-colors duration-200 ${
-            isActive
-              ? `${textClassLight} ${textClassDark} opacity-80`
-              : "text-slate-500 dark:text-slate-400 opacity-60"
+          <Icon className={`w-5 h-5 ${
+            isDisabled
+              ? "text-slate-500 dark:text-slate-400 opacity-60"
+              : `${textClassLight} ${textClassDark} opacity-80`
           }`} />
         </div>
       </div>
