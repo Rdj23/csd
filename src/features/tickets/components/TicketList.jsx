@@ -163,18 +163,18 @@ const TicketList = ({
                 <th className="px-4 py-3 w-[320px] align-middle sticky left-0 z-30 bg-slate-50 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/60 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
                   Ticket
                 </th>
-                <th className={`px-4 py-3 w-[100px] align-middle cursor-pointer select-none transition-colors duration-200 ${
+                <th className="px-4 py-3 w-[150px] align-middle">Region</th>
+                <th className="px-4 py-3 w-[120px] align-middle">Cohort</th>
+                <th className="px-4 py-3 w-[180px] align-middle">Owner</th>
+                <th className={`px-3 py-3 w-[90px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
                   sortConfig.key === "sentiment"
                     ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
                     : "hover:text-slate-600 dark:hover:text-slate-300"
                 }`} onClick={() => handleSort("sentiment")}>
-                  <div className="flex items-center gap-1">
-                    Sentiment <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "sentiment" ? "opacity-100" : "opacity-50"}`} />
+                  <div className="flex items-center justify-center gap-1">
+                    Sentiment <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "sentiment" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
-                <th className="px-4 py-3 w-[150px] align-middle">Region</th>
-                <th className="px-4 py-3 w-[120px] align-middle">Cohort</th>
-                <th className="px-4 py-3 w-[180px] align-middle">Owner</th>
                 <th className="px-4 py-3 w-[180px] align-middle">CSM</th>
                 <th className="px-4 py-3 w-[180px] align-middle">TAM</th>
                 <th className="px-3 py-3 text-center w-[120px]">Team</th>
@@ -201,48 +201,48 @@ const TicketList = ({
 
                 {/* Age (Sticky Right 1) */}
                 <th
-                  className={`px-3 py-3 w-[85px] align-middle sticky right-[360px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[75px] align-middle sticky right-[320px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "days"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("days")}
                 >
-                  <div className="flex items-center gap-1">
-                    Age <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "days" ? "opacity-100" : "opacity-50"}`} />
+                  <div className="flex items-center justify-center gap-0.5">
+                    Age <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "days" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* CT Updated (Sticky Right 2) */}
                 <th
-                  className={`px-3 py-3 w-[120px] align-middle sticky right-[275px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[110px] align-middle sticky right-[245px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "ct_updated"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("ct_updated")}
                 >
-                  <div className="flex items-center gap-1 text-[9px]">
-                    CT Reply <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "ct_updated" ? "opacity-100" : "opacity-50"}`} />
+                  <div className="flex items-center justify-center gap-0.5 text-[8px]">
+                    CT <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "ct_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* Customer Updated (Sticky Right 3) */}
                 <th
-                  className={`px-3 py-3 w-[120px] align-middle sticky right-[155px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[110px] align-middle sticky right-[135px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "cust_updated"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("cust_updated")}
                 >
-                  <div className="flex items-center gap-1 text-[9px]">
-                    Cust Reply <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "cust_updated" ? "opacity-100" : "opacity-50"}`} />
+                  <div className="flex items-center justify-center gap-0.5 text-[8px]">
+                    Cust <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "cust_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* Status (Sticky Right 4) */}
-                <th className="px-3 py-3 w-[155px] min-w-[155px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800/80 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                <th className="px-2 py-3 w-[135px] min-w-[135px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800/80 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   Status
                 </th>
               </tr>
@@ -293,22 +293,6 @@ const TicketList = ({
                       )}
                     </td>
 
-                    {/* Sentiment Column */}
-                    <td className="px-4 py-3.5 align-middle text-center">
-                      {getSentimentEmoji(t.sentimentLabel) ? (
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="text-2xl leading-none" title={t.sentimentLabel}>
-                            {getSentimentEmoji(t.sentimentLabel)}
-                          </span>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 capitalize font-medium">
-                            {t.sentimentLabel || "—"}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>
-                      )}
-                    </td>
-
                     {/* 2. Region */}
                     <td className="px-4 py-3.5 align-middle">
                       <span className="badge badge-neutral text-[10px]">
@@ -354,6 +338,22 @@ const TicketList = ({
                           {ownerName}
                         </button>
                       </div>
+                    </td>
+
+                    {/* Sentiment Column */}
+                    <td className="px-3 py-3.5 align-middle text-center">
+                      {getSentimentEmoji(t.sentimentLabel) ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-xl leading-none" title={t.sentimentLabel}>
+                            {getSentimentEmoji(t.sentimentLabel)}
+                          </span>
+                          <span className="text-[9px] text-slate-500 dark:text-slate-400 capitalize font-medium">
+                            {t.sentimentLabel || "—"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>
+                      )}
                     </td>
 
                     {/* 4. CSM */}
@@ -454,13 +454,13 @@ const TicketList = ({
                     </td>
 
                     {/* 11. Age (Sticky Right 1) */}
-                    <td className="px-2 py-3.5 align-middle sticky right-[360px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{t.days}d</span>
+                    <td className="px-1.5 py-3.5 align-middle sticky right-[320px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 text-center block">{t.days}d</span>
                     </td>
 
                     {/* 12. CT Updated (Sticky Right 2) */}
-                    <td className="px-2 py-3.5 align-middle sticky right-[275px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
-                      <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
+                    <td className="px-1.5 py-3.5 align-middle sticky right-[245px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_devu_message_ts
                           ? new Date(t.custom_fields.tnt__last_devu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
@@ -469,14 +469,14 @@ const TicketList = ({
                               hour: "2-digit",
                               minute: "2-digit",
                               hour12: false,
-                            }).replace(/,/g, " ")
+                            }).split(",")[0]
                           : "-"}
                       </span>
                     </td>
 
                     {/* 13. Customer Updated (Sticky Right 3) */}
-                    <td className="px-2 py-3.5 align-middle sticky right-[155px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
-                      <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
+                    <td className="px-1.5 py-3.5 align-middle sticky right-[135px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_revu_message_ts
                           ? new Date(t.custom_fields.tnt__last_revu_message_ts).toLocaleString("en-IN", {
                               timeZone: "Asia/Kolkata",
@@ -485,13 +485,13 @@ const TicketList = ({
                               hour: "2-digit",
                               minute: "2-digit",
                               hour12: false,
-                            }).replace(/,/g, " ")
+                            }).split(",")[0]
                           : "-"}
                       </span>
                     </td>
 
                     {/* 14. Status (Sticky Right 4) */}
-                    <td className="p-3 align-middle min-w-[155px] w-[155px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent transition-colors duration-150">
+                    <td className="p-2 align-middle min-w-[135px] w-[135px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent transition-colors duration-150">
                       <div className="flex items-center gap-2 relative">
                         <span
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border whitespace-nowrap ${t.uiColor}`}
