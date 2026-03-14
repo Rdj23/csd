@@ -1234,12 +1234,103 @@ const App = () => {
       });
   }, [tickets, tabFilters.alltickets, activeTab, dependencies]);
 
-  // ✅ KPI STATS LOGIC (Moved here to stay fixed)
-  const stats = {
-    red: displayTickets.filter((t) => t.priority === 1).length,
-    yellow: displayTickets.filter((t) => t.priority === 2).length,
-    green: displayTickets.filter((t) => t.priority === 3).length,
-  };
+  // ✅ KPI STATS - Count tickets by priority WITHOUT health filter applied
+  // This allows all 3 KPI cards to show their actual counts
+  const stats = useMemo(() => {
+    // Apply all filters EXCEPT health to get true counts for each priority bucket
+    const ticketsWithoutHealthFilter = tickets.filter((t) => {
+      // Owner filter
+      if (currentFilters.owners?.length > 0) {
+        const ownerName =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "";
+        if (!currentFilters.owners.includes(ownerName)) return false;
+      }
+
+      // Search filter
+      const currentSearch = (searchQueries[activeTab] || "").toLowerCase();
+      const matchesSearch =
+        !currentSearch ||
+        t.display_id?.toLowerCase().includes(currentSearch) ||
+        t.title?.toLowerCase().includes(currentSearch) ||
+        t.accountName?.toLowerCase().includes(currentSearch);
+      if (!matchesSearch) return false;
+
+      // Date range filter
+      if (dateRange.startDate || dateRange.endDate) {
+        const ticketDate = new Date(t.created_date);
+        if (dateRange.startDate && ticketDate < dateRange.startDate) return false;
+        if (dateRange.endDate && ticketDate > dateRange.endDate) return false;
+      }
+
+      // Stage filter
+      if (activeTab !== "analytics") {
+        const stageLabel = STAGE_MAP[t.stage?.name]?.label || "Unknown";
+        if (
+          currentFilters.stages?.length > 0 &&
+          !currentFilters.stages.includes(stageLabel)
+        )
+          return false;
+      }
+
+      // Skip health filter intentionally - we want ALL health statuses
+
+      // Dependency filter
+      if (
+        currentFilters.dependency?.length > 0 &&
+        currentFilters.dependency.length < 2
+      ) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        const hasDep = dep?.hasDependency === true;
+
+        if (
+          currentFilters.dependency.includes("with_dependency") &&
+          !currentFilters.dependency.includes("no_dependency")
+        ) {
+          if (!hasDep) return false;
+        }
+        if (
+          currentFilters.dependency.includes("no_dependency") &&
+          !currentFilters.dependency.includes("with_dependency")
+        ) {
+          if (hasDep) return false;
+        }
+      }
+
+      // Dependency team filter
+      if (
+        currentFilters.dependency?.includes("with_dependency") &&
+        currentFilters.dependencyTeams?.length > 0 &&
+        currentFilters.dependencyTeams.length < 6
+      ) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+
+        if (dep?.hasDependency) {
+          const ticketTeams = dep.issues?.map((i) => i.team) || [];
+          const hasMatchingTeam = currentFilters.dependencyTeams.some(
+            (team) => ticketTeams.includes(team),
+          );
+          if (!hasMatchingTeam) return false;
+        }
+      }
+
+      // Exclude Anmol's tickets (consistent with displayTickets logic)
+      const ownerName =
+        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+        t.owned_by?.[0]?.display_name ||
+        "";
+      return !ownerName.toLowerCase().includes("anmol");
+    });
+
+    return {
+      red: ticketsWithoutHealthFilter.filter((t) => t.priority === 1).length,
+      yellow: ticketsWithoutHealthFilter.filter((t) => t.priority === 2).length,
+      green: ticketsWithoutHealthFilter.filter((t) => t.priority === 3).length,
+    };
+  }, [tickets, currentFilters, searchQueries, dateRange, activeTab, dependencies]);
 
   const labels =
     activeTab === "csd"
@@ -1289,7 +1380,7 @@ const App = () => {
           <p className={`text-4xl font-bold tracking-tight leading-none transition-colors duration-200 ${
             isActive
               ? `${textClassLight} ${textClassDark}`
-              : "text-slate-400 dark:text-slate-500"
+              : "text-slate-600 dark:text-slate-300"
           }`}>
             {count}
           </p>

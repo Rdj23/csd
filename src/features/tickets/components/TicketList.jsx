@@ -189,13 +189,13 @@ const TicketList = ({
                     RWT <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "rwt" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
-                <th className={`px-4 py-3 w-[100px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
+                <th className={`px-3 py-3 w-[90px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
                   sortConfig.key === "itr"
                     ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
                     : "hover:text-slate-600 dark:hover:text-slate-300"
                 }`} onClick={() => handleSort("itr")}>
-                  <div className="flex items-center justify-center gap-1">
-                    ITR <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "itr" ? "opacity-100" : "opacity-50"}`} />
+                  <div className="flex items-center justify-center gap-0.5 text-[9px]">
+                    ITR <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "itr" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
