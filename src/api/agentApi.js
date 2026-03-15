@@ -8,8 +8,8 @@ import { authAxios, API_URL } from "./apiClient";
  * @param {string} query - Free-text question
  * @returns {{ sessionId: string }}
  */
-export const sendAgentQuery = async (query) => {
-  const res = await authAxios.post(`${API_URL}/api/agent/query`, { query });
+export const sendAgentQuery = async (query, sessionObject) => {
+  const res = await authAxios.post(`${API_URL}/api/agent/query`, { query, sessionObject });
   return res.data;
 };
 
