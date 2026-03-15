@@ -2,21 +2,24 @@ import crypto from "crypto";
 import logger from "../config/logger.js";
 
 const WEBHOOK_SECRET = process.env.DEVREV_WEBHOOK_SECRET;
+const AGENT_WEBHOOK_SECRET = process.env.DEVREV_AGENT_WEBHOOK_SECRET;
+
+// Collect all known secrets for multi-webhook support
+const KNOWN_SECRETS = [WEBHOOK_SECRET, AGENT_WEBHOOK_SECRET].filter(Boolean);
 
 /**
  * Verifies DevRev webhook signatures using HMAC-SHA256.
- * If DEVREV_WEBHOOK_SECRET is not set, logs a warning and passes through (dev mode).
+ * Supports multiple webhook secrets (ticket webhook + agent webhook).
+ * If no secrets are configured, logs a warning and passes through (dev mode).
  */
 export const verifyWebhookSignature = (req, res, next) => {
   // Skip verification for challenge-response (DevRev setup handshake)
-  // DevRev sends verify as either { type: "webhook_verify", challenge: "..." }
-  // or { verify: { challenge: "..." } }
   if (req.body?.type === "webhook_verify" || req.body?.verify?.challenge) {
     return next();
   }
 
-  if (!WEBHOOK_SECRET) {
-    logger.warn("DEVREV_WEBHOOK_SECRET not set — skipping webhook signature verification");
+  if (KNOWN_SECRETS.length === 0) {
+    logger.warn("No DEVREV webhook secrets set — skipping signature verification");
     return next();
   }
 
@@ -28,23 +31,26 @@ export const verifyWebhookSignature = (req, res, next) => {
 
   try {
     const payload = JSON.stringify(req.body);
-    const expected = crypto
-      .createHmac("sha256", WEBHOOK_SECRET)
-      .update(payload)
-      .digest("hex");
-
     const signatureBuffer = Buffer.from(signature, "hex");
-    const expectedBuffer = Buffer.from(expected, "hex");
 
-    if (
-      signatureBuffer.length !== expectedBuffer.length ||
-      !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
-    ) {
-      logger.warn({ ip: req.ip }, "Webhook rejected: invalid signature");
-      return res.status(401).json({ error: "Invalid webhook signature" });
+    // Try each known secret — the webhook could come from any registered source
+    for (const secret of KNOWN_SECRETS) {
+      const expected = crypto
+        .createHmac("sha256", secret)
+        .update(payload)
+        .digest("hex");
+      const expectedBuffer = Buffer.from(expected, "hex");
+
+      if (
+        signatureBuffer.length === expectedBuffer.length &&
+        crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
+      ) {
+        return next(); // Signature matched
+      }
     }
 
-    next();
+    logger.warn({ ip: req.ip }, "Webhook rejected: signature didn't match any known secret");
+    return res.status(401).json({ error: "Invalid webhook signature" });
   } catch (err) {
     logger.error({ err }, "Webhook signature verification error");
     return res.status(401).json({ error: "Webhook signature verification failed" });
