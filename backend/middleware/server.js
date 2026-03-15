@@ -53,7 +53,15 @@ export const compressionMiddleware = compression({
 });
 
 // Body parsing - capped at 5mb to prevent OOM on free tier
-export const jsonParser = express.json({ limit: "5mb" });
+// Store raw body buffer for webhook signature verification
+export const jsonParser = express.json({
+  limit: "5mb",
+  verify: (req, _res, buf) => {
+    if (req.url?.includes("/webhooks/")) {
+      req.rawBody = buf;
+    }
+  },
+});
 export const urlencodedParser = express.urlencoded({ limit: "5mb", extended: true });
 
 // Readiness check middleware - allow health/config checks even during startup

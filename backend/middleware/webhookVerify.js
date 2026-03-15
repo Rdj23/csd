@@ -9,8 +9,8 @@ const KNOWN_SECRETS = [WEBHOOK_SECRET, AGENT_WEBHOOK_SECRET].filter(Boolean);
 
 /**
  * Verifies DevRev webhook signatures using HMAC-SHA256.
- * Supports multiple webhook secrets (ticket webhook + agent webhook).
- * If no secrets are configured, logs a warning and passes through (dev mode).
+ * Uses the raw request body (preserved by express.json verify callback)
+ * to ensure signature matches exactly what DevRev signed.
  */
 export const verifyWebhookSignature = (req, res, next) => {
   // Skip verification for challenge-response (DevRev setup handshake)
@@ -30,10 +30,11 @@ export const verifyWebhookSignature = (req, res, next) => {
   }
 
   try {
-    const payload = JSON.stringify(req.body);
+    // Use raw body buffer if available (preserves exact bytes DevRev signed),
+    // fall back to JSON.stringify for backwards compatibility
+    const payload = req.rawBody || JSON.stringify(req.body);
     const signatureBuffer = Buffer.from(signature, "hex");
 
-    // Try each known secret — the webhook could come from any registered source
     for (const secret of KNOWN_SECRETS) {
       const expected = crypto
         .createHmac("sha256", secret)
@@ -45,7 +46,7 @@ export const verifyWebhookSignature = (req, res, next) => {
         signatureBuffer.length === expectedBuffer.length &&
         crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
       ) {
-        return next(); // Signature matched
+        return next();
       }
     }
 
