@@ -12,6 +12,7 @@ import healthRoutes from "./health.js";
 import cacheRoutes from "./cache.js";
 import activityRoutes from "./activity.js";
 import externalRoutes from "./external.js";
+import agentRoutes from "./agent.js";
 
 export const mountRoutes = (app) => {
   app.use("/api", authRoutes);
@@ -28,4 +29,5 @@ export const mountRoutes = (app) => {
   app.use("/api", cacheRoutes);
   app.use("/api", activityRoutes);
   app.use("/api", externalRoutes);
+  app.use("/api", agentRoutes);
 };

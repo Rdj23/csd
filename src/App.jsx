@@ -13,6 +13,7 @@ import AllTicketsView from "./features/tickets/components/Allticketsview";
 
 import GamificationView from "./features/gamification/components/GamificationView";
 import ActivityDashboard from "./features/activity/components/ActivityDashboard";
+import AgentChat from "./features/agent/components/AgentChat";
 
 import {
   Users,
@@ -49,6 +50,7 @@ import {
   LayoutGrid,
   Import,
   Tag,
+  Bot,
 } from "lucide-react";
 import {
   parseISO,
@@ -1485,6 +1487,9 @@ const App = () => {
               ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
                 ? [{ id: "gamification", icon: Trophy, label: "Gamification" }]
                 : []),
+              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
+                ? [{ id: "agent", icon: Bot, label: "AI Agent" }]
+                : []),
             ].map((t) => (
               <button
                 key={t.id}
@@ -2278,6 +2283,10 @@ const App = () => {
       currentUser={currentUser}
       isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
     />
+  </ErrorBoundary>
+) : activeTab === "agent" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
+  <ErrorBoundary level="section">
+    <AgentChat />
   </ErrorBoundary>
 ) : activeTab === "alltickets" ? (
                 <ErrorBoundary level="section">

@@ -9,7 +9,9 @@ const WEBHOOK_SECRET = process.env.DEVREV_WEBHOOK_SECRET;
  */
 export const verifyWebhookSignature = (req, res, next) => {
   // Skip verification for challenge-response (DevRev setup handshake)
-  if (req.body?.type === "webhook_verify") {
+  // DevRev sends verify as either { type: "webhook_verify", challenge: "..." }
+  // or { verify: { challenge: "..." } }
+  if (req.body?.type === "webhook_verify" || req.body?.verify?.challenge) {
     return next();
   }
 
