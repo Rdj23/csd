@@ -33,11 +33,13 @@ export const handleDevRevWebhook = (req, res) => {
   // --- AI Agent response (from DevRev agent async API webhook) ---
   // Response can be at event.ai_agent_response (direct) or event.payload.ai_agent_response (wrapped)
   const ar = event.ai_agent_response || event.payload?.ai_agent_response;
-  if (ar && (ar.agent_response === "message" || ar.agent_response === "error")) {
-    const type = ar.agent_response === "message" ? "message" : "error";
-    const text = type === "message" ? ar.message : (ar.error?.error || "Unknown agent error");
-    storeAgentResponse(ar.session_object, type, text);
-    logger.info({ session: ar.session_object, type }, "AI agent webhook received");
+  if (ar) {
+    logger.info({ agent_response: ar.agent_response, session_object: ar.session_object }, "AI agent webhook payload received");
+    if (ar.agent_response === "message" || ar.agent_response === "error") {
+      const type = ar.agent_response === "message" ? "message" : "error";
+      const text = type === "message" ? ar.message : (ar.error?.error || "Unknown agent error");
+      storeAgentResponse(ar.session_object, type, text);
+    }
   }
 
   // --- Timeline entry events (activity intelligence) ---

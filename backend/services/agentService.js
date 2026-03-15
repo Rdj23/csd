@@ -15,22 +15,22 @@ const headers = {
   "Content-Type": "application/json",
 };
 
-// In-memory store for pending agent responses (session_object → response)
+// In-memory store for pending agent responses (key → response)
 const pendingResponses = new Map();
 
 /**
  * Send a query to the DevRev AI Agent using the async API.
- * Uses a unique session_object per query. DevRev manages session memory automatically.
+ * Returns the DevRev session DON which the webhook will reference in session_object.
  */
 export async function sendAgentQuery(query, sessionObject) {
   if (!WEBHOOK_DON) {
     throw new Error("DEVREV_AGENT_WEBHOOK_DON not configured — deploy backend and create webhook first");
   }
 
-  // Generate a unique session_object if not provided (for new conversations)
-  const sessionId = sessionObject || `dash_${crypto.randomUUID()}`;
+  // Use provided sessionObject for multi-turn, or generate a unique one
+  const clientSessionId = sessionObject || `dash_${crypto.randomUUID()}`;
 
-  await axios.post(
+  const res = await axios.post(
     `${DEVREV_API}/internal/ai-agents.events.execute-async`,
     {
       agent: AGENT_DON,
@@ -39,7 +39,7 @@ export async function sendAgentQuery(query, sessionObject) {
           message: query,
         },
       },
-      session_object: sessionId,
+      session_object: clientSessionId,
       webhook_target: {
         webhook: WEBHOOK_DON,
       },
@@ -47,28 +47,53 @@ export async function sendAgentQuery(query, sessionObject) {
     { headers }
   );
 
-  logger.info({ sessionId, query: query.substring(0, 80) }, "Agent query sent via async API");
+  // DevRev returns a session DON — this is what the webhook will use as session_object
+  const devrevSessionId = res.data?.session?.id;
 
-  // Mark as pending
-  pendingResponses.set(sessionId, { status: "pending", createdAt: Date.now() });
+  // We poll using the client session ID, but the webhook may arrive with either
+  // our clientSessionId or the DevRev session DON — register both as pending
+  const pollKey = clientSessionId;
+  pendingResponses.set(pollKey, { status: "pending", createdAt: Date.now() });
+  if (devrevSessionId && devrevSessionId !== clientSessionId) {
+    // Map DevRev session DON → our poll key so webhook can find it
+    pendingResponses.set(devrevSessionId, { status: "pending", createdAt: Date.now(), aliasOf: pollKey });
+  }
 
-  return sessionId;
+  logger.info({ pollKey, devrevSessionId, query: query.substring(0, 80) }, "Agent query sent via async API");
+
+  return pollKey;
 }
 
 /**
  * Store a response received via webhook.
+ * The webhook's session_object could be our clientSessionId or the DevRev DON.
  */
-export function storeAgentResponse(sessionId, type, text) {
-  pendingResponses.set(sessionId, {
+export function storeAgentResponse(webhookSessionId, type, text) {
+  const responseData = {
     status: "done",
-    type, // "message" or "error"
+    type,
     text,
     receivedAt: Date.now(),
-  });
-  logger.info({ sessionId, type }, "Agent response stored");
+  };
+
+  // Check if this is an alias pointing to the real poll key
+  const existing = pendingResponses.get(webhookSessionId);
+  if (existing?.aliasOf) {
+    // Store on the real poll key
+    pendingResponses.set(existing.aliasOf, responseData);
+    pendingResponses.delete(webhookSessionId);
+    logger.info({ webhookSessionId, resolvedTo: existing.aliasOf, type }, "Agent response stored (via alias)");
+  } else {
+    // Store directly
+    pendingResponses.set(webhookSessionId, responseData);
+    logger.info({ webhookSessionId, type }, "Agent response stored");
+  }
 
   // Auto-cleanup after 10 minutes
-  setTimeout(() => pendingResponses.delete(sessionId), 10 * 60 * 1000);
+  setTimeout(() => {
+    pendingResponses.delete(webhookSessionId);
+    if (existing?.aliasOf) pendingResponses.delete(existing.aliasOf);
+  }, 10 * 60 * 1000);
 }
 
 /**
@@ -77,6 +102,7 @@ export function storeAgentResponse(sessionId, type, text) {
 export function pollAgentResponse(sessionId) {
   const entry = pendingResponses.get(sessionId);
   if (!entry) return { status: "not_found" };
+  if (entry.aliasOf) return { status: "pending" }; // alias entry, real response not yet received
   return entry;
 }
 
