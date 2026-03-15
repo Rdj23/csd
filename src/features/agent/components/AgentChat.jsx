@@ -110,9 +110,10 @@ export default function AgentChat() {
         }
       }, POLL_INTERVAL);
     } catch (err) {
+      const errMsg = err.response?.data?.error || err.message || "Failed to send query.";
       updateActiveChat((c) => ({
         ...c,
-        messages: [...c.messages, { role: "agent", text: err.message || "Failed to send query.", type: "error" }],
+        messages: [...c.messages, { role: "agent", text: errMsg, type: "error" }],
       }));
       setLoading(false);
     }
