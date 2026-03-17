@@ -1322,6 +1322,20 @@ const App = () => {
     );
   };
 
+  // ⌘K / Ctrl+K shortcut to open AI Agent modal
+  useEffect(() => {
+    const isAdmin = SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()];
+    if (!isAdmin || !isAuthenticated) return;
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowAgentModal((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentUser?.email, isAuthenticated]);
+
   if (!googleClientId)
     return (
       <div className="flex h-screen items-center justify-center flex-col gap-6 bg-slate-50 dark:bg-slate-900 p-6">
@@ -1387,20 +1401,6 @@ const App = () => {
         )}
       </div>
     );
-  // ⌘K / Ctrl+K shortcut to open AI Agent modal
-  useEffect(() => {
-    const isAdmin = SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()];
-    if (!isAdmin) return;
-    const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setShowAgentModal((prev) => !prev);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentUser?.email]);
-
   if (!isAuthenticated)
     return (
       <GoogleOAuthProvider clientId={googleClientId}>
