@@ -13,7 +13,7 @@ import AllTicketsView from "./features/tickets/components/Allticketsview";
 
 import GamificationView from "./features/gamification/components/GamificationView";
 import ActivityDashboard from "./features/activity/components/ActivityDashboard";
-import AgentChat from "./features/agent/components/AgentChat";
+import AgentModal from "./features/agent/components/AgentModal";
 
 import {
   Users,
@@ -50,7 +50,7 @@ import {
   LayoutGrid,
   Import,
   Tag,
-  Bot,
+  Sparkles,
 } from "lucide-react";
 import {
   parseISO,
@@ -147,6 +147,7 @@ const App = () => {
 
   const [googleClientId, setGoogleClientId] = useState(null);
   const [activeTab, setActiveTab] = useState("tickets");
+  const [showAgentModal, setShowAgentModal] = useState(false);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -1386,6 +1387,20 @@ const App = () => {
         )}
       </div>
     );
+  // ⌘K / Ctrl+K shortcut to open AI Agent modal
+  useEffect(() => {
+    const isAdmin = SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()];
+    if (!isAdmin) return;
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowAgentModal((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentUser?.email]);
+
   if (!isAuthenticated)
     return (
       <GoogleOAuthProvider clientId={googleClientId}>
@@ -1426,6 +1441,26 @@ const App = () => {
                 </p>
               </div>
             </div>
+
+            {/* AI Agent Search Bar */}
+            {(SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) && (
+              <div className="flex-1 flex justify-center px-8 max-w-xl mx-auto">
+                <button
+                  onClick={() => setShowAgentModal(true)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/60 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-md hover:shadow-indigo-500/5 transition-all duration-200 group cursor-text"
+                >
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shrink-0 shadow-sm shadow-indigo-500/20">
+                    <Sparkles className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <span className="text-[13px] text-slate-400 dark:text-slate-500 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-colors">
+                    Ask AI about your tickets, customers, data...
+                  </span>
+                  <kbd className="ml-auto hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-medium text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-600">
+                    ⌘K
+                  </kbd>
+                </button>
+              </div>
+            )}
 
             {/* Actions */}
             <div className="flex items-center gap-2">
@@ -1486,9 +1521,6 @@ const App = () => {
                 : []),
               ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
                 ? [{ id: "gamification", icon: Trophy, label: "Gamification" }]
-                : []),
-              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
-                ? [{ id: "agent", icon: Bot, label: "AI Agent" }]
                 : []),
             ].map((t) => (
               <button
@@ -2284,10 +2316,6 @@ const App = () => {
       isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
     />
   </ErrorBoundary>
-) : activeTab === "agent" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
-  <ErrorBoundary level="section">
-    <AgentChat />
-  </ErrorBoundary>
 ) : activeTab === "alltickets" ? (
                 <ErrorBoundary level="section">
                   <AllTicketsView
@@ -2406,6 +2434,9 @@ const App = () => {
             />
           );
         })()}
+
+      {/* AI Agent Modal */}
+      <AgentModal open={showAgentModal} onClose={() => setShowAgentModal(false)} />
     </div>
   );
 };
