@@ -15,6 +15,7 @@ export const fetchAnalyticsData = async (authFetch, filters = {}) => {
   if (filters.excludeZendesk) params.append("excludeZendesk", "true");
   if (filters.excludeNOC) params.set("excludeNOC", "true");
   if (filters.owner) params.append("owner", filters.owner);
+  if (filters.cohorts) params.append("cohorts", filters.cohorts);
   if (filters.forceRefresh) params.append("forceRefresh", "true");
   if (filters.groupBy) params.append("groupBy", filters.groupBy);
 

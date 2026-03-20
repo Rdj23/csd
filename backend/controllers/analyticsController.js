@@ -80,10 +80,18 @@ export const getAnalytics = async (req, res) => {
     const cohortFilter = cohorts || cohort;
     if (cohortFilter) {
       const cohortList = cohortFilter.split(",").map(c => c.trim());
-      if (cohortList.length === 1) {
+      const hasC4S = cohortList.some(c => c.toLowerCase() === "c4s");
+      const regexFilters = cohortList.map(c => new RegExp(escapeRegex(c), "i"));
+      if (hasC4S) {
+        // C4S is the default — tickets with null/empty account_cohort are also C4S
+        matchConditions.$or = [
+          { account_cohort: { $in: regexFilters } },
+          { account_cohort: { $in: [null, ""] } },
+        ];
+      } else if (cohortList.length === 1) {
         matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
       } else {
-        matchConditions.account_cohort = { $in: cohortList.map(c => new RegExp(escapeRegex(c), "i")) };
+        matchConditions.account_cohort = { $in: regexFilters };
       }
     }
 
@@ -187,10 +195,17 @@ export const getAnalytics = async (req, res) => {
     if (excludeZendesk === "true") dsatMatch.is_zendesk = { $ne: true };
     if (cohortFilter) {
       const cohortList = cohortFilter.split(",").map(c => c.trim());
-      if (cohortList.length === 1) {
+      const hasC4S = cohortList.some(c => c.toLowerCase() === "c4s");
+      const regexFilters = cohortList.map(c => new RegExp(escapeRegex(c), "i"));
+      if (hasC4S) {
+        dsatMatch.$or = [
+          { account_cohort: { $in: regexFilters } },
+          { account_cohort: { $in: [null, ""] } },
+        ];
+      } else if (cohortList.length === 1) {
         dsatMatch.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
       } else {
-        dsatMatch.account_cohort = { $in: cohortList.map(c => new RegExp(escapeRegex(c), "i")) };
+        dsatMatch.account_cohort = { $in: regexFilters };
       }
     }
     const badTickets = await AnalyticsTicket.find(dsatMatch, {
@@ -480,10 +495,17 @@ export const getTicketDrillDown = async (req, res) => {
     const cohortFilter = cohorts || cohort;
     if (cohortFilter) {
       const cohortList = cohortFilter.split(",").map(c => c.trim());
-      if (cohortList.length === 1) {
+      const hasC4S = cohortList.some(c => c.toLowerCase() === "c4s");
+      const regexFilters = cohortList.map(c => new RegExp(escapeRegex(c), "i"));
+      if (hasC4S) {
+        matchConditions.$or = [
+          { account_cohort: { $in: regexFilters } },
+          { account_cohort: { $in: [null, ""] } },
+        ];
+      } else if (cohortList.length === 1) {
         matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
       } else {
-        matchConditions.account_cohort = { $in: cohortList.map(c => new RegExp(escapeRegex(c), "i")) };
+        matchConditions.account_cohort = { $in: regexFilters };
       }
     }
 
