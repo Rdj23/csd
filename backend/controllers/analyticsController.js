@@ -55,7 +55,7 @@ export const getAnalytics = async (req, res) => {
       }
     }
 
-    logger.info({ cacheKey }, "Analytics cache MISS");
+    logger.info({ cacheKey, cohortFilter: cohorts || cohort || "none" }, "Analytics cache MISS");
 
     // 2. Check MongoDB cache (fallback)
     if (forceRefresh !== "true") {
