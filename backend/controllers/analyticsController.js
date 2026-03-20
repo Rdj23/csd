@@ -86,7 +86,9 @@ export const getAnalytics = async (req, res) => {
         // C4S is the default — tickets with null/empty account_cohort are also C4S
         matchConditions.$or = [
           { account_cohort: { $in: regexFilters } },
-          { account_cohort: { $in: [null, ""] } },
+          { account_cohort: null },
+          { account_cohort: "" },
+          { account_cohort: { $exists: false } },
         ];
       } else if (cohortList.length === 1) {
         matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
@@ -200,7 +202,9 @@ export const getAnalytics = async (req, res) => {
       if (hasC4S) {
         dsatMatch.$or = [
           { account_cohort: { $in: regexFilters } },
-          { account_cohort: { $in: [null, ""] } },
+          { account_cohort: null },
+          { account_cohort: "" },
+          { account_cohort: { $exists: false } },
         ];
       } else if (cohortList.length === 1) {
         dsatMatch.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
@@ -500,7 +504,9 @@ export const getTicketDrillDown = async (req, res) => {
       if (hasC4S) {
         matchConditions.$or = [
           { account_cohort: { $in: regexFilters } },
-          { account_cohort: { $in: [null, ""] } },
+          { account_cohort: null },
+          { account_cohort: "" },
+          { account_cohort: { $exists: false } },
         ];
       } else if (cohortList.length === 1) {
         matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };

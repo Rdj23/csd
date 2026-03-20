@@ -1514,6 +1514,9 @@ const AnalyticsDashboard = ({
       quarter: currentQuarter,
       excludeZendesk,
       excludeNOC,
+      owner: filterOwner !== "All" ? filterOwner : null,
+      cohorts: filters?.cohorts?.length > 0 ? filters.cohorts.join(",") : null,
+      groupBy,
       forceRefresh: true,
     });
 
