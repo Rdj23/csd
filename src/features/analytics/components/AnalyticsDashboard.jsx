@@ -1407,13 +1407,15 @@ const AnalyticsDashboard = ({
   useEffect(() => {
     // Debounce the fetch to prevent rapid re-fetches on filter changes
     const timeoutId = setTimeout(() => {
+      const hasCohortFilter = filters?.cohorts?.length > 0;
       fetchAnalyticsData({
         quarter: currentQuarter,
         excludeZendesk,
         excludeNOC,
         owner: filterOwner !== "All" ? filterOwner : null,
-        cohorts: filters?.cohorts?.length > 0 ? filters.cohorts.join(",") : null,
+        cohorts: hasCohortFilter ? filters.cohorts.join(",") : null,
         groupBy,
+        forceRefresh: hasCohortFilter,
       });
     }, 150); // 150ms debounce
 
