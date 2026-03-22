@@ -5,7 +5,29 @@ import { sendAgentQuery, pollAgentResponse } from "../../../api/agentApi";
 const POLL_INTERVAL = 2000;
 const MAX_POLLS = 60;
 
-// Convert DevRev DON URIs to clickable TKT-XXXXX links
+// Parse inline markdown bold (**text**) within a plain string
+function parseBold(str, keyPrefix = 0) {
+  const BOLD_REGEX = /\*\*(.+?)\*\*/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = BOLD_REGEX.exec(str)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(str.slice(lastIndex, match.index));
+    }
+    parts.push(<strong key={`b-${keyPrefix}-${match.index}`}>{match[1]}</strong>);
+    lastIndex = BOLD_REGEX.lastIndex;
+  }
+
+  if (lastIndex < str.length) {
+    parts.push(str.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : str;
+}
+
+// Convert DevRev DON URIs to clickable TKT-XXXXX links and render bold
 function formatAgentText(text) {
   const DON_REGEX = /\[?<don:core:[^:]+:[^:]+:ticket\/(\d+)>\]?/g;
   const parts = [];
@@ -14,7 +36,7 @@ function formatAgentText(text) {
 
   while ((match = DON_REGEX.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
+      parts.push(...[].concat(parseBold(text.slice(lastIndex, match.index), match.index)));
     }
     const ticketNum = match[1];
     parts.push(
@@ -32,7 +54,7 @@ function formatAgentText(text) {
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
+    parts.push(...[].concat(parseBold(text.slice(lastIndex), lastIndex)));
   }
 
   return parts.length > 0 ? parts : text;
