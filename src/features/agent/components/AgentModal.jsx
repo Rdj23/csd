@@ -5,6 +5,39 @@ import { sendAgentQuery, pollAgentResponse } from "../../../api/agentApi";
 const POLL_INTERVAL = 2000;
 const MAX_POLLS = 60;
 
+// Convert DevRev DON URIs to clickable TKT-XXXXX links
+function formatAgentText(text) {
+  const DON_REGEX = /\[?<don:core:[^:]+:[^:]+:ticket\/(\d+)>\]?/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = DON_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const ticketNum = match[1];
+    parts.push(
+      <a
+        key={match.index}
+        href={`https://app.devrev.ai/clevertapsupport/works/TKT-${ticketNum}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+      >
+        TKT-{ticketNum}
+      </a>
+    );
+    lastIndex = DON_REGEX.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 const SUGGESTIONS = [
   "How many open tickets do we have?",
   "Show high priority tickets",
@@ -181,7 +214,7 @@ export default function AgentModal({ open, onClose }) {
                       : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-bl-md border border-slate-100 dark:border-slate-700/50"
                 }`}
               >
-                {msg.text}
+                {msg.role === "agent" ? formatAgentText(msg.text) : msg.text}
               </div>
               {msg.role === "user" && (
                 <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
