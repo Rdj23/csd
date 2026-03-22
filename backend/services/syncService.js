@@ -521,6 +521,57 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     await sendSlackAlerts(ticketsToAlert);
   }
 
+  // ── Ownership refresh for recently solved tickets (last 15 days) ──
+  // Tickets solved recently may have had ownership changes after being stored.
+  // Re-fetch current owner from DevRev and update if changed.
+  try {
+    const fifteenDaysAgo = new Date();
+    fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+
+    const recentTickets = await AnalyticsTicket.find(
+      { closed_date: { $gte: fifteenDaysAgo } },
+      { ticket_id: 1, devrev_id: 1, owner: 1, owner_id: 1 },
+    ).lean();
+
+    if (recentTickets.length > 0) {
+      logger.info({ count: recentTickets.length }, "Ownership refresh: checking recently solved tickets");
+      let ownerUpdated = 0;
+
+      for (const ticket of recentTickets) {
+        try {
+          const res = await axios.post(
+            `${DEVREV_API}/works.get`,
+            { id: ticket.devrev_id },
+            { headers: HEADERS, timeout: 10000 },
+          );
+          const currentOwnerRaw = res.data?.work?.owned_by?.[0]?.display_name || "";
+          const currentOwnerId = res.data?.work?.owned_by?.[0]?.id || null;
+          const currentOwner = resolveOwnerName(currentOwnerRaw);
+
+          if (currentOwner && currentOwner !== ticket.owner) {
+            await AnalyticsTicket.updateOne(
+              { ticket_id: ticket.ticket_id },
+              { $set: { owner: currentOwner, owner_id: currentOwnerId } },
+            );
+            logger.info(
+              { ticket_id: ticket.ticket_id, oldOwner: ticket.owner, newOwner: currentOwner },
+              "Ownership updated",
+            );
+            ownerUpdated++;
+          }
+        } catch (e) {
+          logger.warn({ ticket_id: ticket.ticket_id, err: e.message }, "Ownership refresh: failed to fetch ticket");
+        }
+      }
+
+      if (ownerUpdated > 0) {
+        logger.info({ ownerUpdated }, "Ownership refresh complete");
+      }
+    }
+  } catch (e) {
+    logger.error({ err: e }, "Ownership refresh failed");
+  }
+
   await Promise.all([
     AnalyticsCache.deleteMany({}),
     PrecomputedDashboard.deleteMany({}),
