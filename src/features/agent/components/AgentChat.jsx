@@ -7,7 +7,8 @@ const MAX_POLLS = 60;
 
 // Convert DevRev DON URIs to clickable TKT-XXXXX links
 function formatAgentText(text) {
-  const DON_REGEX = /<don:core:dvrv-us-1:devo\/[^:]+:ticket\/(\d+)>/g;
+  // Match DON URIs with optional surrounding brackets: [<don:...>] or <don:...>
+  const DON_REGEX = /\[?<don:core:[^:]+:[^:]+:ticket\/(\d+)>\]?/g;
   const parts = [];
   let lastIndex = 0;
   let match;
@@ -20,7 +21,7 @@ function formatAgentText(text) {
     parts.push(
       <a
         key={match.index}
-        href={`https://app.devrev.ai/gst/works/TKT-${ticketNum}`}
+        href={`https://app.devrev.ai/clevertapsupport/works/TKT-${ticketNum}`}
         target="_blank"
         rel="noopener noreferrer"
         className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
