@@ -156,16 +156,16 @@ const TicketList = ({
           </div>
         ) : (
         <div className="overflow-x-auto min-h-[400px] scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500">
-          <table className="w-full text-left border-collapse min-w-[1600px]">
+          <table className="w-full text-left border-collapse min-w-[1400px]">
             <thead className="bg-gradient-to-b from-slate-50 to-slate-40 dark:from-slate-800/80 dark:to-slate-800/50 border-b border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-widest font-semibold sticky top-0 z-10">
               <tr>
                 {/* 1. Ticket (Sticky Left) */}
                 <th className="px-4 py-3 w-[320px] align-middle sticky left-0 z-30 bg-slate-50 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/60 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
                   Ticket
                 </th>
-                <th className="px-4 py-3 w-[150px] align-middle">Region</th>
-                <th className="px-4 py-3 w-[120px] align-middle">Cohort</th>
-                <th className="px-4 py-3 w-[180px] align-middle">Owner</th>
+                <th className="px-3 py-3 w-[100px] align-middle">Region</th>
+                <th className="px-3 py-3 w-[110px] align-middle">Cohort</th>
+                <th className="px-3 py-3 w-[150px] align-middle">Owner</th>
                 <th className={`px-3 py-3 w-[90px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
                   sortConfig.key === "sentiment"
                     ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
@@ -175,8 +175,8 @@ const TicketList = ({
                     Sentiment <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "sentiment" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
-                <th className="px-4 py-3 w-[180px] align-middle">CSM</th>
-                <th className="px-4 py-3 w-[180px] align-middle">TAM</th>
+                <th className="px-3 py-3 w-[130px] align-middle">CSM</th>
+                <th className="px-3 py-3 w-[130px] align-middle">TAM</th>
                 <th className="px-3 py-3 text-center w-[120px]">Team</th>
                 <th className="px-3 py-3 text-center w-[140px]">Assignee</th>
                 <th className="px-4 py-3 w-[120px] align-middle">Stage</th>
@@ -204,7 +204,7 @@ const TicketList = ({
                   className={`px-2 py-3 w-[75px] align-middle sticky right-[435px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "days"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
-                      : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
+                      : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("days")}
                 >
@@ -215,10 +215,10 @@ const TicketList = ({
 
                 {/* CT Updated (Sticky Right 2) */}
                 <th
-                  className={`px-2 py-3 w-[140px] align-middle sticky right-[270px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[140px] align-middle sticky right-[295px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "ct_updated"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
-                      : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
+                      : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("ct_updated")}
                 >
@@ -232,7 +232,7 @@ const TicketList = ({
                   className={`px-2 py-3 w-[160px] align-middle sticky right-[135px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "cust_updated"
                       ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
-                      : "bg-slate-50 dark:bg-slate-800/80 hover:text-slate-600 dark:hover:text-slate-300"
+                      : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("cust_updated")}
                 >
@@ -242,7 +242,7 @@ const TicketList = ({
                 </th>
 
                 {/* Status (Sticky Right 4) */}
-                <th className="px-2 py-3 w-[135px] min-w-[135px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800/80 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                <th className="px-2 py-3 w-[135px] min-w-[135px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   Status
                 </th>
               </tr>
@@ -294,14 +294,14 @@ const TicketList = ({
                     </td>
 
                     {/* 2. Region */}
-                    <td className="px-4 py-3.5 align-middle">
+                    <td className="px-3 py-3.5 align-middle">
                       <span className="badge badge-neutral text-[10px]">
                         {t.region}
                       </span>
                     </td>
 
                     {/* 2b. Cohort */}
-                    <td className="px-4 py-3.5 align-middle">
+                    <td className="px-3 py-3.5 align-middle">
                       {(() => {
                         const label = t.cohort
                           ? t.cohort.replace(/\s*Accounts?\s*$/i, "")
@@ -323,7 +323,7 @@ const TicketList = ({
                     </td>
 
                     {/* 3. Owner (Clickable) */}
-                    <td className="px-4 py-3.5 align-middle">
+                    <td className="px-3 py-3.5 align-middle">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 flex-shrink-0">
                           {ownerName[0]}
@@ -357,12 +357,12 @@ const TicketList = ({
                     </td>
 
                     {/* 4. CSM */}
-                    <td className="p-4 align-middle text-slate-600 dark:text-slate-400 text-xs">
+                    <td className="px-3 py-3.5 align-middle text-slate-600 dark:text-slate-400 text-xs">
                       {csmName}
                     </td>
 
                     {/* 5. TAM */}
-                    <td className="p-4 align-middle text-slate-600 dark:text-slate-400 text-xs">
+                    <td className="px-3 py-3.5 align-middle text-slate-600 dark:text-slate-400 text-xs">
                       {tamName}
                     </td>
 
