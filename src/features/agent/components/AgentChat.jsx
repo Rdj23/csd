@@ -5,6 +5,39 @@ import { sendAgentQuery, pollAgentResponse } from "../../../api/agentApi";
 const POLL_INTERVAL = 2000;
 const MAX_POLLS = 60;
 
+// Convert DevRev DON URIs to clickable TKT-XXXXX links
+function formatAgentText(text) {
+  const DON_REGEX = /<don:core:dvrv-us-1:devo\/[^:]+:ticket\/(\d+)>/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = DON_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const ticketNum = match[1];
+    parts.push(
+      <a
+        key={match.index}
+        href={`https://app.devrev.ai/gst/works/TKT-${ticketNum}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+      >
+        TKT-{ticketNum}
+      </a>
+    );
+    lastIndex = DON_REGEX.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 export default function AgentChat() {
   // Each chat has its own sessionObject for DevRev conversation memory
   const [chats, setChats] = useState([{ id: Date.now(), title: "New Chat", messages: [], sessionObject: null }]);
@@ -224,7 +257,7 @@ export default function AgentChat() {
                       : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-bl-sm"
                 }`}
               >
-                {msg.text}
+                {msg.role === "agent" ? formatAgentText(msg.text) : msg.text}
               </div>
               {msg.role === "user" && (
                 <div className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0 mt-0.5">
