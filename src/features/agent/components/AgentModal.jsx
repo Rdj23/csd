@@ -27,7 +27,42 @@ function parseBold(str, keyPrefix = 0) {
   return parts.length > 0 ? parts : str;
 }
 
-// Convert DevRev DON URIs to clickable TKT-XXXXX links and render bold
+// Parse markdown links [text](url) into clickable <a> tags, then apply bold parsing to remaining text
+function parseLinks(str, keyPrefix = 0) {
+  const LINK_REGEX = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = LINK_REGEX.exec(str)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(...[].concat(parseBold(str.slice(lastIndex, match.index), `${keyPrefix}-${lastIndex}`)));
+    }
+    const linkText = match[1];
+    const url = match[2];
+    parts.push(
+      <a
+        key={`link-${keyPrefix}-${match.index}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        download
+        className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+      >
+        {linkText}
+      </a>
+    );
+    lastIndex = LINK_REGEX.lastIndex;
+  }
+
+  if (lastIndex < str.length) {
+    parts.push(...[].concat(parseBold(str.slice(lastIndex), `${keyPrefix}-${lastIndex}`)));
+  }
+
+  return parts.length > 0 ? parts : parseBold(str, keyPrefix);
+}
+
+// Convert DevRev DON URIs to clickable TKT-XXXXX links, markdown links, and render bold
 function formatAgentText(text) {
   const DON_REGEX = /\[?<don:core:[^:]+:[^:]+:ticket\/(\d+)>\]?/g;
   const parts = [];
@@ -36,7 +71,7 @@ function formatAgentText(text) {
 
   while ((match = DON_REGEX.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(...[].concat(parseBold(text.slice(lastIndex, match.index), match.index)));
+      parts.push(...[].concat(parseLinks(text.slice(lastIndex, match.index), match.index)));
     }
     const ticketNum = match[1];
     parts.push(
@@ -54,7 +89,7 @@ function formatAgentText(text) {
   }
 
   if (lastIndex < text.length) {
-    parts.push(...[].concat(parseBold(text.slice(lastIndex), lastIndex)));
+    parts.push(...[].concat(parseLinks(text.slice(lastIndex), lastIndex)));
   }
 
   return parts.length > 0 ? parts : text;

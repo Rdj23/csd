@@ -201,9 +201,9 @@ const TicketList = ({
 
                 {/* Age (Sticky Right 1) */}
                 <th
-                  className={`px-2 py-3 w-[75px] align-middle sticky right-[435px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[75px] min-w-[75px] max-w-[75px] align-middle sticky right-[435px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.15)] cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "days"
-                      ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
+                      ? "bg-indigo-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("days")}
@@ -215,29 +215,29 @@ const TicketList = ({
 
                 {/* CT Updated (Sticky Right 2) */}
                 <th
-                  className={`px-2 py-3 w-[140px] align-middle sticky right-[295px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[140px] min-w-[140px] max-w-[140px] align-middle sticky right-[295px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "ct_updated"
-                      ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
+                      ? "bg-indigo-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("ct_updated")}
                 >
-                  <div className="flex items-center justify-center gap-0.5 text-[8px]">
-                    CT REPLY <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "ct_updated" ? "opacity-100" : "opacity-50"}`} />
+                  <div className="flex items-center justify-center gap-0.5">
+                    CT REPLY <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "ct_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
                 {/* Customer Updated (Sticky Right 3) */}
                 <th
-                  className={`px-2 py-3 w-[160px] align-middle sticky right-[135px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[160px] min-w-[160px] max-w-[160px] align-middle sticky right-[135px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "cust_updated"
-                      ? "bg-indigo-50/50 dark:bg-indigo-900/20 text-slate-700 dark:text-slate-200"
+                      ? "bg-indigo-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
                   }`}
                   onClick={() => handleSort("cust_updated")}
                 >
-                  <div className="flex items-center justify-center gap-0.5 text-[8px]">
-                    CUSTOMER REPLY <ArrowUpDown className={`w-2 h-2 ${sortConfig.key === "cust_updated" ? "opacity-100" : "opacity-50"}`} />
+                  <div className="flex items-center justify-center gap-0.5">
+                    CUSTOMER REPLY <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "cust_updated" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
 
@@ -265,7 +265,7 @@ const TicketList = ({
                     className="hover:bg-indigo-50/40 dark:hover:bg-indigo-900/10 transition-colors duration-150 group text-sm hover:shadow-sm"
                   >
                     {/* 1. Ticket (Sticky Left) */}
-                    <td className="px-4 py-3.5 w-[320px] align-middle sticky left-0 z-30 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-r border-slate-100 dark:border-slate-800 transition-colors duration-150 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                    <td className="px-4 py-3.5 w-[320px] align-middle sticky left-0 z-30 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-r border-slate-100 dark:border-slate-800 transition-colors duration-150 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.15)]">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-mono text-[11px] font-semibold text-slate-400 dark:text-slate-500">
                           {t.display_id}
@@ -420,7 +420,7 @@ const TicketList = ({
                     </td>
 
                     {/* 9. RWT */}
-                    <td className="px-4 py-3 align-middle text-center">
+                    <td className="px-2 py-3 align-middle text-center w-[100px] min-w-[100px]">
                       {t.rwt != null ? (
                         <span className={`px-2 py-1 rounded text-xs font-semibold ${
                           t.rwt > 24
@@ -437,7 +437,7 @@ const TicketList = ({
                     </td>
 
                     {/* 10. Iterations */}
-                    <td className="px-4 py-3 align-middle text-center">
+                    <td className="px-2 py-3 align-middle text-center w-[90px] min-w-[90px]">
                       {t.iterations != null ? (
                         <span className={`px-2 py-1 rounded text-xs font-semibold ${
                           t.iterations > 5
@@ -454,13 +454,13 @@ const TicketList = ({
                     </td>
 
                     {/* 11. Age (Sticky Right 1) */}
-                    <td className="px-1.5 py-3.5 align-middle sticky right-[435px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                    <td className="px-1.5 py-3.5 align-middle w-[75px] min-w-[75px] max-w-[75px] sticky right-[435px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.15)] transition-colors duration-150">
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 text-center block">{t.days}d</span>
                     </td>
 
                     {/* 12. CT Updated (Sticky Right 2) */}
-                    <td className="px-1.5 py-3.5 align-middle sticky right-[295px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
-                      <span className="text-[9px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
+                    <td className="px-1.5 py-3.5 align-middle w-[140px] min-w-[140px] max-w-[140px] sticky right-[295px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_devu_message_ts
                           ? (() => {
                               const date = new Date(t.custom_fields.tnt__last_devu_message_ts);
@@ -474,8 +474,8 @@ const TicketList = ({
                     </td>
 
                     {/* 13. Customer Updated (Sticky Right 3) */}
-                    <td className="px-1.5 py-3.5 align-middle sticky right-[135px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
-                      <span className="text-[9px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
+                    <td className="px-1.5 py-3.5 align-middle w-[160px] min-w-[160px] max-w-[160px] sticky right-[135px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_revu_message_ts
                           ? (() => {
                               const date = new Date(t.custom_fields.tnt__last_revu_message_ts);
