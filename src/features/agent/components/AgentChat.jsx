@@ -62,8 +62,8 @@ function parseLinks(str, keyPrefix = 0) {
   return parts.length > 0 ? parts : parseBold(str, keyPrefix);
 }
 
-// Convert DevRev DON URIs to clickable TKT-XXXXX links, markdown links, and render bold
-function formatAgentText(text) {
+// Parse inline content: DON URIs → markdown links → bold
+function parseInline(text, keyPrefix = 0) {
   const DON_REGEX = /\[?<don:core:[^:]+:[^:]+:ticket\/(\d+)>\]?/g;
   const parts = [];
   let lastIndex = 0;
@@ -71,12 +71,12 @@ function formatAgentText(text) {
 
   while ((match = DON_REGEX.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(...[].concat(parseLinks(text.slice(lastIndex, match.index), match.index)));
+      parts.push(...[].concat(parseLinks(text.slice(lastIndex, match.index), `${keyPrefix}-${match.index}`)));
     }
     const ticketNum = match[1];
     parts.push(
       <a
-        key={match.index}
+        key={`don-${keyPrefix}-${match.index}`}
         href={`https://app.devrev.ai/clevertapsupport/works/TKT-${ticketNum}`}
         target="_blank"
         rel="noopener noreferrer"
@@ -89,10 +89,104 @@ function formatAgentText(text) {
   }
 
   if (lastIndex < text.length) {
-    parts.push(...[].concat(parseLinks(text.slice(lastIndex), lastIndex)));
+    parts.push(...[].concat(parseLinks(text.slice(lastIndex), `${keyPrefix}-${lastIndex}`)));
   }
 
   return parts.length > 0 ? parts : text;
+}
+
+// Detect whether a line is a markdown table separator (e.g. |---|---|)
+function isTableSeparator(line) {
+  return /^\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/.test(line.trim());
+}
+
+// Parse a block of markdown table lines into a styled <table>
+function renderTable(lines, keyPrefix) {
+  const parseRow = (line) =>
+    line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+
+  const headerCells = parseRow(lines[0]);
+  const dataLines = lines.slice(isTableSeparator(lines[1]) ? 2 : 1);
+
+  return (
+    <div key={`tbl-${keyPrefix}`} className="my-2 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="bg-slate-100 dark:bg-slate-800">
+            {headerCells.map((cell, i) => (
+              <th
+                key={i}
+                className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap border-b border-slate-200 dark:border-slate-700"
+              >
+                {parseInline(cell, `th-${keyPrefix}-${i}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          {dataLines.map((line, ri) => {
+            const cells = parseRow(line);
+            return (
+              <tr key={ri} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                {headerCells.map((_, ci) => (
+                  <td
+                    key={ci}
+                    className="px-3 py-2 text-slate-700 dark:text-slate-300 whitespace-nowrap"
+                  >
+                    {parseInline(cells[ci] || "", `td-${keyPrefix}-${ri}-${ci}`)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Top-level formatter: splits text into table blocks and prose, renders each appropriately
+function formatAgentText(text) {
+  const lines = text.split("\n");
+  const result = [];
+  let i = 0;
+  let proseBuffer = [];
+
+  const flushProse = () => {
+    if (proseBuffer.length === 0) return;
+    const chunk = proseBuffer.join("\n");
+    proseBuffer = [];
+    if (chunk.trim()) {
+      result.push(...[].concat(parseInline(chunk, result.length)));
+    } else {
+      result.push(chunk);
+    }
+  };
+
+  while (i < lines.length) {
+    // Detect start of a table: a pipe-containing line followed by a separator line
+    if (
+      lines[i].includes("|") &&
+      i + 1 < lines.length &&
+      isTableSeparator(lines[i + 1])
+    ) {
+      flushProse();
+      const tableLines = [lines[i], lines[i + 1]];
+      i += 2;
+      // Collect remaining data rows
+      while (i < lines.length && lines[i].includes("|") && !isTableSeparator(lines[i]) && lines[i].trim() !== "") {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      result.push(renderTable(tableLines, i));
+    } else {
+      proseBuffer.push(lines[i]);
+      i++;
+    }
+  }
+  flushProse();
+
+  return result;
 }
 
 export default function AgentChat() {
