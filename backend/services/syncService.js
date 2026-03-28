@@ -2,7 +2,7 @@ import axios from "axios";
 import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisDelete, CACHE_TTL } from "../config/database.js";
-import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
+import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
@@ -536,6 +536,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     if (recentTickets.length > 0) {
       logger.info({ count: recentTickets.length }, "Ownership refresh: checking recently solved tickets");
       let ownerUpdated = 0;
+      const reopenedTicketIds = [];
 
       for (const ticket of recentTickets) {
         try {
@@ -544,8 +545,22 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
             { id: ticket.devrev_id },
             { headers: HEADERS, timeout: 10000 },
           );
-          const currentOwnerRaw = res.data?.work?.owned_by?.[0]?.display_name || "";
-          const currentOwnerId = res.data?.work?.owned_by?.[0]?.id || null;
+          const work = res.data?.work;
+          const currentStage = (work?.stage?.name || "").toLowerCase();
+          const isSolved = currentStage.includes("solved") || currentStage.includes("closed") || currentStage.includes("resolved");
+
+          // If ticket is no longer solved, remove it from the solved database
+          if (!isSolved) {
+            reopenedTicketIds.push(ticket.ticket_id);
+            logger.info(
+              { ticket_id: ticket.ticket_id, currentStage: work?.stage?.name, owner: ticket.owner },
+              "Ticket no longer solved — will remove from analytics",
+            );
+            continue;
+          }
+
+          const currentOwnerRaw = work?.owned_by?.[0]?.display_name || "";
+          const currentOwnerId = work?.owned_by?.[0]?.id || null;
           const currentOwner = resolveOwnerName(currentOwnerRaw);
 
           if (currentOwner && currentOwner !== ticket.owner) {
@@ -562,6 +577,15 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
         } catch (e) {
           logger.warn({ ticket_id: ticket.ticket_id, err: e.message }, "Ownership refresh: failed to fetch ticket");
         }
+      }
+
+      // Remove reopened tickets from AnalyticsTicket and ActivitySyncedTicket
+      if (reopenedTicketIds.length > 0) {
+        await Promise.all([
+          AnalyticsTicket.deleteMany({ ticket_id: { $in: reopenedTicketIds } }),
+          ActivitySyncedTicket.deleteMany({ ticket_display_id: { $in: reopenedTicketIds } }),
+        ]);
+        logger.info({ count: reopenedTicketIds.length, ticketIds: reopenedTicketIds }, "Removed reopened tickets from solved database");
       }
 
       if (ownerUpdated > 0) {
