@@ -566,49 +566,37 @@ const DrillDownModal = ({
       });
     };
 
-    // Process each state section
+    csvContent += headers.join(",") + "\n";
+
     ["Open", "Pending", "On Hold", "Solved"].forEach((state) => {
-      const stateTickets = ticketsByState[state];
+      ticketsByState[state].forEach((t) => {
+        const owner =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "Unassigned";
+        const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
+        const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+        const cf = t.custom_fields || {};
 
-      csvContent += "\n";
-      csvContent += `${"=".repeat(20)}\n`;
-      csvContent += `${state.toUpperCase()} TICKETS (${stateTickets.length})\n`;
-      csvContent += `${"=".repeat(20)}\n`;
-
-      if (stateTickets.length === 0) {
-        csvContent += "No tickets in this category\n";
-      } else {
-        csvContent += headers.join(",") + "\n";
-
-        stateTickets.forEach((t) => {
-          const owner =
-            FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-            t.owned_by?.[0]?.display_name ||
-            "Unassigned";
-          const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
-          const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
-          const cf = t.custom_fields || {};
-
-          const row = [
-            t.display_id,
-            `"${(t.title || "").replace(/"/g, '""')}"`,
-            `"${(t.accountName || "").replace(/"/g, '""')}"`,
-            t.region || "-",
-            csm,
-            tam,
-            owner,
-            calculateAge(t),
-            t.rwt || "-",
-            t.frt || "-",
-            t.iterations || "-",
-            t.csat || "-",
-            t.frr || "-",
-            `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
-            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
-          ];
-          csvContent += row.join(",") + "\n";
-        });
-      }
+        const row = [
+          t.display_id,
+          `"${(t.title || "").replace(/"/g, '""')}"`,
+          `"${(t.accountName || "").replace(/"/g, '""')}"`,
+          t.region || "-",
+          csm,
+          tam,
+          owner,
+          calculateAge(t),
+          t.rwt || "-",
+          t.frt || "-",
+          t.iterations || "-",
+          t.csat || "-",
+          t.frr || "-",
+          `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
+          `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+        ];
+        csvContent += row.join(",") + "\n";
+      });
     });
 
     const blob = new Blob([csvContent], { type: "text/csv" });
@@ -1797,55 +1785,44 @@ const AllTicketsView = ({
       });
     };
 
+    csvContent += headers.join(",") + "\n";
+
     ["open", "pending", "onhold", "solved"].forEach((state) => {
-      const stateTickets = categorizedTickets[state];
-      const stateLabel = state === "onhold" ? "ON HOLD" : state.toUpperCase();
+      categorizedTickets[state].forEach((t) => {
+        const owner =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "Unassigned";
+        const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
+        const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+        const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
+        const cf = t.custom_fields || {};
+        const ageCalc = t.created_date
+          ? Math.ceil(Math.abs((t.actual_close_date ? new Date(t.actual_close_date) : new Date()) - new Date(t.created_date)) / (1000 * 60 * 60 * 24))
+          : 0;
 
-      csvContent += "\n";
-      csvContent += `${"=".repeat(20)}\n`;
-      csvContent += `${stateLabel} TICKETS (${stateTickets.length})\n`;
-      csvContent += `${"=".repeat(20)}\n`;
-
-      if (stateTickets.length === 0) {
-        csvContent += "No tickets in this category\n";
-      } else {
-        csvContent += headers.join(",") + "\n";
-        stateTickets.forEach((t) => {
-          const owner =
-            FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-            t.owned_by?.[0]?.display_name ||
-            "Unassigned";
-          const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
-          const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
-          const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
-          const cf = t.custom_fields || {};
-          const ageCalc = t.created_date
-            ? Math.ceil(Math.abs((t.actual_close_date ? new Date(t.actual_close_date) : new Date()) - new Date(t.created_date)) / (1000 * 60 * 60 * 24))
-            : 0;
-
-          csvContent +=
-            [
-              t.display_id,
-              `"${(t.title || "").replace(/"/g, '""')}"`,
-              `"${(t.accountName || "").replace(/"/g, '""')}"`,
-              t.region || "-",
-              csm,
-              tam,
-              owner,
-              t.created_date ? format(parseISO(t.created_date), "yyyy-MM-dd") : "-",
-              t.actual_close_date ? format(parseISO(t.actual_close_date), "yyyy-MM-dd") : "-",
-              stage,
-              ageCalc,
-              t.rwt || "-",
-              t.frt || "-",
-              t.iterations || "-",
-              t.csat || "-",
-              t.frr || "-",
-              `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
-              `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
-            ].join(",") + "\n";
-        });
-      }
+        csvContent +=
+          [
+            t.display_id,
+            `"${(t.title || "").replace(/"/g, '""')}"`,
+            `"${(t.accountName || "").replace(/"/g, '""')}"`,
+            t.region || "-",
+            csm,
+            tam,
+            owner,
+            t.created_date ? format(parseISO(t.created_date), "yyyy-MM-dd") : "-",
+            t.actual_close_date ? format(parseISO(t.actual_close_date), "yyyy-MM-dd") : "-",
+            stage,
+            ageCalc,
+            t.rwt || "-",
+            t.frt || "-",
+            t.iterations || "-",
+            t.csat || "-",
+            t.frr || "-",
+            `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
+            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+          ].join(",") + "\n";
+      });
     });
 
     const blob = new Blob([csvContent], { type: "text/csv" });
