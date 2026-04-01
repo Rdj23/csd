@@ -528,11 +528,6 @@ const DrillDownModal = ({
     let csvContent = "";
 
     // Summary section
-    csvContent += "TICKET REPORT\n";
-    csvContent += `Generated:,${format(new Date(), "MMMM dd yyyy HH:mm")}\n`;
-    csvContent += `Report:,${title}\n`;
-    csvContent += `Total Tickets:,${filteredTickets.length}\n`;
-    csvContent += "\n";
     csvContent += "SUMMARY BY STATUS\n";
     csvContent += `Open:,${ticketsByState.Open.length}\n`;
     csvContent += `Pending:,${ticketsByState.Pending.length}\n`;
@@ -602,13 +597,7 @@ const DrillDownModal = ({
             csm,
             tam,
             owner,
-            t.created_date
-              ? format(parseISO(t.created_date), "yyyy-MM-dd")
-              : "-",
-            t.actual_close_date
-              ? format(parseISO(t.actual_close_date), "yyyy-MM-dd")
-              : "-",
-            t.days || 0,
+            calculateAge(t),
             t.rwt || "-",
             t.frt || "-",
             t.iterations || "-",
@@ -1766,18 +1755,7 @@ const AllTicketsView = ({
 
   // Outer download function - professional report
   const downloadFullReport = useCallback(() => {
-    const allTickets = [
-      ...categorizedTickets.open,
-      ...categorizedTickets.pending,
-      ...categorizedTickets.onhold,
-      ...categorizedTickets.solved,
-    ];
-
     let csvContent = "";
-    csvContent += "TICKET REPORT - ALL TICKETS VIEW\n";
-    csvContent += `Generated:,${format(new Date(), "MMMM dd yyyy HH:mm")}\n`;
-    csvContent += `Total Tickets:,${allTickets.length}\n`;
-    csvContent += "\n";
     csvContent += "SUMMARY BY STATUS\n";
     csvContent += `Open:,${categorizedTickets.open.length}\n`;
     csvContent += `Pending:,${categorizedTickets.pending.length}\n`;
@@ -1841,6 +1819,9 @@ const AllTicketsView = ({
           const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
           const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
           const cf = t.custom_fields || {};
+          const ageCalc = t.created_date
+            ? Math.ceil(Math.abs((t.actual_close_date ? new Date(t.actual_close_date) : new Date()) - new Date(t.created_date)) / (1000 * 60 * 60 * 24))
+            : 0;
 
           csvContent +=
             [
@@ -1851,8 +1832,10 @@ const AllTicketsView = ({
               csm,
               tam,
               owner,
+              t.created_date ? format(parseISO(t.created_date), "yyyy-MM-dd") : "-",
+              t.actual_close_date ? format(parseISO(t.actual_close_date), "yyyy-MM-dd") : "-",
               stage,
-              t.days || 0,
+              ageCalc,
               t.rwt || "-",
               t.frt || "-",
               t.iterations || "-",

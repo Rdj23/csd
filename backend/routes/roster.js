@@ -5,6 +5,8 @@ import {
   getRosterWorkload,
   getFullRosterData,
   postRosterSync,
+  postWorkingDays,
+  getNextWorkingDaysHandler,
 } from "../controllers/rosterController.js";
 import { validate } from "../middleware/validate.js";
 import { profileStatusSchema, backupSchema } from "../validations/rosterSchemas.js";
@@ -16,5 +18,7 @@ router.get("/roster/backup", validate(backupSchema), getBackup);
 router.get("/roster/workload", getRosterWorkload);
 router.get("/roster/full", getFullRosterData);
 router.post("/roster/sync", postRosterSync);
+router.post("/roster/working-days", postWorkingDays);
+router.get("/roster/next-working-days", getNextWorkingDaysHandler);
 
 export default router;

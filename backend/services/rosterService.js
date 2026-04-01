@@ -180,33 +180,45 @@ export const syncRoster = async () => {
       const headerRow = rows[headerIdx];
 
       const sectionDateMap = {};
+      let engineerColIdx = 0; // default: first column (old format)
+
       headerRow.forEach((col, i) => {
         const colName = String(col).trim();
+        const colLower = colName.toLowerCase();
 
         if (/^\d{1,2}-[A-Za-z]{3}$/.test(colName)) {
           sectionDateMap[colName] = i;
           DATE_COL_MAP[colName] = { section: sectionIndex, colIdx: i };
         }
 
+        // Detect engineer name column — new April format has "Engineer" as a column header
+        if (colLower === "engineer" || colLower === "name") {
+          engineerColIdx = i;
+        }
+
         if (LEVEL_COL_IDX === -1 && (
-          colName.toLowerCase().includes("designation") ||
-          colName.toLowerCase().includes("level")
+          colLower.includes("designation") ||
+          colLower.includes("level")
         )) {
           LEVEL_COL_IDX = i;
           logger.info({ column: i }, "Level/Designation found");
         }
       });
 
+      logger.info({ section: sectionIndex + 1, engineerColIdx }, "Engineer column detected");
+
       const nextHeaderIdx = headerIndices[sectionIndex + 1];
       const sectionEndIdx = nextHeaderIdx ? nextHeaderIdx : rows.length;
 
+      // Filter by the engineer column (not always col 0 in new format)
       const sectionDataRows = rows.slice(headerIdx + 1, sectionEndIdx)
-        .filter((r) => r[0]?.length > 2);
+        .filter((r) => r[engineerColIdx]?.length > 2);
+        
 
       logger.info({ section: sectionIndex + 1, dates: Object.keys(sectionDateMap).length, engineers: sectionDataRows.length }, "Roster section parsed");
 
       sectionDataRows.forEach((row) => {
-        const name = row[0]?.trim();
+        const name = row[engineerColIdx]?.trim();
         if (!name) return;
 
         if (!engineerDataMap[name]) {
@@ -587,6 +599,133 @@ export const getFullRoster = async (quarterStart) => {
   }).filter(Boolean);
 
   return { engineers, date: dateKey };
+};
+
+// --- ROSTER VERIFICATION HELPERS ---
+
+const MONTHS_MAP = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WORKING_SHIFTS = new Set(["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4", "ON CALL"]);
+
+const parseRosterDate = (dateKey, year) => {
+  const parts = dateKey.split("-");
+  if (parts.length !== 2 || !MONTHS_MAP.hasOwnProperty(parts[1])) return null;
+  const d = new Date(year, MONTHS_MAP[parts[1]], parseInt(parts[0]));
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const normalizeShift = (raw) => {
+  const val = raw.toUpperCase().trim();
+  const match = val.match(/(?:SHIFT\s*)?(\d)/);
+  return match ? `SHIFT ${match[1]}` : val;
+};
+
+const buildDayEntry = (dateKey, colDate, raw) => {
+  const normalized = normalizeShift(raw);
+  const isWorking = WORKING_SHIFTS.has(normalized);
+  const isOff = OFF_STATUSES.includes(normalized) || OFF_STATUSES.includes(raw.toUpperCase().trim());
+  return {
+    date: dateKey,
+    fullDate: colDate.toISOString().split("T")[0],
+    day: DAY_NAMES[colDate.getDay()],
+    shift: raw || "—",
+    shiftNormalized: normalized,
+    status: isWorking ? "working" : (isOff ? "off" : "no_data"),
+  };
+};
+
+// Get detailed working day breakdown for an engineer within a date range
+export const getWorkingDayDetails = (name, startDate, endDate) => {
+  if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
+    return { error: "Roster data not loaded. Please sync first." };
+  }
+
+  const rosterName = NAME_TO_ROSTER_MAP[name] || name;
+  const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
+  if (!row) {
+    return { error: `Engineer "${name}" not found in roster.`, availableEngineers: ROSTER_ROWS.map(r => r[0]) };
+  }
+
+  const year = new Date().getFullYear();
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return { error: "Invalid date format. Use YYYY-MM-DD." };
+  }
+
+  const allEntries = [];
+
+  for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
+    const colDate = parseRosterDate(dateKey, year);
+    if (!colDate || colDate < start || colDate > end) continue;
+
+    const raw = (row[colIdx] || "").trim();
+    allEntries.push(buildDayEntry(dateKey, colDate, raw));
+  }
+
+  allEntries.sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
+
+  const workingDates = allEntries.filter(e => e.status === "working");
+  const offDates = allEntries.filter(e => e.status !== "working");
+
+  return {
+    name,
+    dateRange: { start: startDate, end: endDate },
+    summary: {
+      totalRosterDays: allEntries.length,
+      workingDays: workingDates.length,
+      offDays: offDates.length,
+    },
+    workingDates,
+    allDates: allEntries,
+  };
+};
+
+// Get the next N working days for an engineer from a given date
+export const getNextWorkingDays = (name, fromDate, count = 7) => {
+  if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
+    return { error: "Roster data not loaded. Please sync first." };
+  }
+
+  const rosterName = NAME_TO_ROSTER_MAP[name] || name;
+  const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
+  if (!row) {
+    return { error: `Engineer "${name}" not found in roster.`, availableEngineers: ROSTER_ROWS.map(r => r[0]) };
+  }
+
+  const year = new Date().getFullYear();
+  const from = fromDate ? new Date(fromDate) : getISTTime();
+  from.setHours(0, 0, 0, 0);
+
+  const upcoming = [];
+
+  for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
+    const colDate = parseRosterDate(dateKey, year);
+    if (!colDate || colDate < from) continue;
+
+    const raw = (row[colIdx] || "").trim();
+    upcoming.push(buildDayEntry(dateKey, colDate, raw));
+  }
+
+  upcoming.sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
+
+  const maxPreview = Math.max(count * 3, 21); // show enough days to find N working days
+  const preview = upcoming.slice(0, maxPreview);
+
+  const nextWorkingDays = preview.filter(d => d.status === "working").slice(0, count);
+  const nextOffDays = preview.filter(d => d.status !== "working").slice(0, count);
+
+  return {
+    name,
+    from: from.toISOString().split("T")[0],
+    requestedCount: count,
+    nextWorkingDays,
+    nextOffDays,
+    upcomingSchedule: preview, // full view of next ~3 weeks
+  };
 };
 
 // Get workload for all active engineers

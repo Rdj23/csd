@@ -4,6 +4,8 @@ import {
   findBackupForUser,
   getWorkload,
   getFullRoster,
+  getWorkingDayDetails,
+  getNextWorkingDays,
 } from "../services/rosterService.js";
 import logger from "../config/logger.js";
 
@@ -52,4 +54,40 @@ export const getFullRosterData = async (req, res) => {
 export const postRosterSync = async (req, res) => {
   await syncRoster();
   res.json({ success: true });
+};
+
+// POST /roster/working-days
+// Body: { name, startDate, endDate }  (dates: YYYY-MM-DD)
+// Returns working day count + detailed dates for verification
+export const postWorkingDays = (req, res) => {
+  const { name, startDate, endDate } = req.body;
+
+  if (!name || !startDate || !endDate) {
+    return res.status(400).json({ error: "name, startDate, and endDate are required." });
+  }
+
+  const result = getWorkingDayDetails(name, startDate, endDate);
+  if (result.error) return res.status(result.availableEngineers ? 404 : 503).json(result);
+
+  res.json(result);
+};
+
+// GET /roster/next-working-days?name=Rohan&from=2026-03-30&count=7
+// Returns next N upcoming working days for an engineer — useful for roster verification
+export const getNextWorkingDaysHandler = (req, res) => {
+  const { name, from, count } = req.query;
+
+  if (!name) {
+    return res.status(400).json({ error: "name query parameter is required." });
+  }
+
+  const parsedCount = count ? parseInt(count, 10) : 7;
+  if (isNaN(parsedCount) || parsedCount < 1 || parsedCount > 60) {
+    return res.status(400).json({ error: "count must be a number between 1 and 60." });
+  }
+
+  const result = getNextWorkingDays(name, from || null, parsedCount);
+  if (result.error) return res.status(result.availableEngineers ? 404 : 503).json(result);
+
+  res.json(result);
 };

@@ -297,6 +297,9 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
   // Delta sync: track consecutive batches where all tickets already exist in DB
   let consecutiveKnownBatches = 0;
   const KNOWN_THRESHOLD = 5;
+  // Collect active (non-solved) ticket display_ids seen during sync
+  // so we can remove them from AnalyticsTicket if they were previously solved
+  const activeTicketIds = [];
 
   do {
     try {
@@ -320,6 +323,13 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
           stage.includes("resolved")
         );
       });
+
+      // Track non-solved tickets — these may have been solved before and reopened
+      const nonSolved = works.filter((t) => {
+        const stage = t.stage?.name?.toLowerCase() || "";
+        return !(stage.includes("solved") || stage.includes("closed") || stage.includes("resolved"));
+      });
+      nonSolved.forEach((t) => activeTicketIds.push(t.display_id));
 
       // Delta sync: check if all solved tickets in this batch already exist in DB
       if (solved.length > 0 && !fullHistory) {
@@ -516,6 +526,25 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     }
   } while (cursor && loop < 1000);
 
+  // ── Remove reopened tickets from solved database ──
+  // Tickets seen as active (non-solved) during sync that still exist in
+  // AnalyticsTicket were previously solved but have since been reopened.
+  if (activeTicketIds.length > 0) {
+    const reopened = await AnalyticsTicket.find(
+      { ticket_id: { $in: activeTicketIds } },
+      { ticket_id: 1 },
+    ).lean();
+
+    if (reopened.length > 0) {
+      const ids = reopened.map((t) => t.ticket_id);
+      await Promise.all([
+        AnalyticsTicket.deleteMany({ ticket_id: { $in: ids } }),
+        ActivitySyncedTicket.deleteMany({ ticket_display_id: { $in: ids } }),
+      ]);
+      logger.info({ count: ids.length, ticketIds: ids }, "Removed reopened tickets from solved database");
+    }
+  }
+
   if (ticketsToAlert.length > 0) {
     logger.info({ count: ticketsToAlert.length }, "Sending Slack alerts for Understanding Gap tickets");
     await sendSlackAlerts(ticketsToAlert);
@@ -536,7 +565,6 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     if (recentTickets.length > 0) {
       logger.info({ count: recentTickets.length }, "Ownership refresh: checking recently solved tickets");
       let ownerUpdated = 0;
-      const reopenedTicketIds = [];
 
       for (const ticket of recentTickets) {
         try {
@@ -546,19 +574,6 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
             { headers: HEADERS, timeout: 10000 },
           );
           const work = res.data?.work;
-          const currentStage = (work?.stage?.name || "").toLowerCase();
-          const isSolved = currentStage.includes("solved") || currentStage.includes("closed") || currentStage.includes("resolved");
-
-          // If ticket is no longer solved, remove it from the solved database
-          if (!isSolved) {
-            reopenedTicketIds.push(ticket.ticket_id);
-            logger.info(
-              { ticket_id: ticket.ticket_id, currentStage: work?.stage?.name, owner: ticket.owner },
-              "Ticket no longer solved — will remove from analytics",
-            );
-            continue;
-          }
-
           const currentOwnerRaw = work?.owned_by?.[0]?.display_name || "";
           const currentOwnerId = work?.owned_by?.[0]?.id || null;
           const currentOwner = resolveOwnerName(currentOwnerRaw);
@@ -577,15 +592,6 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
         } catch (e) {
           logger.warn({ ticket_id: ticket.ticket_id, err: e.message }, "Ownership refresh: failed to fetch ticket");
         }
-      }
-
-      // Remove reopened tickets from AnalyticsTicket and ActivitySyncedTicket
-      if (reopenedTicketIds.length > 0) {
-        await Promise.all([
-          AnalyticsTicket.deleteMany({ ticket_id: { $in: reopenedTicketIds } }),
-          ActivitySyncedTicket.deleteMany({ ticket_display_id: { $in: reopenedTicketIds } }),
-        ]);
-        logger.info({ count: reopenedTicketIds.length, ticketIds: reopenedTicketIds }, "Removed reopened tickets from solved database");
       }
 
       if (ownerUpdated > 0) {
