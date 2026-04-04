@@ -4,7 +4,7 @@ import { redisGet } from "../config/database.js";
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata, ActivitySyncedTicket } from "../models/index.js";
 import {
   GST_NAME_MAP, GST_MEMBERS, GST_DEVU_MAP,
-  resolveOwnerName, getQuarterDateRange,
+  resolveOwnerName, getQuarterDateRange, getCurrentQuarterKey,
 } from "../config/constants.js";
 import logger from "../config/logger.js";
 
@@ -381,7 +381,7 @@ export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) =>
  * @param {string} opts.quarter     Quarter key, e.g. "Q1_26"
  */
 export const syncActivityBatch = async (opts = {}) => {
-  const { since, fullBackfill = false, quarter = "Q1_26" } = opts;
+  const { since, fullBackfill = false, quarter = getCurrentQuarterKey() } = opts;
 
   let tickets = [];
 

@@ -1,6 +1,7 @@
 import { AnalyticsTicket } from "../models/index.js";
 import {
   resolveDateRange,
+  getCurrentQuarterKey,
   EMAIL_TO_NAME_MAP,
   GAMIFICATION_TEAM_MAP,
 } from "../config/constants.js";
@@ -19,7 +20,7 @@ import { ok, badRequest, serverError } from "../utils/response.js";
  */
 export const getCSATBreakdown = async (req, res) => {
   try {
-    const { quarter = "Q1_26", startDate, endDate, email } = req.query;
+    const { quarter = getCurrentQuarterKey(), startDate, endDate, email } = req.query;
 
     const range = resolveDateRange({ quarter, startDate, endDate });
     if (range.error) return badRequest(res, range.error);
@@ -108,7 +109,7 @@ export const getCSATBreakdown = async (req, res) => {
  */
 export const getAnalyticsSummary = async (req, res) => {
   try {
-    const { quarter = "Q1_26", startDate, endDate } = req.query;
+    const { quarter = getCurrentQuarterKey(), startDate, endDate } = req.query;
 
     const range = resolveDateRange({ quarter, startDate, endDate });
     if (range.error) return badRequest(res, range.error);

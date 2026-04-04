@@ -7,6 +7,7 @@ import { initPublisher } from "./lib/pubsub.js";
 import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue } from "./lib/queues.js";
 import { registerAllWorkers } from "./lib/workers.js";
 import logger from "./config/logger.js";
+import { getCurrentQuarterKey } from "./config/constants.js";
 
 const start = async () => {
   logger.info("Starting Worker Process");
@@ -40,11 +41,11 @@ const start = async () => {
     { repeat: { pattern: "30 18 * * *" }, jobId: "daily-historical-sync" },
   );
 
-  // Analytics precompute: 1AM IST (19:30 UTC)
+  // Analytics precompute: 1AM IST (19:30 UTC) — uses current quarter dynamically
   await getAnalyticsQueue().add(
     "precompute",
-    { quarter: "Q1_26" },
-    { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-q1-26" },
+    { quarter: getCurrentQuarterKey() },
+    { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-precompute" },
   );
 
   logger.info("Repeatable cron jobs registered");
@@ -58,8 +59,8 @@ const start = async () => {
   }, 5000);
 
   setTimeout(async () => {
-    await getAnalyticsQueue().add("precompute", { quarter: "Q1_26" }, { jobId: `startup-analytics-q1-${Date.now()}` });
-    logger.info("Startup Q1_26 precompute dispatched");
+    await getAnalyticsQueue().add("precompute", { quarter: getCurrentQuarterKey() }, { jobId: `startup-analytics-${Date.now()}` });
+    logger.info(`Startup ${getCurrentQuarterKey()} precompute dispatched`);
   }, 90000);
 
   // 8. Graceful shutdown

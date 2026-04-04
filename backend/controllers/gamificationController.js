@@ -2,6 +2,7 @@ import { AnalyticsTicket } from "../models/index.js";
 import {
   getQuarterDateRange,
   resolveDateRange,
+  getCurrentQuarterKey,
   DESIGNATION_MAP,
   GAMIFICATION_TEAM_MAP,
   NAME_TO_ROSTER_MAP,
@@ -13,7 +14,7 @@ import logger from "../config/logger.js";
 
 export const getGamification = async (req, res) => {
   try {
-    const { quarter = "Q1_26", startDate, endDate } = req.query;
+    const { quarter = getCurrentQuarterKey(), startDate, endDate } = req.query;
     const range = resolveDateRange({ quarter, startDate, endDate });
     if (range.error) return badRequest(res, range.error);
     const { start, end, label } = range;
@@ -217,7 +218,7 @@ export const getGamification = async (req, res) => {
 
 export const getMyTickets = async (req, res) => {
   try {
-    const { quarter = "Q1_26", email, startDate, endDate } = req.query;
+    const { quarter = getCurrentQuarterKey(), email, startDate, endDate } = req.query;
 
     if (!email) {
       return badRequest(res, "Email is required");
@@ -276,7 +277,7 @@ export const getMyTickets = async (req, res) => {
 
 export const getMyStats = async (req, res) => {
   try {
-    const { quarter = "Q1_26", email, startDate, endDate } = req.query;
+    const { quarter = getCurrentQuarterKey(), email, startDate, endDate } = req.query;
 
     if (!email) {
       return badRequest(res, "Email is required");

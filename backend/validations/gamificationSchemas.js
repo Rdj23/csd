@@ -4,7 +4,7 @@ const datePattern = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD form
 
 export const gamificationSchema = z.object({
   query: z.object({
-    quarter: z.string().optional().default("Q1_26"),
+    quarter: z.string().optional(),
     startDate: datePattern,
     endDate: datePattern,
   }).passthrough(),
@@ -12,7 +12,7 @@ export const gamificationSchema = z.object({
 
 export const myStatsSchema = z.object({
   query: z.object({
-    quarter: z.string().optional().default("Q1_26"),
+    quarter: z.string().optional(),
     email: z.string().email("Valid email is required"),
     startDate: datePattern,
     endDate: datePattern,

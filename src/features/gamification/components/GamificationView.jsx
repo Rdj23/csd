@@ -14,18 +14,30 @@ import {
   Zap,
   User,
   Shield,
+  CalendarDays,
 } from "lucide-react";
 import { useGamification } from "../../../hooks/useGamification";
 import { EMAIL_TO_NAME_MAP } from "../../../utils";
+import {
+  getCurrentQuarterKey,
+  getAvailableQuarters,
+  formatQuarterLabel,
+} from "../../analytics/components/analytics/analyticsConfig";
 
-const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = false }) => {
-  const { data, loading, currentUserName, currentUserData } = useGamification({ quarter, currentUser, isAdmin });
+const GamificationView = ({ currentUser = null, isAdmin = false }) => {
+  const availableQuarters = useMemo(() => getAvailableQuarters(), []);
+  const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarterKey());
+
+  const { data, loading, currentUserName, currentUserData } = useGamification({
+    quarter: selectedQuarter,
+    currentUser,
+    isAdmin,
+  });
   const [activeTab, setActiveTab] = useState("L1");
   const [sortBy, setSortBy] = useState("rank");
   const [sortDir, setSortDir] = useState("asc");
-  const [viewAsGST, setViewAsGST] = useState(false); // Admin toggle to view as GST user
+  const [viewAsGST, setViewAsGST] = useState(false);
 
-  // Determine if we should show full leaderboard or just user's card
   const showFullLeaderboard = isAdmin && !viewAsGST;
 
   const getRankBadge = (rank) => {
@@ -82,7 +94,25 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
       : <ChevronDown className="w-3 h-3" />;
   };
 
-  // currentUserData is provided by useGamification hook
+  // Quarter toggle component — shared between admin and user views
+  const QuarterToggle = () => (
+    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
+      <CalendarDays className="w-3.5 h-3.5 text-slate-400 ml-2" />
+      {availableQuarters.map((q) => (
+        <button
+          key={q.id}
+          onClick={() => setSelectedQuarter(q.id)}
+          className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
+            selectedQuarter === q.id
+              ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+          }`}
+        >
+          {q.label}
+        </button>
+      ))}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -97,7 +127,6 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
 
   const topThree = sortedData.slice(0, 3);
 
-  // Helper to get color class based on percentile
   const getPercentileColor = (percentile) => {
     if (percentile >= 80) return "text-emerald-600";
     if (percentile >= 60) return "text-blue-600";
@@ -129,7 +158,7 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-900 dark:text-white">{userData.name}</h2>
-              {/* <p className="text-sm text-slate-500 dark:text-slate-400">{userData.designation} • {userData.team}</p> */}
+              <p className="text-xs text-slate-400 mt-0.5">{formatQuarterLabel(selectedQuarter)} Scorecard</p>
             </div>
           </div>
           {showRank && (
@@ -209,7 +238,6 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
   };
 
   // GST User View (non-admin) - Only show their own card
-  // Uses secure endpoint that only returns their own data - no access to other users' stats
   if (!isAdmin) {
     return (
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -225,14 +253,18 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
             <p className="text-sm text-slate-500 mt-1">Viewing as: {currentUserName || currentUser?.email}</p>
           </div>
 
-          {/* My Stats button (always selected for GST users - no toggle available) */}
-          <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
-            <button
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
-            >
-              <User className="w-4 h-4" />
-              My Stats
-            </button>
+          <div className="flex items-center gap-3">
+            {/* Quarter Toggle */}
+            <QuarterToggle />
+
+            <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
+              <button
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
+              >
+                <User className="w-4 h-4" />
+                My Stats
+              </button>
+            </div>
           </div>
         </div>
 
@@ -260,6 +292,9 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Quarter Toggle */}
+          <QuarterToggle />
+
           {/* Admin/GST View Toggle */}
           <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
             <button
@@ -461,7 +496,6 @@ const GamificationView = ({ quarter = "Q1_26", currentUser = null, isAdmin = fal
                           </div>
                           <div>
                             <p className="font-semibold text-slate-900 dark:text-white text-sm">{eng.name}</p>
-                            {/* <p className="text-xs text-slate-400">{eng.designation} • {eng.team}</p> */}
                           </div>
                         </div>
                       </td>

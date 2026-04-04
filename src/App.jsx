@@ -79,7 +79,7 @@ import {
   formatRWT,
   TEAM_REGION_MAP,
 } from "./utils";
-import { SUPER_ADMIN_EMAILS } from "./features/analytics/components/analytics/analyticsConfig";
+import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
 import { EMAIL_TO_NAME_MAP } from "./utils";
 const EMPTY_FILTERS = {
   teams: [],
@@ -323,7 +323,11 @@ const App = () => {
     alltickets: { ...EMPTY_FILTERS, dateRange: { start: "", end: "" } },
     csd: { ...EMPTY_FILTERS },
     vistas: { ...EMPTY_FILTERS },
-    analytics: { ...EMPTY_FILTERS, dateRange: { start: "2026-01-01", end: "2026-03-31" } },
+    analytics: (() => {
+      const qd = getQuarterDates(getCurrentQuarterKey());
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      return { ...EMPTY_FILTERS, dateRange: { start: fmt(qd.start), end: fmt(qd.end) } };
+    })(),
   });
   const [visibleFilterKeys, setVisibleFilterKeys] = useState([]);
   const hasAutoAppliedRole = useRef(false);
@@ -635,7 +639,11 @@ const App = () => {
         [activeTab]: {
           ...EMPTY_FILTERS,
           ...(activeTab === "analytics"
-            ? { dateRange: { start: "2026-01-01", end: "2026-03-31" } }
+            ? (() => {
+                const qd = getQuarterDates(getCurrentQuarterKey());
+                const fmt = (d) => d.toISOString().slice(0, 10);
+                return { dateRange: { start: fmt(qd.start), end: fmt(qd.end) } };
+              })()
             : {}),
         },
       }));
@@ -2311,7 +2319,6 @@ const App = () => {
               ) : activeTab === "gamification" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
   <ErrorBoundary level="section">
     <GamificationView
-      quarter={tabFilters.analytics?.quarter || "Q1_26"}
       currentUser={currentUser}
       isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
     />

@@ -5,6 +5,7 @@ import { syncRoster } from "../services/rosterService.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";
+import { getCurrentQuarterKey } from "../config/constants.js";
 
 export const registerAllWorkers = (connection) => {
   const opts = { connection };
@@ -57,7 +58,7 @@ export const registerAllWorkers = (connection) => {
     async (job) => {
       logger.info({ jobName: job.name, data: job.data }, "[activity-sync] Processing");
       if (job.name === "backfill") {
-        await syncActivityBatch({ fullBackfill: true, quarter: job.data.quarter || "Q1_26" });
+        await syncActivityBatch({ fullBackfill: true, quarter: job.data.quarter || getCurrentQuarterKey() });
       } else if (job.name === "frequent") {
         // Every 10 min — look back 15 min (buffer to avoid gaps)
         await syncActivityBatch({ since: new Date(Date.now() - 15 * 60 * 1000).toISOString() });

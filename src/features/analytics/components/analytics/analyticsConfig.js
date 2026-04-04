@@ -123,18 +123,65 @@ export const CHART_COLORS = [
   "#8b5cf6",
 ];
 
-// Quarter date ranges
-// Note: Q1_26 starts Jan 1, 2026
-// "All Time" also starts from Jan 1, 2026 for consistency
+// ---------------------------------------------------------------------------
+// Dynamic quarter helpers (frontend) — mirrors backend logic
+// ---------------------------------------------------------------------------
+
+const QUARTER_MONTHS = {
+  1: { startMonth: 0, endMonth: 2 },   // Jan–Mar
+  2: { startMonth: 3, endMonth: 5 },   // Apr–Jun
+  3: { startMonth: 6, endMonth: 8 },   // Jul–Sep
+  4: { startMonth: 9, endMonth: 11 },  // Oct–Dec
+};
+
+/** Get current quarter key, e.g. "Q2_26" */
+export const getCurrentQuarterKey = () => {
+  const now = new Date();
+  const q = Math.ceil((now.getMonth() + 1) / 3);
+  const yy = String(now.getFullYear()).slice(-2);
+  return `Q${q}_${yy}`;
+};
+
+/** Get previous quarter key, e.g. "Q1_26" when current is "Q2_26" */
+export const getPreviousQuarterKey = () => {
+  const now = new Date();
+  const q = Math.ceil((now.getMonth() + 1) / 3);
+  const year = now.getFullYear();
+  const prevQ = q === 1 ? 4 : q - 1;
+  const prevYear = q === 1 ? year - 1 : year;
+  const yy = String(prevYear).slice(-2);
+  return `Q${prevQ}_${yy}`;
+};
+
+/** Format quarter key for display: "Q2_26" → "Q2 '26" */
+export const formatQuarterLabel = (key) => {
+  const match = key.match(/^Q([1-4])_(\d{2})$/);
+  if (!match) return key;
+  return `Q${match[1]} '${match[2]}`;
+};
+
+/** Compute date range for any quarter key. */
 export const getQuarterDates = (quarter) => {
-  const quarters = {
-    Q4_25: { start: new Date("2025-10-01"), end: new Date("2025-12-31") },
-    Q1_26: { start: new Date("2026-01-01"), end: new Date("2026-03-31") },
-    Q2_26: { start: new Date("2026-04-01"), end: new Date("2026-06-30") },
-    Q3_26: { start: new Date("2026-07-01"), end: new Date("2026-09-30") },
-    Q4_26: { start: new Date("2026-10-01"), end: new Date("2026-12-31") },
+  const match = quarter.match(/^Q([1-4])_(\d{2})$/);
+  if (!match) return { start: new Date(), end: new Date() };
+  const q = parseInt(match[1]);
+  const year = 2000 + parseInt(match[2]);
+  const { startMonth, endMonth } = QUARTER_MONTHS[q];
+  const lastDay = new Date(year, endMonth + 1, 0).getDate();
+  return {
+    start: new Date(year, startMonth, 1),
+    end: new Date(year, endMonth, lastDay),
   };
-  return quarters[quarter] || { start: new Date(), end: new Date() };
+};
+
+/** Build the list of available quarters for toggles (previous + current). */
+export const getAvailableQuarters = () => {
+  const prev = getPreviousQuarterKey();
+  const curr = getCurrentQuarterKey();
+  return [
+    { id: prev, label: formatQuarterLabel(prev) },
+    { id: curr, label: formatQuarterLabel(curr) },
+  ];
 };
 
 // All Time date range (starts from Q1_26)

@@ -4,7 +4,7 @@ const optionalString = z.string().optional();
 
 export const analyticsQuerySchema = z.object({
   query: z.object({
-    quarter: z.string().optional().default("Q1_26"),
+    quarter: z.string().optional(),
     excludeZendesk: optionalString,
     excludeNOC: optionalString,
     owner: optionalString,
@@ -19,7 +19,7 @@ export const analyticsQuerySchema = z.object({
 
 export const ticketDrillDownSchema = z.object({
   query: z.object({
-    quarter: z.string().optional().default("Q1_26"),
+    quarter: z.string().optional(),
     scope: z.enum(["individual", "team", "all"]).optional().default("all"),
     email: z.string().email().optional(),
     owner: optionalString,

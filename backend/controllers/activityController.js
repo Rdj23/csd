@@ -2,7 +2,7 @@ import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, ActivitySyncedTi
 import { syncActivityBatch } from "../services/activityService.js";
 import { getActivitySyncQueue } from "../lib/queues.js";
 import { redisGet } from "../config/database.js";
-import { GST_MEMBERS, resolveOwnerName } from "../config/constants.js";
+import { GST_MEMBERS, resolveOwnerName, getCurrentQuarterKey } from "../config/constants.js";
 import logger from "../config/logger.js";
 
 // ---------------------------------------------------------------------------
@@ -481,7 +481,7 @@ export const rebuildDailyRollups = async (_req, res) => {
 // body: { fullBackfill?: boolean, quarter?: string }
 // ---------------------------------------------------------------------------
 export const triggerActivitySync = async (req, res) => {
-  const { fullBackfill = false, quarter = "Q1_26" } = req.body || {};
+  const { fullBackfill = false, quarter = getCurrentQuarterKey() } = req.body || {};
 
   const queue = getActivitySyncQueue();
   if (queue) {
@@ -511,7 +511,7 @@ export const triggerActivitySync = async (req, res) => {
 // body: { quarter?: string, clearDaily?: boolean }
 // ---------------------------------------------------------------------------
 export const resyncActivity = async (req, res) => {
-  const { quarter = "Q1_26", clearDaily = false } = req.body || {};
+  const { quarter = getCurrentQuarterKey(), clearDaily = false } = req.body || {};
 
   try {
     // 1. Clear the "already synced" tracker so all tickets are re-processed

@@ -65,7 +65,7 @@ export const fetchDependencyTable = async (start, end) => {
 };
 
 /** Admin: trigger activity sync */
-export const triggerActivitySync = async (fullBackfill = false, quarter = "Q1_26") => {
+export const triggerActivitySync = async (fullBackfill = false, quarter) => {
   const res = await authAxios.post(`${API_URL}/api/admin/activity-sync`, {
     fullBackfill,
     quarter,

@@ -4,7 +4,7 @@ const datePattern = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD form
 
 export const externalCSATSchema = z.object({
   query: z.object({
-    quarter: z.string().optional().default("Q1_26"),
+    quarter: z.string().optional(),
     startDate: datePattern,
     endDate: datePattern,
     email: z.string().email().optional(),
@@ -13,7 +13,7 @@ export const externalCSATSchema = z.object({
 
 export const externalAnalyticsSchema = z.object({
   query: z.object({
-    quarter: z.string().optional().default("Q1_26"),
+    quarter: z.string().optional(),
     startDate: datePattern,
     endDate: datePattern,
   }).passthrough(),

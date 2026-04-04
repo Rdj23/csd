@@ -28,8 +28,10 @@ export const fetchProfileStatus = async (userName) => {
 
 /**
  * Fetch full roster data (all engineers, shifts, status).
+ * @param {string} [quarter] - e.g. "Q2_26" — defaults to current quarter on backend
  */
-export const fetchFullRoster = async () => {
-  const res = await authAxios.get(`${API_URL}/api/roster/full`);
+export const fetchFullRoster = async (quarter) => {
+  const params = quarter ? `?quarter=${quarter}` : "";
+  const res = await authAxios.get(`${API_URL}/api/roster/full${params}`);
   return res.data;
 };

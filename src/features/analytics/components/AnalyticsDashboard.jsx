@@ -91,6 +91,11 @@ import {
   processChartData,
   processMultiUserData,
 } from "./analytics";
+import {
+  getCurrentQuarterKey,
+  getAvailableQuarters,
+  getQuarterDates as getQuarterDatesFromConfig,
+} from "./analytics/analyticsConfig";
 
 // Import skeleton loaders for better perceived performance
 import {
@@ -100,10 +105,7 @@ import {
   LoadingSpinner,
 } from "../../../components/ui/SkeletonLoader";
 
-const QUARTERS = [
-  { id: "Q4_25", label: "Q4 '25" },
-  { id: "Q1_26", label: "Q1 '26" },
-];
+const QUARTERS = getAvailableQuarters();
 
 const StatCard = ({ label, value, unit = "", color, isPositive }) => (
   <div className="bg-white dark:bg-slate-900 rounded-xl px-4 py-3.5 border border-slate-200 dark:border-slate-800"
@@ -139,7 +141,7 @@ const AnalyticsDashboard = ({
     analyticsLoading,
     fetchAnalyticsData,
   } = useTicketStore();
-  const [currentQuarter, setCurrentQuarter] = useState("Q1_26");
+  const [currentQuarter, setCurrentQuarter] = useState(getCurrentQuarterKey());
   const [expandedTimeRange, setExpandedTimeRange] = useState(30);
   const [expandedGroupBy, setExpandedGroupBy] = useState("daily");
   const [expandedAllTrends, setExpandedAllTrends] = useState([]);
@@ -195,17 +197,8 @@ const AnalyticsDashboard = ({
       };
     }
 
-    // 3. ✅ FIX: Default to Current Quarter Dates (instead of last 30 days)
-    // This ensures UI cards show data for the full quarter selected
-    const getQuarterDates = (q) => {
-      if (q === "Q4_25")
-        return { start: new Date("2025-10-01"), end: new Date("2025-12-31") };
-      if (q === "Q1_26")
-        return { start: new Date("2026-01-01"), end: new Date("2026-03-31") }; // ✅ FIX: Start from Jan 1, 2026
-      return { start: subDays(new Date(), 29), end: new Date() };
-    };
-
-    const { start, end } = getQuarterDates(currentQuarter);
+    // Dynamic quarter date resolution — no hardcoded quarters
+    const { start, end } = getQuarterDatesFromConfig(currentQuarter);
     return {
       start,
       end,
@@ -273,22 +266,13 @@ const AnalyticsDashboard = ({
     console.log("Fetching data for expanded modal:", range);
 
     if (range.isAllTime) {
-      fetchAnalyticsData({ quarter: "Q4_25", excludeZendesk, excludeNOC });
-      fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk, excludeNOC });
+      // Fetch both previous and current quarters for "All Time"
+      QUARTERS.forEach((q) => {
+        fetchAnalyticsData({ quarter: q.id, excludeZendesk, excludeNOC });
+      });
     } else {
-      const startYear = range.start.getFullYear();
-      const startMonth = range.start.getMonth();
-      const endYear = range.end.getFullYear();
-
-    
-      // Fetch Q1_26 if date range includes Jan-Mar 2026
-      if (endYear === 2026 || (startYear === 2025 && startMonth === 11)) {
-        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk, excludeNOC });
-      }
-      // If only in Jan 2026
-      if (startYear === 2026) {
-        fetchAnalyticsData({ quarter: "Q1_26", excludeZendesk, excludeNOC });
-      }
+      // Fetch current quarter's data
+      fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, excludeNOC });
     }
   }, [
     expandedEffectiveDateRange,
@@ -1462,17 +1446,16 @@ const AnalyticsDashboard = ({
           return params.toString();
         };
 
-        const [q4Res, q1Res] = await Promise.all([
-          authFetch(
-            `${API_BASE}/api/tickets/analytics?${buildParams("Q4_25")}`,
-          ).then((r) => r.json()),
-          authFetch(
-            `${API_BASE}/api/tickets/analytics?${buildParams("Q1_26")}`,
-          ).then((r) => r.json()),
-        ]);
+        const quarterResults = await Promise.all(
+          QUARTERS.map((q) =>
+            authFetch(
+              `${API_BASE}/api/tickets/analytics?${buildParams(q.id)}`,
+            ).then((r) => r.json()),
+          ),
+        );
 
-        // Combine trends from both quarters
-        const allTrends = [...(q4Res.trends || []), ...(q1Res.trends || [])];
+        // Combine trends from all quarters
+        const allTrends = quarterResults.flatMap((r) => r.trends || []);
 
         // Sort by date
         allTrends.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -2301,17 +2284,13 @@ const AnalyticsDashboard = ({
           }}
           onGroupByChange={(newGroupBy) => {
             setGroupBy(newGroupBy);
-            // If it's a week selection like "Q1_26_W1", set quarter accordingly
-            if (
-              newGroupBy.startsWith("Q1_26_W") ||
-              newGroupBy.startsWith("Q1_26_M")
-            ) {
-              setCurrentQuarter("Q1_26");
+            // If it's a week/month sub-range (e.g. "Q2_26_W1"), set parent quarter
+            const qMatch = newGroupBy.match(/^(Q[1-4]_\d{2})_[WM]/);
+            if (qMatch) {
+              setCurrentQuarter(qMatch[1]);
             }
             fetchAnalyticsData({
-              quarter: newGroupBy.startsWith("Q1_26")
-                ? newGroupBy
-                : currentQuarter,
+              quarter: qMatch ? newGroupBy : currentQuarter,
               excludeZendesk,
               owner: filterOwner !== "All" ? filterOwner : null,
               groupBy: newGroupBy,

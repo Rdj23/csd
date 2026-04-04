@@ -7,6 +7,7 @@ import {
   getWorkingDayDetails,
   getNextWorkingDays,
 } from "../services/rosterService.js";
+import { getQuarterDateRange, getCurrentQuarterKey } from "../config/constants.js";
 import logger from "../config/logger.js";
 
 export const postProfileStatus = (req, res) => {
@@ -43,8 +44,10 @@ export const getRosterWorkload = async (req, res) => {
 
 export const getFullRosterData = async (req, res) => {
   try {
-    const results = await getFullRoster();
-    res.json(results);
+    const quarter = req.query.quarter || getCurrentQuarterKey();
+    const { start } = getQuarterDateRange(quarter);
+    const results = await getFullRoster(start);
+    res.json({ ...results, quarter });
   } catch (e) {
     logger.error({ err: e }, "Full roster error");
     res.status(500).json({ engineers: [], error: e.message });

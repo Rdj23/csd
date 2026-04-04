@@ -551,7 +551,8 @@ export const getFullRoster = async (quarterStart) => {
     }
   });
 
-  const start = quarterStart || new Date("2026-01-01");
+  // If no quarterStart passed, compute from current quarter dynamically
+  const start = quarterStart || new Date();
   const engineers = ROSTER_ROWS.map((row) => {
     const name = row[0];
     if (!name) return null;

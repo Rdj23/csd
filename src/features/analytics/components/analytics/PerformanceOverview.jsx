@@ -65,13 +65,16 @@ const PerformanceMetricsCards = ({
   isRefreshing,
   onExpandMetric,
 }) => {
-  const [selectedQuarter, setSelectedQuarter] = useState(currentQuarter || "Q1_26");
+  const [selectedQuarter, setSelectedQuarter] = useState(currentQuarter);
   const [groupBy, setGroupBy] = useState(currentGroupBy || "daily");
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
 
-  // Current quarter is Q1_26
-  const isCurrentQuarter = selectedQuarter === "Q1_26";
+  // Check if selected quarter is the currently running quarter
+  const now = new Date();
+  const currQ = Math.ceil((now.getMonth() + 1) / 3);
+  const currYY = String(now.getFullYear()).slice(-2);
+  const isCurrentQuarter = selectedQuarter === `Q${currQ}_${currYY}`;
 
   // Get current week and month numbers
   const today = new Date();

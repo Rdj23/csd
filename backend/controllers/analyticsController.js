@@ -4,6 +4,7 @@ import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import {
   getQuarterDateRange,
   resolveDateRange,
+  getCurrentQuarterKey,
   EMAIL_TO_NAME_MAP,
   TEAM_MAPPING,
   GAMIFICATION_TEAM_MAP,
@@ -17,7 +18,7 @@ const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const getAnalytics = async (req, res) => {
   try {
     const {
-      quarter = "Q1_26",
+      quarter = getCurrentQuarterKey(),
       excludeZendesk,
       excludeNOC,
       owner,
@@ -453,7 +454,7 @@ export const getAnalytics = async (req, res) => {
  */
 export const getTicketDrillDown = async (req, res) => {
   try {
-    const { quarter = "Q1_26", scope = "all", email, owner, team, cohort, cohorts, startDate, endDate } = req.query;
+    const { quarter = getCurrentQuarterKey(), scope = "all", email, owner, team, cohort, cohorts, startDate, endDate } = req.query;
     const range = resolveDateRange({ quarter, startDate, endDate });
     if (range.error) return badRequest(res, range.error);
     const { start, end, label } = range;

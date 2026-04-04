@@ -224,105 +224,101 @@ export const getCurrentISTHour = () => {
   return ist.getHours() + ist.getMinutes() / 60;
 };
 
+// ---------------------------------------------------------------------------
+// Dynamic quarter helpers — auto-compute date ranges from quarter key + year
+// Quarter key format: "Q1_26", "Q2_26", "Q3_26", "Q4_26"  (QN_YY)
+// Also supports weekly/monthly sub-ranges: "Q1_26_W3", "Q1_26_M2"
+// ---------------------------------------------------------------------------
+
+/** Map quarter number (1-4) → { startMonth, endMonth } (0-indexed) */
+const QUARTER_MONTHS = {
+  1: { startMonth: 0, endMonth: 2 },   // Jan–Mar
+  2: { startMonth: 3, endMonth: 5 },   // Apr–Jun
+  3: { startMonth: 6, endMonth: 8 },   // Jul–Sep
+  4: { startMonth: 9, endMonth: 11 },  // Oct–Dec
+};
+
+/**
+ * Get the current quarter key based on today's IST date.
+ * Returns e.g. "Q2_26" for April 2026.
+ */
+export const getCurrentQuarterKey = () => {
+  const ist = getISTTime();
+  const q = Math.ceil((ist.getMonth() + 1) / 3);
+  const yy = String(ist.getFullYear()).slice(-2);
+  return `Q${q}_${yy}`;
+};
+
+/**
+ * Parse a quarter key like "Q2_26" → { q: 2, year: 2026 }
+ * Also handles sub-keys like "Q1_26_W5" or "Q1_26_M2".
+ */
+const parseQuarterKey = (key) => {
+  const match = key.match(/^Q([1-4])_(\d{2})(?:_(W|M)(\d+))?$/);
+  if (!match) return null;
+  return {
+    q: parseInt(match[1]),
+    year: 2000 + parseInt(match[2]),
+    subType: match[3] || null,   // "W" or "M" or null
+    subNum: match[4] ? parseInt(match[4]) : null,
+  };
+};
+
+/**
+ * Get the last day of a month (handles leap years).
+ */
+const lastDayOfMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+
+/**
+ * Dynamically compute date range for any quarter key.
+ * Supports: "Q2_26", "Q1_26_W5", "Q1_26_M2", etc.
+ */
 export const getQuarterDateRange = (quarter) => {
-  const now = new Date();
-  switch (quarter) {
+  const parsed = parseQuarterKey(quarter);
 
-    case "Q1_26":
-      return {
-        start: new Date("2026-01-01"),
-        end: new Date("2026-03-31T23:59:59Z"),
-      };
-
-    case "Q1_26_W1":
-      return {
-        start: new Date("2026-01-01"),
-        end: new Date("2026-01-04T23:59:59Z"),
-      };
-    case "Q1_26_W2":
-      return {
-        start: new Date("2026-01-05"),
-        end: new Date("2026-01-11T23:59:59Z"),
-      };
-    case "Q1_26_W3":
-      return {
-        start: new Date("2026-01-12"),
-        end: new Date("2026-01-18T23:59:59Z"),
-      };
-    case "Q1_26_W4":
-      return {
-        start: new Date("2026-01-19"),
-        end: new Date("2026-01-25T23:59:59Z"),
-      };
-    case "Q1_26_W5":
-      return {
-        start: new Date("2026-01-26"),
-        end: new Date("2026-02-01T23:59:59Z"),
-      };
-    case "Q1_26_W6":
-      return {
-        start: new Date("2026-02-02"),
-        end: new Date("2026-02-08T23:59:59Z"),
-      };
-    case "Q1_26_W7":
-      return {
-        start: new Date("2026-02-09"),
-        end: new Date("2026-02-15T23:59:59Z"),
-      };
-    case "Q1_26_W8":
-      return {
-        start: new Date("2026-02-16"),
-        end: new Date("2026-02-22T23:59:59Z"),
-      };
-    case "Q1_26_W9":
-      return {
-        start: new Date("2026-02-23"),
-        end: new Date("2026-03-01T23:59:59Z"),
-      };
-    case "Q1_26_W10":
-      return {
-        start: new Date("2026-03-02"),
-        end: new Date("2026-03-08T23:59:59Z"),
-      };
-    case "Q1_26_W11":
-      return {
-        start: new Date("2026-03-09"),
-        end: new Date("2026-03-15T23:59:59Z"),
-      };
-    case "Q1_26_W12":
-      return {
-        start: new Date("2026-03-16"),
-        end: new Date("2026-03-22T23:59:59Z"),
-      };
-    case "Q1_26_W13":
-      return {
-        start: new Date("2026-03-23"),
-        end: new Date("2026-03-31T23:59:59Z"),
-      };
-
-    // Q1 2026 Months
-    case "Q1_26_M1":
-      return {
-        start: new Date("2026-01-01"),
-        end: new Date("2026-01-31T23:59:59Z"),
-      };
-    case "Q1_26_M2":
-      return {
-        start: new Date("2026-02-01"),
-        end: new Date("2026-02-28T23:59:59Z"),
-      };
-    case "Q1_26_M3":
-      return {
-        start: new Date("2026-03-01"),
-        end: new Date("2026-03-31T23:59:59Z"),
-      };
-
-    default:
-      // Default to last 60 days
-      const start = new Date(now);
-      start.setDate(start.getDate() - 60);
-      return { start, end: now };
+  if (!parsed) {
+    // Fallback: last 60 days
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(start.getDate() - 60);
+    return { start, end: now };
   }
+
+  const { q, year, subType, subNum } = parsed;
+  const { startMonth, endMonth } = QUARTER_MONTHS[q];
+
+  // Full quarter range
+  const qStart = new Date(Date.UTC(year, startMonth, 1));
+  const qEndDay = lastDayOfMonth(year, endMonth);
+  const qEnd = new Date(Date.UTC(year, endMonth, qEndDay, 23, 59, 59));
+
+  if (!subType) {
+    return { start: qStart, end: qEnd };
+  }
+
+  // Monthly sub-range: M1 = first month of quarter, M2 = second, M3 = third
+  if (subType === "M" && subNum >= 1 && subNum <= 3) {
+    const m = startMonth + (subNum - 1);
+    const mEnd = lastDayOfMonth(year, m);
+    return {
+      start: new Date(Date.UTC(year, m, 1)),
+      end: new Date(Date.UTC(year, m, mEnd, 23, 59, 59)),
+    };
+  }
+
+  // Weekly sub-range: W1–W13 (each quarter has ~13 weeks)
+  if (subType === "W" && subNum >= 1 && subNum <= 14) {
+    const wStart = new Date(qStart);
+    wStart.setDate(wStart.getDate() + (subNum - 1) * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wEnd.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    // Clamp to quarter end
+    if (wEnd > qEnd) return { start: wStart, end: qEnd };
+    return { start: wStart, end: wEnd };
+  }
+
+  return { start: qStart, end: qEnd };
 };
 
 /**
@@ -346,6 +342,7 @@ export const resolveDateRange = ({ quarter, startDate, endDate }) => {
     }
     return { start, end, label: `${startDate} to ${endDate}` };
   }
-  const { start, end } = getQuarterDateRange(quarter || "Q1_26");
-  return { start, end, label: quarter || "Q1_26" };
+  const effectiveQuarter = quarter || getCurrentQuarterKey();
+  const { start, end } = getQuarterDateRange(effectiveQuarter);
+  return { start, end, label: effectiveQuarter };
 };

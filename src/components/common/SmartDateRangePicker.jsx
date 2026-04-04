@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Calendar, ChevronDown } from "lucide-react";
 import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
+import { getCurrentQuarterKey, getQuarterDates, formatQuarterLabel, getPreviousQuarterKey } from "../../features/analytics/components/analytics/analyticsConfig";
 
 const SmartDateRangePicker = ({ value, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -26,6 +27,12 @@ const SmartDateRangePicker = ({ value, onChange }) => {
     const lastMonthStart = startOfMonth(subMonths(today, 1));
     const lastMonthEnd = endOfMonth(subMonths(today, 1));
 
+    // Dynamic quarter presets: current + previous
+    const currKey = getCurrentQuarterKey();
+    const prevKey = getPreviousQuarterKey();
+    const currDates = getQuarterDates(currKey);
+    const prevDates = getQuarterDates(prevKey);
+
     return [
       { label: "Today", value: {
         start: format(startOfDay(today), "yyyy-MM-dd"),
@@ -43,9 +50,13 @@ const SmartDateRangePicker = ({ value, onChange }) => {
         start: format(lastMonthStart, "yyyy-MM-dd"),
         end: format(lastMonthEnd, "yyyy-MM-dd"),
       }},
-      { label: "Q1 2026", value: {
-        start: "2026-01-01",
-        end: "2026-03-31",
+      { label: formatQuarterLabel(prevKey), value: {
+        start: format(prevDates.start, "yyyy-MM-dd"),
+        end: format(prevDates.end, "yyyy-MM-dd"),
+      }},
+      { label: formatQuarterLabel(currKey), value: {
+        start: format(currDates.start, "yyyy-MM-dd"),
+        end: format(currDates.end, "yyyy-MM-dd"),
       }},
     ];
   }, []);

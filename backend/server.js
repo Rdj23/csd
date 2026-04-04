@@ -9,6 +9,7 @@ import { Server } from "socket.io";
 import process from "process";
 import mongoose from "mongoose";
 import logger from "./config/logger.js";
+import { getCurrentQuarterKey } from "./config/constants.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -197,8 +198,8 @@ server.listen(PORT, async () => {
         { repeat: { pattern: "0 4 * * *" }, jobId: "daily-historical-sync" },  // 04:00 UTC = 9:30 AM IST (during keep-alive window)
       );
       await getAnalyticsQueue().add(
-        "precompute", { quarter: "Q1_26" },
-        { repeat: { pattern: "30 4 * * *" }, jobId: "daily-analytics-q1-26" },  // 04:30 UTC = 10:00 AM IST (runs after sync)
+        "precompute", { quarter: getCurrentQuarterKey() },
+        { repeat: { pattern: "30 4 * * *" }, jobId: "daily-analytics-precompute" },  // 04:30 UTC = 10:00 AM IST (runs after sync)
       );
       await getActivitySyncQueue().add(
         "incremental", {},
