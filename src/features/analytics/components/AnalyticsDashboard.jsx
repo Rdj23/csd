@@ -207,6 +207,25 @@ const AnalyticsDashboard = ({
     };
   }, [filters?.dateRange, currentQuarter]);
 
+  // Sync currentQuarter when date picker selection matches a quarter preset
+  // This ensures the backend fetch uses the correct quarter for data
+  useEffect(() => {
+    const dateRange = filters?.dateRange;
+    if (!dateRange?.start || !dateRange?.end) return;
+
+    for (const q of QUARTERS) {
+      const qd = getQuarterDatesFromConfig(q.id);
+      const qStart = format(qd.start, "yyyy-MM-dd");
+      const qEnd = format(qd.end, "yyyy-MM-dd");
+      if (dateRange.start === qStart && dateRange.end === qEnd) {
+        if (currentQuarter !== q.id) {
+          setCurrentQuarter(q.id);
+        }
+        return;
+      }
+    }
+  }, [filters?.dateRange]);
+
   // Use global date range for expanded charts unless overridden
   const expandedEffectiveDateRange = useMemo(() => {
     if (expandedDateRange) {

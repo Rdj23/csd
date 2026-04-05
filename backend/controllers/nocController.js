@@ -6,13 +6,18 @@ export const getNocTickets = async (req, res) => {
   try {
     const { startDate, endDate, rca, reporter, owner, confirmationBy, showL2Only } = req.query;
 
+    // Match any ticket that is NOC (is_noc=true) OR has L2 confirmation,
+    // regardless of the value of has_l2_noc_confirmation
     const matchConditions = {
-      $or: [{ is_noc: true }, { has_l2_noc_confirmation: true }],
+      $or: [
+        { is_noc: true },
+        { has_l2_noc_confirmation: true },
+      ],
     };
 
     if (startDate && endDate) {
       matchConditions.closed_date = {
-        $gte: new Date(startDate),
+        $gte: new Date(`${startDate}T00:00:00.000Z`),
         $lte: new Date(`${endDate}T23:59:59.999Z`),
       };
     }
@@ -53,6 +58,7 @@ export const getNocTickets = async (req, res) => {
       .sort({ closed_date: -1 })
       .lean();
 
+    // Keep filter options global (all NOC tickets) so dropdowns always show all values
     const baseFilter = { $or: [{ is_noc: true }, { has_l2_noc_confirmation: true }] };
 
     const [rcaValues, reporterValues, ownerValues, confirmationByValues] = await Promise.all([
