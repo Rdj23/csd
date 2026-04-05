@@ -147,18 +147,21 @@ export const syncRoster = async () => {
     });
     const rows = resp.data.values || [];
 
-    // Find ALL header rows (supports multiple month sections like Jan + Feb)
+    // Find ALL header rows (supports multiple month sections like Jan + Feb + Apr)
+    // A header row has date columns (D-MMM format). May or may not have "Designation"/"Level".
     const headerIndices = [];
     const datePattern = /^\d{1,2}-[A-Za-z]{3}$/;
 
     rows.forEach((r, idx) => {
-      const hasDesignation = r.some((c) =>
-        String(c).toLowerCase().includes("designation") ||
-        String(c).toLowerCase().includes("level")
-      );
-      const hasDateColumns = r.some((c) => datePattern.test(String(c).trim()));
+      const dateColCount = r.filter((c) => datePattern.test(String(c).trim())).length;
+      const hasEngineerOrName = r.some((c) => {
+        const lower = String(c).toLowerCase().trim();
+        return lower === "engineer" || lower === "name" ||
+               lower.includes("designation") || lower.includes("level");
+      });
 
-      if (hasDesignation && hasDateColumns) {
+      // A header row must have at least 5 date columns and some identifying column
+      if (dateColCount >= 5 && hasEngineerOrName) {
         headerIndices.push(idx);
       }
     });
@@ -176,12 +179,21 @@ export const syncRoster = async () => {
 
     const engineerDataMap = {};
 
+    // Names to exclude — these are header labels or admin users, not GST engineers
+    const EXCLUDED_NAMES = new Set([
+      "engineer", "name", "manager", "pod name", "designation", "level",
+      "anmol", "mashnu", "anmol sawhney",
+    ]);
+
     headerIndices.forEach((headerIdx, sectionIndex) => {
       const headerRow = rows[headerIdx];
 
       const sectionDateMap = {};
-      let engineerColIdx = 0; // default: first column (old format)
+      let engineerColIdx = 0; // default: first column (old Q1 format)
+      let designationColIdx = -1;
+      let dataStartIdx = headerIdx + 1; // default: data starts right after header
 
+      // --- Step 1: Parse the header row for date columns ---
       headerRow.forEach((col, i) => {
         const colName = String(col).trim();
         const colLower = colName.toLowerCase();
@@ -191,29 +203,59 @@ export const syncRoster = async () => {
           DATE_COL_MAP[colName] = { section: sectionIndex, colIdx: i };
         }
 
-        // Detect engineer name column — new April format has "Engineer" as a column header
         if (colLower === "engineer" || colLower === "name") {
           engineerColIdx = i;
         }
 
-        if (LEVEL_COL_IDX === -1 && (
-          colLower.includes("designation") ||
-          colLower.includes("level")
+        if (designationColIdx === -1 && (
+          colLower.includes("designation") || colLower.includes("level")
         )) {
-          LEVEL_COL_IDX = i;
-          logger.info({ column: i }, "Level/Designation found");
+          designationColIdx = i;
         }
       });
 
-      logger.info({ section: sectionIndex + 1, engineerColIdx }, "Engineer column detected");
+      // --- Step 2: Check for a sub-header row (April format) ---
+      // If the header row didn't have "Engineer"/"Name", check the next row.
+      // The sub-header has column labels like "Manager", "POD Name", "Engineer", "Designation"
+      // but day names (Wed, Thu) instead of D-MMM dates.
+      if (engineerColIdx === 0 && headerIdx + 1 < rows.length) {
+        const nextRow = rows[headerIdx + 1];
+        const nextHasEngineer = nextRow?.some((c) => {
+          const lower = String(c).toLowerCase().trim();
+          return lower === "engineer" || lower === "name";
+        });
+
+        if (nextHasEngineer) {
+          nextRow.forEach((col, i) => {
+            const lower = String(col).toLowerCase().trim();
+            if (lower === "engineer" || lower === "name") {
+              engineerColIdx = i;
+            }
+            if (designationColIdx === -1 && (lower.includes("designation") || lower.includes("level"))) {
+              designationColIdx = i;
+            }
+          });
+          dataStartIdx = headerIdx + 2; // skip both header AND sub-header
+          logger.info({ section: sectionIndex + 1, engineerColIdx, designationColIdx }, "Sub-header detected (April format)");
+        }
+      }
+
+      if (designationColIdx !== -1 && LEVEL_COL_IDX === -1) {
+        LEVEL_COL_IDX = designationColIdx;
+        logger.info({ column: designationColIdx }, "Level/Designation found");
+      }
+
+      logger.info({ section: sectionIndex + 1, engineerColIdx, dataStartIdx }, "Engineer column detected");
 
       const nextHeaderIdx = headerIndices[sectionIndex + 1];
       const sectionEndIdx = nextHeaderIdx ? nextHeaderIdx : rows.length;
 
-      // Filter by the engineer column (not always col 0 in new format)
-      const sectionDataRows = rows.slice(headerIdx + 1, sectionEndIdx)
-        .filter((r) => r[engineerColIdx]?.length > 2);
-        
+      // Filter data rows: must have a non-empty engineer name, exclude header labels
+      const sectionDataRows = rows.slice(dataStartIdx, sectionEndIdx)
+        .filter((r) => {
+          const name = r[engineerColIdx]?.trim();
+          return name && name.length > 2 && !EXCLUDED_NAMES.has(name.toLowerCase());
+        });
 
       logger.info({ section: sectionIndex + 1, dates: Object.keys(sectionDateMap).length, engineers: sectionDataRows.length }, "Roster section parsed");
 
@@ -223,7 +265,7 @@ export const syncRoster = async () => {
 
         if (!engineerDataMap[name]) {
           engineerDataMap[name] = {
-            level: row[LEVEL_COL_IDX] || "L1",
+            level: row[designationColIdx !== -1 ? designationColIdx : LEVEL_COL_IDX] || "L1",
             shifts: {}
           };
         }
@@ -238,11 +280,12 @@ export const syncRoster = async () => {
     });
 
     // Convert engineerDataMap to ROSTER_ROWS format
+    const currentYear = new Date().getFullYear();
     const allDates = Object.keys(DATE_COL_MAP).sort((a, b) => {
       const parseDate = (d) => {
         const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
         const [day, mon] = d.split("-");
-        return new Date(2025, months[mon] || 0, parseInt(day));
+        return new Date(currentYear, months[mon] || 0, parseInt(day));
       };
       return parseDate(a) - parseDate(b);
     });
@@ -553,9 +596,16 @@ export const getFullRoster = async (quarterStart) => {
 
   // If no quarterStart passed, compute from current quarter dynamically
   const start = quarterStart || new Date();
+
+  // Names to exclude from roster display (header artifacts, non-GST admins)
+  const ROSTER_EXCLUDE = new Set([
+    "engineer", "name", "manager", "pod name", "designation",
+    "anmol", "mashnu", "anmol sawhney",
+  ]);
+
   const engineers = ROSTER_ROWS.map((row) => {
     const name = row[0];
-    if (!name) return null;
+    if (!name || ROSTER_EXCLUDE.has(name.toLowerCase())) return null;
 
     const designation = DESIGNATION_MAP[name] || row[LEVEL_COL_IDX] || "L1";
     const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
@@ -726,6 +776,147 @@ export const getNextWorkingDays = (name, fromDate, count = 7) => {
     nextWorkingDays,
     nextOffDays,
     upcomingSchedule: preview, // full view of next ~3 weeks
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Get full roster for a specific month (e.g. "Apr", "2026")
+// Returns every engineer's schedule for every day in that month.
+// ---------------------------------------------------------------------------
+export const getRosterByMonth = (monthName, year) => {
+  if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
+    return { error: "Roster data not loaded. Please sync first." };
+  }
+
+  const y = parseInt(year) || new Date().getFullYear();
+  const mon = monthName?.charAt(0).toUpperCase() + monthName?.slice(1, 3).toLowerCase();
+  if (!MONTHS_MAP.hasOwnProperty(mon)) {
+    return { error: `Invalid month "${monthName}". Use Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec.` };
+  }
+
+  // Collect all date columns for this month
+  const monthDates = [];
+  for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
+    if (dateKey.endsWith(`-${mon}`)) {
+      const colDate = parseRosterDate(dateKey, y);
+      if (colDate) monthDates.push({ dateKey, colIdx, colDate });
+    }
+  }
+  monthDates.sort((a, b) => a.colDate - b.colDate);
+
+  if (monthDates.length === 0) {
+    return { error: `No roster data found for ${mon} ${y}. The roster may not have been synced for this month yet.` };
+  }
+
+  const engineers = ROSTER_ROWS.map((row) => {
+    const name = row[0];
+    if (!name) return null;
+    const designation = DESIGNATION_MAP[name] || row[LEVEL_COL_IDX] || "L1";
+    const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
+
+    const schedule = {};
+    let workingDays = 0;
+    let offDays = 0;
+
+    monthDates.forEach(({ dateKey, colIdx, colDate }) => {
+      const raw = (row[colIdx] || "").trim();
+      const entry = buildDayEntry(dateKey, colDate, raw);
+      schedule[dateKey] = entry;
+      if (entry.status === "working") workingDays++;
+      else offDays++;
+    });
+
+    return { name, designation, team, workingDays, offDays, schedule };
+  }).filter(Boolean);
+
+  return {
+    month: mon,
+    year: y,
+    totalDays: monthDates.length,
+    dates: monthDates.map(d => d.dateKey),
+    engineers,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Get today's complete status for a user: current shift, next working day,
+// next week-off, and summary for the week.
+// ---------------------------------------------------------------------------
+export const getTodayStatus = (name) => {
+  if (!ROSTER_ROWS || ROSTER_ROWS.length === 0) {
+    return { error: "Roster data not loaded. Please sync first." };
+  }
+
+  const rosterName = NAME_TO_ROSTER_MAP[name] || name;
+  const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
+  if (!row) {
+    return { error: `Engineer "${name}" not found in roster.`, availableEngineers: ROSTER_ROWS.map(r => r[0]) };
+  }
+
+  const istNow = getISTTime();
+  const year = istNow.getFullYear();
+  const todayKey = format(istNow, "d-MMM");
+  const currentHour = getCurrentISTHour();
+
+  // Today's shift
+  const todayColIdx = DATE_COL_MAP[todayKey];
+  const todayRaw = todayColIdx != null ? (row[todayColIdx] || "").trim() : "";
+  const todayShift = normalizeShift(todayRaw || "—");
+  const isOnShift = (() => {
+    const hours = SHIFT_HOURS[todayShift];
+    if (!hours) return false;
+    if (hours.overnight) return currentHour >= hours.start || currentHour < hours.end;
+    return currentHour >= hours.start && currentHour < hours.end;
+  })();
+
+  // Build upcoming days to find next working day and next off day
+  const upcoming = [];
+  for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
+    const colDate = parseRosterDate(dateKey, year);
+    if (!colDate || colDate < istNow) continue; // future only (excluding today)
+    // Skip today
+    if (dateKey === todayKey) continue;
+    const raw = (row[colIdx] || "").trim();
+    upcoming.push(buildDayEntry(dateKey, colDate, raw));
+  }
+  upcoming.sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
+
+  const nextWorkingDay = upcoming.find(d => d.status === "working") || null;
+  const nextOffDay = upcoming.find(d => d.status !== "working") || null;
+
+  // This week's schedule (Mon-Sun)
+  const dayOfWeek = istNow.getDay(); // 0=Sun
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const weekStart = new Date(istNow);
+  weekStart.setDate(istNow.getDate() + mondayOffset);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
+
+  const thisWeek = [];
+  for (const [dateKey, colIdx] of Object.entries(DATE_COL_MAP)) {
+    const colDate = parseRosterDate(dateKey, year);
+    if (!colDate || colDate < weekStart || colDate > weekEnd) continue;
+    const raw = (row[colIdx] || "").trim();
+    thisWeek.push(buildDayEntry(dateKey, colDate, raw));
+  }
+  thisWeek.sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
+
+  return {
+    name,
+    today: {
+      date: todayKey,
+      shift: todayRaw || "—",
+      shiftNormalized: todayShift,
+      isOnShift,
+      status: WORKING_SHIFTS.has(todayShift)
+        ? (isOnShift ? "On Shift" : `${todayRaw} (upcoming)`)
+        : (OFF_STATUS_MAP[todayRaw?.toUpperCase()] || todayRaw || "No Data"),
+    },
+    nextWorkingDay,
+    nextOffDay,
+    thisWeek,
   };
 };
 

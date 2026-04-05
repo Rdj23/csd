@@ -6,6 +6,8 @@ import {
   getFullRoster,
   getWorkingDayDetails,
   getNextWorkingDays,
+  getRosterByMonth,
+  getTodayStatus,
 } from "../services/rosterService.js";
 import { getQuarterDateRange, getCurrentQuarterKey } from "../config/constants.js";
 import logger from "../config/logger.js";
@@ -90,6 +92,36 @@ export const getNextWorkingDaysHandler = (req, res) => {
   }
 
   const result = getNextWorkingDays(name, from || null, parsedCount);
+  if (result.error) return res.status(result.availableEngineers ? 404 : 503).json(result);
+
+  res.json(result);
+};
+
+// GET /roster/month?month=Apr&year=2026
+// Returns full roster grid for a specific month — every engineer, every day
+export const getRosterMonth = (req, res) => {
+  const { month, year } = req.query;
+
+  if (!month) {
+    return res.status(400).json({ error: "month query parameter is required (e.g. Apr, May)." });
+  }
+
+  const result = getRosterByMonth(month, year);
+  if (result.error) return res.status(result.engineers ? 200 : 400).json(result);
+
+  res.json(result);
+};
+
+// GET /roster/today-status?name=Rohan
+// Returns today's shift, next working day, next off day, and this week's schedule
+export const getTodayStatusHandler = (req, res) => {
+  const { name } = req.query;
+
+  if (!name) {
+    return res.status(400).json({ error: "name query parameter is required." });
+  }
+
+  const result = getTodayStatus(name);
   if (result.error) return res.status(result.availableEngineers ? 404 : 503).json(result);
 
   res.json(result);
