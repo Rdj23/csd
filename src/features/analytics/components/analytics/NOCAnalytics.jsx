@@ -5,6 +5,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
 import { authFetch } from "../../../../utils/authFetch";
+import { getCurrentQuarterKey, getAvailableQuarters, getQuarterDates, formatQuarterLabel } from "./analyticsConfig";
+import { format as fmtDate } from "date-fns";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -228,6 +230,9 @@ const MultiSelectDropdown = ({
 // Main NOCAnalytics Component
 // ============================================================================
 const NOCAnalytics = ({ isLoading: parentLoading }) => {
+  const availableQuarters = useMemo(() => getAvailableQuarters(), []);
+  const [nocQuarter, setNocQuarter] = useState(getCurrentQuarterKey()); // "all" | "Q1_26" | "Q2_26"
+
   const [nocData, setNocData] = useState({
     tickets: [],
     filters: {
@@ -272,6 +277,14 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         if (selectedConfirmationBy.length > 0)
           params.append("confirmationBy", selectedConfirmationBy.join(","));
         if (showL2Only) params.append("showL2Only", "true");
+
+        // Quarter date filtering for NOC
+        if (nocQuarter !== "all") {
+          const qd = getQuarterDates(nocQuarter);
+          params.append("startDate", fmtDate(qd.start, "yyyy-MM-dd"));
+          params.append("endDate", fmtDate(qd.end, "yyyy-MM-dd"));
+        }
+
         const response = await authFetch(`${API_URL}/api/tickets/noc?${params}`);
         const data = await response.json();
         if (data.stats && data.filters) {
@@ -291,6 +304,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     selectedOwner,
     selectedConfirmationBy,
     showL2Only,
+    nocQuarter,
   ]);
 
   useEffect(() => {
@@ -603,6 +617,34 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
             )}
           </h3>
           <div className="flex items-center gap-3">
+            {/* Quarter Toggle */}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+              <button
+                onClick={() => setNocQuarter("all")}
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-md transition-all ${
+                  nocQuarter === "all"
+                    ? "bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                }`}
+              >
+                All
+              </button>
+              {availableQuarters.map((q) => (
+                <button
+                  key={q.id}
+                  onClick={() => setNocQuarter(q.id)}
+                  className={`px-2.5 py-1.5 text-xs font-bold rounded-md transition-all ${
+                    nocQuarter === q.id
+                      ? "bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  }`}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+
+            {/* View Toggle */}
             <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
               <button
                 onClick={() => setActiveView("table")}

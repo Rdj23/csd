@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 import {
   parseISO,
+  format,
   isWithinInterval,
   startOfDay,
   endOfDay,
@@ -325,8 +326,7 @@ const App = () => {
     vistas: { ...EMPTY_FILTERS },
     analytics: (() => {
       const qd = getQuarterDates(getCurrentQuarterKey());
-      const fmt = (d) => d.toISOString().slice(0, 10);
-      return { ...EMPTY_FILTERS, dateRange: { start: fmt(qd.start), end: fmt(qd.end) } };
+      return { ...EMPTY_FILTERS, dateRange: { start: format(qd.start, "yyyy-MM-dd"), end: format(qd.end, "yyyy-MM-dd") } };
     })(),
   });
   const [visibleFilterKeys, setVisibleFilterKeys] = useState([]);
@@ -641,8 +641,7 @@ const App = () => {
           ...(activeTab === "analytics"
             ? (() => {
                 const qd = getQuarterDates(getCurrentQuarterKey());
-                const fmt = (d) => d.toISOString().slice(0, 10);
-                return { dateRange: { start: fmt(qd.start), end: fmt(qd.end) } };
+                return { dateRange: { start: format(qd.start, "yyyy-MM-dd"), end: format(qd.end, "yyyy-MM-dd") } };
               })()
             : {}),
         },

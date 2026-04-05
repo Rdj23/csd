@@ -1487,12 +1487,19 @@ const AnalyticsDashboard = ({
 
   const handleQuarterChange = useCallback(
     (quarter) => {
-      // ✅ FIX: Clear stale data when quarter changes
+      // Sync the date filter to the selected quarter so effectiveDateRange uses correct dates
+      // Must use format() (local time) — NOT toISOString() (UTC) — to match SmartDateRangePicker presets
+      const { start, end } = getQuarterDatesFromConfig(quarter);
+      onFilterChange?.("dateRange", {
+        start: format(start, "yyyy-MM-dd"),
+        end: format(end, "yyyy-MM-dd"),
+      });
+
       setExpandedAllTrends([]);
       setExpandedDateRange(null);
       setCurrentQuarter(quarter);
     },
-    [],
+    [onFilterChange],
   );
   const handleRefresh = () =>
     fetchAnalyticsData({

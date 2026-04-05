@@ -13,7 +13,7 @@ export const getNocTickets = async (req, res) => {
     if (startDate && endDate) {
       matchConditions.closed_date = {
         $gte: new Date(startDate),
-        $lte: new Date(endDate),
+        $lte: new Date(`${endDate}T23:59:59.999Z`),
       };
     }
 
