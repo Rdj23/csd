@@ -588,7 +588,7 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
             <span className="text-slate-300 dark:text-slate-600">|</span>
             <span>Percentile = ((Total - Rank + 1) / Total) × 100</span>
             <span className="text-slate-300 dark:text-slate-600">|</span>
-            <span>L2 CSAT% weight: 20%</span>
+            <span>CSAT% weight: 15% (L1 & L2)</span>
           </div>
         </>
       )}

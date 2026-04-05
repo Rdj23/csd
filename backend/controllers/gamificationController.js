@@ -164,11 +164,10 @@ export const getGamification = async (req, res) => {
     calculateNormalizedScores(data.L2);
 
     // STEP 3: Calculate FINAL SCORE using weighted sum of NORMALIZED SCORES
-    const calculateFinalScore = (e, isL2) => {
-      const csatWeight = isL2 ? 0.20 : 0.15;
+    const calculateFinalScore = (e) => {
       return (
         (e.productivityNormScore || 0) * 0.30 +
-        (e.csatPercentNormScore || 0) * csatWeight +
+        (e.csatPercentNormScore || 0) * 0.15 +
         (e.positiveCSATNormScore || 0) * 0.10 +
         (e.avgRWTNormScore || 0) * 0.15 +
         (e.avgIterationsNormScore || 0) * 0.15 +
@@ -176,8 +175,8 @@ export const getGamification = async (req, res) => {
       );
     };
 
-    data.L1.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e, false).toFixed(2)); });
-    data.L2.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e, true).toFixed(2)); });
+    data.L1.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e).toFixed(2)); });
+    data.L2.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e).toFixed(2)); });
     data.L1.forEach(e => { e.weightedAvg = e.finalScore; });
     data.L2.forEach(e => { e.weightedAvg = e.finalScore; });
 
@@ -463,10 +462,9 @@ export const getMyStats = async (req, res) => {
     const avgIterationsPercentile = calculatePercentile(parseFloat((s.avgIterations || 0).toFixed(2)), avgIterationsValues, true);
     const frrPercentPercentile = calculatePercentile(frrPercent, frrPercentValues);
 
-    const isL2 = designation === "L2";
     const weights = {
       productivity: 30,
-      csatPercent: isL2 ? 20 : 15,
+      csatPercent: 15,
       positiveCSAT: 10,
       avgRWT: 15,
       avgIterations: 15,
