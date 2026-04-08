@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, AlertCircle, Sparkles, X } from "lucide-react";
+import { Send, Bot, User, Loader2, AlertCircle, Sparkles, X, Square } from "lucide-react";
 import { sendAgentQuery, pollAgentResponse } from "../../../api/agentApi";
 
 const POLL_INTERVAL = 2000;
 const MAX_POLLS = 60;
+const MAX_CONSECUTIVE_POLL_ERRORS = 4;
+const MAX_QUERY_ATTEMPTS = 3;
 
 // Parse inline markdown bold (**text**) within a plain string
 function parseBold(str, keyPrefix = 0) {
@@ -198,6 +200,7 @@ export default function AgentModal({ open, onClose }) {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const pollTimerRef = useRef(null);
+  const cancelledRef = useRef(false);
   const backdropRef = useRef(null);
 
   const scrollToBottom = useCallback(() => {
@@ -226,48 +229,118 @@ export default function AgentModal({ open, onClose }) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
 
-  const handleSend = async (overrideQuery) => {
-    const query = (overrideQuery || input).trim();
-    if (!query || loading) return;
+  const [loadingStatus, setLoadingStatus] = useState("Thinking...");
 
-    setMessages((prev) => [...prev, { role: "user", text: query }]);
-    setInput("");
-    setLoading(true);
+  const handleStop = () => {
+    cancelledRef.current = true;
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    setLoading(false);
+    setLoadingStatus("Thinking...");
+    inputRef.current?.focus();
+  };
 
+  const executeQueryAndPoll = async (query, sessionObj) => {
+    if (cancelledRef.current) return { ok: false, retryable: false, cancelled: true };
+
+    let sessionId;
     try {
-      const { sessionId } = await sendAgentQuery(query, sessionObject);
+      const res = await sendAgentQuery(query, sessionObj);
+      sessionId = res.sessionId;
+    } catch (err) {
+      if (cancelledRef.current) return { ok: false, retryable: false, cancelled: true };
+      const status = err.response?.status;
+      return { ok: false, retryable: !status || status >= 500, error: err };
+    }
 
-      if (!sessionObject) {
-        setSessionObject(sessionId);
-      }
+    if (!sessionObj) {
+      setSessionObject(sessionId);
+    }
 
+    return new Promise((resolve) => {
       let pollCount = 0;
+      let consecutiveErrors = 0;
+
       pollTimerRef.current = setInterval(async () => {
+        if (cancelledRef.current) {
+          clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
+          resolve({ ok: false, retryable: false, cancelled: true });
+          return;
+        }
+
         pollCount++;
+
+        if (pollCount === 15) setLoadingStatus("Still working...");
+        else if (pollCount === 30) setLoadingStatus("Taking a bit longer than usual...");
+        else if (pollCount === 45) setLoadingStatus("Almost there...");
+
         try {
           const result = await pollAgentResponse(sessionId);
+          consecutiveErrors = 0;
 
           if (result.status === "done") {
             clearInterval(pollTimerRef.current);
             pollTimerRef.current = null;
-            setMessages((prev) => [...prev, { role: "agent", text: result.text, type: result.type }]);
-            setLoading(false);
-            inputRef.current?.focus();
+            resolve({ ok: true, text: result.text, type: result.type });
           } else if (pollCount >= MAX_POLLS) {
             clearInterval(pollTimerRef.current);
             pollTimerRef.current = null;
-            setMessages((prev) => [...prev, { role: "agent", text: "Request timed out. Please try again.", type: "error" }]);
-            setLoading(false);
+            resolve({ ok: false, retryable: true });
           }
         } catch {
-          clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-          setMessages((prev) => [...prev, { role: "agent", text: "Failed to fetch response.", type: "error" }]);
-          setLoading(false);
+          consecutiveErrors++;
+          if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+            resolve({ ok: false, retryable: true });
+          }
         }
       }, POLL_INTERVAL);
-    } catch (err) {
-      const errMsg = err.response?.data?.error || err.message || "Failed to send query.";
+    });
+  };
+
+  const handleSend = async (overrideQuery) => {
+    const query = (overrideQuery || input).trim();
+    if (!query || loading) return;
+
+    cancelledRef.current = false;
+
+    setMessages((prev) => [...prev, { role: "user", text: query }]);
+    setInput("");
+    setLoading(true);
+    setLoadingStatus("Thinking...");
+
+    let lastResult;
+    for (let attempt = 0; attempt < MAX_QUERY_ATTEMPTS; attempt++) {
+      if (cancelledRef.current) return;
+
+      if (attempt > 0) {
+        setLoadingStatus(`Retrying... (attempt ${attempt + 1}/${MAX_QUERY_ATTEMPTS})`);
+        await new Promise((r) => setTimeout(r, 1500));
+        if (cancelledRef.current) return;
+      }
+
+      lastResult = await executeQueryAndPoll(query, sessionObject);
+
+      if (lastResult?.cancelled) return;
+
+      if (lastResult.ok) {
+        setMessages((prev) => [...prev, { role: "agent", text: lastResult.text, type: lastResult.type }]);
+        setLoading(false);
+        inputRef.current?.focus();
+        return;
+      }
+
+      if (!lastResult.retryable) break;
+    }
+
+    if (!cancelledRef.current) {
+      const errMsg = lastResult?.error?.response?.data?.error
+        || lastResult?.error?.message
+        || "Something went wrong. Please try again in a moment.";
       setMessages((prev) => [...prev, { role: "agent", text: errMsg, type: "error" }]);
       setLoading(false);
     }
@@ -378,7 +451,7 @@ export default function AgentModal({ open, onClose }) {
               <div className="bg-slate-50 dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-bl-md border border-slate-100 dark:border-slate-700/50">
                 <div className="flex items-center gap-2">
                   <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
-                  <span className="text-xs text-slate-400">Thinking...</span>
+                  <span className="text-xs text-slate-400 transition-all duration-300">{loadingStatus}</span>
                 </div>
               </div>
             </div>
@@ -395,23 +468,33 @@ export default function AgentModal({ open, onClose }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask the DevRev agent..."
-              disabled={loading}
+              placeholder={loading ? "Stop current query to send a new one..." : "Ask the DevRev agent..."}
+              disabled={false}
               rows={1}
-              className="flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-[13px] text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 disabled:opacity-50 transition-all"
+              className="flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-[13px] text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
               style={{ maxHeight: "120px" }}
               onInput={(e) => {
                 e.target.style.height = "auto";
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
               }}
             />
-            <button
-              onClick={() => handleSend()}
-              disabled={!input.trim() || loading}
-              className="shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-indigo-500/20 disabled:shadow-none"
-            >
-              <Send className="w-4 h-4" />
-            </button>
+            {loading ? (
+              <button
+                onClick={handleStop}
+                className="shrink-0 w-10 h-10 rounded-xl bg-slate-600 hover:bg-slate-700 text-white flex items-center justify-center transition-all shadow-md shadow-slate-500/20"
+                title="Stop generating"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSend()}
+                disabled={!input.trim()}
+                className="shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-indigo-500/20 disabled:shadow-none"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -15,12 +15,59 @@ const headers = {
   "Content-Type": "application/json",
 };
 
+// Retry configuration for the DevRev async API call
+const AGENT_API_TIMEOUT = 15000;     // 15s per attempt (DevRev can be slow)
+const AGENT_MAX_RETRIES = 3;         // up to 3 attempts total
+const AGENT_RETRY_DELAYS = [2000, 4000, 8000]; // exponential backoff: 2s, 4s, 8s
+
 // In-memory store for pending agent responses (key → response)
 const pendingResponses = new Map();
 
 /**
+ * Fire a single request to DevRev's async agent API with a timeout.
+ * Separated out so the retry wrapper stays clean.
+ */
+async function callDevRevAgentAPI(payload) {
+  return axios.post(
+    `${DEVREV_API}/internal/ai-agents.events.execute-async`,
+    payload,
+    { headers, timeout: AGENT_API_TIMEOUT }
+  );
+}
+
+/**
+ * Retry wrapper with exponential backoff.
+ * Only retries on network errors, timeouts, and 5xx responses — NOT on 4xx (bad request).
+ */
+async function callWithRetry(payload) {
+  let lastError;
+  for (let attempt = 0; attempt < AGENT_MAX_RETRIES; attempt++) {
+    try {
+      return await callDevRevAgentAPI(payload);
+    } catch (err) {
+      lastError = err;
+      const status = err.response?.status;
+      const isRetryable = !status || status >= 500 || err.code === "ECONNABORTED" || err.code === "ETIMEDOUT";
+
+      if (!isRetryable || attempt === AGENT_MAX_RETRIES - 1) {
+        throw err;
+      }
+
+      const delay = AGENT_RETRY_DELAYS[attempt] || 8000;
+      logger.warn(
+        { attempt: attempt + 1, status, code: err.code, delay },
+        "DevRev agent API call failed, retrying"
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Send a query to the DevRev AI Agent using the async API.
  * Returns the DevRev session DON which the webhook will reference in session_object.
+ * Includes retry with exponential backoff for transient failures.
  */
 export async function sendAgentQuery(query, sessionObject) {
   if (!WEBHOOK_DON) {
@@ -30,30 +77,36 @@ export async function sendAgentQuery(query, sessionObject) {
   // Use provided sessionObject for multi-turn, or generate a unique one
   const clientSessionId = sessionObject || `dash_${crypto.randomUUID()}`;
 
-  const res = await axios.post(
-    `${DEVREV_API}/internal/ai-agents.events.execute-async`,
-    {
-      agent: AGENT_DON,
-      event: {
-        input_message: {
-          message: query,
-        },
-      },
-      session_object: clientSessionId,
-      webhook_target: {
-        webhook: WEBHOOK_DON,
+  const payload = {
+    agent: AGENT_DON,
+    event: {
+      input_message: {
+        message: query,
       },
     },
-    { headers }
-  );
+    session_object: clientSessionId,
+    webhook_target: {
+      webhook: WEBHOOK_DON,
+    },
+  };
+
+  // Register pending BEFORE the API call so webhook responses that arrive
+  // extremely fast (race condition) are not lost
+  const pollKey = clientSessionId;
+  pendingResponses.set(pollKey, { status: "pending", createdAt: Date.now() });
+
+  let res;
+  try {
+    res = await callWithRetry(payload);
+  } catch (err) {
+    // Clean up the pending entry on total failure
+    pendingResponses.delete(pollKey);
+    throw err;
+  }
 
   // DevRev returns a session DON — this is what the webhook will use as session_object
   const devrevSessionId = res.data?.session?.id;
 
-  // We poll using the client session ID, but the webhook may arrive with either
-  // our clientSessionId or the DevRev session DON — register both as pending
-  const pollKey = clientSessionId;
-  pendingResponses.set(pollKey, { status: "pending", createdAt: Date.now() });
   if (devrevSessionId && devrevSessionId !== clientSessionId) {
     // Map DevRev session DON → our poll key so webhook can find it
     pendingResponses.set(devrevSessionId, { status: "pending", createdAt: Date.now(), aliasOf: pollKey });
