@@ -1,22 +1,81 @@
+/**
+ * devrevApi.js — DevRev API configuration and HTTP helper.
+ *
+ * WHY THIS FILE EXISTS:
+ * Every service that talks to DevRev (syncService, activityService, agentService)
+ * needs the same base URL and auth headers. Centralizing them here means:
+ * 1. One place to update if DevRev changes their API URL
+ * 2. One place to update the PAT (Personal Access Token) when it rotates
+ * 3. DRY — no duplicated auth header construction across 5+ files
+ *
+ * DATA FLOW:
+ *   Any service → import { DEVREV_API, HEADERS } → axios.get/post(DEVREV_API + endpoint, { headers: HEADERS })
+ */
+
 import axios from "axios";
 import logger from "../config/logger.js";
 
+/**
+ * DEVREV_API — Base URL for all DevRev REST API calls.
+ * All endpoints are relative to this: /works.list, /works.get, /timeline-entries.list, etc.
+ */
 export const DEVREV_API = "https://api.devrev.ai";
 
+/**
+ * HEADERS — Auth + content-type headers sent with every DevRev request.
+ *
+ * WHY VITE_DEVREV_PAT (not just DEVREV_PAT):
+ * This env var is prefixed with VITE_ because it was originally also used by
+ * the frontend (Vite exposes env vars with VITE_ prefix to client code).
+ * The backend reads it too for API calls.
+ *
+ * WHAT IS A PAT (Personal Access Token):
+ * DevRev's equivalent of an API key. It's a long-lived token tied to a specific
+ * DevRev user/org that grants read/write access to the API. You generate it in
+ * DevRev Settings → API Tokens.
+ *
+ * SECURITY NOTE: This token has broad access. In production, use a service account
+ * with minimal permissions instead of a personal token.
+ */
 export const HEADERS = {
   Authorization: `Bearer ${process.env.VITE_DEVREV_PAT}`,
   "Content-Type": "application/json",
 };
 
-// Retry helper for individual API calls
+/**
+ * fetchWithRetry — Wraps axios.get with automatic retry logic.
+ *
+ * WHY WE NEED THIS:
+ * DevRev API occasionally returns 5xx errors or times out under load.
+ * Without retry, one bad response would fail the entire sync operation.
+ * With retry, transient errors are handled transparently.
+ *
+ * RETRY STRATEGY:
+ * - Default: 2 attempts (1 initial + 1 retry)
+ * - Delay: attempt * 2000ms → 1st retry after 2s, 2nd after 4s
+ * - This is LINEAR backoff (not exponential like BullMQ).
+ *   It's simpler because this is for individual API calls within a
+ *   job that already has BullMQ's exponential retry on top.
+ *
+ * WHY ONLY axios.get (not POST):
+ * Currently only used by fetchAndCacheTickets() which calls works.list (GET).
+ * POST endpoints (works.get, timeline-entries.list) use raw axios with their
+ * own error handling. Could be extended to support POST in the future.
+ *
+ * NOTE: This is separate from BullMQ's retry mechanism:
+ * - fetchWithRetry: retries individual HTTP calls (2-3 times, seconds apart)
+ * - BullMQ retry: retries entire jobs (3-4 times, minutes apart)
+ * Both work together: a job might make 20 API calls, each retried internally,
+ * and if the whole job still fails, BullMQ retries the entire thing.
+ */
 export const fetchWithRetry = async (url, options, retries = 2) => {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       return await axios.get(url, options);
     } catch (err) {
-      if (attempt === retries) throw err;
+      if (attempt === retries) throw err; // Last attempt — propagate error to caller
       logger.warn({ attempt, retries, err }, "API attempt failed, retrying");
-      await new Promise((r) => setTimeout(r, attempt * 2000));
+      await new Promise((r) => setTimeout(r, attempt * 2000)); // Wait 2s, 4s, 6s...
     }
   }
 };
