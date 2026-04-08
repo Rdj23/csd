@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
-import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
+import { redisGet, redisSet, redisLock, redisUnlock, CACHE_TTL } from "../config/database.js";
 import {
   getQuarterDateRange,
   resolveDateRange,
@@ -68,7 +68,21 @@ export const getAnalytics = async (req, res) => {
       }
     }
 
-    // 3. Compute fresh data
+    // 3. Acquire lock to prevent cache stampede (only one request computes at a time)
+    const lockKey = `lock:${cacheKey}`;
+    const gotLock = await redisLock(lockKey, 60); // 60s lock — enough for aggregation
+    if (!gotLock) {
+      // Another request is computing — wait briefly and check cache again
+      await new Promise((r) => setTimeout(r, 2000));
+      const retryData = await redisGet(cacheKey);
+      if (retryData) {
+        logger.info({ cacheKey }, "Analytics cache HIT after lock wait");
+        return res.json(retryData);
+      }
+      // Still no cache — fall through and compute (lock holder may have failed)
+    }
+
+    // 4. Compute fresh data
     const { start, end } = getQuarterDateRange(quarter);
     logger.info({ start: format(start, "MMM d"), end: format(end, "MMM d") }, "Computing analytics");
 
@@ -428,6 +442,8 @@ export const getAnalytics = async (req, res) => {
       logger.info({ cacheKey }, "Analytics cached");
     }).catch((cacheErr) => {
       logger.error({ err: cacheErr, cacheKey }, "Analytics cache save failed (response already sent)");
+    }).finally(() => {
+      redisUnlock(lockKey);
     });
   } catch (e) {
     logger.error({ err: e, stack: e.stack }, "Analytics error");

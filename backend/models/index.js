@@ -451,6 +451,8 @@ const UserActivityDailySchema = new mongoose.Schema(
 UserActivityDailySchema.index({ user_name: 1, date_bucket: 1 }, { unique: true });
 // Single-field index on date_bucket for "show all users' stats for today" queries
 UserActivityDailySchema.index({ date_bucket: 1 });
+// Index for leaderboard queries that sort by total_points
+UserActivityDailySchema.index({ date_bucket: 1, total_points: -1 });
 
 export const UserActivityDaily = mongoose.model(
   "UserActivityDaily",

@@ -34,6 +34,12 @@ app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: ALLOWED_ORIGINS, credentials: true },
+  // Production tuning for 100+ concurrent users:
+  pingTimeout: 30000,        // How long to wait for a pong before considering connection dead
+  pingInterval: 25000,       // How often to ping clients (detect stale connections faster)
+  maxHttpBufferSize: 1e6,    // 1MB max message size (prevent memory abuse)
+  connectTimeout: 10000,     // 10s to complete handshake
+  perMessageDeflate: false,  // Disable per-message compression (saves CPU at cost of bandwidth)
 });
 
 
@@ -219,13 +225,47 @@ server.listen(PORT, async () => {
 });
 
 // --- Graceful shutdown ---
-const shutdown = async () => {
+let isShuttingDown = false;
+const shutdown = async (signal) => {
+  if (isShuttingDown) return; // Prevent double shutdown
+  isShuttingDown = true;
+  logger.info({ signal }, "Graceful shutdown initiated");
+
+  // Stop accepting new connections immediately
+  server.close(() => logger.info("HTTP server closed"));
+
+  // Close Socket.IO connections (sends disconnect to all clients)
+  io.close();
+
+  // Close BullMQ workers (let in-flight jobs finish, up to 10s)
   if (workerInstances.length > 0) {
     logger.info("Closing workers...");
-    await Promise.all(workerInstances.map((w) => w.close()));
+    await Promise.allSettled(workerInstances.map((w) => w.close()));
     logger.info("All workers closed");
   }
-  server.close(() => process.exit(0));
+
+  // Close database connections
+  try {
+    await mongoose.connection.close();
+    logger.info("MongoDB connection closed");
+  } catch (e) {
+    logger.error({ err: e }, "MongoDB close error");
+  }
+
+  const { getRedis } = await import("./config/database.js");
+  const redisConn = getRedis();
+  if (redisConn) {
+    redisConn.disconnect();
+    logger.info("Redis connection closed");
+  }
+
+  // Force exit after 15s if graceful shutdown hangs
+  setTimeout(() => {
+    logger.warn("Forced exit after timeout");
+    process.exit(1);
+  }, 15000).unref();
+
+  process.exit(0);
 };
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

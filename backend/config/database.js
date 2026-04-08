@@ -38,13 +38,50 @@ export const redisSet = async (key, data, ttl = 1800) => {
   }
 };
 
+/**
+ * Acquire a simple Redis lock to prevent cache stampede (thundering herd).
+ * Returns true if lock was acquired, false if another process holds it.
+ * Uses SET NX EX (atomic set-if-not-exists with expiry) so locks auto-release.
+ */
+export const redisLock = async (key, ttlSeconds = 30) => {
+  if (!isRedisReady()) return true; // If Redis is down, allow computation (no lock)
+  try {
+    const result = await redis.set(key, "1", "EX", ttlSeconds, "NX");
+    return result === "OK";
+  } catch (e) {
+    logger.error({ err: e, key }, "Redis LOCK error");
+    return true; // On error, allow computation
+  }
+};
+
+export const redisUnlock = async (key) => {
+  if (!isRedisReady()) return;
+  try {
+    await redis.del(key);
+  } catch (e) {
+    logger.error({ err: e, key }, "Redis UNLOCK error");
+  }
+};
+
 export const redisDelete = async (pattern) => {
   if (!isRedisReady()) return;
   try {
-    const keys = await redis.keys(pattern);
-    if (keys.length > 0) {
-      await redis.del(...keys);
-      logger.info({ count: keys.length, pattern }, "Cleared cache keys");
+    // Use SCAN instead of KEYS to avoid blocking Redis under load.
+    // KEYS iterates ALL keys in one blocking call — with 100 users and thousands
+    // of cache keys, this can block Redis for 100ms+, stalling all other requests.
+    // SCAN iterates in small batches (default 10), yielding between batches.
+    let cursor = "0";
+    let totalDeleted = 0;
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+      cursor = nextCursor;
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        totalDeleted += keys.length;
+      }
+    } while (cursor !== "0");
+    if (totalDeleted > 0) {
+      logger.info({ count: totalDeleted, pattern }, "Cleared cache keys");
     }
   } catch (e) {
     logger.error({ err: e, pattern }, "Redis DEL error");
@@ -151,6 +188,9 @@ export const connectMongoDB = async () => {
         connectTimeoutMS: 10000,
         socketTimeoutMS: 30000,
         retryWrites: true,
+        maxPoolSize: 20,      // Max concurrent connections to MongoDB (default 100 is too high for Atlas free/shared tier)
+        minPoolSize: 5,       // Keep 5 warm connections ready for instant use
+        maxIdleTimeMS: 30000, // Close idle connections after 30s to free up Atlas connection slots
       });
       logger.info("MongoDB connected");
       return;

@@ -41,9 +41,10 @@ export const getUsers = async (_req, res) => {
 };
 
 export const getRemarks = async (req, res) => {
-  const remarks = await Remark.find({ ticketId: req.params.ticketId }).sort({
-    timestamp: 1,
-  });
+  const remarks = await Remark.find({ ticketId: req.params.ticketId })
+    .sort({ timestamp: 1 })
+    .limit(500)
+    .lean();
   ok(res, remarks);
 };
 

@@ -9,17 +9,18 @@ export const precomputeAnalytics = async (quarter) => {
   const cacheType = quarter.toLowerCase().replace("_", "");
 
   try {
-    const existing = await PrecomputedDashboard.findOne({ cache_type: cacheType });
-    if (existing?.computing) {
+    // Atomic lock: only proceeds if computing is not already true.
+    // findOneAndUpdate with { computing: { $ne: true } } is a single atomic operation —
+    // two concurrent calls cannot both succeed (one will get null back).
+    const lockResult = await PrecomputedDashboard.findOneAndUpdate(
+      { cache_type: cacheType, computing: { $ne: true } },
+      { $set: { computing: true } },
+      { upsert: true, returnDocument: "after" }
+    );
+    if (!lockResult) {
       logger.info({ quarter }, "Skipping quarter - already computing");
       return;
     }
-
-    await PrecomputedDashboard.findOneAndUpdate(
-      { cache_type: cacheType },
-      { $set: { computing: true } },
-      { upsert: true }
-    );
 
     logger.info({ quarter }, "Pre-computing analytics");
 

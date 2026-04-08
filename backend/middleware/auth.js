@@ -448,7 +448,7 @@ const rateLimitHandler = (req, res, _next, options) => {
  */
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 1500,
+  max: 5000,                    // 100 users × ~20 req/page-load × ~2.5 refreshes/window = ~5000
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.path.startsWith("/webhooks/"),

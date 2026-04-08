@@ -5,7 +5,7 @@ import logger from "../config/logger.js";
 export const getViews = async (req, res) => {
   try {
     ok(res,
-      await View.find({ userId: req.params.userId }).sort({ createdAt: -1 }),
+      await View.find({ userId: req.params.userId }).sort({ createdAt: -1 }).limit(100).lean(),
     );
   } catch (err) {
     logger.error({ err, userId: req.params.userId }, "getViews failed");
