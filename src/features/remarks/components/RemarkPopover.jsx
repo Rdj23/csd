@@ -36,15 +36,40 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
 
   const POPUP_WIDTH = 384;
   const POPUP_HEIGHT = 500;
+  const EDGE_PADDING = 10;
 
   const style = anchorRect
-    ? {
-        position: "fixed",
-        top: Math.max(10, anchorRect.top - POPUP_HEIGHT - 10),
-        left: anchorRect.right - POPUP_WIDTH,
-        width: POPUP_WIDTH,
-        height: POPUP_HEIGHT,
-      }
+    ? (() => {
+        const vh = window.innerHeight;
+        const vw = window.innerWidth;
+
+        // Prefer opening above the button; if not enough room, open below
+        const spaceAbove = anchorRect.top;
+        const spaceBelow = vh - anchorRect.bottom;
+        let top;
+        if (spaceAbove >= POPUP_HEIGHT + EDGE_PADDING) {
+          top = anchorRect.top - POPUP_HEIGHT - EDGE_PADDING;
+        } else if (spaceBelow >= POPUP_HEIGHT + EDGE_PADDING) {
+          top = anchorRect.bottom + EDGE_PADDING;
+        } else {
+          // Not enough room either way — center vertically and cap height
+          top = EDGE_PADDING;
+        }
+
+        // Align right edge of popup with right edge of button, but clamp to viewport
+        let left = anchorRect.right - POPUP_WIDTH;
+        left = Math.max(EDGE_PADDING, Math.min(left, vw - POPUP_WIDTH - EDGE_PADDING));
+
+        const maxHeight = vh - EDGE_PADDING * 2;
+
+        return {
+          position: "fixed",
+          top,
+          left,
+          width: POPUP_WIDTH,
+          height: Math.min(POPUP_HEIGHT, maxHeight),
+        };
+      })()
     : {};
 
   // Scroll to bottom when history loads
@@ -205,8 +230,8 @@ const handleSend = async () => {
   // ✅ FIX: Floating Position based on 'style' (No Blur)
   return (
     <>
-      {/* Click outside to close (Invisible) */}
-      {/* <div className="fixed inset-0 z-40" onClick={onClose} /> */}
+      {/* Click outside to close (Invisible backdrop) */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
 
       <div
         style={style}
