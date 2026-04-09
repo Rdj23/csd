@@ -14,7 +14,9 @@ export const useRemarks = (ticketDisplayId) => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const rawUsers = await apiFetchUsers();
+        const rawUsersRes = await apiFetchUsers();
+        // getUsers returns raw array; guard against unexpected wrapper objects
+        const rawUsers = Array.isArray(rawUsersRes) ? rawUsersRes : rawUsersRes?.data || [];
         const formattedUsers = rawUsers.map((u) => ({
           name: u.full_name || u.display_name || "Unknown User",
           id: u.id,
@@ -34,7 +36,9 @@ export const useRemarks = (ticketDisplayId) => {
       if (!ticketDisplayId) return;
       setLoadingHistory(true);
       try {
-        const rawHistory = await fetchRemarkHistory(ticketDisplayId);
+        const rawHistoryRes = await fetchRemarkHistory(ticketDisplayId);
+        // ok() wraps arrays as { success: true, data: [...] }
+        const rawHistory = Array.isArray(rawHistoryRes) ? rawHistoryRes : rawHistoryRes?.data || [];
         const adaptedHistory = rawHistory.map((item) => ({
           id: item.id,
           body: item.text,

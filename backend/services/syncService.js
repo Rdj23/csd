@@ -2,7 +2,7 @@ import axios from "axios";
 import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisDelete, CACHE_TTL } from "../config/database.js";
-import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket } from "../models/index.js";
+import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
@@ -516,6 +516,15 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
           await AnalyticsTicket.bulkWrite(ops);
           processedCount += ops.length;
           logger.info({ processedCount, nocCount, skippedCount }, "Batch done");
+
+          // Clean up internal remarks for solved tickets — no longer needed
+          const solvedTicketIds = solved.map((t) => t.display_id);
+          if (solvedTicketIds.length > 0) {
+            const deleted = await Remark.deleteMany({ ticketId: { $in: solvedTicketIds } });
+            if (deleted.deletedCount > 0) {
+              logger.info({ count: deleted.deletedCount, tickets: solvedTicketIds.length }, "Purged remarks for solved tickets");
+            }
+          }
         }
       }
       cursor = res.data.next_cursor;

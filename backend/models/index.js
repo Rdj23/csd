@@ -40,6 +40,8 @@ const RemarkSchema = new mongoose.Schema({
   text: String,                              // The remark content
   timestamp: { type: Date, default: Date.now }, // When it was written (auto-set)
 });
+// Auto-delete remarks older than 30 days — MongoDB's TTL background thread handles this
+RemarkSchema.index({ timestamp: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 export const Remark = mongoose.model("Remark", RemarkSchema);
 
 // ═══════════════════════════════════════════════════════════════════════
