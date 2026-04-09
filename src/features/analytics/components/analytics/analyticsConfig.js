@@ -32,12 +32,6 @@ export const SUPER_ADMIN_EMAILS = [
   "mashnu@clevertap.com"
 ];
 
-// Users allowed to see the Gamification tab
-export const GAMIFICATION_ALLOWED_EMAILS = [
-  "anmol.sawhney@clevertap.com",
-  "mashnu@clevertap.com"
-];
-
 // ============================================================================
 // CHART METRICS CONFIG
 // ============================================================================

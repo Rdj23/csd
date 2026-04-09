@@ -80,7 +80,7 @@ import {
   formatRWT,
   TEAM_REGION_MAP,
 } from "./utils";
-import { SUPER_ADMIN_EMAILS, GAMIFICATION_ALLOWED_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
+import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
 import { EMAIL_TO_NAME_MAP } from "./utils";
 const EMPTY_FILTERS = {
   teams: [],
@@ -1526,7 +1526,7 @@ const App = () => {
               ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
                 ? [{ id: "activity", icon: Activity, label: "Activity Intel" }]
                 : []),
-              ...(GAMIFICATION_ALLOWED_EMAILS.includes(currentUser?.email?.toLowerCase())
+              ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
                 ? [{ id: "gamification", icon: Trophy, label: "Gamification" }]
                 : []),
             ].map((t) => (
@@ -2315,7 +2315,7 @@ const App = () => {
                     isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
                   />
                 </ErrorBoundary>
-              ) : activeTab === "gamification" && GAMIFICATION_ALLOWED_EMAILS.includes(currentUser?.email?.toLowerCase()) ? (
+              ) : activeTab === "gamification" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
   <ErrorBoundary level="section">
     <GamificationView
       currentUser={currentUser}
