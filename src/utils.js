@@ -15,13 +15,6 @@ export const TEAM_REGION_MAP = {
   "Adish": ["South America", "North America"]
 };
 
-// export const TEAM_LEADS = {
-//   "Adish": {
-//     devuId: "DEVU-1121",
-//     email: "adish@clevertap.com",
-//     regions: ["South America", "North America"],
-//   }
-// };
 export const FLAT_TEAM_MAP = Object.values(TEAM_GROUPS).reduce((acc, group) => ({ ...acc, ...group }), {});
 
 // Map email addresses to GST names
@@ -92,10 +85,6 @@ export const getTicketStatus = (createdDate, stageName, isCSD) => {
 };
 
 export const getCSATStatus = (t) => {
-  // if (t.sentiment) {
-  //   if (t.sentiment.id === 2 || t.sentiment.label === "Happy") return "Good";
-  //   if (t.sentiment.id === 1 || t.sentiment.label === "Sad" || t.sentiment.label === "Bad") return "Bad";
-  // }
   const oldRating = Number(t.custom_fields?.tnt__csatrating);
   if (oldRating === 2) return "Good";
   if (oldRating === 1) return "Bad";

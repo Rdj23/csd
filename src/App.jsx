@@ -422,15 +422,7 @@ const App = () => {
     return () => clearTimeout(handler);
   }, [searchQueries, activeTab]);
 
-  //   useEffect(() => {
-  //   if (selectedTeamLead && TEAM_LEADS[selectedTeamLead]) {
-  //     const leadRegions = TEAM_LEADS[selectedTeamLead].regions;
-  //     setFilter("regions", leadRegions);
-  //     setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "regions"])));
-  //   }
-  // }, [selectedTeamLead]);
-
-  // ✅ MERGED SYNC: Updates both Tickets and Roster
+  // Sync: Updates both Tickets and Roster
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
