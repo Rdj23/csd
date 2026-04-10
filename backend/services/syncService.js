@@ -96,83 +96,74 @@ export const fetchAndCacheTickets = async (source = "auto") => {
   logger.info({ source }, "Syncing Active Tickets");
 
   try {
-    let collected = [],
+    // Store only trimmed/processed tickets — raw API responses are discarded
+    // immediately to keep memory usage bounded.
+    let processed = [],
       cursor = null,
       loop = 0,
       consecutiveInactiveBatches = 0;
 
     const SOLVED_CUTOFF_DATE = new Date("2026-01-01");
 
-    const processTickets = (tickets) => {
-      return tickets
-        .filter((t) => {
-          const stage = t.stage?.name?.toLowerCase() || "";
-          const isActive = stage.includes("waiting on assignee") ||
-                          stage.includes("awaiting customer reply") ||
-                          stage.includes("waiting on clevertap") ||
-                          stage.includes("on hold") ||
-                          stage.includes("pending") ||
-                          stage.includes("open");
-
-          if (isActive) return true;
-
-          const isSolved = stage.includes("solved") ||
-                          stage.includes("closed") ||
-                          stage.includes("resolved");
-
-          if (isSolved) {
-            const createdDate = t.created_date ? parseISO(t.created_date) : null;
-            return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
-          }
-          return false;
-        })
-        .filter((t) => {
-          const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
-          return !ownerName.includes("anmol sawhney");
-        })
-        .map((t) => {
-          // Only keep the custom_fields the frontend needs — drop massive
-          // app_email_integration__* and other bloat that causes Redis OOM.
-          const cf = t.custom_fields || {};
-          const trimmedCF = {
-            tnt__csatrating: cf.tnt__csatrating,
-            tnt__region_salesforce: cf.tnt__region_salesforce,
-            tnt__instance_account_name: cf.tnt__instance_account_name,
-            tnt__csm_email_id: cf.tnt__csm_email_id,
-            tnt__csm: cf.tnt__csm,
-            tnt__tam: cf.tnt__tam,
-            tnt__rwt_business_hours: cf.tnt__rwt_business_hours,
-            tnt__frt_hours: cf.tnt__frt_hours,
-            tnt__iteration_count: cf.tnt__iteration_count,
-            tnt__frr: cf.tnt__frr,
-            tnt__customer_wait_time: cf.tnt__customer_wait_time,
-            tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
-            tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
-            tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
-          };
-
-          return {
-            id: t.id,
-            display_id: t.display_id,
-            title: t.title,
-            priority: t.priority,
-            severity: t.severity,
-            account: t.account?.display_name || t.account,
-            stage: t.stage,
-            owned_by: t.owned_by,
-            created_date: t.created_date,
-            modified_date: t.modified_date,
-            custom_fields: trimmedCF,
-            tags: t.tags,
-            sentiment: t.sentiment,
-            isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
-            actual_close_date: t.actual_close_date,
-          };
-        });
+    const trimTicket = (t) => {
+      const cf = t.custom_fields || {};
+      return {
+        id: t.id,
+        display_id: t.display_id,
+        title: t.title,
+        priority: t.priority,
+        severity: t.severity,
+        account: t.account?.display_name || t.account,
+        stage: t.stage,
+        owned_by: t.owned_by,
+        created_date: t.created_date,
+        modified_date: t.modified_date,
+        custom_fields: {
+          tnt__csatrating: cf.tnt__csatrating,
+          tnt__region_salesforce: cf.tnt__region_salesforce,
+          tnt__instance_account_name: cf.tnt__instance_account_name,
+          tnt__csm_email_id: cf.tnt__csm_email_id,
+          tnt__csm: cf.tnt__csm,
+          tnt__tam: cf.tnt__tam,
+          tnt__rwt_business_hours: cf.tnt__rwt_business_hours,
+          tnt__frt_hours: cf.tnt__frt_hours,
+          tnt__iteration_count: cf.tnt__iteration_count,
+          tnt__frr: cf.tnt__frr,
+          tnt__customer_wait_time: cf.tnt__customer_wait_time,
+          tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
+          tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
+          tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
+        },
+        tags: t.tags,
+        sentiment: t.sentiment,
+        isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+        actual_close_date: t.actual_close_date,
+      };
     };
 
-    const saveProgress = async (ticketsRaw, isComplete) => {
-      const processed = processTickets(ticketsRaw);
+    const isRelevantTicket = (t) => {
+      const stage = t.stage?.name?.toLowerCase() || "";
+      const isActive = stage.includes("waiting on assignee") ||
+                      stage.includes("awaiting customer reply") ||
+                      stage.includes("waiting on clevertap") ||
+                      stage.includes("on hold") ||
+                      stage.includes("pending") ||
+                      stage.includes("open");
+      if (isActive) return true;
+      const isSolved = stage.includes("solved") || stage.includes("closed") || stage.includes("resolved");
+      if (isSolved) {
+        const createdDate = t.created_date ? parseISO(t.created_date) : null;
+        return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
+      }
+      return false;
+    };
+
+    const isGSTOwned = (t) => {
+      const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
+      return !ownerName.includes("anmol sawhney");
+    };
+
+    const saveProgress = async (isComplete) => {
       if (!processed.length) return processed;
 
       if (isComplete) {
@@ -183,7 +174,6 @@ export const fetchAndCacheTickets = async (source = "auto") => {
         await redisSet("tickets:syncing", processed, 1800);
       }
 
-      // Publish socket events via Redis Pub/Sub (Worker → API Server → clients)
       await publishSocketEvent("SYNC_PROGRESS", {
         type: "tickets",
         count: processed.length,
@@ -212,10 +202,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
           { headers: HEADERS, timeout: 60000 },
         );
       } catch (batchErr) {
-        logger.warn({ batch: loop, err: batchErr, collectedCount: collected.length }, "Batch failed, saving collected tickets");
-        if (collected.length > 0) {
-          const saved = await saveProgress(collected, true);
-          logger.info({ count: saved.length }, "Partial sync saved despite error");
+        logger.warn({ batch: loop, err: batchErr, collectedCount: processed.length }, "Batch failed, saving collected tickets");
+        if (processed.length > 0) {
+          await saveProgress(true);
+          logger.info({ count: processed.length }, "Partial sync saved despite error");
         }
         break;
       }
@@ -233,11 +223,16 @@ export const fetchAndCacheTickets = async (source = "auto") => {
                stage.includes("open");
       });
 
-      collected.push(...newWorks);
+      // Filter and trim immediately — raw API objects are GC'd after this loop
+      for (const t of newWorks) {
+        if (isRelevantTicket(t) && isGSTOwned(t)) {
+          processed.push(trimTicket(t));
+        }
+      }
 
       if (loop < 3 || loop % 3 === 0) {
-        await saveProgress(collected, false);
-        logger.info({ count: processTickets(collected).length, batch: loop + 1 }, "Incrementally cached tickets");
+        await saveProgress(false);
+        logger.info({ count: processed.length, batch: loop + 1 }, "Incrementally cached tickets");
       }
 
       if (!hasActiveTickets) {
@@ -255,18 +250,17 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       loop++;
     } while (cursor && loop < 100);
 
-    if (collected.length > 0) {
-      const activeTickets = await saveProgress(collected, true);
+    if (processed.length > 0) {
+      await saveProgress(true);
 
-      const solvedCount = activeTickets.filter((t) => {
+      const solvedCount = processed.filter((t) => {
         const stage = t.stage?.name?.toLowerCase() || "";
         return stage.includes("solved") || stage.includes("closed");
       }).length;
 
-      collected = null;
       if (global.gc) global.gc();
-      logger.info({ total: activeTickets.length, active: activeTickets.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
-      return activeTickets;
+      logger.info({ total: processed.length, active: processed.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
+      return processed;
     } else {
       logger.warn("Sync completed with 0 tickets collected");
       return [];
