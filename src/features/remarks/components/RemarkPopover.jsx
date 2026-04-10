@@ -36,38 +36,46 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
 
   const POPUP_WIDTH = 384;
   const POPUP_HEIGHT = 500;
-  const EDGE_PADDING = 10;
+  const EDGE_PADDING = 12;
 
   const style = anchorRect
     ? (() => {
         const vh = window.innerHeight;
         const vw = window.innerWidth;
+        const maxHeight = vh - EDGE_PADDING * 2;
+        const popupH = Math.min(POPUP_HEIGHT, maxHeight);
 
-        // Prefer opening above the button; if not enough room, open below
-        const spaceAbove = anchorRect.top;
-        const spaceBelow = vh - anchorRect.bottom;
-        let top;
-        if (spaceAbove >= POPUP_HEIGHT + EDGE_PADDING) {
-          top = anchorRect.top - POPUP_HEIGHT - EDGE_PADDING;
-        } else if (spaceBelow >= POPUP_HEIGHT + EDGE_PADDING) {
-          top = anchorRect.bottom + EDGE_PADDING;
+        // Vertical: center popup on the anchor button, clamped to viewport
+        const anchorCenterY = (anchorRect.top + anchorRect.bottom) / 2;
+        let top = anchorCenterY - popupH / 2;
+        top = Math.max(EDGE_PADDING, Math.min(top, vh - popupH - EDGE_PADDING));
+
+        // Horizontal: prefer opening to the left of the button with a gap
+        const GAP = 8;
+        const spaceLeft = anchorRect.left;
+        const spaceRight = vw - anchorRect.right;
+        let left;
+
+        if (spaceLeft >= POPUP_WIDTH + GAP) {
+          // Enough room to the left of the button — open there (no table overlap)
+          left = anchorRect.left - POPUP_WIDTH - GAP;
+        } else if (spaceRight >= POPUP_WIDTH + GAP) {
+          // Fallback: open to the right of the button
+          left = anchorRect.right + GAP;
         } else {
-          // Not enough room either way — center vertically and cap height
-          top = EDGE_PADDING;
+          // Not enough room on either side — pin to right edge of viewport
+          left = vw - POPUP_WIDTH - EDGE_PADDING;
         }
 
-        // Align right edge of popup with right edge of button, but clamp to viewport
-        let left = anchorRect.right - POPUP_WIDTH;
+        // Final clamp to keep fully within viewport
         left = Math.max(EDGE_PADDING, Math.min(left, vw - POPUP_WIDTH - EDGE_PADDING));
-
-        const maxHeight = vh - EDGE_PADDING * 2;
 
         return {
           position: "fixed",
           top,
           left,
           width: POPUP_WIDTH,
-          height: Math.min(POPUP_HEIGHT, maxHeight),
+          height: popupH,
         };
       })()
     : {};
