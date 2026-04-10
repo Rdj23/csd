@@ -201,7 +201,7 @@ const TicketList = ({
 
                 {/* Age (Sticky Right 1) */}
                 <th
-                  className={`px-2 py-3 w-[75px] min-w-[75px] max-w-[75px] align-middle sticky right-[435px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.15)] cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[75px] min-w-[75px] max-w-[75px] align-middle sticky right-[485px] z-20 border-l border-slate-200 dark:border-slate-700/60 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.15)] cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "days"
                       ? "bg-indigo-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
@@ -215,7 +215,7 @@ const TicketList = ({
 
                 {/* CT Updated (Sticky Right 2) */}
                 <th
-                  className={`px-2 py-3 w-[140px] min-w-[140px] max-w-[140px] align-middle sticky right-[295px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[140px] min-w-[140px] max-w-[140px] align-middle sticky right-[345px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "ct_updated"
                       ? "bg-indigo-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
@@ -229,7 +229,7 @@ const TicketList = ({
 
                 {/* Customer Updated (Sticky Right 3) */}
                 <th
-                  className={`px-2 py-3 w-[160px] min-w-[160px] max-w-[160px] align-middle sticky right-[135px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
+                  className={`px-2 py-3 w-[160px] min-w-[160px] max-w-[160px] align-middle sticky right-[185px] z-20 border-l border-slate-200 dark:border-slate-700/60 cursor-pointer select-none transition-colors duration-200 ${
                     sortConfig.key === "cust_updated"
                       ? "bg-indigo-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
                       : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300"
@@ -242,7 +242,7 @@ const TicketList = ({
                 </th>
 
                 {/* Status (Sticky Right 4) */}
-                <th className="px-2 py-3 w-[135px] min-w-[135px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                <th className="px-2 py-3 w-[185px] min-w-[185px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   Status
                 </th>
               </tr>
@@ -454,12 +454,12 @@ const TicketList = ({
                     </td>
 
                     {/* 11. Age (Sticky Right 1) */}
-                    <td className="px-1.5 py-3.5 align-middle w-[75px] min-w-[75px] max-w-[75px] sticky right-[435px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.15)] transition-colors duration-150">
+                    <td className="px-1.5 py-3.5 align-middle w-[75px] min-w-[75px] max-w-[75px] sticky right-[485px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.15)] transition-colors duration-150">
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 text-center block">{t.days}d</span>
                     </td>
 
                     {/* 12. CT Updated (Sticky Right 2) */}
-                    <td className="px-1.5 py-3.5 align-middle w-[140px] min-w-[140px] max-w-[140px] sticky right-[295px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                    <td className="px-1.5 py-3.5 align-middle w-[140px] min-w-[140px] max-w-[140px] sticky right-[345px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
                       <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_devu_message_ts
                           ? (() => {
@@ -474,7 +474,7 @@ const TicketList = ({
                     </td>
 
                     {/* 13. Customer Updated (Sticky Right 3) */}
-                    <td className="px-1.5 py-3.5 align-middle w-[160px] min-w-[160px] max-w-[160px] sticky right-[135px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
+                    <td className="px-1.5 py-3.5 align-middle w-[160px] min-w-[160px] max-w-[160px] sticky right-[185px] z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50 dark:group-hover:bg-slate-800 border-l border-slate-100 dark:border-slate-800 transition-colors duration-150">
                       <span className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap block text-center">
                         {t.custom_fields?.tnt__last_revu_message_ts
                           ? (() => {
@@ -489,7 +489,7 @@ const TicketList = ({
                     </td>
 
                     {/* 14. Status (Sticky Right 4) */}
-                    <td className="p-2 align-middle min-w-[135px] w-[135px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent transition-colors duration-150">
+                    <td className="p-2 align-middle min-w-[185px] w-[185px] sticky right-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-indigo-50/40 dark:group-hover:bg-indigo-900/10 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.1)] border-l border-transparent transition-colors duration-150">
                       <div className="flex items-center gap-2 relative">
                         <span
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border whitespace-nowrap ${t.uiColor}`}
