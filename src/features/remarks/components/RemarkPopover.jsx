@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { format, parseISO } from "date-fns";
 
 import { toZonedTime } from "date-fns-tz"; // Added toZonedTime
@@ -34,41 +35,28 @@ const RemarkPopover = ({ ticket, anchorRect, onClose }) => {
   const listRef = useRef(null);
   const mentionListRef = useRef(null);
 
-  const POPUP_WIDTH = 384;
-  const POPUP_HEIGHT = 500;
-  const EDGE_PADDING = 12;
+  const POPUP_WIDTH = 320;
+  const POPUP_HEIGHT = 400;
+  const EDGE_PADDING = 8;
 
   const style = anchorRect
     ? (() => {
         const vh = window.innerHeight;
-        const vw = window.innerWidth;
         const maxHeight = vh - EDGE_PADDING * 2;
         const popupH = Math.min(POPUP_HEIGHT, maxHeight);
 
-        // Vertical: center popup on the anchor button, clamped to viewport
-        const anchorCenterY = (anchorRect.top + anchorRect.bottom) / 2;
-        let top = anchorCenterY - popupH / 2;
+        // Vertical: align top of popover with anchor, clamped to viewport
+        let top = anchorRect.top;
         top = Math.max(EDGE_PADDING, Math.min(top, vh - popupH - EDGE_PADDING));
 
-        // Horizontal: prefer opening to the left of the button with a gap
-        const GAP = 8;
-        const spaceLeft = anchorRect.left;
-        const spaceRight = vw - anchorRect.right;
-        let left;
+        // Horizontal: always open to the LEFT of the icon, flush against it
+        const GAP = 6;
+        let left = anchorRect.left - POPUP_WIDTH - GAP;
 
-        if (spaceLeft >= POPUP_WIDTH + GAP) {
-          // Enough room to the left of the button — open there (no table overlap)
-          left = anchorRect.left - POPUP_WIDTH - GAP;
-        } else if (spaceRight >= POPUP_WIDTH + GAP) {
-          // Fallback: open to the right of the button
-          left = anchorRect.right + GAP;
-        } else {
-          // Not enough room on either side — pin to right edge of viewport
-          left = vw - POPUP_WIDTH - EDGE_PADDING;
+        // If not enough room on the left, shrink width to fit
+        if (left < EDGE_PADDING) {
+          left = EDGE_PADDING;
         }
-
-        // Final clamp to keep fully within viewport
-        left = Math.max(EDGE_PADDING, Math.min(left, vw - POPUP_WIDTH - EDGE_PADDING));
 
         return {
           position: "fixed",
@@ -235,15 +223,14 @@ const handleSend = async () => {
 
   useEffect(() => setSelectedIndex(0), [mentionQuery]);
 
-  // ✅ FIX: Floating Position based on 'style' (No Blur)
-  return (
+  return createPortal(
     <>
       {/* Click outside to close (Invisible backdrop) */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
       <div
         style={style}
-        className="fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
       >
         {/* HEADER */}
         <div className="px-5 py-4 bg-white dark:bg-slate-900 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center shrink-0">
@@ -373,7 +360,8 @@ const handleSend = async () => {
           </div>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 };
 
