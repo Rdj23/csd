@@ -7,6 +7,8 @@ import {
 } from "../config/constants.js";
 import logger from "../config/logger.js";
 import { ok, badRequest, serverError } from "../utils/response.js";
+import { csatPercent, roundMetric } from "../utils/formatters.js";
+import { csatFields, avgMetricFields, frrFields } from "../utils/aggregationStages.js";
 
 /**
  * External API: Per-user CSAT breakdown.
@@ -69,11 +71,10 @@ export const getCSATBreakdown = async (req, res) => {
         positive_csat: pos,
         negative_csat: neg,
         total_rated: u.total,
-        csat_percent: pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0,
+        csat_percent: csatPercent(pos, neg),
       };
     });
 
-    // Overall totals
     const totalPositive = users.reduce((s, u) => s + u.positive_csat, 0);
     const totalNegative = users.reduce((s, u) => s + u.negative_csat, 0);
 
@@ -85,9 +86,7 @@ export const getCSATBreakdown = async (req, res) => {
         total_rated: totalPositive + totalNegative,
         positive: totalPositive,
         negative: totalNegative,
-        csat_percent: totalPositive + totalNegative > 0
-          ? Math.round((totalPositive / (totalPositive + totalNegative)) * 100)
-          : 0,
+        csat_percent: csatPercent(totalPositive, totalNegative),
       },
       users,
     });
@@ -126,34 +125,21 @@ export const getAnalyticsSummary = async (req, res) => {
     const csatMatch = { closed_date: { $gte: start, $lte: end } };
 
     const [overallArr, csatArr, lastTicket] = await Promise.all([
-      // Overall stats (NOC excluded)
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
         {
           $group: {
             _id: null,
             total_solved: { $sum: 1 },
-            avg_rwt: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-            avg_frt: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-            avg_iterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-            frr_met: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+            ...avgMetricFields(),
+            ...frrFields(),
           },
         },
       ]),
-
-      // CSAT overall (NOC included)
       AnalyticsTicket.aggregate([
         { $match: { ...csatMatch, csat: { $in: [1, 2] } } },
-        {
-          $group: {
-            _id: null,
-            positive: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negative: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          },
-        },
+        { $group: { _id: null, ...csatFields() } },
       ]),
-
-      // Latest closed_date for freshness indicator
       AnalyticsTicket.findOne(
         { closed_date: { $gte: start, $lte: end } },
         { closed_date: 1, _id: 0 },
@@ -161,9 +147,9 @@ export const getAnalyticsSummary = async (req, res) => {
     ]);
 
     const overall = overallArr[0] || {};
-    const csat = csatArr[0] || { positive: 0, negative: 0 };
-    const pos = csat.positive || 0;
-    const neg = csat.negative || 0;
+    const csat = csatArr[0] || { positiveCSAT: 0, negativeCSAT: 0 };
+    const pos = csat.positiveCSAT || 0;
+    const neg = csat.negativeCSAT || 0;
 
     ok(res, {
       quarter: label,
@@ -171,15 +157,15 @@ export const getAnalyticsSummary = async (req, res) => {
       last_updated: lastTicket?.closed_date?.toISOString() || null,
       summary: {
         total_solved: overall.total_solved || 0,
-        avg_rwt: overall.avg_rwt ? parseFloat(overall.avg_rwt.toFixed(2)) : 0,
-        avg_frt: overall.avg_frt ? parseFloat(overall.avg_frt.toFixed(2)) : 0,
-        avg_iterations: overall.avg_iterations ? parseFloat(overall.avg_iterations.toFixed(2)) : 0,
+        avg_rwt: roundMetric(overall.avgRWT),
+        avg_frt: roundMetric(overall.avgFRT),
+        avg_iterations: roundMetric(overall.avgIterations),
         frr_percent: overall.total_solved > 0
-          ? Math.round(((overall.frr_met || 0) / overall.total_solved) * 100)
+          ? Math.round(((overall.frrMet || 0) / overall.total_solved) * 100)
           : 0,
         csat_positive: pos,
         csat_negative: neg,
-        csat_percent: pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0,
+        csat_percent: csatPercent(pos, neg),
       },
     });
   } catch (e) {

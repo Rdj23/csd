@@ -34,9 +34,9 @@ app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: ALLOWED_ORIGINS, credentials: true },
-  // Production tuning for 100+ concurrent users:
-  pingTimeout: 30000,        // How long to wait for a pong before considering connection dead
-  pingInterval: 25000,       // How often to ping clients (detect stale connections faster)
+  // Tuned for 70+ concurrent users — faster dead-connection cleanup saves ~50KB per stale socket
+  pingTimeout: 10000,        // 10s before considering connection dead (was 30s)
+  pingInterval: 8000,        // 8s between pings (detect stale connections faster)
   maxHttpBufferSize: 1e6,    // 1MB max message size (prevent memory abuse)
   connectTimeout: 10000,     // 10s to complete handshake
   perMessageDeflate: false,  // Disable per-message compression (saves CPU at cost of bandwidth)

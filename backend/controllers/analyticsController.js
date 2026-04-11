@@ -11,9 +11,9 @@ import {
 } from "../config/constants.js";
 import logger from "../config/logger.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
-
-/** Escape special regex characters so user input is treated as a literal string. */
-const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+import { applySingleOwnerFilter, applyExclusionFilters, applyCohortFilter } from "../utils/queryBuilders.js";
+import { overallStatsGroup, trendGroup, leaderboardGroup, individualTrendGroup, csatFields, ticketAgeAddFields, ownerStatsGroup } from "../utils/aggregationStages.js";
+import { formatTrend, formatLeaderboardEntry, formatIndividualTrend, formatOverallStats, groupByOwner, csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
 
 export const getAnalytics = async (req, res) => {
   try {
@@ -39,7 +39,6 @@ export const getAnalytics = async (req, res) => {
 
       if (precomputed?.data && !precomputed.computing) {
         const age = Date.now() - new Date(precomputed.computed_at).getTime();
-        // Serve precomputed data if less than 25 hours old (daily refresh at 1 AM IST)
         if (age < 25 * 60 * 60 * 1000) {
           logger.info({ quarter, ageMin: Math.round(age / 60000) }, "Precomputed cache HIT");
           return res.json(precomputed.data);
@@ -70,16 +69,14 @@ export const getAnalytics = async (req, res) => {
 
     // 3. Acquire lock to prevent cache stampede (only one request computes at a time)
     const lockKey = `lock:${cacheKey}`;
-    const gotLock = await redisLock(lockKey, 60); // 60s lock — enough for aggregation
+    const gotLock = await redisLock(lockKey, 60);
     if (!gotLock) {
-      // Another request is computing — wait briefly and check cache again
       await new Promise((r) => setTimeout(r, 2000));
       const retryData = await redisGet(cacheKey);
       if (retryData) {
         logger.info({ cacheKey }, "Analytics cache HIT after lock wait");
         return res.json(retryData);
       }
-      // Still no cache — fall through and compute (lock holder may have failed)
     }
 
     // 4. Compute fresh data
@@ -87,75 +84,31 @@ export const getAnalytics = async (req, res) => {
     logger.info({ start: format(start, "MMM d"), end: format(end, "MMM d") }, "Computing analytics");
 
     const matchConditions = { closed_date: { $gte: start, $lte: end } };
-    if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
-    if (excludeNOC === "true") matchConditions.is_noc = { $ne: true };
-    if (owner && owner !== "All") matchConditions.owner = { $regex: escapeRegex(owner), $options: "i" };
-
-    // Handle both single cohort (backwards compatibility) and multiple cohorts
+    applyExclusionFilters(matchConditions, { excludeZendesk, excludeNOC });
+    applySingleOwnerFilter(matchConditions, owner);
     const cohortFilter = cohorts || cohort;
-    if (cohortFilter) {
-      const cohortList = cohortFilter.split(",").map(c => c.trim());
-      const hasC4S = cohortList.some(c => c.toLowerCase() === "c4s");
-      const regexFilters = cohortList.map(c => new RegExp(escapeRegex(c), "i"));
-      if (hasC4S) {
-        // C4S is the default — tickets with null/empty account_cohort are also C4S
-        matchConditions.$or = [
-          { account_cohort: { $in: regexFilters } },
-          { account_cohort: null },
-          { account_cohort: "" },
-          { account_cohort: { $exists: false } },
-        ];
-      } else if (cohortList.length === 1) {
-        matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
-      } else {
-        matchConditions.account_cohort = { $in: regexFilters };
-      }
-    }
+    applyCohortFilter(matchConditions, cohortFilter);
 
-    // CSAT/DSAT match conditions - never excludes NOC (CSAT/DSAT always includes all tickets)
+    // CSAT/DSAT match conditions - never excludes NOC
     const csatMatchConditions = { ...matchConditions };
     delete csatMatchConditions.is_noc;
 
     const nocExcluded = excludeNOC === "true";
 
-    // Aggregate Stats
-    const [statsResult] = await AnalyticsTicket.aggregate([
-      { $match: matchConditions },
-      {
-        $group: {
-          _id: null,
-          totalTickets: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $and: [{ $ne: ["$rwt", null] }, { $gt: ["$rwt", 0] }] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $and: [{ $ne: ["$frt", null] }, { $gt: ["$frt", 0] }] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $ne: ["$iterations", null] }, "$iterations", null] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: "$frr" },
-          frrTotal: { $sum: 1 },
-        },
-      },
-    ]);
-
     let dateFormat = "%Y-%m-%d";
     if (groupBy === "weekly") dateFormat = "%Y-W%V";
     if (groupBy === "monthly") dateFormat = "%Y-%m";
 
+    // Aggregate Stats
+    const [statsResult] = await AnalyticsTicket.aggregate([
+      { $match: matchConditions },
+      { $group: overallStatsGroup() },
+    ]);
+
     // Daily/Weekly/Monthly Trends
     const trends = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
-      {
-        $group: {
-          _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
-          solved: { $sum: 1 },
-          avgRWT: { $avg: "$rwt" },
-          avgFRT: { $avg: "$frt" },
-          avgIterations: { $avg: "$iterations" },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          frrTotal: { $sum: 1 },
-        },
-      },
+      { $group: trendGroup(dateFormat) },
       { $sort: { _id: 1 } },
       { $limit: 100 },
     ]);
@@ -181,16 +134,7 @@ export const getAnalytics = async (req, res) => {
     // Leaderboard
     const leaderboard = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
-      {
-        $group: {
-          _id: "$owner",
-          totalTickets: { $sum: 1 },
-          goodCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          badCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          avgRWT: { $avg: "$rwt" },
-          avgFRT: { $avg: "$frt" },
-        },
-      },
+      { $group: leaderboardGroup() },
       { $match: { _id: { $ne: null }, totalTickets: { $gte: 3 } } },
       {
         $addFields: {
@@ -207,26 +151,11 @@ export const getAnalytics = async (req, res) => {
       { $limit: 25 },
     ]);
 
-    // Bad CSAT - never excludes NOC (DSAT always includes all tickets)
+    // Bad CSAT - never excludes NOC
     const dsatMatch = { closed_date: { $gte: start, $lte: end }, csat: 1 };
     if (excludeZendesk === "true") dsatMatch.is_zendesk = { $ne: true };
-    if (cohortFilter) {
-      const cohortList = cohortFilter.split(",").map(c => c.trim());
-      const hasC4S = cohortList.some(c => c.toLowerCase() === "c4s");
-      const regexFilters = cohortList.map(c => new RegExp(escapeRegex(c), "i"));
-      if (hasC4S) {
-        dsatMatch.$or = [
-          { account_cohort: { $in: regexFilters } },
-          { account_cohort: null },
-          { account_cohort: "" },
-          { account_cohort: { $exists: false } },
-        ];
-      } else if (cohortList.length === 1) {
-        dsatMatch.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
-      } else {
-        dsatMatch.account_cohort = { $in: regexFilters };
-      }
-    }
+    applyCohortFilter(dsatMatch, cohortFilter);
+
     const badTickets = await AnalyticsTicket.find(dsatMatch, {
       ticket_id: 1, display_id: 1, title: 1, owner: 1, created_date: 1, closed_date: 1, is_noc: 1,
     }).sort({ closed_date: -1 }).limit(50).lean();
@@ -234,63 +163,28 @@ export const getAnalytics = async (req, res) => {
     // Individual trends
     const individualTrends = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
-      {
-        $addFields: {
-          ticketAge: { $divide: [{ $subtract: ["$closed_date", "$created_date"] }, 1000 * 60 * 60 * 24] },
-        },
-      },
-      {
-        $group: {
-          _id: { date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } }, owner: "$owner" },
-          solved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
-          rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
-          frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          frrTotal: { $sum: 1 },
-          backlogCleared: { $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] } },
-        },
-      },
+      { $addFields: ticketAgeAddFields() },
+      { $group: individualTrendGroup() },
       { $sort: { "_id.date": 1 } },
     ]);
 
     // When NOC is excluded, CSAT/DSAT must still include NOC tickets.
-    // Run separate CSAT-inclusive queries and merge the results.
     let csatOverride = null;
     let csatTrendsByDate = null;
     let csatByOwner = null;
     let csatIndividualByKey = null;
 
     if (nocExcluded) {
+      const csatOnlyGroup = { ...csatFields() };
       const [csatStatsArr, csatTrendsArr, csatLeaderboardArr, csatIndTrendsArr] = await Promise.all([
-        // Overall CSAT stats (includes NOC)
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
-          {
-            $group: {
-              _id: null,
-              positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-              negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-            },
-          },
+          { $group: { _id: null, ...csatOnlyGroup } },
         ]),
-        // CSAT per date (includes NOC)
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
-          {
-            $group: {
-              _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
-              positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-              negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-            },
-          },
+          { $group: { _id: { $dateToString: { format: dateFormat, date: "$closed_date" } }, ...csatOnlyGroup } },
         ]),
-        // CSAT per owner (includes NOC) for leaderboard
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
           {
@@ -301,99 +195,45 @@ export const getAnalytics = async (req, res) => {
             },
           },
         ]),
-        // CSAT per owner-date (includes NOC) for individual trends
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
           {
             $group: {
               _id: { date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } }, owner: "$owner" },
-              positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-              negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+              ...csatOnlyGroup,
             },
           },
         ]),
       ]);
 
       csatOverride = csatStatsArr[0] || { positiveCSAT: 0, negativeCSAT: 0 };
-
       csatTrendsByDate = {};
       csatTrendsArr.forEach((t) => { csatTrendsByDate[t._id] = t; });
-
       csatByOwner = {};
       csatLeaderboardArr.forEach((l) => { csatByOwner[l._id] = l; });
-
       csatIndividualByKey = {};
       csatIndTrendsArr.forEach((t) => {
         csatIndividualByKey[`${t._id.owner}:${t._id.date}`] = t;
       });
     }
 
-    // Use CSAT override (NOC-inclusive) when available, otherwise use stats from main query
     const effectiveCSAT = csatOverride || { positiveCSAT: statsResult?.positiveCSAT || 0, negativeCSAT: statsResult?.negativeCSAT || 0 };
-
-    const trendsWithFRRPercent = trends.map((t) => {
-      const csat = csatTrendsByDate?.[t._id] || t;
-      return {
-        _id: t._id,
-        solved: t.solved,
-        avgRWT: t.avgRWT,
-        avgFRT: t.avgFRT,
-        avgIterations: t.avgIterations,
-        positiveCSAT: csat.positiveCSAT,
-        negativeCSAT: csat.negativeCSAT,
-        frrMet: t.frrMet,
-        frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0,
-      };
-    });
 
     const response = {
       cache_key: cacheKey,
       computed_at: new Date(),
       quarter,
       dateRange: { start, end },
-      stats: {
-        totalTickets: statsResult?.totalTickets || 0,
-        avgRWT: statsResult?.avgRWT ? Number(statsResult.avgRWT.toFixed(2)) : 0,
-        avgFRT: statsResult?.avgFRT ? Number(statsResult.avgFRT.toFixed(2)) : 0,
-        avgIterations: statsResult?.avgIterations ? Number(statsResult.avgIterations.toFixed(1)) : 0,
-        positiveCSAT: effectiveCSAT.positiveCSAT || 0,
-        negativeCSAT: effectiveCSAT.negativeCSAT || 0,
-        csatPercent: (() => {
-          const pos = effectiveCSAT.positiveCSAT || 0;
-          const neg = effectiveCSAT.negativeCSAT || 0;
-          return pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0;
-        })(),
-        frrPercent: statsResult?.frrTotal > 0 ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100) : 0,
-      },
-      trends: trendsWithFRRPercent.map((t) => {
+      stats: formatOverallStats(statsResult, csatOverride),
+      trends: trends.map((t) => {
+        const csat = csatTrendsByDate?.[t._id] || null;
+        const base = formatTrend(t, csat);
         const backlog = backlogCleared.find((b) => b._id === t._id);
-        return {
-          date: t._id,
-          solved: t.solved,
-          avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
-          avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
-          avgIterations: t.avgIterations ? Number(t.avgIterations.toFixed(1)) : 0,
-          backlogCleared: backlog?.count || 0,
-          positiveCSAT: t.positiveCSAT,
-          negativeCSAT: t.negativeCSAT || 0,
-          frrMet: t.frrMet || 0,
-          frrPercent: t.frrPercent || 0,
-        };
+        return { ...base, backlogCleared: backlog?.count || 0 };
       }),
-      leaderboard: leaderboard.map((l) => {
-        const ownerCsat = csatByOwner?.[l._id] || l;
-        const good = ownerCsat.goodCSAT || 0;
-        const bad = ownerCsat.badCSAT || 0;
-        return {
-          name: l._id,
-          totalTickets: l.totalTickets,
-          goodCSAT: good,
-          badCSAT: bad,
-          winRate: good + bad > 0 ? Math.round((good / (good + bad)) * 100) : 0,
-          avgRWT: l.avgRWT ? Number(l.avgRWT.toFixed(2)) : 0,
-          avgFRT: l.avgFRT ? Number(l.avgFRT.toFixed(2)) : 0,
-        };
-      }).sort((a, b) => b.goodCSAT - a.goodCSAT || b.winRate - a.winRate),
+      leaderboard: leaderboard
+        .map((l) => formatLeaderboardEntry(l, csatByOwner?.[l._id]))
+        .sort((a, b) => b.goodCSAT - a.goodCSAT || b.winRate - a.winRate),
       badTickets: badTickets.map((t) => ({
         id: t.ticket_id,
         display_id: t.display_id,
@@ -403,34 +243,16 @@ export const getAnalytics = async (req, res) => {
         closed_date: t.closed_date,
         is_noc: t.is_noc || false,
       })),
-      individualTrends: individualTrends.reduce((acc, item) => {
-        const { date, owner } = item._id;
-        if (!acc[owner]) acc[owner] = [];
-        const csatData = csatIndividualByKey?.[`${owner}:${date}`] || item;
-        acc[owner].push({
-          date,
-          solved: item.solved,
-          avgRWT: item.avgRWT ? Number(item.avgRWT.toFixed(2)) : 0,
-          avgFRT: item.avgFRT ? Number(item.avgFRT.toFixed(2)) : 0,
-          avgIterations: item.avgIterations ? Number(item.avgIterations.toFixed(1)) : 0,
-          positiveCSAT: csatData.positiveCSAT || 0,
-          negativeCSAT: csatData.negativeCSAT || 0,
-          frrMet: item.frrMet || 0,
-          frrTotal: item.frrTotal || 0,
-          frrPercent: item.frrTotal > 0 ? Math.round((item.frrMet / item.frrTotal) * 100) : 0,
-          rwtValidCount: item.rwtValidCount || 0,
-          frtValidCount: item.frtValidCount || 0,
-          iterValidCount: item.iterValidCount || 0,
-          backlogCleared: item.backlogCleared || 0,
-        });
-        return acc;
-      }, {}),
+      individualTrends: groupByOwner(individualTrends, (item) => {
+        const csatData = csatIndividualByKey?.[`${item._id.owner}:${item._id.date}`] || null;
+        return formatIndividualTrend(item, csatData);
+      }),
     };
 
     // Send response immediately — don't let cache failures block the client
     res.json(response);
 
-    // Cache in background (non-blocking) — errors here should never cause 500
+    // Cache in background (non-blocking)
     Promise.all([
       redisSet(cacheKey, response, CACHE_TTL.ANALYTICS),
       AnalyticsCache.findOneAndUpdate(
@@ -460,13 +282,6 @@ export const getAnalytics = async (req, res) => {
 
 /**
  * Centralized ticket drill-down API.
- *
- * Scopes:
- *   - individual: single user (by email or owner name)
- *   - team:       all members of a team lead's group (by team name)
- *   - all:        entire GST
- *
- * Returns per-ticket RWT, FRR, CSAT, iterations + aggregated summary.
  */
 export const getTicketDrillDown = async (req, res) => {
   try {
@@ -475,13 +290,11 @@ export const getTicketDrillDown = async (req, res) => {
     if (range.error) return badRequest(res, range.error);
     const { start, end, label } = range;
 
-    // API keys can only access individual scope — block team/all to prevent oversharing
     if (req.user?.isApiKey && scope !== "individual") {
       return fail(res, 403, "Forbidden: API keys can only use scope=individual");
     }
 
-    // Resolve owner filter based on scope
-    let ownerFilter = null; // null = all GST
+    let ownerFilter = null;
     let scopeLabel = "all";
 
     if (scope === "individual") {
@@ -511,40 +324,19 @@ export const getTicketDrillDown = async (req, res) => {
     if (ownerFilter) {
       matchConditions.owner = ownerFilter.length === 1 ? ownerFilter[0] : { $in: ownerFilter };
     }
-
-    // Handle both single cohort (backwards compatibility) and multiple cohorts
-    const cohortFilter = cohorts || cohort;
-    if (cohortFilter) {
-      const cohortList = cohortFilter.split(",").map(c => c.trim());
-      const hasC4S = cohortList.some(c => c.toLowerCase() === "c4s");
-      const regexFilters = cohortList.map(c => new RegExp(escapeRegex(c), "i"));
-      if (hasC4S) {
-        matchConditions.$or = [
-          { account_cohort: { $in: regexFilters } },
-          { account_cohort: null },
-          { account_cohort: "" },
-          { account_cohort: { $exists: false } },
-        ];
-      } else if (cohortList.length === 1) {
-        matchConditions.account_cohort = { $regex: escapeRegex(cohortList[0]), $options: "i" };
-      } else {
-        matchConditions.account_cohort = { $in: regexFilters };
-      }
-    }
+    applyCohortFilter(matchConditions, cohorts || cohort);
 
     // NOC-inclusive match for CSAT
     const csatMatchConditions = { ...matchConditions };
     delete csatMatchConditions.is_noc;
 
     const [tickets, nocTickets, summary] = await Promise.all([
-      // All non-NOC tickets
       AnalyticsTicket.find(matchConditions, {
         display_id: 1, title: 1, closed_date: 1, created_date: 1, stage_name: 1,
         owner: 1, account_name: 1, account_cohort: 1,
         csat: 1, rwt: 1, frt: 1, iterations: 1, frr: 1, _id: 0,
       }).sort({ closed_date: -1 }).lean(),
 
-      // NOC tickets (CSAT-relevant)
       AnalyticsTicket.find(
         { ...csatMatchConditions, is_noc: true },
         {
@@ -553,26 +345,13 @@ export const getTicketDrillDown = async (req, res) => {
         }
       ).sort({ closed_date: -1 }).lean(),
 
-      // Aggregated summary per owner
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
-        {
-          $group: {
-            _id: "$owner",
-            solved: { $sum: 1 },
-            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-            avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          },
-        },
+        { $group: ownerStatsGroup() },
         { $sort: { solved: -1 } },
       ]),
     ]);
 
-    // Build per-owner summary with derived fields
     const ownerSummary = summary.map(s => {
       const pos = s.positiveCSAT || 0;
       const neg = s.negativeCSAT || 0;
@@ -580,11 +359,11 @@ export const getTicketDrillDown = async (req, res) => {
         owner: s._id,
         team: GAMIFICATION_TEAM_MAP[s._id] || "Unknown",
         solved: s.solved,
-        avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(2)) : 0,
-        avgFRT: s.avgFRT ? parseFloat(s.avgFRT.toFixed(2)) : 0,
-        avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
-        frrPercent: s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0,
-        csatPercent: pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 100,
+        avgRWT: roundMetric(s.avgRWT),
+        avgFRT: roundMetric(s.avgFRT),
+        avgIterations: roundMetric(s.avgIterations),
+        frrPercent: frrPercent(s.frrMet, s.solved),
+        csatPercent: pos + neg > 0 ? csatPercent(pos, neg) : 100,
         positiveCSAT: pos,
         negativeCSAT: neg,
       };

@@ -6,6 +6,7 @@ import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService
 import { getTicketSyncQueue } from "../lib/queues.js";
 import { ok, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
+import { applyOwnerFilter, applyRegionFilter, applyExclusionFilters, applyBacklogFilter } from "../utils/queryBuilders.js";
 
 // Helper: try BullMQ dispatch, fall back to direct execution if Redis is down
 const dispatchOrRun = async (getQueue, jobName, jobData, directFn) => {
@@ -43,76 +44,62 @@ export const getLiveStats = async (req, res) => {
     if (endDate.getHours() === 0) endDate.setHours(23, 59, 59, 999);
 
     const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
-    if (owners && owners.length > 0 && owners !== "All") {
-      const ownerList = owners.split(",").filter((o) => o.trim());
-      if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
-    }
-    if (region && region.length > 0 && region !== "All") {
-      matchConditions.region = { $in: region.split(",").filter((r) => r.trim()) };
-    }
-    if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
-    if (req.query.excludeNOC === "true") matchConditions.is_noc = { $ne: true };
+    applyOwnerFilter(matchConditions, owners);
+    applyRegionFilter(matchConditions, region);
+    applyExclusionFilters(matchConditions, { excludeZendesk, excludeNOC: req.query.excludeNOC });
 
-    const result = await AnalyticsTicket.aggregate([
-      { $match: matchConditions },
-      {
-        $group: {
-          _id: null,
-          totalSolved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
-          frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
-          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          dailyData: {
-            $push: {
-              date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
-              rwt: "$rwt",
-              frt: "$frt",
-              iterations: "$iterations",
-              csat: "$csat",
-              frr: "$frr",
-            },
+    // Two parallel aggregations: overall stats + daily trends (avoids $push of all docs into RAM)
+    const [statsResult, trendsResult] = await Promise.all([
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        {
+          $group: {
+            _id: null,
+            totalSolved: { $sum: 1 },
+            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+            avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+            rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
+            frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
+            iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
           },
         },
-      },
+      ]),
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+            solved: { $sum: 1 },
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+            frrTotal: { $sum: 1 },
+            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+            avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
+            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
     ]);
 
-    if (result.length === 0) {
+    if (statsResult.length === 0) {
       return ok(res, { stats: {}, trends: [] });
     }
 
-    const data = result[0];
-    const trendsMap = {};
-    data.dailyData.forEach((t) => {
-      if (!trendsMap[t.date]) {
-        trendsMap[t.date] = { date: t.date, solved: 0, sumRWT: 0, countRWT: 0, sumFRT: 0, countFRT: 0, sumIter: 0, countIter: 0, positiveCSAT: 0, frrMet: 0, frrTotal: 0 };
-      }
-      const day = trendsMap[t.date];
-      day.solved++;
-      day.frrTotal++;
-      if (t.csat === 2) day.positiveCSAT++;
-      if (t.frr === 1) day.frrMet++;
-      if (t.rwt > 0) { day.sumRWT += t.rwt; day.countRWT++; }
-      if (t.frt > 0) { day.sumFRT += t.frt; day.countFRT++; }
-      if (t.iterations > 0) { day.sumIter += t.iterations; day.countIter++; }
-    });
-
-    const trends = Object.values(trendsMap)
-      .map((day) => ({
-        date: day.date,
-        solved: day.solved,
-        positiveCSAT: day.positiveCSAT,
-        frrMet: day.frrMet,
-        frrPercent: day.frrTotal > 0 ? Math.round((day.frrMet / day.frrTotal) * 100) : 0,
-        avgRWT: day.countRWT ? day.sumRWT / day.countRWT : 0,
-        avgFRT: day.countFRT ? day.sumFRT / day.countFRT : 0,
-        avgIterations: day.countIter ? day.sumIter / day.countIter : 0,
-      }))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    const data = statsResult[0];
+    const trends = trendsResult.map((day) => ({
+      date: day._id,
+      solved: day.solved,
+      positiveCSAT: day.positiveCSAT,
+      frrMet: day.frrMet,
+      frrPercent: day.frrTotal > 0 ? Math.round((day.frrMet / day.frrTotal) * 100) : 0,
+      avgRWT: day.avgRWT || 0,
+      avgFRT: day.avgFRT || 0,
+      avgIterations: day.avgIterations || 0,
+    }));
 
     const responseData = {
       stats: {
@@ -181,36 +168,44 @@ export const getTicketsByRange = async (req, res) => {
     logger.info({ start, end, metric }, "By-Range request");
 
     const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
-    if (owners && owners !== "All") {
-      const ownerList = owners.split(",").filter((o) => o.trim());
-      if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
-    }
-    if (region && region !== "All") {
-      matchConditions.region = { $in: region.split(",").filter((r) => r.trim()) };
-    }
-    if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
-    if (excludeNOC === "true") matchConditions.is_noc = { $ne: true };
-    if (metric === "backlog") {
-      matchConditions.$expr = { $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 86400000] };
-    }
+    applyOwnerFilter(matchConditions, owners);
+    applyRegionFilter(matchConditions, region);
+    applyExclusionFilters(matchConditions, { excludeZendesk, excludeNOC });
+    applyBacklogFilter(matchConditions, metric);
 
-    const tickets = await AnalyticsTicket.find(matchConditions).sort({ closed_date: -1 }).limit(2000).lean();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(200, parseInt(req.query.pageSize) || 200);
 
-    const stats = {
-      total: tickets.length,
-      frrMet: tickets.filter(t => t.frr === 1).length,
-      frrNotMet: tickets.filter(t => t.frr !== 1).length,
-      positiveCSAT: tickets.filter(t => t.csat === 2).length,
-      negativeCSAT: tickets.filter(t => t.csat === 1).length,
-      avgRWT: tickets.length > 0
-        ? (tickets.reduce((sum, t) => sum + (t.rwt || 0), 0) / tickets.filter(t => t.rwt > 0).length).toFixed(2)
-        : 0,
-      avgIterations: tickets.length > 0
-        ? (tickets.reduce((sum, t) => sum + (t.iterations || 0), 0) / tickets.filter(t => t.iterations > 0).length).toFixed(2)
-        : 0,
-    };
+    // Compute stats via aggregation (avoids loading all docs into Node.js memory)
+    const [statsAgg, tickets] = await Promise.all([
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
+            frrNotMet: { $sum: { $cond: [{ $ne: ["$frr", 1] }, 1, 0] } },
+            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
+            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
+            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
+            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
+          },
+        },
+      ]),
+      AnalyticsTicket.find(matchConditions)
+        .sort({ closed_date: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+    ]);
 
-    ok(res, { tickets, stats, count: tickets.length });
+    const stats = statsAgg[0] || { total: 0, frrMet: 0, frrNotMet: 0, positiveCSAT: 0, negativeCSAT: 0, avgRWT: 0, avgIterations: 0 };
+    if (stats.avgRWT) stats.avgRWT = Number(stats.avgRWT.toFixed(2));
+    if (stats.avgIterations) stats.avgIterations = Number(stats.avgIterations.toFixed(2));
+    const totalPages = Math.ceil((stats.total || 0) / pageSize);
+
+    ok(res, { tickets, stats, count: stats.total, page, pageSize, totalPages });
   } catch (e) {
     logger.error({ err: e }, "By-range fetch error");
     serverError(res, e.message);
@@ -264,24 +259,27 @@ export const getTicketsByDate = async (req, res) => {
     }
 
     const matchConditions = { closed_date: { $gte: startOfDay, $lte: endOfDay } };
-    if (owners && owners.length > 0 && owners !== "All") {
-      const ownerList = owners.split(",").filter((o) => o.trim());
-      if (ownerList.length > 0) matchConditions.owner = { $in: ownerList };
-    }
-    if (region && region !== "All") {
-      matchConditions.region = { $in: region.split(",").filter((r) => r.trim()) };
-    }
-    if (metric === "backlog") {
-      matchConditions.$expr = { $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 86400000] };
-    }
-    if (excludeZendesk === "true") matchConditions.is_zendesk = { $ne: true };
-    if (region && region.length > 0) matchConditions.region = { $in: region.split(",") };
-    if (req.query.excludeNOC === "true") matchConditions.is_noc = { $ne: true };
+    applyOwnerFilter(matchConditions, owners);
+    applyRegionFilter(matchConditions, region);
+    applyBacklogFilter(matchConditions, metric);
+    applyExclusionFilters(matchConditions, { excludeZendesk, excludeNOC: req.query.excludeNOC });
 
-    const tickets = await AnalyticsTicket.find(matchConditions).sort({ closed_date: -1 }).limit(2000).lean();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(200, parseInt(req.query.pageSize) || 200);
 
-    await redisSet(cacheKey, { tickets }, CACHE_TTL.DRILLDOWN);
-    ok(res, { tickets, count: tickets.length });
+    const [totalCount, tickets] = await Promise.all([
+      AnalyticsTicket.countDocuments(matchConditions),
+      AnalyticsTicket.find(matchConditions)
+        .sort({ closed_date: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / pageSize);
+    const result = { tickets, count: totalCount, page, pageSize, totalPages };
+    if (page === 1) await redisSet(cacheKey, result, CACHE_TTL.DRILLDOWN);
+    ok(res, result);
   } catch (e) {
     logger.error({ err: e }, "By-date fetch error");
     serverError(res, e.message);

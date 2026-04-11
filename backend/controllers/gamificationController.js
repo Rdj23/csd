@@ -11,6 +11,8 @@ import {
 import { getDaysWorked } from "../services/rosterService.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
+import { ownerStatsGroup, csatFields } from "../utils/aggregationStages.js";
+import { csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
 
 export const getGamification = async (req, res) => {
   try {
@@ -22,42 +24,16 @@ export const getGamification = async (req, res) => {
     logger.info({ label, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
 
     // Main stats aggregation (excludes NOC for general metrics)
+    const baseMatch = { closed_date: { $gte: start, $lte: end }, owner: { $nin: [null, ""] } };
     const [stats, csatStats] = await Promise.all([
       AnalyticsTicket.aggregate([
-        {
-          $match: {
-            closed_date: { $gte: start, $lte: end },
-            owner: { $nin: [null, ""] },
-            is_noc: { $ne: true }
-          }
-        },
-        {
-          $group: {
-            _id: "$owner",
-            solved: { $sum: 1 },
-            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          },
-        },
+        { $match: { ...baseMatch, is_noc: { $ne: true } } },
+        { $group: ownerStatsGroup() },
       ]),
       // CSAT/DSAT always includes NOC tickets
       AnalyticsTicket.aggregate([
-        {
-          $match: {
-            closed_date: { $gte: start, $lte: end },
-            owner: { $nin: [null, ""] },
-          }
-        },
-        {
-          $group: {
-            _id: "$owner",
-            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          },
-        },
+        { $match: baseMatch },
+        { $group: { _id: "$owner", ...csatFields() } },
       ]),
     ]);
 
@@ -73,23 +49,19 @@ export const getGamification = async (req, res) => {
       const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
       const daysWorked = getDaysWorked(name, start);
       const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
-      // Use NOC-inclusive CSAT values
       const ownerCsat = csatByOwner[name] || s;
       const posCSAT = ownerCsat.positiveCSAT || 0;
       const negCSAT = ownerCsat.negativeCSAT || 0;
-      const csatPercent = negCSAT > 0
-        ? Math.round((posCSAT / (posCSAT + negCSAT)) * 100)
-        : 100;
-      const frrPercent = s.solved > 0 ? Math.round((s.frrMet / s.solved) * 100) : 0;
 
       const entry = {
         name, team, designation, daysWorked,
         solved: s.solved,
-        productivity, csatPercent,
+        productivity,
+        csatPercent: negCSAT > 0 ? csatPercent(posCSAT, negCSAT) : 100,
         positiveCSAT: posCSAT,
-        avgRWT: s.avgRWT ? parseFloat(s.avgRWT.toFixed(1)) : 0,
-        avgIterations: s.avgIterations ? parseFloat(s.avgIterations.toFixed(2)) : 0,
-        frrPercent,
+        avgRWT: roundMetric(s.avgRWT, 1),
+        avgIterations: roundMetric(s.avgIterations),
+        frrPercent: frrPercent(s.frrMet, s.solved),
       };
 
       if (designation === "L2") { data.L2.push(entry); } else { data.L1.push(entry); }
@@ -293,42 +265,15 @@ export const getMyStats = async (req, res) => {
     logger.info({ userName, email, label }, "My Stats request");
 
     // Run general stats (NOC excluded) and CSAT stats (NOC included) in parallel
+    const myBaseMatch = { closed_date: { $gte: start, $lte: end }, owner: userName };
     const [stats, myCSAT] = await Promise.all([
       AnalyticsTicket.aggregate([
-        {
-          $match: {
-            closed_date: { $gte: start, $lte: end },
-            owner: userName,
-            is_noc: { $ne: true }
-          }
-        },
-        {
-          $group: {
-            _id: "$owner",
-            solved: { $sum: 1 },
-            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          },
-        },
+        { $match: { ...myBaseMatch, is_noc: { $ne: true } } },
+        { $group: ownerStatsGroup() },
       ]),
-      // CSAT/DSAT always includes NOC tickets
       AnalyticsTicket.aggregate([
-        {
-          $match: {
-            closed_date: { $gte: start, $lte: end },
-            owner: userName,
-          }
-        },
-        {
-          $group: {
-            _id: "$owner",
-            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          },
-        },
+        { $match: myBaseMatch },
+        { $group: { _id: "$owner", ...csatFields() } },
       ]),
     ]);
 
@@ -376,42 +321,15 @@ export const getMyStats = async (req, res) => {
 
     const designation = DESIGNATION_MAP[userName] || "L1";
     // Run all-team stats (NOC excluded) and all-team CSAT (NOC included) in parallel
+    const allBaseMatch = { closed_date: { $gte: start, $lte: end }, owner: { $nin: [null, ""] } };
     const [allStats, allCSATStats] = await Promise.all([
       AnalyticsTicket.aggregate([
-        {
-          $match: {
-            closed_date: { $gte: start, $lte: end },
-            owner: { $nin: [null, ""] },
-            is_noc: { $ne: true }
-          }
-        },
-        {
-          $group: {
-            _id: "$owner",
-            solved: { $sum: 1 },
-            avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-            avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-            frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          },
-        },
+        { $match: { ...allBaseMatch, is_noc: { $ne: true } } },
+        { $group: ownerStatsGroup() },
       ]),
-      // CSAT/DSAT for all owners (NOC included) for percentile calculation
       AnalyticsTicket.aggregate([
-        {
-          $match: {
-            closed_date: { $gte: start, $lte: end },
-            owner: { $nin: [null, ""] },
-          }
-        },
-        {
-          $group: {
-            _id: "$owner",
-            positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-            negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          },
-        },
+        { $match: allBaseMatch },
+        { $group: { _id: "$owner", ...csatFields() } },
       ]),
     ]);
 

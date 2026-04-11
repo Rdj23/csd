@@ -1,6 +1,8 @@
 import { AnalyticsTicket, PrecomputedDashboard } from "../models/index.js";
 import { getQuarterDateRange } from "../config/constants.js";
 import logger from "../config/logger.js";
+import { overallStatsGroup, trendGroup, leaderboardGroup, individualTrendGroup, ticketAgeAddFields } from "../utils/aggregationStages.js";
+import { formatTrend, formatLeaderboardEntry, formatIndividualTrend, formatOverallStats, groupByOwner } from "../utils/formatters.js";
 
 // precomputeAnalytics is now called by the Worker via BullMQ jobs.
 // warmCache and runInitialPrecomputation are replaced by BullMQ startup jobs.
@@ -10,8 +12,6 @@ export const precomputeAnalytics = async (quarter) => {
 
   try {
     // Atomic lock: only proceeds if computing is not already true.
-    // findOneAndUpdate with { computing: { $ne: true } } is a single atomic operation —
-    // two concurrent calls cannot both succeed (one will get null back).
     const lockResult = await PrecomputedDashboard.findOneAndUpdate(
       { cache_type: cacheType, computing: { $ne: true } },
       { $set: { computing: true } },
@@ -25,70 +25,23 @@ export const precomputeAnalytics = async (quarter) => {
     logger.info({ quarter }, "Pre-computing analytics");
 
     const { start, end } = getQuarterDateRange(quarter);
-    const matchConditions = {
-      closed_date: { $gte: start, $lte: end },
-    };
+    const matchConditions = { closed_date: { $gte: start, $lte: end } };
 
     const [statsResult] = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
-      {
-        $group: {
-          _id: null,
-          totalTickets: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $ne: ["$iterations", null] }, "$iterations", null] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: "$frr" },
-          frrTotal: { $sum: 1 },
-        },
-      },
+      { $group: overallStatsGroup() },
     ]);
 
     const trends = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
-          solved: { $sum: 1 },
-          avgRWT: { $avg: "$rwt" },
-          avgFRT: { $avg: "$frt" },
-          avgIterations: { $avg: "$iterations" },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          frrTotal: { $sum: 1 },
-        },
-      },
+      { $group: trendGroup() },
       { $sort: { _id: 1 } },
       { $limit: 100 },
     ]);
 
-    const trendsWithFRRPercent = trends.map((t) => ({
-      date: t._id,
-      solved: t.solved,
-      avgRWT: t.avgRWT ? Number(t.avgRWT.toFixed(2)) : 0,
-      avgFRT: t.avgFRT ? Number(t.avgFRT.toFixed(2)) : 0,
-      avgIterations: t.avgIterations ? Number(t.avgIterations.toFixed(1)) : 0,
-      positiveCSAT: t.positiveCSAT,
-      negativeCSAT: t.negativeCSAT || 0,
-      frrMet: t.frrMet,
-      frrPercent: t.frrTotal > 0 ? Math.round((t.frrMet / t.frrTotal) * 100) : 0,
-    }));
-
     const leaderboard = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
-      {
-        $group: {
-          _id: "$owner",
-          totalTickets: { $sum: 1 },
-          goodCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          badCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          avgRWT: { $avg: "$rwt" },
-          avgFRT: { $avg: "$frt" },
-        },
-      },
+      { $group: leaderboardGroup() },
       { $match: { _id: { $ne: null }, totalTickets: { $gte: 3 } } },
       { $sort: { goodCSAT: -1 } },
       { $limit: 25 },
@@ -96,87 +49,18 @@ export const precomputeAnalytics = async (quarter) => {
 
     const individualTrends = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
-      {
-        $addFields: {
-          ticketAge: {
-            $divide: [
-              { $subtract: ["$closed_date", "$created_date"] },
-              1000 * 60 * 60 * 24,
-            ],
-          },
-        },
-      },
-      {
-        $group: {
-          _id: {
-            date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
-            owner: "$owner",
-          },
-          solved: { $sum: 1 },
-          avgRWT: { $avg: { $cond: [{ $gt: ["$rwt", 0] }, "$rwt", null] } },
-          avgFRT: { $avg: { $cond: [{ $gt: ["$frt", 0] }, "$frt", null] } },
-          avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
-          iterValidCount: { $sum: { $cond: [{ $gt: ["$iterations", 0] }, 1, 0] } },
-          rwtValidCount: { $sum: { $cond: [{ $gt: ["$rwt", 0] }, 1, 0] } },
-          frtValidCount: { $sum: { $cond: [{ $gt: ["$frt", 0] }, 1, 0] } },
-          positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
-          negativeCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
-          frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
-          frrTotal: { $sum: 1 },
-          backlogCleared: { $sum: { $cond: [{ $gte: ["$ticketAge", 15] }, 1, 0] } },
-        },
-      },
+      { $addFields: ticketAgeAddFields() },
+      { $group: individualTrendGroup() },
       { $sort: { "_id.date": 1 } },
     ]);
-
-    const individualTrendsGrouped = individualTrends.reduce((acc, item) => {
-      const { date, owner } = item._id;
-      if (!acc[owner]) acc[owner] = [];
-      acc[owner].push({
-        date,
-        solved: item.solved,
-        avgRWT: item.avgRWT ? Number(item.avgRWT.toFixed(2)) : 0,
-        avgFRT: item.avgFRT ? Number(item.avgFRT.toFixed(2)) : 0,
-        avgIterations: item.avgIterations ? Number(item.avgIterations.toFixed(1)) : 0,
-        iterValidCount: item.iterValidCount || 0,
-        rwtValidCount: item.rwtValidCount || 0,
-        frtValidCount: item.frtValidCount || 0,
-        positiveCSAT: item.positiveCSAT || 0,
-        negativeCSAT: item.negativeCSAT || 0,
-        frrMet: item.frrMet || 0,
-        backlogCleared: item.backlogCleared || 0,
-      });
-      return acc;
-    }, {});
 
     const response = {
       quarter,
       dateRange: { start, end },
-      stats: {
-        totalTickets: statsResult?.totalTickets || 0,
-        avgRWT: statsResult?.avgRWT ? Number(statsResult.avgRWT.toFixed(2)) : 0,
-        avgFRT: statsResult?.avgFRT ? Number(statsResult.avgFRT.toFixed(2)) : 0,
-        avgIterations: statsResult?.avgIterations ? Number(statsResult.avgIterations.toFixed(1)) : 0,
-        positiveCSAT: statsResult?.positiveCSAT || 0,
-        negativeCSAT: statsResult?.negativeCSAT || 0,
-        csatPercent: (() => {
-          const pos = statsResult?.positiveCSAT || 0;
-          const neg = statsResult?.negativeCSAT || 0;
-          return pos + neg > 0 ? Math.round((pos / (pos + neg)) * 100) : 0;
-        })(),
-        frrPercent: statsResult?.frrTotal > 0 ? Math.round((statsResult.frrMet / statsResult.frrTotal) * 100) : 0,
-      },
-      trends: trendsWithFRRPercent,
-      leaderboard: leaderboard.map((l) => ({
-        name: l._id,
-        totalTickets: l.totalTickets,
-        goodCSAT: l.goodCSAT,
-        badCSAT: l.badCSAT,
-        winRate: l.goodCSAT + l.badCSAT > 0 ? Math.round((l.goodCSAT / (l.goodCSAT + l.badCSAT)) * 100) : 0,
-        avgRWT: l.avgRWT ? Number(l.avgRWT.toFixed(2)) : 0,
-        avgFRT: l.avgFRT ? Number(l.avgFRT.toFixed(2)) : 0,
-      })),
-      individualTrends: individualTrendsGrouped,
+      stats: formatOverallStats(statsResult),
+      trends: trends.map((t) => formatTrend(t)),
+      leaderboard: leaderboard.map((l) => formatLeaderboardEntry(l)),
+      individualTrends: groupByOwner(individualTrends, formatIndividualTrend),
       computed_at: new Date(),
       _isPrecomputed: true,
     };

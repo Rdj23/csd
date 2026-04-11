@@ -543,6 +543,9 @@ const DrillDownModal = ({
       "CSM",
       "TAM",
       "Assignee",
+      "Stage",
+      "Created Date",
+      "Solved Date",
       "Age (Days)",
       "RWT (hrs)",
       "FRT (hrs)",
@@ -586,6 +589,9 @@ const DrillDownModal = ({
           csm,
           tam,
           owner,
+          STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-",
+          `"${t.created_date ? format(parseISO(t.created_date), "MMM d, yyyy") : "-"}"`,
+          `"${t.actual_close_date ? format(parseISO(t.actual_close_date), "MMM d, yyyy") : "-"}"`,
           calculateAge(t),
           t.rwt || "-",
           t.frt || "-",
@@ -1759,9 +1765,9 @@ const AllTicketsView = ({
       "CSM",
       "TAM",
       "Assignee",
-      "Created Date",
-      "Closed Date",
       "Stage",
+      "Created Date",
+      "Solved Date",
       "Age (Days)",
       "RWT (hrs)",
       "FRT (hrs)",
@@ -1795,11 +1801,7 @@ const AllTicketsView = ({
           "Unassigned";
         const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
         const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
-        const stage = STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-";
         const cf = t.custom_fields || {};
-        const ageCalc = t.created_date
-          ? Math.ceil(Math.abs((t.actual_close_date ? new Date(t.actual_close_date) : new Date()) - new Date(t.created_date)) / (1000 * 60 * 60 * 24))
-          : 0;
 
         csvContent +=
           [
@@ -1810,10 +1812,10 @@ const AllTicketsView = ({
             csm,
             tam,
             owner,
-            t.created_date ? format(parseISO(t.created_date), "yyyy-MM-dd") : "-",
-            t.actual_close_date ? format(parseISO(t.actual_close_date), "yyyy-MM-dd") : "-",
-            stage,
-            ageCalc,
+            STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-",
+            `"${t.created_date ? format(parseISO(t.created_date), "MMM d, yyyy") : "-"}"`,
+            `"${t.actual_close_date ? format(parseISO(t.actual_close_date), "MMM d, yyyy") : "-"}"`,
+            calculateAge(t),
             t.rwt || "-",
             t.frt || "-",
             t.iterations || "-",

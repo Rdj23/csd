@@ -2,6 +2,15 @@ import mongoose from "mongoose";
 import Redis from "ioredis";
 import logger from "./logger.js";
 
+// --- GLOBAL MONGOOSE CONFIG ---
+// Auto-enable allowDiskUse for ALL aggregation pipelines.
+// Without this, 70 concurrent users running $group/$sort stages can exceed
+// MongoDB's 100MB per-stage RAM limit and fail with "exceeded memory limit".
+const _origAggregate = mongoose.Model.aggregate;
+mongoose.Model.aggregate = function (...args) {
+  return _origAggregate.apply(this, args).allowDiskUse(true);
+};
+
 // --- REDIS CACHE HELPERS ---
 export const CACHE_TTL = {
   ANALYTICS: 900, // 15 minutes
@@ -104,9 +113,14 @@ export const initRedis = async () => {
       enableReadyCheck: true,
       connectTimeout: 10000,
       lazyConnect: true,
-      // Never give up — keep reconnecting forever with backoff
+      // Reconnect with backoff, but give up after 30 retries (~6 min) to prevent
+      // hanging requests from accumulating in memory when Redis is truly down.
       retryStrategy(times) {
-        const delay = Math.min(times * 2000, 30000); // max 30s between retries
+        if (times > 30) {
+          logger.error({ attempt: times }, "Redis reconnect giving up after 30 retries");
+          return null; // Stop retrying — operations will fail gracefully
+        }
+        const delay = Math.min(times * 2000, 30000);
         if (times % 10 === 0) {
           logger.info({ attempt: times, nextRetryMs: delay }, "Redis reconnecting");
         }
@@ -188,8 +202,8 @@ export const connectMongoDB = async () => {
         connectTimeoutMS: 10000,
         socketTimeoutMS: 30000,
         retryWrites: true,
-        maxPoolSize: 20,      // Max concurrent connections to MongoDB (default 100 is too high for Atlas free/shared tier)
-        minPoolSize: 5,       // Keep 5 warm connections ready for instant use
+        maxPoolSize: 50,      // 70 concurrent users need ~50 connections (was 20 — caused queuing)
+        minPoolSize: 10,      // Keep 10 warm connections ready for instant use
         maxIdleTimeMS: 30000, // Close idle connections after 30s to free up Atlas connection slots
       });
       logger.info("MongoDB connected");

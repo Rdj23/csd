@@ -220,7 +220,7 @@ const App = () => {
         setBackupInfo(data.backup);
       }
     } catch (e) {
-      console.error("Failed to fetch backup", e);
+      // silently ignore backup fetch failure
     }
   };
 
@@ -248,15 +248,6 @@ const App = () => {
         rName.toLowerCase().includes(currentUser.name.toLowerCase()),
     );
 
-    // --- DEBUGGING LOGS (Check Console) ---
-    console.log("----------- STATS DEBUG -----------");
-    console.log("1. Logged In As:", currentUser.name);
-    console.log(
-      "2. Is GST Member?",
-      !!matchedName,
-      matchedName ? `(Matched: ${matchedName})` : "(No Match)",
-    );
-
     if (!matchedName) return null; // Hide if not in roster
 
     // 3. Filter My Tickets (From ALL tickets, ignoring current dashboard filters)
@@ -271,10 +262,6 @@ const App = () => {
 
       return isMatch;
     });
-
-    console.log("3. Total Tickets Found for Me:", myTickets.length);
-
-    // ----------------------------------------
 
     // 4. Calculate Metrics
     const open = myTickets.filter(
@@ -359,29 +346,20 @@ const App = () => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-        const startTime = Date.now();
         const response = await fetch(`${API_BASE}/api/auth/config`, {
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
 
-        const loadTime = Date.now() - startTime;
-        console.log(`✅ Server responded in ${loadTime}ms`);
-
         const data = await response.json();
         setGoogleClientId(data.clientId);
         setServerStatus("ready");
       } catch (error) {
-        console.error(`Config fetch attempt ${retryCount + 1} failed:`, error);
-
         if (retryCount < MAX_RETRIES) {
           // Exponential backoff: 2s, 4s, 6s, 8s, 10s, 12s
           const delay = Math.min(2000 * (retryCount + 1), 12000);
-          console.log(`Retrying in ${delay / 1000}s... (Render cold start expected)`);
-
           setTimeout(() => fetchConfig(retryCount + 1), delay);
         } else {
-          console.error("All retry attempts exhausted");
           setGoogleClientId("error");
           setServerStatus("error");
         }
@@ -399,9 +377,9 @@ const App = () => {
   useEffect(() => {
     if (isAuthenticated) {
       // ✅ NON-BLOCKING: Start all fetches in parallel, don't wait
-      fetchTickets().catch(err => console.error("Ticket fetch failed:", err));
+      fetchTickets().catch(() => {});
       connectSocket();
-      fetchViews().catch(err => console.error("Views fetch failed:", err));
+      fetchViews().catch(() => {});
       // ✅ CLEVERTAP LOGIN
       loginUser(currentUser);
     }
@@ -510,14 +488,8 @@ const App = () => {
         : activeTab === "vistas"
           ? "My Vistas"
           : "Ticket View";
-    const currentDate = new Date();
-    const formattedDate = `${currentDate.toLocaleString("default", { month: "long" })} ${currentDate.getDate()} ${currentDate.getFullYear()} ${currentDate.getHours()}:${String(currentDate.getMinutes()).padStart(2, "0")}`;
 
-    csvContent += "TICKET REPORT\n";
-    csvContent += `Generated:,${formattedDate}\n`;
-    csvContent += `Report:,${reportTitle}\n`;
-    csvContent += `Total Tickets:,${ticketsToExport.length}\n`;
-    csvContent += "\n";
+    // Summary section
     csvContent += "SUMMARY BY STATUS\n";
     csvContent += `Open:,${ticketsByState.Open.length}\n`;
     csvContent += `Pending:,${ticketsByState.Pending.length}\n`;
@@ -533,6 +505,9 @@ const App = () => {
       "CSM",
       "TAM",
       "Assignee",
+      "Stage",
+      "Created Date",
+      "Solved Date",
       "Age (Days)",
       "RWT (hrs)",
       "FRT (hrs)",
@@ -556,56 +531,49 @@ const App = () => {
       });
     };
 
-    // Process each state section
+    csvContent += headers.join(",") + "\n";
+
     ["Open", "Pending", "On Hold", "Solved"].forEach((state) => {
-      const stateTickets = ticketsByState[state];
+      ticketsByState[state].forEach((t) => {
+        const owner =
+          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+          t.owned_by?.[0]?.display_name ||
+          "Unassigned";
+        const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
+        const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
+        const cf = t.custom_fields || {};
 
-      csvContent += "\n";
-      csvContent += `${"=".repeat(20)}\n`;
-      csvContent += `${state.toUpperCase()} TICKETS (${stateTickets.length})\n`;
-      csvContent += `${"=".repeat(20)}\n`;
-
-      if (stateTickets.length === 0) {
-        csvContent += "No tickets in this category\n";
-      } else {
-        csvContent += headers.join(",") + "\n";
-
-        stateTickets.forEach((t) => {
-          const owner =
-            FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-            t.owned_by?.[0]?.display_name ||
-            "Unassigned";
-          const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
-          const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
-          const cf = t.custom_fields || {};
-
-          const row = [
-            t.display_id,
-            `"${(t.title || "").replace(/"/g, '""')}"`,
-            `"${(t.accountName || "").replace(/"/g, '""')}"`,
-            t.region || "-",
-            csm,
-            tam,
-            owner,
-            t.days || 0,
-            t.rwt || "-",
-            t.frt || "-",
-            t.iterations || "-",
-            t.csat || "-",
-            t.frr || "-",
-            `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
-            `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
-          ];
-          csvContent += row.join(",") + "\n";
-        });
-      }
+        const row = [
+          t.display_id,
+          `"${(t.title || "").replace(/"/g, '""')}"`,
+          `"${(t.accountName || "").replace(/"/g, '""')}"`,
+          t.region || "-",
+          csm,
+          tam,
+          owner,
+          STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-",
+          `"${t.created_date ? format(parseISO(t.created_date), "MMM d, yyyy") : "-"}"`,
+          `"${t.actual_close_date ? format(parseISO(t.actual_close_date), "MMM d, yyyy") : "-"}"`,
+          t.days || 0,
+          t.rwt || "-",
+          t.frt || "-",
+          t.iterations || "-",
+          t.csat || "-",
+          t.frr || "-",
+          `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
+          `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+        ];
+        csvContent += row.join(",") + "\n";
+      });
     });
 
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Ticket_Report_${reportTitle.replace(/\s+/g, "_")}_${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}_${String(currentDate.getHours()).padStart(2, "0")}${String(currentDate.getMinutes()).padStart(2, "0")}.csv`;
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+    a.download = `Ticket_Report_${reportTitle.replace(/\s+/g, "_")}_${dateStr}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast("✅ CSV Downloaded!");

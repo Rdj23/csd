@@ -418,7 +418,7 @@ export default function AgentChat() {
               <Bot className="w-4.5 h-4.5 text-indigo-600 dark:text-indigo-400" />
             </div>
             <div>
-              <h3 className="font-semibold text-[13px] text-slate-700 dark:text-slate-200">DevRev AI Agent</h3>
+              <h3 className="font-semibold text-[13px] text-slate-700 dark:text-slate-200">InsightX</h3>
               <p className="text-[11px] text-slate-400 dark:text-slate-500">Ask anything about your tickets & data</p>
             </div>
           </div>
@@ -431,7 +431,7 @@ export default function AgentChat() {
               <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center mb-4">
                 <Bot className="w-7 h-7 text-indigo-400" />
               </div>
-              <h4 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-1.5">DevRev AI Agent</h4>
+              <h4 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-1.5">InsightX</h4>
               <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xs">
                 Ask questions about your tickets, customers, or support data. The agent will query DevRev and respond.
               </p>
