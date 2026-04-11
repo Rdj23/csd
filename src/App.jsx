@@ -811,8 +811,8 @@ const App = () => {
 
         const currentSearch = (searchQueries[activeTab] || "").toLowerCase();
         const matchesSearch =
-          t.title.toLowerCase().includes(currentSearch) ||
-          t.display_id.toLowerCase().includes(currentSearch);
+          (t.title || "").toLowerCase().includes(currentSearch) ||
+          (t.display_id || "").toLowerCase().includes(currentSearch);
         if (!matchesSearch) return false;
 
         // ✅ FIX: Use 'currentFilters.dateRange' so each tab is independent
@@ -1607,15 +1607,20 @@ const App = () => {
                     <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="ID / Title..."
-                      className="w-full pl-8 pr-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-400 dark:text-slate-200"
+                      placeholder={isLoading && tickets.length === 0 ? "Loading..." : "ID / Title..."}
+                      disabled={isLoading && tickets.length === 0}
+                      className={`w-full pl-8 pr-2 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-400 dark:text-slate-200 ${isLoading && tickets.length === 0 ? "opacity-50 cursor-not-allowed" : ""}`}
                       value={searchQueries[activeTab] || ""}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        if ((isLoading || isPartialData) && tickets.length === 0) {
+                          showToast("Please let the dashboard load your tickets first");
+                          return;
+                        }
                         setSearchQueries((prev) => ({
                           ...prev,
                           [activeTab]: e.target.value,
-                        }))
-                      }
+                        }));
+                      }}
                     />
                   </div>
                 )}
