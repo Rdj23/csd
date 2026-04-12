@@ -875,11 +875,6 @@ const App = () => {
             !currentFilters.stages.includes(stageLabel)
           )
             return false;
-          if (
-            currentFilters.health?.length > 0 &&
-            !currentFilters.health.includes(t.uiStatus)
-          )
-            return false;
         }
 
         // Dependency filter
@@ -940,7 +935,7 @@ const App = () => {
   ]);
 
   // Exclude tickets owned by Anmol Sawhney from ongoing views
-  const displayTickets = useMemo(() => {
+  const displayTicketsBeforeHealth = useMemo(() => {
     return filteredTickets.filter((t) => {
       const ownerName =
         FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
@@ -949,6 +944,16 @@ const App = () => {
       return !ownerName.toLowerCase().includes("anmol");
     });
   }, [filteredTickets]);
+
+  // Apply health filter separately so KPI cards can show unfiltered counts
+  const displayTickets = useMemo(() => {
+    if (activeTab === "analytics" || !currentFilters.health?.length) {
+      return displayTicketsBeforeHealth;
+    }
+    return displayTicketsBeforeHealth.filter((t) =>
+      currentFilters.health.includes(t.uiStatus)
+    );
+  }, [displayTicketsBeforeHealth, currentFilters.health, activeTab]);
 
   const shouldShowFilter = useMemo(() => {
     return activeTab !== "vistas" && activeTab !== "analytics";
@@ -1204,14 +1209,14 @@ const App = () => {
       });
   }, [tickets, tabFilters.alltickets, activeTab, dependencies]);
 
-  // ✅ KPI STATS - Count from displayTickets which already has priority computed
+  // ✅ KPI STATS - Count from displayTicketsBeforeHealth so cards always show real counts
   const stats = useMemo(() => {
     return {
-      red: displayTickets.filter((t) => t.priority === 1).length,
-      yellow: displayTickets.filter((t) => t.priority === 2).length,
-      green: displayTickets.filter((t) => t.priority === 3).length,
+      red: displayTicketsBeforeHealth.filter((t) => t.priority === 1).length,
+      yellow: displayTicketsBeforeHealth.filter((t) => t.priority === 2).length,
+      green: displayTicketsBeforeHealth.filter((t) => t.priority === 3).length,
     };
-  }, [displayTickets]);
+  }, [displayTicketsBeforeHealth]);
 
   const labels =
     activeTab === "csd"
@@ -1228,6 +1233,9 @@ const App = () => {
     textClassDark,
   }) => {
     const isDisabled = count === 0;
+    const healthFilter = currentFilters.health || [];
+    const isActive = healthFilter.includes(filterVal);
+    const isInactive = healthFilter.length > 0 && !isActive;
 
     return (
     <button
@@ -1237,26 +1245,36 @@ const App = () => {
         transition-all duration-200
         ${isDisabled
           ? "opacity-60 cursor-not-allowed bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700"
+          : isInactive
+          ? "opacity-70 hover:-translate-y-0.5 cursor-pointer bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
           : "hover:-translate-y-0.5 cursor-pointer"
         }
-        ${!isDisabled && (filterVal === "Healthy"
+        ${!isDisabled && !isInactive && (filterVal === "Healthy"
           ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/60"
           : filterVal === "Needs Attention"
           ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800/60"
           : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-800/60")
+        }
+        ${isActive && (filterVal === "Healthy"
+          ? "ring-2 ring-emerald-400/50 dark:ring-emerald-500/40 border-emerald-300 dark:border-emerald-700"
+          : filterVal === "Needs Attention"
+          ? "ring-2 ring-amber-400/50 dark:ring-amber-500/40 border-amber-300 dark:border-amber-700"
+          : "ring-2 ring-rose-400/50 dark:ring-rose-500/40 border-rose-300 dark:border-rose-700")
         }`}
       style={{ boxShadow: isDisabled ? '0 1px 2px rgba(0,0,0,0.05)' : 'var(--shadow-card)' }}
-      title={isDisabled ? "No tickets in this category" : undefined}
+      title={isDisabled ? "No tickets in this category" : isInactive ? `Click to filter by ${label}` : undefined}
     >
       {/* Left accent bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
         borderClass.replace('border-l-4 border-l-', 'bg-')
-      } ${isDisabled && "opacity-20"}`} />
+      } ${isDisabled ? "opacity-20" : isInactive ? "opacity-40" : ""}`} />
 
       <div className="pl-5 pr-4 py-4 flex items-center justify-between">
         <div className="flex-1">
           <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${
             isDisabled
+              ? "text-slate-400 dark:text-slate-500"
+              : isInactive
               ? "text-slate-400 dark:text-slate-500"
               : "text-slate-500 dark:text-slate-400"
           }`}>
@@ -1264,6 +1282,8 @@ const App = () => {
           </p>
           <p className={`text-4xl font-bold tracking-tight leading-none transition-colors duration-200 ${
             isDisabled
+              ? "text-slate-400 dark:text-slate-500"
+              : isInactive
               ? "text-slate-400 dark:text-slate-500"
               : `${textClassLight} ${textClassDark}`
           }`}>
@@ -1274,6 +1294,8 @@ const App = () => {
           transition-all duration-200 ${!isDisabled && "group-hover:scale-110"}
           ${isDisabled
             ? "bg-slate-200 dark:bg-slate-700"
+            : isInactive
+            ? "bg-slate-100 dark:bg-slate-800"
             : filterVal === "Healthy" ? "bg-emerald-100 dark:bg-emerald-900/30"
             : filterVal === "Needs Attention" ? "bg-amber-100 dark:bg-amber-900/30"
             : "bg-rose-100 dark:bg-rose-900/30"}`}
@@ -1281,6 +1303,8 @@ const App = () => {
           <Icon className={`w-5 h-5 ${
             isDisabled
               ? "text-slate-500 dark:text-slate-400 opacity-60"
+              : isInactive
+              ? "text-slate-400 dark:text-slate-500 opacity-60"
               : `${textClassLight} ${textClassDark} opacity-80`
           }`} />
         </div>
@@ -2198,20 +2222,32 @@ const App = () => {
                 {activeTab === "tickets" && (
                   <button
                     onClick={() => setShowSaveInput(true)}
-                    className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-600"
+                    className="group flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg
+                      text-indigo-600 dark:text-indigo-400
+                      bg-indigo-50 dark:bg-indigo-950/40
+                      border border-indigo-200 dark:border-indigo-800/60
+                      hover:bg-indigo-100 dark:hover:bg-indigo-900/50
+                      hover:border-indigo-300 dark:hover:border-indigo-700
+                      transition-all duration-150"
                   >
-                    <Save className="w-4 h-4" /> Save View
+                    <Save className="w-3.5 h-3.5 transition-transform duration-150 group-hover:scale-110" /> Save View
                   </button>
                 )}
 
                 {activeTab !== "analytics" && (
                   <button
                     onClick={handleExportCSV}
-                    className="p-2.5 rounded-lg bg-white border border-slate-200 dark:bg-slate-800 dark:border-slate-700
-    dark:text-slate-300 dark:hover:bg-slate-700
-    transition-colorss"
+                    className="group flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg
+                      text-slate-600 dark:text-slate-300
+                      bg-white dark:bg-slate-800
+                      border border-slate-200 dark:border-slate-700
+                      hover:bg-slate-50 dark:hover:bg-slate-700
+                      hover:border-slate-300 dark:hover:border-slate-600
+                      transition-all duration-150"
+                    title="Export tickets as CSV"
                   >
-                    <FileDown className="w-5 h-5" />
+                    <FileDown className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-y-0.5" />
+                    <span>Export</span>
                   </button>
                 )}
               </div>
