@@ -69,9 +69,14 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
                   <span className="h-5 w-20 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
                 )}
 
-                {data?.timings && (
+                {data?.isActive && data?.timings && (
                   <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
                     <Clock className="w-3 h-3" /> {data.timings}
+                  </span>
+                )}
+                {!data?.isActive && data?.nextAvailable && (
+                  <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Back {data.nextAvailable.date} at {data.nextAvailable.shiftStart}
                   </span>
                 )}
               </div>
@@ -145,6 +150,9 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
             {backup.urgentTickets > 0 && (
               <span className="text-amber-600 ml-1">({backup.urgentTickets} urgent)</span>
             )}
+            {backup.isWeekendFallback && (
+              <span className="ml-1 px-1 py-0.5 bg-violet-100 text-violet-700 rounded text-[9px] font-bold">WEEKEND SHIFT</span>
+            )}
           </p>
         </div>
       </div>
@@ -154,10 +162,17 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
       </button>
     </div>
   ) : (
-    <div className="text-xs text-slate-400 italic py-2 text-center">
-      {backupData?.userStatus?.reason
-        ? `${user.name} is ${backupData.userStatus.reason.toLowerCase()}. No backup available.`
-        : "No teammates online"}
+    <div className="py-2 text-center space-y-1">
+      <p className="text-xs text-slate-400 italic">
+        {backupData?.userStatus?.reason
+          ? `${user.name} is ${backupData.userStatus.reason.toLowerCase()}. No backup available.`
+          : "No teammates online"}
+      </p>
+      {backupData?.userStatus?.nextAvailable && (
+        <p className="text-[10px] text-slate-500 font-medium">
+          Available {backupData.userStatus.nextAvailable.date} • {backupData.userStatus.nextAvailable.shift} starts {backupData.userStatus.nextAvailable.shiftStart}
+        </p>
+      )}
     </div>
   )}
 </div>

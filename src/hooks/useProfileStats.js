@@ -39,7 +39,8 @@ export const useProfileStats = (user, solvedTickets = []) => {
         } else if (needsBackup === true) {
           isActive = false;
           status = userStatus?.reason || "Away";
-          timings = userStatus?.shift || "";
+          // Don't show raw shift as timings when off — it's redundant with status
+          timings = "";
 
           const formatStatus = (s) => {
             if (!s) return "away";
@@ -51,7 +52,8 @@ export const useProfileStats = (user, solvedTickets = []) => {
           };
 
           if (backupInfo) {
-            aiSummary = `${user.name} is ${formatStatus(status)}. Best backup: ${backupInfo.name} (${backupInfo.role}).`;
+            const weekendNote = backupInfo.isWeekendFallback ? " (weekend shift)" : "";
+            aiSummary = `${user.name} is ${formatStatus(status)}. Best backup: ${backupInfo.name} (${backupInfo.role})${weekendNote}.`;
           } else {
             aiSummary = `${user.name} is ${formatStatus(status)}. No backup available.`;
           }
@@ -66,9 +68,12 @@ export const useProfileStats = (user, solvedTickets = []) => {
             : `${user.name} is off duty today.`;
         }
 
-        setData({ isActive, status, timings, aiSummary });
+        const nextAvailable = userStatus?.nextAvailable || null;
+        setData({ isActive, status, timings, aiSummary, nextAvailable });
       } catch (err) {
-        setData({ isActive: false, status: "Unknown" });
+        setData({ isActive: false, status: "Unknown", timings: "", aiSummary: "" });
+        setBackup(null);
+        setBackupData(null);
       } finally {
         setLoading(false);
       }

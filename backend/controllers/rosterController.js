@@ -9,7 +9,7 @@ import {
   getRosterByMonth,
   getTodayStatus,
 } from "../services/rosterService.js";
-import { getQuarterDateRange, getCurrentQuarterKey } from "../config/constants.js";
+import { getQuarterDateRange, getCurrentQuarterKey, GST_NAME_MAP, GST_MEMBERS } from "../config/constants.js";
 import logger from "../config/logger.js";
 
 export const postProfileStatus = (req, res) => {
@@ -20,11 +20,16 @@ export const postProfileStatus = (req, res) => {
 
 export const getBackup = async (req, res) => {
   try {
-    const { userName, teamOnly = "true" } = req.query;
+    const { userName: rawName, teamOnly = "true" } = req.query;
 
-    if (!userName) {
+    if (!rawName) {
       return res.status(400).json({ error: "userName query parameter is required", backup: null, needsBackup: false });
     }
+
+    // Resolve full names (e.g. "Rohan Jadhav") to short roster names ("Rohan")
+    const userName = GST_NAME_MAP[rawName] && GST_MEMBERS.has(GST_NAME_MAP[rawName])
+      ? GST_NAME_MAP[rawName]
+      : GST_MEMBERS.has(rawName) ? rawName : rawName;
 
     const result = await findBackupForUser(userName, teamOnly);
     res.status(result.status).json(result.data);
