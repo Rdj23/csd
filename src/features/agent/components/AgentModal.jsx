@@ -376,7 +376,7 @@ export default function AgentModal({ open, onClose }) {
               <Sparkles className="w-4.5 h-4.5 text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-[14px] text-slate-800 dark:text-white">DevRev AI Agent</h3>
+              <h3 className="font-semibold text-[14px] text-slate-800 dark:text-white">InsightX</h3>
               <p className="text-[11px] text-slate-400 dark:text-slate-500">Ask anything about your tickets & data</p>
             </div>
           </div>
