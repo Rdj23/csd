@@ -68,10 +68,25 @@ export const getShiftStatus = (row, colIdx) => {
       isActive = currentHour >= hours.start && currentHour < hours.end;
     }
     logger.info({ name: row[0], shiftKey, start: hours.start, end: hours.end, currentHour: currentHour.toFixed(2), isActive }, "Shift status check");
+
+    let reason = null;
+    if (!isActive) {
+      // Better copy: tell whether shift is upcoming or already ended
+      if (hours.overnight) {
+        reason = currentHour < hours.start && currentHour >= hours.end
+          ? `${shiftKey} starts at ${formatDecimalHour(hours.start)}`
+          : `${shiftKey} ended`;
+      } else if (currentHour < hours.start) {
+        reason = `${shiftKey} starts at ${formatDecimalHour(hours.start)}`;
+      } else {
+        reason = `${shiftKey} ended at ${formatDecimalHour(hours.end)}`;
+      }
+    }
+
     return {
       isOnShift: isActive,
       shift: shiftKey,
-      reason: isActive ? null : `Not in ${shiftKey} hours`
+      reason,
     };
   }
 
@@ -369,12 +384,14 @@ const formatDecimalHour = (h) => {
 };
 
 // Find user's next working day from roster (looks ahead up to 14 days)
+// Includes today if the shift hasn't started yet
 const getNextAvailable = (userName) => {
   const rosterName = NAME_TO_ROSTER_MAP[userName] || userName;
   const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
   if (!row) return null;
 
   const istNow = getISTTime();
+  const currentHour = getCurrentISTHour();
   const todayDate = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
   const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
   const VALID_SHIFTS = ["SHIFT 1", "SHIFT 2", "SHIFT 3", "SHIFT 4", "ON CALL"];
@@ -384,7 +401,9 @@ const getNextAvailable = (userName) => {
     const parts = dateKey.split("-");
     if (parts.length !== 2 || !MONTHS.hasOwnProperty(parts[1])) continue;
     const colDate = new Date(istNow.getFullYear(), MONTHS[parts[1]], parseInt(parts[0]));
-    if (colDate <= todayDate) continue;
+
+    // Skip past days entirely
+    if (colDate < todayDate) continue;
 
     const val = (row[colIdx] || "").toUpperCase().trim();
     const shiftMatch = val.match(/(?:SHIFT\s*)?(\d)/i);
@@ -392,11 +411,17 @@ const getNextAvailable = (userName) => {
 
     if (VALID_SHIFTS.includes(normalized) && SHIFT_HOURS[normalized]) {
       const shiftInfo = SHIFT_HOURS[normalized];
+
+      // For today: only include if the shift hasn't started yet (upcoming)
+      const isToday = colDate.getTime() === todayDate.getTime();
+      if (isToday && currentHour >= shiftInfo.start) continue;
+
       futureDates.push({
         date: colDate,
         dateKey,
         shift: normalized,
         shiftStart: formatDecimalHour(shiftInfo.start),
+        isToday,
       });
     }
   }
@@ -464,6 +489,14 @@ export const findBackupForUser = async (userName, teamOnly = "true") => {
     }
   }
 
+  // L2 on ON CALL is treated as not working — they need a backup from actual shift workers
+  const isL2OnCall = userRole === "L2" && userShiftStatus?.shift === "ON CALL";
+  if (isL2OnCall) {
+    userShiftStatus.isOnShift = false;
+    userShiftStatus.reason = "On Call (not on shift)";
+    logger.info({ userName }, "L2 on ON CALL — treating as not available, finding shift backup");
+  }
+
   // If user is available (on shift), they don't need a backup
   if (userShiftStatus?.isOnShift) {
     const tickets = await redisGet("tickets:active") || [];
@@ -503,29 +536,30 @@ export const findBackupForUser = async (userName, teamOnly = "true") => {
   const nextAvailable = getNextAvailable(userName);
 
   // Helper: filter roster rows for backup candidates
-  const filterCandidates = (rows, { requireTeam = false } = {}) => {
+  // skipRoleCheck: on weekends, any level can be backup regardless of L1/L2
+  const filterCandidates = (rows, { requireTeam = false, skipRoleCheck = false } = {}) => {
     return rows.filter((row) => {
       if (!row[0] || !row[1]) return false;
 
       const rosterName = NAME_TO_ROSTER_MAP[userName] || userName;
       if (row[0].toLowerCase() === rosterName.toLowerCase()) return false;
 
-      const memberName = row[0];
-      const memberRole = DESIGNATION_MAP[memberName] || DESIGNATION_MAP[row[0]] || "L1";
-      if (memberRole !== userRole) return false;
+      // Match L1/L2 level — unless weekend (anyone on shift can be backup)
+      if (!skipRoleCheck) {
+        const memberName = row[0];
+        const memberRole = DESIGNATION_MAP[memberName] || DESIGNATION_MAP[row[0]] || "L1";
+        if (memberRole !== userRole) return false;
+      }
 
       const status = getShiftStatus(row, colIdx);
       if (!status.isOnShift) return false;
 
-      // For L2 backup: exclude ON CALL engineers — they have separate on-call duties
-      if (userRole === "L2") {
-        const rawShift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
-        if (rawShift === "ON CALL") return false;
-      }
+      // Exclude ON CALL engineers — they have separate on-call duties
+      const rawShift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
+      if (rawShift === "ON CALL") return false;
 
       if (isWeekend) {
-        const shift = colIdx ? (row[colIdx] || "").toUpperCase().trim() : "";
-        if (OFF_STATUSES.includes(shift) || !shift) return false;
+        if (OFF_STATUSES.includes(rawShift) || !rawShift) return false;
       }
 
       if (requireTeam && teamMembers.length > 0) {
@@ -545,22 +579,24 @@ export const findBackupForUser = async (userName, teamOnly = "true") => {
   };
 
   // User is NOT available - find backup
-  // Step 1: Try team members first (for L1 with teamOnly)
-  let activeEngineers = filterCandidates(ROSTER_ROWS, {
-    requireTeam: userRole === "L1" && teamOnly === "true",
-  });
-
-  // Step 2: Weekend fallback — if no team candidates, try all engineers on weekend shift
+  let activeEngineers = [];
   let isWeekendFallback = false;
-  if (activeEngineers.length === 0 && isWeekend) {
-    activeEngineers = filterCandidates(ROSTER_ROWS, { requireTeam: false });
-    if (activeEngineers.length > 0) isWeekendFallback = true;
-    logger.info({ count: activeEngineers.length, userRole }, "Weekend fallback: searching all engineers on shift");
-  }
 
-  // Step 3: Weekday cross-team fallback for L1 (if team filter yielded nothing)
-  if (activeEngineers.length === 0 && userRole === "L1" && teamOnly === "true") {
-    activeEngineers = filterCandidates(ROSTER_ROWS, { requireTeam: false });
+  if (isWeekend) {
+    // Weekend: search ALL engineers on actual shifts, regardless of L1/L2
+    activeEngineers = filterCandidates(ROSTER_ROWS, { requireTeam: false, skipRoleCheck: true });
+    if (activeEngineers.length > 0) isWeekendFallback = true;
+    logger.info({ count: activeEngineers.length, userRole }, "Weekend: searching all engineers on shift (any level)");
+  } else {
+    // Weekday Step 1: Try team members first (for L1 with teamOnly)
+    activeEngineers = filterCandidates(ROSTER_ROWS, {
+      requireTeam: userRole === "L1" && teamOnly === "true",
+    });
+
+    // Weekday Step 2: Cross-team fallback for L1 (if team filter yielded nothing)
+    if (activeEngineers.length === 0 && userRole === "L1" && teamOnly === "true") {
+      activeEngineers = filterCandidates(ROSTER_ROWS, { requireTeam: false });
+    }
   }
 
   if (activeEngineers.length === 0) {

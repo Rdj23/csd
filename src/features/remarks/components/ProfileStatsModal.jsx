@@ -76,7 +76,10 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
                 )}
                 {!data?.isActive && data?.nextAvailable && (
                   <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> Back {data.nextAvailable.date} at {data.nextAvailable.shiftStart}
+                    <Clock className="w-3 h-3" />
+                    {data.nextAvailable.isToday
+                      ? `${data.nextAvailable.shift} starts at ${data.nextAvailable.shiftStart}`
+                      : `Back ${data.nextAvailable.date} at ${data.nextAvailable.shiftStart}`}
                   </span>
                 )}
               </div>
@@ -170,7 +173,9 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
       </p>
       {backupData?.userStatus?.nextAvailable && (
         <p className="text-[10px] text-slate-500 font-medium">
-          Available {backupData.userStatus.nextAvailable.date} • {backupData.userStatus.nextAvailable.shift} starts {backupData.userStatus.nextAvailable.shiftStart}
+          {backupData.userStatus.nextAvailable.isToday
+            ? `${backupData.userStatus.nextAvailable.shift} starts at ${backupData.userStatus.nextAvailable.shiftStart} today`
+            : `Available ${backupData.userStatus.nextAvailable.date} • ${backupData.userStatus.nextAvailable.shift} starts ${backupData.userStatus.nextAvailable.shiftStart}`}
         </p>
       )}
     </div>
