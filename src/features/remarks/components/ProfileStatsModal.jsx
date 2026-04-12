@@ -159,10 +159,6 @@ const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {
           </p>
         </div>
       </div>
-      {/* Optional: Assign Button */}
-      <button className="text-xs bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
-        Assign
-      </button>
     </div>
   ) : (
     <div className="py-2 text-center space-y-1">

@@ -57,16 +57,10 @@ router.post("/webhooks/devrev", verifyWebhookSignature, validate(devrevWebhookSc
 /**
  * AGENT WEBHOOK — Handles AI agent async responses.
  *
- * WHY NO SIGNATURE VERIFICATION:
- * This endpoint receives responses from DevRev's AI Agent async API.
- * The agent webhook uses a different authentication flow (session-based),
- * and this endpoint is not publicly documented/advertised.
- * The handleDevRevWebhook controller handles both — it checks for
- * ai_agent_response in the payload regardless of which endpoint received it.
- *
- * SECURITY NOTE: In production, you should add signature verification here too.
- * "Security through obscurity" (unpublished URL) is not real security.
+ * Uses the same HMAC signature verification as the main webhook.
+ * The verifyWebhookSignature middleware checks against both
+ * DEVREV_WEBHOOK_SECRET and DEVREV_AGENT_WEBHOOK_SECRET.
  */
-router.post("/webhooks/devrev-agent", handleDevRevWebhook);
+router.post("/webhooks/devrev-agent", verifyWebhookSignature, handleDevRevWebhook);
 
 export default router;
