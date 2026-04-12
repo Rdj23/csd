@@ -225,14 +225,14 @@ export const getLeaderboard = async (req, res) => {
         },
       },
       { $sort: { total_points: -1 } },
-    ]);
+    ]).allowDiskUse(true);
 
     // Distinct ticket count per user from granular entries
     const ticketCounts = await UserActivityEntry.aggregate([
       { $match: { date_bucket: { $gte: start, $lte: end } } },
       { $group: { _id: { user: "$user_name", ticket: "$ticket_display_id" } } },
       { $group: { _id: "$_id.user", ticket_count: { $sum: 1 } } },
-    ]);
+    ]).allowDiskUse(true);
     const ticketMap = {};
     for (const t of ticketCounts) {
       ticketMap[t._id] = t.ticket_count;
@@ -243,7 +243,7 @@ export const getLeaderboard = async (req, res) => {
       { $match: { date_bucket: { $gte: start, $lte: end }, is_coop: true, visibility: { $ne: "internal" } } },
       { $group: { _id: { user: "$user_name", ticket: "$ticket_display_id" } } },
       { $group: { _id: "$_id.user", coop_count: { $sum: 1 } } },
-    ]);
+    ]).allowDiskUse(true);
     const coopMap = {};
     for (const c of coopCounts) {
       coopMap[c._id] = c.coop_count;
@@ -317,7 +317,7 @@ export const getDependencyTable = async (req, res) => {
       },
       { $match: { engineer: { $ne: null } } },
       { $sort: { coop_received: -1 } },
-    ]);
+    ]).allowDiskUse(true);
 
     res.json({ dependency: coopEntries });
   } catch (err) {
@@ -350,7 +350,7 @@ export const getSummary = async (req, res) => {
           days_active: { $sum: 1 },
         },
       },
-    ]);
+    ]).allowDiskUse(true);
 
     // Get truly distinct co-op ticket count across the entire range (external only)
     const coopTickets = await UserActivityEntry.distinct("ticket_display_id", {
@@ -418,7 +418,7 @@ export const rebuildDailyRollups = async (_req, res) => {
           },
         },
       },
-    ]);
+    ]).allowDiskUse(true);
 
     logger.info({ groupCount: groups.length }, "Aggregated entry groups for daily rebuild");
 

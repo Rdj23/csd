@@ -55,7 +55,7 @@ export const getCSATBreakdown = async (req, res) => {
           },
         },
         { $sort: { positive: -1 } },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.findOne(
         { closed_date: { $gte: start, $lte: end }, owner: { $nin: [null, ""] } },
         { closed_date: 1, _id: 0 },
@@ -135,11 +135,11 @@ export const getAnalyticsSummary = async (req, res) => {
             ...frrFields(),
           },
         },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: { ...csatMatch, csat: { $in: [1, 2] } } },
         { $group: { _id: null, ...csatFields() } },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.findOne(
         { closed_date: { $gte: start, $lte: end } },
         { closed_date: 1, _id: 0 },

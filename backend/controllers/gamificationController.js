@@ -29,12 +29,12 @@ export const getGamification = async (req, res) => {
       AnalyticsTicket.aggregate([
         { $match: { ...baseMatch, is_noc: { $ne: true } } },
         { $group: ownerStatsGroup() },
-      ]),
+      ]).allowDiskUse(true),
       // CSAT/DSAT always includes NOC tickets
       AnalyticsTicket.aggregate([
         { $match: baseMatch },
         { $group: { _id: "$owner", ...csatFields() } },
-      ]),
+      ]).allowDiskUse(true),
     ]);
 
     // Build CSAT lookup from NOC-inclusive query
@@ -270,11 +270,11 @@ export const getMyStats = async (req, res) => {
       AnalyticsTicket.aggregate([
         { $match: { ...myBaseMatch, is_noc: { $ne: true } } },
         { $group: ownerStatsGroup() },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: myBaseMatch },
         { $group: { _id: "$owner", ...csatFields() } },
-      ]),
+      ]).allowDiskUse(true),
     ]);
 
     const daysWorked = getDaysWorked(userName, start);
@@ -326,11 +326,11 @@ export const getMyStats = async (req, res) => {
       AnalyticsTicket.aggregate([
         { $match: { ...allBaseMatch, is_noc: { $ne: true } } },
         { $group: ownerStatsGroup() },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: allBaseMatch },
         { $group: { _id: "$owner", ...csatFields() } },
-      ]),
+      ]).allowDiskUse(true),
     ]);
 
     // Build CSAT lookup for all owners

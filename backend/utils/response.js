@@ -5,6 +5,20 @@
  * Error:   { success: false, error: { message, details? }, meta? }
  */
 
+/**
+ * Send a pre-serialized JSON string from the Redis cache straight to the
+ * client, wrapping it in the standard { success: true, ...data } envelope
+ * WITHOUT parsing the string into a JS object first.
+ *
+ * `raw` must be a JSON *object* string (starts with "{").
+ * We splice `"success":true,` after the opening brace so the client sees
+ * the same envelope as a normal ok() response.
+ */
+export const okRaw = (res, raw) => {
+  res.setHeader("Content-Type", "application/json");
+  res.end('{"success":true,' + raw.slice(1));
+};
+
 export const ok = (res, data, meta) => {
   // Spread data at top level so frontend can read properties directly
   // (e.g. data.tickets, data.clientId) without unwrapping data.data

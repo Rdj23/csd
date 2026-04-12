@@ -79,3 +79,52 @@ export const fetchWithRetry = async (url, options, retries = 2) => {
     }
   }
 };
+
+// ── DevRev domain helpers (extracted from ticketController) ─────────────
+
+/** Build the full DON URN for a ticket ID. */
+const ticketUrn = (ticketId) =>
+  `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
+
+/**
+ * Fetch linked issues for a ticket via DevRev links.list.
+ * Returns the raw `links` array (may be empty).
+ */
+export const fetchTicketLinks = async (ticketId) => {
+  const res = await axios.post(
+    `${DEVREV_API}/links.list`,
+    { object: ticketUrn(ticketId), object_types: ["issue"], limit: 10 },
+    { headers: HEADERS },
+  );
+  return res.data.links || [];
+};
+
+/**
+ * Fetch a single work item (issue/ticket) by its display ID.
+ * Returns the `work` object or null.
+ */
+export const fetchWorkItem = async (id) => {
+  const res = await axios.post(
+    `${DEVREV_API}/works.get`,
+    { id },
+    { headers: HEADERS },
+  );
+  return res.data.work || null;
+};
+
+/**
+ * Classify an issue into a team based on its custom fields and subtype.
+ * Centralised here so both getIssueDetails and getBatchDependencies
+ * produce consistent team labels.
+ */
+export const classifyIssueTeam = (issue, fallback = "Unknown") => {
+  const customFields = issue.custom_fields || {};
+  const subtype = issue.subtype || "";
+
+  if (customFields.ctype__issuetype === "PSN Task") return "NOC";
+  if (customFields.ctype__team_involved) return customFields.ctype__team_involved;
+  if (subtype === "internal_clevertap_slack") return customFields.ctype__team_involved || "Internal";
+  if (subtype.includes("email")) return "Email";
+  if (subtype.includes("whatsapp")) return "Whatsapp";
+  return fallback;
+};

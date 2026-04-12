@@ -2,6 +2,10 @@
 // After this date, all "Understanding Gap - CS" tickets from GST reporters trigger alerts.
 export const BACKFILL_CUTOFF = new Date("2026-02-20");
 
+// Canonical list of ticket stages that count as "resolved".
+// Used by drilldown queries, sync filters, and gamification scoring.
+export const SOLVED_STATUSES = ["solved", "closed", "resolved", "Resolved", "Solved", "Closed"];
+
 // --- TEAM CONFIGURATION (Backend Copy) ---
 export const TEAM_GROUPS = {
   "Rohan": { "DEVU-1111": "Rohan", "DEVU-550": "Anurag", "DEVU-1115": "Shreya", "DEVU-1087": "Shubhankar" },

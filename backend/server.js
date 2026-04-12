@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import express from "express";
 import http from "http";
+import { createHttpTerminator } from "http-terminator";
 import { Server } from "socket.io";
 import process from "process";
 import mongoose from "mongoose";
@@ -32,6 +33,11 @@ const app = express();
 // Trust Render's reverse proxy so express-rate-limit can read X-Forwarded-For
 app.set("trust proxy", 1);
 const server = http.createServer(app);
+const httpTerminator = createHttpTerminator({
+  server,
+  gracefulTerminationTimeout: 10000, // 10s for in-flight requests to finish before force-close
+});
+
 const io = new Server(server, {
   cors: { origin: ALLOWED_ORIGINS, credentials: true },
   // Tuned for 70+ concurrent users — faster dead-connection cleanup saves ~50KB per stale socket
@@ -231,20 +237,36 @@ const shutdown = async (signal) => {
   isShuttingDown = true;
   logger.info({ signal }, "Graceful shutdown initiated");
 
-  // Stop accepting new connections immediately
-  server.close(() => logger.info("HTTP server closed"));
+  // Force exit after 20s if graceful shutdown hangs.
+  // Must be set first — everything below is best-effort within this budget.
+  const forceTimer = setTimeout(() => {
+    logger.warn("Forced exit after timeout");
+    process.exit(1);
+  }, 20000);
+  forceTimer.unref();
 
-  // Close Socket.IO connections (sends disconnect to all clients)
+  // 1. Drain HTTP connections gracefully via http-terminator.
+  //    - Immediately stops accepting new connections
+  //    - Sets "Connection: close" on in-flight responses so keep-alive sockets drain
+  //    - After gracefulTerminationTimeout (10s), force-destroys remaining sockets
+  try {
+    await httpTerminator.terminate();
+    logger.info("HTTP connections drained");
+  } catch (e) {
+    logger.error({ err: e }, "HTTP termination error");
+  }
+
+  // 2. Close Socket.IO connections (sends disconnect to all clients)
   io.close();
 
-  // Close BullMQ workers (let in-flight jobs finish, up to 10s)
+  // 3. Close BullMQ workers (let in-flight jobs finish, up to 10s)
   if (workerInstances.length > 0) {
     logger.info("Closing workers...");
     await Promise.allSettled(workerInstances.map((w) => w.close()));
     logger.info("All workers closed");
   }
 
-  // Close database connections
+  // 4. Close database connections
   try {
     await mongoose.connection.close();
     logger.info("MongoDB connection closed");
@@ -258,12 +280,6 @@ const shutdown = async (signal) => {
     redisConn.disconnect();
     logger.info("Redis connection closed");
   }
-
-  // Force exit after 15s if graceful shutdown hangs
-  setTimeout(() => {
-    logger.warn("Forced exit after timeout");
-    process.exit(1);
-  }, 15000).unref();
 
   process.exit(0);
 };

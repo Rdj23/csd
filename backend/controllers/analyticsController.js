@@ -69,8 +69,8 @@ export const getAnalytics = async (req, res) => {
 
     // 3. Acquire lock to prevent cache stampede (only one request computes at a time)
     const lockKey = `lock:${cacheKey}`;
-    const gotLock = await redisLock(lockKey, 60);
-    if (!gotLock) {
+    const lockToken = await redisLock(lockKey, 60);
+    if (!lockToken) {
       await new Promise((r) => setTimeout(r, 2000));
       const retryData = await redisGet(cacheKey);
       if (retryData) {
@@ -103,7 +103,7 @@ export const getAnalytics = async (req, res) => {
     const [statsResult] = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
       { $group: overallStatsGroup() },
-    ]);
+    ]).allowDiskUse(true);
 
     // Daily/Weekly/Monthly Trends
     const trends = await AnalyticsTicket.aggregate([
@@ -111,7 +111,7 @@ export const getAnalytics = async (req, res) => {
       { $group: trendGroup(dateFormat) },
       { $sort: { _id: 1 } },
       { $limit: 100 },
-    ]);
+    ]).allowDiskUse(true);
 
     // Backlog Clearance
     const backlogCleared = await AnalyticsTicket.aggregate([
@@ -129,7 +129,7 @@ export const getAnalytics = async (req, res) => {
       },
       { $sort: { _id: 1 } },
       { $limit: 100 },
-    ]);
+    ]).allowDiskUse(true);
 
     // Leaderboard
     const leaderboard = await AnalyticsTicket.aggregate([
@@ -149,7 +149,7 @@ export const getAnalytics = async (req, res) => {
       },
       { $sort: { goodCSAT: -1, winRate: -1 } },
       { $limit: 25 },
-    ]);
+    ]).allowDiskUse(true);
 
     // Bad CSAT - never excludes NOC
     const dsatMatch = { closed_date: { $gte: start, $lte: end }, csat: 1 };
@@ -166,7 +166,7 @@ export const getAnalytics = async (req, res) => {
       { $addFields: ticketAgeAddFields() },
       { $group: individualTrendGroup() },
       { $sort: { "_id.date": 1 } },
-    ]);
+    ]).allowDiskUse(true);
 
     // When NOC is excluded, CSAT/DSAT must still include NOC tickets.
     let csatOverride = null;
@@ -180,11 +180,11 @@ export const getAnalytics = async (req, res) => {
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
           { $group: { _id: null, ...csatOnlyGroup } },
-        ]),
+        ]).allowDiskUse(true),
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
           { $group: { _id: { $dateToString: { format: dateFormat, date: "$closed_date" } }, ...csatOnlyGroup } },
-        ]),
+        ]).allowDiskUse(true),
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
           {
@@ -194,7 +194,7 @@ export const getAnalytics = async (req, res) => {
               badCSAT: { $sum: { $cond: [{ $eq: ["$csat", 1] }, 1, 0] } },
             },
           },
-        ]),
+        ]).allowDiskUse(true),
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
           {
@@ -203,7 +203,7 @@ export const getAnalytics = async (req, res) => {
               ...csatOnlyGroup,
             },
           },
-        ]),
+        ]).allowDiskUse(true),
       ]);
 
       csatOverride = csatStatsArr[0] || { positiveCSAT: 0, negativeCSAT: 0 };
@@ -265,7 +265,7 @@ export const getAnalytics = async (req, res) => {
     }).catch((cacheErr) => {
       logger.error({ err: cacheErr, cacheKey }, "Analytics cache save failed (response already sent)");
     }).finally(() => {
-      redisUnlock(lockKey);
+      redisUnlock(lockKey, lockToken);
     });
   } catch (e) {
     logger.error({ err: e, stack: e.stack }, "Analytics error");
@@ -349,7 +349,7 @@ export const getTicketDrillDown = async (req, res) => {
         { $match: matchConditions },
         { $group: ownerStatsGroup() },
         { $sort: { solved: -1 } },
-      ]),
+      ]).allowDiskUse(true),
     ]);
 
     const ownerSummary = summary.map(s => {

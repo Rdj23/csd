@@ -1,12 +1,24 @@
-import axios from "axios";
+import { startOfISOWeek, addWeeks, addDays, endOfDay, startOfDay as dfnsStartOfDay } from "date-fns";
 import { AnalyticsTicket } from "../models/index.js";
-import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
-import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
+import { redisGet, redisGetRaw, redisSet, CACHE_TTL } from "../config/database.js";
+import { fetchTicketLinks, fetchWorkItem, classifyIssueTeam } from "../services/devrevApi.js";
 import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
 import { getTicketSyncQueue } from "../lib/queues.js";
-import { ok, badRequest, serverError } from "../utils/response.js";
+import { ok, okRaw, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 import { applyOwnerFilter, applyRegionFilter, applyExclusionFilters, applyBacklogFilter } from "../utils/queryBuilders.js";
+import { SOLVED_STATUSES } from "../config/constants.js";
+
+// Fields the frontend analytics table actually renders — excludes heavy NOC
+// metadata, devrev_id, owner_id, sync fields, etc. to keep documents small.
+const TICKET_TABLE_FIELDS = {
+  display_id: 1, ticket_id: 1, title: 1, owner: 1,
+  created_date: 1, closed_date: 1, actual_close_date: 1,
+  rwt: 1, frt: 1, iterations: 1, csat: 1, frr: 1,
+  account_name: 1, region: 1, stage_name: 1,
+  is_noc: 1, account_cohort: 1, priority: 1,
+  _id: 1,
+};
 
 // Helper: try BullMQ dispatch, fall back to direct execution if Redis is down
 const dispatchOrRun = async (getQueue, jobName, jobData, directFn) => {
@@ -32,10 +44,10 @@ export const getLiveStats = async (req, res) => {
     }
 
     const cacheKey = `livestats:${start}:${end}:${owners || "all"}:${region || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
-    const cachedData = await redisGet(cacheKey);
-    if (cachedData) {
+    const cachedRaw = await redisGetRaw(cacheKey);
+    if (cachedRaw) {
       logger.info("LiveStats Redis HIT");
-      return ok(res, cachedData);
+      return okRaw(res, cachedRaw);
     }
 
     const startDate = new Date(start);
@@ -66,7 +78,7 @@ export const getLiveStats = async (req, res) => {
             frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
           },
         },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
         {
@@ -82,7 +94,7 @@ export const getLiveStats = async (req, res) => {
           },
         },
         { $sort: { _id: 1 } },
-      ]),
+      ]).allowDiskUse(true),
     ]);
 
     if (statsResult.length === 0) {
@@ -139,7 +151,7 @@ export const getDrilldown = async (req, res) => {
       query.created_date = { $gte: startOfDay, $lte: endOfDay };
     } else {
       query.actual_close_date = { $gte: startOfDay, $lte: endOfDay };
-      query.stage_name = { $in: ["solved", "closed", "resolved", "Resolved", "Solved", "Closed"] };
+      query.stage_name = { $in: SOLVED_STATUSES };
     }
 
     const tickets = await AnalyticsTicket.find(query)
@@ -173,8 +185,29 @@ export const getTicketsByRange = async (req, res) => {
     applyExclusionFilters(matchConditions, { excludeZendesk, excludeNOC });
     applyBacklogFilter(matchConditions, metric);
 
-    const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = Math.min(200, parseInt(req.query.pageSize) || 200);
+    const { cursor } = req.query;
+
+    // Build ticket query — cursor-based when cursor is provided, offset otherwise
+    const ticketQuery = { ...matchConditions };
+    let usingCursor = false;
+    if (cursor) {
+      // cursor = "<closed_date ISO>_<_id>" — encodes the last item seen
+      const sep = cursor.lastIndexOf("_");
+      if (sep > 0) {
+        const cursorDate = new Date(cursor.slice(0, sep));
+        const cursorId = cursor.slice(sep + 1);
+        if (!isNaN(cursorDate.getTime())) {
+          // Fetch the next page: items whose (closed_date, _id) sort AFTER the cursor
+          ticketQuery.$or = [
+            { closed_date: { ...ticketQuery.closed_date, $lt: cursorDate } },
+            { closed_date: cursorDate, _id: { $lt: cursorId } },
+          ];
+          usingCursor = true;
+        }
+      }
+    }
+    const page = usingCursor ? null : Math.max(1, parseInt(req.query.page) || 1);
 
     // Compute stats via aggregation (avoids loading all docs into Node.js memory)
     const [statsAgg, tickets] = await Promise.all([
@@ -192,10 +225,11 @@ export const getTicketsByRange = async (req, res) => {
             avgIterations: { $avg: { $cond: [{ $gt: ["$iterations", 0] }, "$iterations", null] } },
           },
         },
-      ]),
-      AnalyticsTicket.find(matchConditions)
-        .sort({ closed_date: -1 })
-        .skip((page - 1) * pageSize)
+      ]).allowDiskUse(true),
+      AnalyticsTicket.find(ticketQuery)
+        .select(TICKET_TABLE_FIELDS)
+        .sort({ closed_date: -1, _id: -1 })
+        .skip(usingCursor ? 0 : (page - 1) * pageSize)
         .limit(pageSize)
         .lean(),
     ]);
@@ -205,7 +239,11 @@ export const getTicketsByRange = async (req, res) => {
     if (stats.avgIterations) stats.avgIterations = Number(stats.avgIterations.toFixed(2));
     const totalPages = Math.ceil((stats.total || 0) / pageSize);
 
-    ok(res, { tickets, stats, count: stats.total, page, pageSize, totalPages });
+    // Build next cursor from the last returned ticket
+    const last = tickets[tickets.length - 1];
+    const nextCursor = last ? `${new Date(last.closed_date).toISOString()}_${last._id}` : null;
+
+    ok(res, { tickets, stats, count: stats.total, page, pageSize, totalPages, nextCursor });
   } catch (e) {
     logger.error({ err: e }, "By-range fetch error");
     serverError(res, e.message);
@@ -218,66 +256,72 @@ export const getTicketsByDate = async (req, res) => {
     if (!date) return badRequest(res, "Date required");
 
     const cacheKey = `bydate:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
-    const cached = await redisGet(cacheKey);
-    if (cached) {
+    const cachedRaw = await redisGetRaw(cacheKey);
+    if (cachedRaw) {
       logger.info("ByDate Redis HIT");
-      return ok(res, cached);
+      return okRaw(res, cachedRaw);
     }
 
-    let startOfDay, endOfDay;
+    let startDate, endDate;
     if (date.includes("W")) {
+      // "2026-W10" → ISO week 10 of 2026 (Monday–Sunday)
       const [year, weekPart] = date.split("-W");
       const weekNum = parseInt(weekPart);
-      const jan1 = new Date(parseInt(year), 0, 1);
-      const jan1Day = jan1.getDay();
-
-      let week1Monday;
-      if (jan1Day === 0) {
-        week1Monday = new Date(jan1);
-        week1Monday.setDate(jan1.getDate() + 1);
-      } else if (jan1Day <= 4) {
-        week1Monday = new Date(jan1);
-        week1Monday.setDate(jan1.getDate() - (jan1Day - 1));
-      } else {
-        week1Monday = new Date(jan1);
-        week1Monday.setDate(jan1.getDate() + (8 - jan1Day));
-      }
-
-      startOfDay = new Date(week1Monday);
-      startOfDay.setDate(week1Monday.getDate() + (weekNum - 1) * 7);
-      startOfDay.setHours(0, 0, 0, 0);
-      endOfDay = new Date(startOfDay);
-      endOfDay.setDate(startOfDay.getDate() + 6);
-      endOfDay.setHours(23, 59, 59, 999);
+      // startOfISOWeek of Jan 4 always lands in ISO week 1
+      const week1Monday = startOfISOWeek(new Date(parseInt(year), 0, 4));
+      startDate = dfnsStartOfDay(addWeeks(week1Monday, weekNum - 1));
+      endDate = endOfDay(addDays(startDate, 6));
     } else if (date.length === 7 && date.match(/^\d{4}-\d{2}$/)) {
       const [year, month] = date.split("-").map(Number);
-      startOfDay = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
-      endOfDay = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+      startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+      endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
     } else {
-      startOfDay = new Date(date + "T00:00:00.000Z");
-      endOfDay = new Date(date + "T23:59:59.999Z");
+      startDate = new Date(date + "T00:00:00.000Z");
+      endDate = new Date(date + "T23:59:59.999Z");
     }
 
-    const matchConditions = { closed_date: { $gte: startOfDay, $lte: endOfDay } };
+    const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
     applyOwnerFilter(matchConditions, owners);
     applyRegionFilter(matchConditions, region);
     applyBacklogFilter(matchConditions, metric);
     applyExclusionFilters(matchConditions, { excludeZendesk, excludeNOC: req.query.excludeNOC });
 
-    const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = Math.min(200, parseInt(req.query.pageSize) || 200);
+    const { cursor } = req.query;
+
+    const ticketQuery = { ...matchConditions };
+    let usingCursor = false;
+    if (cursor) {
+      const sep = cursor.lastIndexOf("_");
+      if (sep > 0) {
+        const cursorDate = new Date(cursor.slice(0, sep));
+        const cursorId = cursor.slice(sep + 1);
+        if (!isNaN(cursorDate.getTime())) {
+          ticketQuery.$or = [
+            { closed_date: { ...ticketQuery.closed_date, $lt: cursorDate } },
+            { closed_date: cursorDate, _id: { $lt: cursorId } },
+          ];
+          usingCursor = true;
+        }
+      }
+    }
+    const page = usingCursor ? null : Math.max(1, parseInt(req.query.page) || 1);
 
     const [totalCount, tickets] = await Promise.all([
       AnalyticsTicket.countDocuments(matchConditions),
-      AnalyticsTicket.find(matchConditions)
-        .sort({ closed_date: -1 })
-        .skip((page - 1) * pageSize)
+      AnalyticsTicket.find(ticketQuery)
+        .select(TICKET_TABLE_FIELDS)
+        .sort({ closed_date: -1, _id: -1 })
+        .skip(usingCursor ? 0 : (page - 1) * pageSize)
         .limit(pageSize)
         .lean(),
     ]);
 
     const totalPages = Math.ceil(totalCount / pageSize);
-    const result = { tickets, count: totalCount, page, pageSize, totalPages };
+    const last = tickets[tickets.length - 1];
+    const nextCursor = last ? `${new Date(last.closed_date).toISOString()}_${last._id}` : null;
+
+    const result = { tickets, count: totalCount, page, pageSize, totalPages, nextCursor };
     if (page === 1) await redisSet(cacheKey, result, CACHE_TTL.DRILLDOWN);
     ok(res, result);
   } catch (e) {
@@ -340,17 +384,8 @@ export const getActiveTickets = async (req, res) => {
 export const getTicketLinks = async (req, res) => {
   try {
     const { ticketId } = req.body;
-    const linksRes = await axios.post(
-      `${DEVREV_API}/links.list`,
-      {
-        object: `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`,
-        object_types: ["issue"],
-        limit: 10,
-      },
-      { headers: HEADERS },
-    );
+    const links = await fetchTicketLinks(ticketId);
 
-    const links = linksRes.data.links || [];
     if (links.length === 0) {
       return ok(res, { hasDependency: false, issues: [] });
     }
@@ -381,32 +416,14 @@ export const getTicketLinks = async (req, res) => {
 export const getIssueDetails = async (req, res) => {
   try {
     const { issueId } = req.body;
-    const issRes = await axios.post(
-      `${DEVREV_API}/works.get`,
-      { id: issueId },
-      { headers: HEADERS },
-    );
+    const issue = await fetchWorkItem(issueId);
 
-    const issue = issRes.data.work;
     if (!issue) {
       return ok(res, { error: "Issue not found" });
     }
 
     const customFields = issue.custom_fields || {};
-    const subtype = issue.subtype || "";
-
-    let team = "Unknown";
-    if (customFields.ctype__issuetype === "PSN Task") {
-      team = "NOC";
-    } else if (customFields.ctype__team_involved) {
-      team = customFields.ctype__team_involved;
-    } else if (subtype === "internal_clevertap_slack") {
-      team = customFields.ctype__team_involved || "Internal";
-    } else if (subtype.includes("email")) {
-      team = "Email";
-    } else if (subtype.includes("whatsapp")) {
-      team = "Whatsapp";
-    }
+    const team = classifyIssueTeam(issue);
 
     ok(res, {
       issueId: issue.display_id,
@@ -414,7 +431,7 @@ export const getIssueDetails = async (req, res) => {
       owner: issue.owned_by?.[0]?.display_name || "Unassigned",
       ownerEmail: issue.owned_by?.[0]?.email,
       team,
-      subtype,
+      subtype: issue.subtype || "",
       jiraKey: customFields.ctype__key,
       jiraLink: issue.sync_metadata?.external_reference,
       rca: customFields.ctype__customfield_10169,
@@ -439,17 +456,8 @@ export const getBatchDependencies = async (req, res) => {
       await Promise.all(
         batch.map(async (ticketId) => {
           try {
-            const linksRes = await axios.post(
-              `${DEVREV_API}/links.list`,
-              {
-                object: `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`,
-                object_types: ["issue"],
-                limit: 10,
-              },
-              { headers: HEADERS },
-            );
+            const links = await fetchTicketLinks(ticketId);
 
-            const links = linksRes.data.links || [];
             if (links.length === 0) {
               results[ticketId] = { hasDependency: false, issues: [] };
               return;
@@ -460,27 +468,14 @@ export const getBatchDependencies = async (req, res) => {
                 const target = link.target;
                 if (!target || target.type !== "issue") return null;
                 try {
-                  const issRes = await axios.post(
-                    `${DEVREV_API}/works.get`,
-                    { id: target.display_id },
-                    { headers: HEADERS },
-                  );
-                  const issue = issRes.data.work;
+                  const issue = await fetchWorkItem(target.display_id);
                   if (!issue) return null;
                   const customFields = issue.custom_fields || {};
-                  let team = "Other";
-                  if (customFields.ctype__issuetype === "PSN Task") {
-                    team = "NOC";
-                  } else if (customFields.ctype__team_involved) {
-                    team = customFields.ctype__team_involved;
-                  } else if (issue.subtype === "internal_clevertap_slack") {
-                    team = "Internal";
-                  }
                   return {
                     issueId: issue.display_id,
                     title: issue.title,
                     owner: issue.owned_by?.[0]?.display_name || "Unassigned",
-                    team,
+                    team: classifyIssueTeam(issue, "Other"),
                     isNOC: customFields.ctype__issuetype === "PSN Task",
                     jiraKey: customFields.ctype__key,
                     priority: issue.priority_v2?.label,
@@ -499,7 +494,7 @@ export const getBatchDependencies = async (req, res) => {
             );
 
             const validIssues = issues.filter(Boolean);
-            validIssues.sort((a, b) => {
+            const sorted = [...validIssues].sort((a, b) => {
               if (a.isNOC && !b.isNOC) return -1;
               if (!a.isNOC && b.isNOC) return 1;
               return 0;
@@ -507,8 +502,8 @@ export const getBatchDependencies = async (req, res) => {
 
             results[ticketId] = {
               hasDependency: true,
-              issues: validIssues,
-              primary: validIssues.find((i) => i.isNOC) || validIssues[0],
+              issues: sorted,
+              primary: sorted.find((i) => i.isNOC) || sorted[0],
             };
           } catch (e) {
             results[ticketId] = { hasDependency: false, issues: [], error: e.message };

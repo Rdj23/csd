@@ -30,14 +30,14 @@ export const precomputeAnalytics = async (quarter) => {
     const [statsResult] = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
       { $group: overallStatsGroup() },
-    ]);
+    ]).allowDiskUse(true);
 
     const trends = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
       { $group: trendGroup() },
       { $sort: { _id: 1 } },
       { $limit: 100 },
-    ]);
+    ]).allowDiskUse(true);
 
     const leaderboard = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
@@ -45,14 +45,14 @@ export const precomputeAnalytics = async (quarter) => {
       { $match: { _id: { $ne: null }, totalTickets: { $gte: 3 } } },
       { $sort: { goodCSAT: -1 } },
       { $limit: 25 },
-    ]);
+    ]).allowDiskUse(true);
 
     const individualTrends = await AnalyticsTicket.aggregate([
       { $match: matchConditions },
       { $addFields: ticketAgeAddFields() },
       { $group: individualTrendGroup() },
       { $sort: { "_id.date": 1 } },
-    ]);
+    ]).allowDiskUse(true);
 
     const response = {
       quarter,

@@ -1,15 +1,7 @@
+import crypto from "crypto";
 import mongoose from "mongoose";
 import Redis from "ioredis";
 import logger from "./logger.js";
-
-// --- GLOBAL MONGOOSE CONFIG ---
-// Auto-enable allowDiskUse for ALL aggregation pipelines.
-// Without this, 70 concurrent users running $group/$sort stages can exceed
-// MongoDB's 100MB per-stage RAM limit and fail with "exceeded memory limit".
-const _origAggregate = mongoose.Model.aggregate;
-mongoose.Model.aggregate = function (...args) {
-  return _origAggregate.apply(this, args).allowDiskUse(true);
-};
 
 // --- REDIS CACHE HELPERS ---
 export const CACHE_TTL = {
@@ -36,6 +28,21 @@ export const redisGet = async (key) => {
   }
 };
 
+/**
+ * Return the raw JSON string from Redis WITHOUT parsing.
+ * Used by cache-hit paths that pipe directly to res.end() to avoid
+ * an unnecessary JSON.parse → JSON.stringify round-trip.
+ */
+export const redisGetRaw = async (key) => {
+  if (!isRedisReady()) return null;
+  try {
+    return await redis.get(key);
+  } catch (e) {
+    logger.error({ err: e, key }, "Redis GET (raw) error");
+    return null;
+  }
+};
+
 export const redisSet = async (key, data, ttl = 1800) => {
   if (!isRedisReady()) return false;
   try {
@@ -48,25 +55,48 @@ export const redisSet = async (key, data, ttl = 1800) => {
 };
 
 /**
- * Acquire a simple Redis lock to prevent cache stampede (thundering herd).
- * Returns true if lock was acquired, false if another process holds it.
- * Uses SET NX EX (atomic set-if-not-exists with expiry) so locks auto-release.
+ * Acquire a Redis lock to prevent cache stampede (thundering herd).
+ *
+ * Returns a unique token (string) if the lock was acquired, or null if
+ * another worker holds it. Pass the token to redisUnlock() so that only
+ * the lock owner can release it — preventing the classic race where a
+ * slow worker deletes a *different* worker's lock after TTL expiry.
+ *
+ * When Redis is unavailable the function returns "no-redis" (truthy) so
+ * callers that do `if (!token)` still proceed correctly.
  */
 export const redisLock = async (key, ttlSeconds = 30) => {
-  if (!isRedisReady()) return true; // If Redis is down, allow computation (no lock)
+  if (!isRedisReady()) return "no-redis";
   try {
-    const result = await redis.set(key, "1", "EX", ttlSeconds, "NX");
-    return result === "OK";
+    const token = crypto.randomUUID();
+    const result = await redis.set(key, token, "EX", ttlSeconds, "NX");
+    return result === "OK" ? token : null;
   } catch (e) {
     logger.error({ err: e, key }, "Redis LOCK error");
-    return true; // On error, allow computation
+    return "no-redis"; // On error, allow computation
   }
 };
 
-export const redisUnlock = async (key) => {
-  if (!isRedisReady()) return;
+/**
+ * Release a Redis lock **only if the caller still owns it**.
+ *
+ * Uses a Lua script executed atomically on the Redis server:
+ *   GET key → compare with token → DEL only if they match.
+ * This prevents Worker A from accidentally deleting Worker B's lock
+ * after Worker A's TTL expired and Worker B re-acquired the key.
+ */
+const UNLOCK_LUA = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+  else
+    return 0
+  end
+`;
+
+export const redisUnlock = async (key, token) => {
+  if (!isRedisReady() || !token || token === "no-redis") return;
   try {
-    await redis.del(key);
+    await redis.eval(UNLOCK_LUA, 1, key, token);
   } catch (e) {
     logger.error({ err: e, key }, "Redis UNLOCK error");
   }

@@ -74,25 +74,25 @@ export const getNocTickets = async (req, res) => {
         { $group: { _id: "$noc_reported_by", count: { $sum: 1 } } },
         { $match: { _id: { $ne: null } } },
         { $sort: { count: -1 } },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
         { $group: { _id: "$noc_rca", count: { $sum: 1 } } },
         { $match: { _id: { $ne: null } } },
         { $sort: { count: -1 } },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
         { $group: { _id: "$owner", count: { $sum: 1 } } },
         { $match: { _id: { $ne: null } } },
         { $sort: { count: -1 } },
-      ]),
+      ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
         { $group: { _id: "$noc_confirmation_by", count: { $sum: 1 } } },
         { $match: { _id: { $ne: null } } },
         { $sort: { count: -1 } },
-      ]),
+      ]).allowDiskUse(true),
     ]);
 
     ok(res, {

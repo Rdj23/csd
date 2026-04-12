@@ -166,6 +166,7 @@ AnalyticsTicketSchema.index({ closed_date: 1, owner: 1 });       // Leaderboard:
 AnalyticsTicketSchema.index({ closed_date: 1, is_noc: 1 });      // NOC analytics: filter NOC tickets in date range
 AnalyticsTicketSchema.index({ closed_date: 1, is_zendesk: 1 });  // Exclude Zendesk imports from analytics
 AnalyticsTicketSchema.index({ owner: 1, closed_date: 1, region: 1 }); // Individual performance drilldown
+AnalyticsTicketSchema.index({ closed_date: -1, owner: 1, region: 1 }); // Dashboard filters: date-range + owner/region (desc for newest-first sorts)
 
 /**
  * HOT/WARM/COLD DATA STRATEGY INDEXES:
@@ -191,6 +192,27 @@ AnalyticsTicketSchema.index({ owner: 1, closed_date: 1, region: 1 }); // Individ
 AnalyticsTicketSchema.index({ stage_name: 1, actual_close_date: -1 });
 AnalyticsTicketSchema.index({ actual_close_date: -1 });
 AnalyticsTicketSchema.index({ created_date: -1, stage_name: 1 });
+
+/**
+ * "MY VIEWS" INDEXES — cover the dynamic filter + sort combos users create.
+ *
+ * Views typically filter by (owner, stage_name) or (owner, region) then sort
+ * by closed_date or created_date. Without these indexes, MongoDB falls back
+ * to an in-memory sort which blocks concurrent queries under high load.
+ *
+ * { owner: 1, stage_name: 1, closed_date: -1 }
+ *   → "Rohan's solved tickets, newest first" — the most common saved view
+ *
+ * { owner: 1, stage_name: 1, created_date: -1 }
+ *   → Same filter, sorted by creation date (age analysis)
+ *
+ * { closed_date: -1, _id: -1 }
+ *   → Cursor-based pagination tiebreaker — the compound sort key used by
+ *     getTicketsByRange/getTicketsByDate to avoid O(N) .skip() scans
+ */
+AnalyticsTicketSchema.index({ owner: 1, stage_name: 1, closed_date: -1 });
+AnalyticsTicketSchema.index({ owner: 1, stage_name: 1, created_date: -1 });
+AnalyticsTicketSchema.index({ closed_date: -1, _id: -1 });
 
 export const AnalyticsTicket = mongoose.model(
   "AnalyticsTicket",
