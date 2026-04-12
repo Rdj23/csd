@@ -149,8 +149,7 @@ const handleSend = async () => {
         });
       }, 100);
     } catch (err) {
-      console.error("Failed to post remark:", err);
-      alert("Sync failed. Check console.");
+      alert("Sync failed. Please try again.");
     } finally {
       setSending(false);
       setTimeout(() => textareaRef.current?.focus(), 100);

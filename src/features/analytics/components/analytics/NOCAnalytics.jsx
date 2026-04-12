@@ -291,7 +291,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           setNocData(data);
         }
       } catch (error) {
-        console.error("Error fetching NOC data:", error);
+        // silently ignore
       } finally {
         setIsInitialLoad(false);
         setIsRefreshing(false);

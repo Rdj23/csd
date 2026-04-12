@@ -87,7 +87,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           setSelectedUser(myName && m.includes(myName) ? myName : m[0]);
         }
       })
-      .catch(console.error);
+      .catch(() => {});
   }, [myName]);
 
   const isMultiDay = dateRange.start && dateRange.end && dateRange.start !== dateRange.end;
@@ -103,13 +103,13 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     if (isMultiDay) return;
     setLoading(true);
     fetchDailySummary(selectedUser, selectedDate)
-      .then(setDaily).catch(console.error).finally(() => setLoading(false));
+      .then(setDaily).catch(() => {}).finally(() => setLoading(false));
   }, [selectedUser, selectedDate, dateRange.start, dateRange.end]);
 
   useEffect(() => {
     if (!selectedUser || !dateRange.start || !dateRange.end) return;
     fetchSummary(selectedUser, dateRange.start, dateRange.end)
-      .then(setRangeSummary).catch(console.error);
+      .then(setRangeSummary).catch(() => {});
   }, [selectedUser, dateRange.start, dateRange.end]);
 
   useEffect(() => {
@@ -117,7 +117,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     if (dateRange.start === dateRange.end || chartBlocked) { setCalendarDays([]); return; }
     setCalendarLoading(true);
     fetchCalendar(selectedUser, dateRange.start, dateRange.end)
-      .then(setCalendarDays).catch(console.error).finally(() => setCalendarLoading(false));
+      .then(setCalendarDays).catch(() => {}).finally(() => setCalendarLoading(false));
   }, [selectedUser, dateRange.start, dateRange.end, chartBlocked]);
 
   // Fetch hourly averages when chart is blocked (>7 days)
@@ -144,7 +144,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         }
         setAvgHourly(avg);
       })
-      .catch(console.error)
+      .catch(() => {})
       .finally(() => setAvgHourlyLoading(false));
   }, [selectedUser, chartBlocked, dateRange.start, dateRange.end, leaderboard]);
 
@@ -152,14 +152,14 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     if (!dateRange.start || !dateRange.end) return;
     setLeaderboardLoading(true);
     fetchActivityLeaderboard(dateRange.start, dateRange.end)
-      .then(setLeaderboard).catch(console.error).finally(() => setLeaderboardLoading(false));
+      .then(setLeaderboard).catch(() => {}).finally(() => setLeaderboardLoading(false));
   }, [dateRange.start, dateRange.end]);
 
   useEffect(() => {
     if (!dateRange.start || !dateRange.end) return;
     setDepLoading(true);
     fetchDependencyTable(dateRange.start, dateRange.end)
-      .then(setDependency).catch(console.error).finally(() => setDepLoading(false));
+      .then(setDependency).catch(() => {}).finally(() => setDepLoading(false));
   }, [dateRange.start, dateRange.end]);
 
   // Derived stats — always computed for selected range
@@ -197,7 +197,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           if (e.visibility !== "internal" && !visibilityFilter.external) return false;
           return true;
         }));
-      }).catch(console.error);
+      }).catch(() => {});
   }, [selectedUser, selectedDate, visibilityFilter]);
 
   const openAllDrillDown = useCallback(() => {
@@ -212,7 +212,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
         if (e.visibility !== "internal" && !visibilityFilter.external) return false;
         return true;
       }));
-    }).catch(console.error);
+    }).catch(() => {});
   }, [selectedUser, selectedDate, isMultiDay, dateRange, visibilityFilter]);
 
   const openCoopDrillDown = useCallback(() => {
@@ -222,14 +222,14 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
       ? fetchRangeDrillDown(selectedUser, dateRange.start, dateRange.end)
       : fetchDrillDown(selectedUser, selectedDate);
     fetcher.then((entries) => setDrillDownEntries(entries.filter((e) => e.is_coop && e.visibility !== "internal")))
-      .catch(console.error);
+      .catch(() => {});
   }, [selectedUser, selectedDate, isMultiDay, dateRange]);
 
   const closeDrillDown = () => { setDrillDownEntries(null); setDrillDownHour(null); };
 
   const handleSync = async () => {
     setSyncing(true);
-    try { await triggerActivitySync(false); } catch (e) { console.error(e); } finally { setSyncing(false); }
+    try { await triggerActivitySync(false); } catch (e) { /* ignore */ } finally { setSyncing(false); }
   };
 
   const filteredMembers = memberSearch

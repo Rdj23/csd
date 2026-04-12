@@ -16,7 +16,6 @@ export const authFetch = async (url, options = {}) => {
   const response = await fetch(url, { ...options, headers });
 
   if (response.status === 401) {
-    console.warn("[Auth] 401 received — session expired, logging out");
     useTicketStore.getState().logout();
     return response;
   }

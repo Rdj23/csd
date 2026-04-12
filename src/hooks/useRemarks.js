@@ -24,7 +24,7 @@ export const useRemarks = (ticketDisplayId) => {
         }));
         setUsers(formattedUsers);
       } catch (err) {
-        console.error("Failed to load users for tagging:", err);
+        // silently ignore
       }
     };
     fetchUsers();
@@ -50,7 +50,7 @@ export const useRemarks = (ticketDisplayId) => {
         }));
         setHistory(adaptedHistory);
       } catch (err) {
-        console.error("Failed to load local remarks:", err);
+        // silently ignore
       } finally {
         setLoadingHistory(false);
       }

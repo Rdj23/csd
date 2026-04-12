@@ -55,7 +55,7 @@ const LoginScreen = () => {
           <div className="flex justify-center">
             <GoogleLogin
               onSuccess={credentialResponse => loginWithGoogle(credentialResponse)}
-              onError={() => console.log('Login Failed')}
+              onError={() => {}}
               theme="filled_blue"
               shape="pill"
               size="large"

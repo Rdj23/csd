@@ -27,7 +27,7 @@ export const useGamification = ({ quarter, currentUser, isAdmin }) => {
         setMyStatsData(res.userData);
       }
     } catch (e) {
-      console.error("Failed to load gamification data", e);
+      // silently ignore
     } finally {
       setLoading(false);
     }

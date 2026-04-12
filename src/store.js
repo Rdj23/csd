@@ -16,14 +16,12 @@ const _authFetch = async (url, options = {}, _retries = 0) => {
   }
   const response = await fetch(url, { ...options, headers });
   if (response.status === 401) {
-    console.warn("[Auth] 401 received — session expired, logging out");
     state?.logout?.();
   }
   // Auto-retry on 429 with exponential backoff (max 2 retries)
   if (response.status === 429 && _retries < 2) {
     const retryAfter = response.headers.get("Retry-After");
     const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : Math.min(2000 * 2 ** _retries, 10000);
-    console.warn(`[Auth] 429 rate-limited — retrying in ${delay}ms (attempt ${_retries + 1})`);
     await new Promise((r) => setTimeout(r, delay));
     return _authFetch(url, options, _retries + 1);
   }
@@ -61,7 +59,7 @@ export const useTicketStore = create(
         const API_URL = getApiUrl();
         const newSocket = io(API_URL);
 
-        newSocket.on("connect", () => console.log("[Socket] Connected"));
+        newSocket.on("connect", () => {});
 
         // Progress updates during background sync
         // Only updates the progress indicator — does NOT trigger a fetch on every tick.
@@ -125,7 +123,6 @@ export const useTicketStore = create(
             return false;
           }
         } catch (e) {
-          console.error("Login error", e);
           return false;
         }
       },
@@ -142,7 +139,7 @@ export const useTicketStore = create(
           const viewsData = await res.json();
           set({ myViews: viewsData.data || viewsData || [] });
         } catch (e) {
-          console.error("Failed to fetch views", e);
+          // silently ignore
         }
       },
 
@@ -157,12 +154,6 @@ export const useTicketStore = create(
             body: JSON.stringify({ userId: currentUser.email, name, filters: currentFilters })
           });
           if (!res.ok) {
-            try {
-              const errData = await res.json();
-              console.error("Failed to save view:", errData.error?.message || res.status);
-            } catch {
-              console.error("Failed to save view: HTTP", res.status);
-            }
             return false;
           }
           const data = await res.json();
@@ -176,7 +167,7 @@ export const useTicketStore = create(
             return true;
           }
         } catch (e) {
-          console.error("Failed to save view", e);
+          // silently ignore
         }
         return false;
       },
@@ -189,7 +180,7 @@ export const useTicketStore = create(
           await _authFetch(`${API_URL}/api/views/${encodeURIComponent(currentUser.email)}/${viewId}`, { method: "DELETE" });
           set({ myViews: myViews.filter(v => v._id !== viewId) });
         } catch (e) {
-          console.error("Failed to delete view", e);
+          // silently ignore
         }
       },
 
@@ -207,7 +198,6 @@ export const useTicketStore = create(
         // Debounce: 2 s between fetches, but allow override if stuck > 15 s
         if (prev.isLoading) {
           if (now - prev._lastFetchTime < 15000) return;
-          console.warn("[Fetch] Previous fetch stuck >15 s — forcing new fetch");
         }
 
         set({ isLoading: true, _lastFetchTime: now });
@@ -252,11 +242,6 @@ export const useTicketStore = create(
             syncProgress: isPartial ? Math.max(currentProgress, 20) : 100,
           });
 
-          console.log(
-            `[Fetch] ${merged.length} tickets (${isPartial ? "partial" : "complete"})` +
-            `${isSyncing ? " — bg sync running" : ""}`
-          );
-
           // Cold-start fallback: if we still have zero tickets and data is
           // partial, poll once after 3 s in case socket events are delayed.
           const prevTimer = get()._coldStartTimer;
@@ -265,7 +250,6 @@ export const useTicketStore = create(
           if (isPartial && merged.length === 0) {
             const timer = setTimeout(() => {
               if (get().isPartialData && get().tickets.length === 0) {
-                console.log("[Fetch] Cold-start retry…");
                 get().fetchTickets();
               }
             }, 3000);
@@ -274,7 +258,6 @@ export const useTicketStore = create(
             set({ _coldStartTimer: null });
           }
         } catch (error) {
-          console.error("[Fetch] Failed:", error);
           set({ isLoading: false });
 
           // Retry once after 5 s if we have nothing
@@ -313,7 +296,6 @@ fetchDependencies: async (ticketIds) => {
     
     return data;
   } catch (e) {
-    console.error("Dependencies fetch failed:", e);
     set({ dependenciesLoading: false });
     return {};
   }
@@ -334,21 +316,12 @@ fetchAnalyticsData: async (filters = {}) => {
     if (filters.groupBy) params.append('groupBy', filters.groupBy);
 
     const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
-    console.log("📊 [Store] Fetching analytics:", url);
-
     const res = await _authFetch(url);
     const data = await res.json();
-
-    console.log("📊 [Store] Analytics received:", {
-      tickets: data.stats?.totalTickets,
-      trends: data.trends?.length,
-      leaderboard: data.leaderboard?.length
-    });
 
     set({ analyticsData: data, analyticsLoading: false });
     return data;
   } catch (error) {
-    console.error("Analytics fetch failed:", error);
     set({ analyticsLoading: false });
     return null;
   }
@@ -369,7 +342,6 @@ fetchAnalyticsData: async (filters = {}) => {
           if (!response.ok) return [];
           return await response.json() || [];
         } catch (error) {
-          console.error("Failed to fetch timeline:", error);
           return [];
         }
       },
@@ -401,7 +373,6 @@ fetchAnalyticsData: async (filters = {}) => {
 
           trackEvent("Comment Added", { "Ticket ID": displayId, "Comment Length": text.length });
         } catch (err) {
-          console.error("❌ Post failed:", err);
           throw err;
         }
       },

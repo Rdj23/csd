@@ -11,8 +11,8 @@ class ErrorBoundary extends React.Component {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error, errorInfo) {
-    console.error("[ErrorBoundary]", error, errorInfo);
+  componentDidCatch() {
+    // error already captured in state
   }
 
   handleReset = () => {

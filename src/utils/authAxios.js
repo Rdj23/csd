@@ -15,7 +15,6 @@ authAxios.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      console.warn("[Auth] 401 received — session expired, logging out");
       useTicketStore.getState().logout();
     }
     return Promise.reject(error);

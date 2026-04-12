@@ -161,8 +161,6 @@ const AnalyticsDashboard = ({
   const effectiveDateRange = useMemo(() => {
     const dateRange = filters?.dateRange;
 
-    console.log("Analytics dateRange filter:", dateRange);
-
     // Valid date range provided
     if (
       dateRange?.start &&
@@ -183,7 +181,7 @@ const AnalyticsDashboard = ({
           };
         }
       } catch (e) {
-        console.error("Error parsing date range:", e);
+        // invalid date range, fall through to default
       }
     }
 
@@ -268,7 +266,7 @@ const AnalyticsDashboard = ({
             };
           }
         } catch (e) {
-          console.error("Error parsing expanded date range:", e);
+          // invalid expanded date range, fall through
         }
       }
     }
@@ -281,8 +279,6 @@ const AnalyticsDashboard = ({
 
     const range = expandedEffectiveDateRange;
     if (!range?.start || !range?.end) return;
-
-    console.log("Fetching data for expanded modal:", range);
 
     if (range.isAllTime) {
       // Fetch both previous and current quarters for "All Time"
@@ -457,10 +453,6 @@ const AnalyticsDashboard = ({
         queryParams.set("region", filters.regions.join(","));
       }
 
-      console.log(
-        `🔍 Fetching from MongoDB: /api/tickets/by-date?${queryParams}`,
-      );
-
       try {
         const response = await authFetch(
           `${API_BASE}/api/tickets/by-date?${queryParams}`,
@@ -472,8 +464,6 @@ const AnalyticsDashboard = ({
 
         const data = await response.json();
         let ticketsForDate = data.tickets || [];
-
-        console.log(`   📊 MongoDB returned ${ticketsForDate.length} tickets`);
 
         let summary = `${ticketsForDate.length} tickets`;
 
@@ -554,14 +544,12 @@ const AnalyticsDashboard = ({
           summary,
         });
       } catch (error) {
-        console.error("❌ Drill-down fetch error:", error);
-
         // Show error - don't fall back to cache (it doesn't have old data)
         setDrillDownData({
           title: `${getMetricLabel(metricKey)} - ${dataPointName}`,
           tickets: [],
           metricKey,
-          summary: `Error: ${error.message}. Check console for details.`,
+          summary: `Error: ${error.message}`,
         });
       }
     },
@@ -1486,7 +1474,7 @@ const AnalyticsDashboard = ({
 
         setExpandedAllTrends(uniqueTrends);
       } catch (e) {
-        console.error("Failed to fetch expanded data:", e);
+        // silently ignore
       } finally {
         setExpandedLoading(false);
       }
@@ -1791,17 +1779,6 @@ const AnalyticsDashboard = ({
           return filters.teams.some((team) => ownerTeams.includes(team));
         });
       }
-
-      console.log("🔍 FILTER DEBUG:", {
-        selectedTeams: filters?.teams,
-        allOwnersInMongo: Object.keys(individualTrends),
-        ownersAfterFilter: ownersToInclude,
-        teamGroupsKeys: Object.keys(TEAM_GROUPS),
-        dateRange: {
-          start: effectiveDateRange.start,
-          end: effectiveDateRange.end,
-        },
-      });
 
       let totalSolved = 0;
       let weightedRWT = 0,

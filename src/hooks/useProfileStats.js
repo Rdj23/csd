@@ -68,7 +68,6 @@ export const useProfileStats = (user, solvedTickets = []) => {
 
         setData({ isActive, status, timings, aiSummary });
       } catch (err) {
-        console.error("Failed to load profile info", err);
         setData({ isActive: false, status: "Unknown" });
       } finally {
         setLoading(false);

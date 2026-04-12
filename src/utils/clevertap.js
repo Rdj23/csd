@@ -6,9 +6,8 @@ clevertap.init("R57-875-KK7Z"); // Replace 'us1' with your region if different
 export const trackEvent = (eventName, eventProps = {}) => {
   try {
     clevertap.event.push(eventName, eventProps);
-    console.log(`📊 Tracked: ${eventName}`, eventProps);
   } catch (e) {
-    console.error("CT Error:", e);
+    // silently ignore
   }
 };
 
@@ -24,9 +23,8 @@ export const loginUser = (user) => {
         // "Team": user.team // If you have this data
       }
     });
-    console.log(`👤 Logged in as: ${user.name}`);
   } catch (e) {
-    console.error("CT Login Error:", e);
+    // silently ignore
   }
 };
 

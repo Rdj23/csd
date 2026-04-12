@@ -25,7 +25,7 @@ const RosterView = () => {
       const data = await fetchFullRoster();
       setRoster(data);
     } catch (e) {
-      console.error("Failed to load roster:", e);
+      // silently ignore
     } finally {
       setLoading(false);
     }
