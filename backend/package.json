@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node --max-old-space-size=1024 --expose-gc server.js",
-    "start:api": "node --max-old-space-size=768 server.js",
-    "start:worker": "node --max-old-space-size=768 --expose-gc worker.js",
+    "start": "node --max-old-space-size=384 --expose-gc server.js",
+    "start:api": "node --max-old-space-size=384 server.js",
+    "start:worker": "node --max-old-space-size=384 --expose-gc worker.js",
     "build": "echo 'No build step necessary'",
     "test": "vitest run",
     "test:watch": "vitest"

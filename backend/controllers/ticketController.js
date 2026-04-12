@@ -332,25 +332,21 @@ export const getTicketsByDate = async (req, res) => {
 
 export const getActiveTickets = async (req, res) => {
   try {
-    const stableTickets = await redisGet("tickets:active");
-    if (stableTickets && stableTickets.length > 0) {
-      logger.info({ count: stableTickets.length }, "Serving stable tickets");
-      return ok(res, {
-        tickets: stableTickets,
-        total: stableTickets.length,
-        isPartial: false,
-        isSyncing: false,
-      });
+    // Hot path — pipe the raw JSON string from Redis without parsing.
+    // "tickets:active" holds ~3,000 full DevRev ticket objects (~20-60 MB).
+    // JSON.parse() on this would spike the heap for every concurrent request.
+    const rawStable = await redisGetRaw("tickets:active");
+    if (rawStable && rawStable.length > 5) {
+      logger.info("Serving stable tickets (raw)");
+      res.setHeader("Content-Type", "application/json");
+      return res.end(`{"success":true,"isPartial":false,"isSyncing":false,"tickets":${rawStable}}`);
     }
 
-    const stagingTickets = await redisGet("tickets:syncing");
-    if (stagingTickets && stagingTickets.length > 0) {
-      logger.info({ count: stagingTickets.length }, "Serving staging tickets");
-      return ok(res, {
-        tickets: stagingTickets,
-        total: stagingTickets.length,
-        isPartial: true,
-      });
+    const rawStaging = await redisGetRaw("tickets:syncing");
+    if (rawStaging && rawStaging.length > 5) {
+      logger.info("Serving staging tickets (raw)");
+      res.setHeader("Content-Type", "application/json");
+      return res.end(`{"success":true,"isPartial":true,"isSyncing":false,"tickets":${rawStaging}}`);
     }
 
     // Cold start — quick-fetch first few pages from DevRev and return
