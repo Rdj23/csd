@@ -2,70 +2,86 @@
 // After this date, all "Understanding Gap - CS" tickets from GST reporters trigger alerts.
 export const BACKFILL_CUTOFF = new Date("2026-02-20");
 
-// Canonical list of ticket stages that count as "resolved".
+// Canonical list of ticket stages that count as "resolved" (lowercase only).
+// All comparisons should .toLowerCase() first rather than listing every case variant.
 // Used by drilldown queries, sync filters, and gamification scoring.
-export const SOLVED_STATUSES = ["solved", "closed", "resolved", "Resolved", "Solved", "Closed"];
+export const SOLVED_STATUSES = ["solved", "closed", "resolved"];
 
-// --- TEAM CONFIGURATION (Backend Copy) ---
-export const TEAM_GROUPS = {
-  "Rohan": { "DEVU-1111": "Rohan", "DEVU-550": "Anurag", "DEVU-1115": "Shreya", "DEVU-1087": "Shubhankar" },
-  "Shweta": { "DEVU-1113": "Shweta", "DEVU-1114": "Archie", "DEVU-736": "Musaveer" },
-  "Harsh": { "DEVU-1098": "Harsh", "DEVU-1072": "Neha", "DEVU-1122": "Vaibhav" },
-  "Aditya": { "DEVU-5": "Aditya", "DEVU-2611": "Rishabh", "DEVU-4": "Nikita", "DEVU-1110": "Shreyas" },
-  "Debashish": { "DEVU-1102": "Debashish", "DEVU-1076": "Adarsh", "DEVU-689": "Tamanna" },
-  "Tuaha": { "DEVU-1123": "Tuaha Khan" },
-  "Adish": { "DEVU-1121": "Adish" }
-};
+// Case-insensitive check: use this instead of SOLVED_STATUSES.includes(raw)
+export const isSolvedStatus = (stage) =>
+  SOLVED_STATUSES.includes((stage || "").toLowerCase());
 
-export const GST_NAME_MAP = {
-  Rohan: "Rohan",
-  "Rohan Jadhav": "Rohan",
-  Archie: "Archie",
-  "Neha Yadav": "Neha",
-  Neha: "Neha",
-  "Shreya Khale": "Shreya",
-  "Vaibhav Agarwal": "Vaibhav",
-  Adarsh: "Adarsh",
-  Shubhankar: "Shubhankar",
-  "Musaveer Manekia": "Musaveer",
-  "Debashish Muni": "Debashish",
-  "Shweta.M": "Shweta",
-  "Anurag Ghatge": "Anurag",
-  "nikita-narwani": "Nikita",
-  "Aditya Mishra": "Aditya",
-  "Taha Khan": "Tuaha Khan",
-  "Harsh Singh": "Harsh",
-  "Tamanna Khan": "Tamanna",
-  Tamanna: "Tamanna",
-  Shreyas: "Shreyas",
-  "Shreyas Naikwadi": "Shreyas",
-  Rishabh: "Rishabh",
-  "Rishabh J": "Rishabh",
-  "rishabh.j": "Rishabh",
-};
+// ═══════════════════════════════════════════════════════════════════════
+// SINGLE SOURCE OF TRUTH — TEAM CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════
+// To add/remove a team member: edit ONLY this array. All downstream maps
+// (TEAM_GROUPS, GST_MEMBERS, DESIGNATION_MAP, EMAIL_TO_NAME_MAP,
+//  GAMIFICATION_TEAM_MAP, TEAM_MAPPING) are auto-derived below.
+//
+// `aliases` = alternative display names DevRev might use for this person.
+// These feed into GST_NAME_MAP so resolveOwnerName() can normalize them.
+// `rosterName` = name as it appears in the Google Sheets roster (if different).
+// ═══════════════════════════════════════════════════════════════════════
+const TEAMS = [
+  { lead: "Rohan", members: [
+    { name: "Rohan",      devuId: "DEVU-1111", email: "rohan.jadhav@clevertap.com",    designation: "L2", aliases: ["Rohan Jadhav"] },
+    { name: "Anurag",     devuId: "DEVU-550",  email: "anurag.ghatge@clevertap.com",   designation: "L1", aliases: ["Anurag Ghatge"] },
+    { name: "Shreya",     devuId: "DEVU-1115", email: "shreya.khale@clevertap.com",    designation: "L1", aliases: ["Shreya Khale"] },
+    { name: "Shubhankar", devuId: "DEVU-1087", email: "shubhankar@clevertap.com",      designation: "L1", aliases: [] },
+  ]},
+  { lead: "Shweta", members: [
+    { name: "Shweta",    devuId: "DEVU-1113", email: "shweta.more@clevertap.com",     designation: "L2", aliases: ["Shweta.M"] },
+    { name: "Archie",    devuId: "DEVU-1114", email: "archie@clevertap.com",          designation: "L1", aliases: [] },
+    { name: "Musaveer",  devuId: "DEVU-736",  email: "musaveer@clevertap.com",        designation: "L1", aliases: ["Musaveer Manekia"] },
+  ]},
+  { lead: "Harsh", members: [
+    { name: "Harsh",    devuId: "DEVU-1098", email: "harsh.singh@clevertap.com",     designation: "L2", aliases: ["Harsh Singh"] },
+    { name: "Neha",     devuId: "DEVU-1072", email: "neha.yadav@clevertap.com",      designation: "L1", aliases: ["Neha Yadav"] },
+    { name: "Vaibhav",  devuId: "DEVU-1122", email: "vaibhav.agarwal@clevertap.com", designation: "L1", aliases: ["Vaibhav Agarwal"] },
+  ]},
+  { lead: "Aditya", members: [
+    { name: "Aditya",  devuId: "DEVU-5",    email: "aditya.mishra@clevertap.com",   designation: "L2", aliases: ["Aditya Mishra"] },
+    { name: "Rishabh", devuId: "DEVU-2611", email: "rishabh.j@clevertap.com",       designation: "L1", aliases: ["Rishabh J", "rishabh.j"] },
+    { name: "Nikita",  devuId: "DEVU-4",    email: "nikita.narwani@clevertap.com",  designation: "L1", aliases: ["nikita-narwani"] },
+    { name: "Shreyas", devuId: "DEVU-1110", email: "shreyas.naikwadi@clevertap.com", designation: "L1", aliases: ["Shreyas Naikwadi"] },
+  ]},
+  { lead: "Debashish", members: [
+    { name: "Debashish", devuId: "DEVU-1102", email: "debashish@clevertap.com",       designation: "L2", aliases: ["Debashish Muni"] },
+    { name: "Adarsh",    devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com",    designation: "L1", aliases: [] },
+    { name: "Tamanna",   devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L1", aliases: ["Tamanna Khan"] },
+  ]},
+  { lead: "Tuaha", members: [
+    { name: "Tuaha Khan", devuId: "DEVU-1123", email: "mohammed.khan@clevertap.com",  designation: "L2", aliases: ["Taha Khan"], rosterName: "Tuaha" },
+  ]},
+  { lead: "Adish", members: [
+    { name: "Adish", devuId: "DEVU-1121", email: "adish@clevertap.com", designation: "L2", aliases: [] },
+  ]},
+];
 
-// List of valid GST members
-export const GST_MEMBERS = new Set([
-  "Rohan",
-  "Archie",
-  "Neha",
-  "Shreya",
-  "Vaibhav",
-  "Adarsh",
-  "Rishabh",
-  "Shubhankar",
-  "Musaveer",
-  "Anurag",
-  "Debashish",
-  "Aditya",
-  "Shweta",
-  "Nikita",
-  "Tuaha Khan",
-  "Harsh",
-  "Tamanna",
-  "Shreyas",
-  "Adish",
-]);
+// ── AUTO-DERIVED MAPS (computed once at module load) ─────────────────
+// All downstream consumers import these derived maps — never edit them directly.
+
+/** TEAM_GROUPS: { leadName: { devuId: memberName, ... }, ... } — legacy format for FLAT_TEAM_MAP */
+export const TEAM_GROUPS = {};
+/** GST_NAME_MAP: { aliasOrDisplayName: canonicalName } — normalizes DevRev display names */
+export const GST_NAME_MAP = {};
+/** GST_MEMBERS: Set of canonical member names */
+export const GST_MEMBERS = new Set();
+
+for (const team of TEAMS) {
+  // Build TEAM_GROUPS (legacy format)
+  TEAM_GROUPS[team.lead] = {};
+  for (const m of team.members) {
+    TEAM_GROUPS[team.lead][m.devuId] = m.name;
+    // GST_MEMBERS
+    GST_MEMBERS.add(m.name);
+    // GST_NAME_MAP: map canonical name + all aliases → canonical name
+    GST_NAME_MAP[m.name] = m.name;
+    for (const alias of (m.aliases || [])) {
+      GST_NAME_MAP[alias] = m.name;
+    }
+  }
+}
 
 // Shift timings in IST (decimal hours: 7.5 = 7:30 AM)
 export const SHIFT_HOURS = {
@@ -91,47 +107,31 @@ export const OFF_STATUS_MAP = {
 };
 export const OFF_STATUSES = Object.keys(OFF_STATUS_MAP);
 
-// L1/L2 designation mapping
-export const DESIGNATION_MAP = {
-  "Debashish": "L2", "Anurag": "L1", "Musaveer": "L1", "Shubhankar": "L1",
-  "Tuaha Khan": "L2", "Tuaha": "L2", "Harsh": "L2", "Tamanna": "L1", "Shreyas": "L1",
-  "Shweta": "L2", "Aditya": "L2", "Nikita": "L1",
-  "Rohan": "L2", "Archie": "L1", "Neha": "L1", "Shreya": "L1",
-  "Rishabh": "L1", "Adarsh": "L1", "Vaibhav": "L1", "Adish": "L2",
-};
+// ── AUTO-DERIVED from TEAMS (continued) ────────────────────────────
 
-// Map display names to roster names (for names that differ)
-export const NAME_TO_ROSTER_MAP = {
-  "Tuaha Khan": "Tuaha",
-};
+/** DESIGNATION_MAP: { memberName: "L1"|"L2" } — also maps rosterName variants */
+export const DESIGNATION_MAP = {};
+/** NAME_TO_ROSTER_MAP: { canonicalName: rosterName } — only for names that differ */
+export const NAME_TO_ROSTER_MAP = {};
+/** TEAM_MAPPING: { memberName: { team, members[] } } — for backup lookups */
+export const TEAM_MAPPING = {};
 
-// Team mapping for backup lookups
-export const TEAM_MAPPING = {
-  "Rohan": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
-  "Anurag": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
-  "Shreya": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
-  "Shubhankar": { team: "Rohan", members: ["Rohan", "Anurag", "Shreya", "Shubhankar"] },
+for (const team of TEAMS) {
+  const memberNames = team.members.map((m) => m.name);
+  const teamInfo = { team: team.lead, members: memberNames };
 
-  "Shweta": { team: "Shweta", members: ["Shweta", "Archie", "Musaveer"] },
-  "Archie": { team: "Shweta", members: ["Shweta", "Archie", "Musaveer"] },
-  "Musaveer": { team: "Shweta", members: ["Shweta", "Archie", "Musaveer"] },
-
-  "Harsh": { team: "Harsh", members: ["Harsh", "Neha", "Vaibhav"] },
-  "Neha": { team: "Harsh", members: ["Harsh", "Neha", "Vaibhav"] },
-  "Vaibhav": { team: "Harsh", members: ["Harsh", "Neha", "Vaibhav"] },
-
-  "Aditya": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
-  "Rishabh": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
-  "Nikita": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
-  "Shreyas": { team: "Aditya", members: ["Aditya", "Rishabh", "Nikita", "Shreyas"] },
-
-  "Debashish": { team: "Debashish", members: ["Debashish", "Adarsh", "Tamanna"] },
-  "Adarsh": { team: "Debashish", members: ["Debashish", "Adarsh", "Tamanna"] },
-  "Tamanna": { team: "Debashish", members: ["Debashish", "Adarsh", "Tamanna"] },
-
-  "Tuaha Khan": { team: "Tuaha", members: ["Tuaha Khan"] },
-  "Tuaha": { team: "Tuaha", members: ["Tuaha Khan"] },
-};
+  for (const m of team.members) {
+    DESIGNATION_MAP[m.name] = m.designation;
+    // Also map rosterName to designation if it differs
+    if (m.rosterName) {
+      DESIGNATION_MAP[m.rosterName] = m.designation;
+      NAME_TO_ROSTER_MAP[m.name] = m.rosterName;
+    }
+    // TEAM_MAPPING: every member (and rosterName variant) → team info
+    TEAM_MAPPING[m.name] = teamInfo;
+    if (m.rosterName) TEAM_MAPPING[m.rosterName] = teamInfo;
+  }
+}
 
 // --- SLACK ALERT CONFIGURATION ---
 export const SLACK_ADMIN_ID = "<@U06G06YQR6E>"; // Tuaha Khan - Admin to notify
@@ -160,38 +160,17 @@ export const GST_SLACK_MEMBER_IDS = {
   "Vaibhav Agarwal": "<@U095434R8NR>",
 };
 
-// Team mapping for gamification display
-export const GAMIFICATION_TEAM_MAP = {
-  "Rohan": "Rohan", "Anurag": "Rohan", "Shreya": "Rohan", "Shubhankar": "Rohan",
-  "Shweta": "Shweta", "Archie": "Shweta", "Musaveer": "Shweta",
-  "Harsh": "Harsh", "Neha": "Harsh", "Vaibhav": "Harsh",
-  "Aditya": "Aditya", "Rishabh": "Aditya", "Nikita": "Aditya", "Shreyas": "Aditya",
-  "Debashish": "Debashish", "Adarsh": "Debashish", "Tamanna": "Debashish",
-  "Tuaha Khan": "Tuaha", "Adish": "Adish",
-};
+/** GAMIFICATION_TEAM_MAP: { memberName: teamLead } — maps every member to their team lead */
+export const GAMIFICATION_TEAM_MAP = {};
+/** EMAIL_TO_NAME_MAP: { email: canonicalName } — for my-stats endpoint */
+export const EMAIL_TO_NAME_MAP = {};
 
-// Email to GST name mapping (for my-stats endpoint)
-export const EMAIL_TO_NAME_MAP = {
-  "rohan.jadhav@clevertap.com": "Rohan",
-  "archie@clevertap.com": "Archie",
-  "neha.yadav@clevertap.com": "Neha",
-  "shreya.khale@clevertap.com": "Shreya",
-  "vaibhav.agarwal@clevertap.com": "Vaibhav",
-  "adarsh.dubey@clevertap.com": "Adarsh",
-  "rishabh.j@clevertap.com": "Rishabh",
-  "shubhankar@clevertap.com": "Shubhankar",
-  "musaveer@clevertap.com": "Musaveer",
-  "anurag.ghatge@clevertap.com": "Anurag",
-  "debashish@clevertap.com": "Debashish",
-  "aditya.mishra@clevertap.com": "Aditya",
-  "shweta.more@clevertap.com": "Shweta",
-  "nikita.narwani@clevertap.com": "Nikita",
-  "mohammed.khan@clevertap.com": "Tuaha Khan",
-  "harsh.singh@clevertap.com": "Harsh",
-  "tamanna@clevertap.com": "Tamanna",
-  "shreyas.naikwadi@clevertap.com": "Shreyas",
-  "adish@clevertap.com": "Adish",
-};
+for (const team of TEAMS) {
+  for (const m of team.members) {
+    GAMIFICATION_TEAM_MAP[m.name] = team.lead;
+    EMAIL_TO_NAME_MAP[m.email] = m.name;
+  }
+}
 
 // Flat DEVU-ID → GST name mapping (built from TEAM_GROUPS)
 export const GST_DEVU_MAP = {};

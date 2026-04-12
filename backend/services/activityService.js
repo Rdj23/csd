@@ -1,6 +1,5 @@
-import axios from "axios";
-import { DEVREV_API, HEADERS } from "./devrevApi.js";
-import { redisGet } from "../config/database.js";
+import { fetchWorkItem, fetchTimelineEntries } from "./devrevApi.js";
+import { redisGet, redisHGet } from "../config/database.js";
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata, ActivitySyncedTicket } from "../models/index.js";
 import {
   GST_NAME_MAP, GST_MEMBERS, GST_DEVU_MAP,
@@ -54,9 +53,18 @@ const resolveUserName = (createdBy) => {
   return null;
 };
 
-/** Look up the resolved owner name for a ticket (DB → Redis → API fallback). */
+/**
+ * Look up the resolved owner name for a ticket.
+ * Fallback chain: MongoDB (solved tickets) → Redis Hash (O(1) per-ticket) → DevRev API.
+ *
+ * WHY REDIS HASH INSTEAD OF FULL BLOB:
+ * The old approach called redisGet("tickets:active") which parsed the entire ~20MB JSON
+ * array into memory, then did a linear .find() scan. For batch syncs processing 500+
+ * tickets, that's 500 × 20MB = 10GB of transient allocations. The Redis Hash stores each
+ * ticket individually, so HGET retrieves and parses only the ~1KB ticket we need — O(1).
+ */
 const getTicketOwner = async (ticketId, ticketDisplayId) => {
-  // 1. AnalyticsTicket (solved tickets)
+  // 1. AnalyticsTicket (solved tickets — already in MongoDB)
   if (ticketDisplayId) {
     const doc = await AnalyticsTicket.findOne(
       { ticket_id: ticketDisplayId },
@@ -65,25 +73,18 @@ const getTicketOwner = async (ticketId, ticketDisplayId) => {
     if (doc?.owner) return doc.owner;
   }
 
-  // 2. Redis active cache
-  const active = await redisGet("tickets:active");
-  if (active) {
-    const match = active.find(
-      (t) => t.id === ticketId || t.display_id === ticketDisplayId,
-    );
-    if (match?.owned_by?.[0]?.display_name) {
-      return resolveOwnerName(match.owned_by[0].display_name);
+  // 2. Redis Hash — O(1) per-ticket lookup (populated by fetchAndCacheTickets)
+  if (ticketDisplayId) {
+    const cached = await redisHGet("tickets:active:hash", ticketDisplayId);
+    if (cached?.owned_by?.[0]?.display_name) {
+      return resolveOwnerName(cached.owned_by[0].display_name);
     }
   }
 
-  // 3. DevRev API (single call, acceptable for webhook flow)
+  // 3. DevRev API via devrevApi.js abstraction (DI principle — testable, single retry config)
   try {
-    const res = await axios.post(
-      `${DEVREV_API}/works.get`,
-      { id: ticketId },
-      { headers: HEADERS, timeout: 10000 },
-    );
-    const ownerName = res.data?.work?.owned_by?.[0]?.display_name;
+    const work = await fetchWorkItem(ticketId);
+    const ownerName = work?.owned_by?.[0]?.display_name;
     return ownerName ? resolveOwnerName(ownerName) : null;
   } catch (e) {
     logger.warn({ ticketId, err: e.message }, "Failed to fetch ticket owner");
@@ -91,7 +92,10 @@ const getTicketOwner = async (ticketId, ticketDisplayId) => {
   }
 };
 
-/** Get account cohort for a ticket (DB → Redis → API fallback). */
+/**
+ * Get account cohort for a ticket.
+ * Same fallback chain as getTicketOwner: MongoDB → Redis Hash → DevRev API.
+ */
 const getAccountCohort = async (ticketId, ticketDisplayId) => {
   // 1. AnalyticsTicket
   if (ticketDisplayId) {
@@ -102,25 +106,18 @@ const getAccountCohort = async (ticketId, ticketDisplayId) => {
     if (doc?.account_cohort) return doc.account_cohort;
   }
 
-  // 2. Redis active cache
-  const active = await redisGet("tickets:active");
-  if (active) {
-    const match = active.find(
-      (t) => t.id === ticketId || t.display_id === ticketDisplayId,
-    );
-    if (match?.custom_fields?.tnt__account_cohort_fy_25) {
-      return match.custom_fields.tnt__account_cohort_fy_25;
+  // 2. Redis Hash — O(1) per-ticket lookup
+  if (ticketDisplayId) {
+    const cached = await redisHGet("tickets:active:hash", ticketDisplayId);
+    if (cached?.custom_fields?.tnt__account_cohort_fy_25) {
+      return cached.custom_fields.tnt__account_cohort_fy_25;
     }
   }
 
-  // 3. DevRev API
+  // 3. DevRev API via devrevApi.js abstraction
   try {
-    const res = await axios.post(
-      `${DEVREV_API}/works.get`,
-      { id: ticketId },
-      { headers: HEADERS, timeout: 10000 },
-    );
-    return res.data?.work?.custom_fields?.tnt__account_cohort_fy_25 || null;
+    const work = await fetchWorkItem(ticketId);
+    return work?.custom_fields?.tnt__account_cohort_fy_25 || null;
   } catch {
     return null;
   }
@@ -223,18 +220,20 @@ const upsertDailyRollup = async (userName, dateBucket, hourBucket, visibility, p
     updateOps.$addToSet = { coop_tickets: ticketRef };
   }
 
-  const result = await UserActivityDaily.findOneAndUpdate(
+  await UserActivityDaily.findOneAndUpdate(
     { user_name: userName, date_bucket: dateBucket },
     updateOps,
-    { upsert: true, returnDocument: "after", projection: { coop_tickets: 1 } },
+    { upsert: true },
   );
 
-  // Update coop_count from actual array length (single op, no extra find)
-  if (isCoop && !isInt && result) {
-    const len = (result.coop_tickets || []).length;
+  // Atomically set coop_count from the actual array length in a single operation.
+  // Using a pipeline update ($set with $size) ensures no race condition between
+  // reading the array length and writing coop_count — MongoDB evaluates the
+  // expression on the current document state atomically.
+  if (isCoop && !isInt) {
     await UserActivityDaily.updateOne(
       { user_name: userName, date_bucket: dateBucket },
-      { $set: { coop_count: len } },
+      [{ $set: { coop_count: { $size: { $ifNull: ["$coop_tickets", []] } } } }],
     );
   }
 };
@@ -263,18 +262,11 @@ export const syncTicketActivity = async (ticketId, ticketDisplayId, ctx = {}) =>
 
   do {
     try {
-      const body = { object: ticketId, collections: ["discussions"], limit: 50 };
-      if (cursor) body.cursor = cursor;
-
-      const res = await axios.post(
-        `${DEVREV_API}/timeline-entries.list`,
-        body,
-        { headers: HEADERS, timeout: 30000 },
-      );
-
-      const entries = res.data?.timeline_entries || [];
-      // Update cursor BEFORE processing, so we capture next_cursor even if entries is empty
-      cursor = res.data?.next_cursor;
+      // Uses devrevApi.fetchTimelineEntries abstraction (DI principle).
+      // All DevRev HTTP config (base URL, auth headers, timeout) lives in devrevApi.js.
+      const result = await fetchTimelineEntries(ticketId, { cursor });
+      const entries = result.entries;
+      cursor = result.nextCursor;
 
       if (!entries.length) continue;
 
@@ -473,20 +465,15 @@ export const syncActivityBatch = async (opts = {}) => {
 
     const results = await Promise.allSettled(
       batch.map(async (t) => {
-        // Resolve missing devrev_id via DevRev API using display_id
+        // Resolve missing devrev_id via devrevApi abstraction
         if (!t.devrev_id && t.display_id) {
           try {
-            const lookupRes = await axios.post(
-              `${DEVREV_API}/works.get`,
-              { id: t.display_id },
-              { headers: HEADERS, timeout: 10000 },
-            );
-            const resolvedId = lookupRes.data?.work?.id;
-            if (resolvedId) {
-              t.devrev_id = resolvedId;
+            const work = await fetchWorkItem(t.display_id);
+            if (work?.id) {
+              t.devrev_id = work.id;
               await AnalyticsTicket.updateOne(
                 { ticket_id: t.display_id },
-                { $set: { devrev_id: resolvedId } },
+                { $set: { devrev_id: work.id } },
               );
             }
           } catch (err) {

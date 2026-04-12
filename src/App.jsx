@@ -1291,8 +1291,7 @@ const App = () => {
 
   // ⌘K / Ctrl+K shortcut to open AI Agent modal
   useEffect(() => {
-    const isAdmin = SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()];
-    if (!isAdmin || !isAuthenticated) return;
+    if (!isAuthenticated) return;
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -1301,7 +1300,7 @@ const App = () => {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentUser?.email, isAuthenticated]);
+  }, [isAuthenticated]);
 
   if (!googleClientId)
     return (
@@ -1410,7 +1409,7 @@ const App = () => {
             </div>
 
             {/* AI Agent Search Bar */}
-            {(SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) && (
+            {isAuthenticated && (
               <div className="flex-1 flex justify-center px-8 max-w-xl mx-auto">
                 <button
                   onClick={() => setShowAgentModal(true)}

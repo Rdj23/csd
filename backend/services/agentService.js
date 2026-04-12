@@ -3,7 +3,7 @@ import crypto from "crypto";
 import logger from "../config/logger.js";
 
 const DEVREV_API = "https://api.devrev.ai";
-const DEVREV_PAT = process.env.VITE_DEVREV_PAT;
+const DEVREV_PAT = process.env.DEVREV_PAT || process.env.VITE_DEVREV_PAT;
 
 // Agent DON — agent ID 4 under your devo
 const AGENT_DON = process.env.DEVREV_AGENT_DON || "don:core:dvrv-us-1:devo/1iVu4ClfVV:ai_agent/4";
@@ -159,12 +159,21 @@ export function pollAgentResponse(sessionId) {
   return entry;
 }
 
-// Cleanup stale entries every 15 minutes
+// Cleanup stale entries every 15 minutes.
+// Uses both createdAt and receivedAt to catch all entry types:
+// - Pending entries have createdAt (set when query is sent)
+// - Completed entries have receivedAt (set when webhook delivers response)
+// - Alias entries have createdAt (set during alias registration)
+// If neither timestamp exists, the entry is malformed and should be removed.
+const CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+const STALE_THRESHOLD_MS = 15 * 60 * 1000;
+
 setInterval(() => {
-  const cutoff = Date.now() - 15 * 60 * 1000;
+  const cutoff = Date.now() - STALE_THRESHOLD_MS;
   for (const [id, entry] of pendingResponses) {
-    if (entry.createdAt < cutoff || (entry.receivedAt && entry.receivedAt < cutoff)) {
+    const timestamp = entry.createdAt || entry.receivedAt || 0;
+    if (timestamp < cutoff) {
       pendingResponses.delete(id);
     }
   }
-}, 15 * 60 * 1000);
+}, CLEANUP_INTERVAL_MS);

@@ -1,9 +1,10 @@
 import axios from "axios";
 import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
-import { redisGet, redisSet, redisDelete, CACHE_TTL } from "../config/database.js";
+import { redisGet, redisSet, redisDelete, redisHSetBatch, CACHE_TTL } from "../config/database.js";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
+import { fetchTicketLinks, fetchWorkItem } from "./devrevApi.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
@@ -12,13 +13,83 @@ import logger from "../config/logger.js";
 // getSyncState kept for API server to check if a sync job is active via queue inspection.
 export const getSyncState = () => ({ isSyncing: false, syncQueued: false });
 
+// ── Shared ticket filtering & trimming ──────────────────────────────────
+// Extracted to avoid duplication between quickFetchTickets and fetchAndCacheTickets.
+// Single source of truth for what constitutes a "relevant" ticket and which
+// fields the frontend needs — change once, applied everywhere.
+
+const SOLVED_CUTOFF_DATE = new Date("2026-01-01");
+
+/** Reduce a raw DevRev ticket to only the fields the frontend renders. */
+const trimTicket = (t) => {
+  const cf = t.custom_fields || {};
+  return {
+    id: t.id,
+    display_id: t.display_id,
+    title: t.title,
+    priority: t.priority,
+    severity: t.severity,
+    account: t.account?.display_name || t.account,
+    stage: t.stage,
+    owned_by: t.owned_by,
+    created_date: t.created_date,
+    modified_date: t.modified_date,
+    custom_fields: {
+      tnt__csatrating: cf.tnt__csatrating,
+      tnt__region_salesforce: cf.tnt__region_salesforce,
+      tnt__instance_account_name: cf.tnt__instance_account_name,
+      tnt__csm_email_id: cf.tnt__csm_email_id,
+      tnt__csm: cf.tnt__csm,
+      tnt__tam: cf.tnt__tam,
+      tnt__rwt_business_hours: cf.tnt__rwt_business_hours,
+      tnt__frt_hours: cf.tnt__frt_hours,
+      tnt__iteration_count: cf.tnt__iteration_count,
+      tnt__frr: cf.tnt__frr,
+      tnt__customer_wait_time: cf.tnt__customer_wait_time,
+      tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
+      tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
+      tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
+    },
+    tags: t.tags,
+    sentiment: t.sentiment,
+    isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+    actual_close_date: t.actual_close_date,
+  };
+};
+
+/** Check if a ticket's stage is "active" (open/pending/waiting). */
+const isActiveStage = (stage) =>
+  stage.includes("waiting on assignee") ||
+  stage.includes("awaiting customer reply") ||
+  stage.includes("waiting on clevertap") ||
+  stage.includes("on hold") ||
+  stage.includes("pending") ||
+  stage.includes("open");
+
+/** Check if a ticket should be included in the dashboard cache. */
+const isRelevantTicket = (t) => {
+  const stage = t.stage?.name?.toLowerCase() || "";
+  if (isActiveStage(stage)) return true;
+  const isSolved = stage.includes("solved") || stage.includes("closed") || stage.includes("resolved");
+  if (isSolved) {
+    const createdDate = t.created_date ? parseISO(t.created_date) : null;
+    return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
+  }
+  return false;
+};
+
+/** Check if ticket is owned by a GST member (excludes non-GST owners). */
+const isGSTOwned = (t) => {
+  const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
+  return !ownerName.includes("anmol sawhney");
+};
+
 /**
- * Quick fetch: grab the first few pages of tickets from DevRev and return
+ * Quick fetch: grab the first page of tickets from DevRev and return
  * immediately. Designed for cold-start HTTP requests where we can't wait
  * for a full sync (which takes minutes and would time out on Render).
  */
 export const quickFetchTickets = async () => {
-  const SOLVED_CUTOFF_DATE = new Date("2026-01-01");
   let collected = [];
 
   // Single page, no retries, short timeout — must finish well within
@@ -33,63 +104,7 @@ export const quickFetchTickets = async () => {
     logger.warn({ err }, "quickFetchTickets failed");
   }
 
-  // Apply the same filtering/trimming as the full sync
-  return collected
-    .filter((t) => {
-      const stage = t.stage?.name?.toLowerCase() || "";
-      const isActive = stage.includes("waiting on assignee") ||
-                      stage.includes("awaiting customer reply") ||
-                      stage.includes("waiting on clevertap") ||
-                      stage.includes("on hold") ||
-                      stage.includes("pending") ||
-                      stage.includes("open");
-      if (isActive) return true;
-      const isSolved = stage.includes("solved") || stage.includes("closed") || stage.includes("resolved");
-      if (isSolved) {
-        const createdDate = t.created_date ? parseISO(t.created_date) : null;
-        return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
-      }
-      return false;
-    })
-    .filter((t) => {
-      const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
-      return !ownerName.includes("anmol sawhney");
-    })
-    .map((t) => {
-      const cf = t.custom_fields || {};
-      return {
-        id: t.id,
-        display_id: t.display_id,
-        title: t.title,
-        priority: t.priority,
-        severity: t.severity,
-        account: t.account?.display_name || t.account,
-        stage: t.stage,
-        owned_by: t.owned_by,
-        created_date: t.created_date,
-        modified_date: t.modified_date,
-        custom_fields: {
-          tnt__csatrating: cf.tnt__csatrating,
-          tnt__region_salesforce: cf.tnt__region_salesforce,
-          tnt__instance_account_name: cf.tnt__instance_account_name,
-          tnt__csm_email_id: cf.tnt__csm_email_id,
-          tnt__csm: cf.tnt__csm,
-          tnt__tam: cf.tnt__tam,
-          tnt__rwt_business_hours: cf.tnt__rwt_business_hours,
-          tnt__frt_hours: cf.tnt__frt_hours,
-          tnt__iteration_count: cf.tnt__iteration_count,
-          tnt__frr: cf.tnt__frr,
-          tnt__customer_wait_time: cf.tnt__customer_wait_time,
-          tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
-          tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
-          tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
-        },
-        tags: t.tags,
-        sentiment: t.sentiment,
-        isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
-        actual_close_date: t.actual_close_date,
-      };
-    });
+  return collected.filter(isRelevantTicket).filter(isGSTOwned).map(trimTicket);
 };
 
 export const fetchAndCacheTickets = async (source = "auto") => {
@@ -98,76 +113,22 @@ export const fetchAndCacheTickets = async (source = "auto") => {
   try {
     // Store only trimmed/processed tickets — raw API responses are discarded
     // immediately to keep memory usage bounded.
+    // Uses shared trimTicket/isRelevantTicket/isGSTOwned extracted above.
     let processed = [],
       cursor = null,
       loop = 0,
       consecutiveInactiveBatches = 0;
-
-    const SOLVED_CUTOFF_DATE = new Date("2026-01-01");
-
-    const trimTicket = (t) => {
-      const cf = t.custom_fields || {};
-      return {
-        id: t.id,
-        display_id: t.display_id,
-        title: t.title,
-        priority: t.priority,
-        severity: t.severity,
-        account: t.account?.display_name || t.account,
-        stage: t.stage,
-        owned_by: t.owned_by,
-        created_date: t.created_date,
-        modified_date: t.modified_date,
-        custom_fields: {
-          tnt__csatrating: cf.tnt__csatrating,
-          tnt__region_salesforce: cf.tnt__region_salesforce,
-          tnt__instance_account_name: cf.tnt__instance_account_name,
-          tnt__csm_email_id: cf.tnt__csm_email_id,
-          tnt__csm: cf.tnt__csm,
-          tnt__tam: cf.tnt__tam,
-          tnt__rwt_business_hours: cf.tnt__rwt_business_hours,
-          tnt__frt_hours: cf.tnt__frt_hours,
-          tnt__iteration_count: cf.tnt__iteration_count,
-          tnt__frr: cf.tnt__frr,
-          tnt__customer_wait_time: cf.tnt__customer_wait_time,
-          tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
-          tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
-          tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
-        },
-        tags: t.tags,
-        sentiment: t.sentiment,
-        isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
-        actual_close_date: t.actual_close_date,
-      };
-    };
-
-    const isRelevantTicket = (t) => {
-      const stage = t.stage?.name?.toLowerCase() || "";
-      const isActive = stage.includes("waiting on assignee") ||
-                      stage.includes("awaiting customer reply") ||
-                      stage.includes("waiting on clevertap") ||
-                      stage.includes("on hold") ||
-                      stage.includes("pending") ||
-                      stage.includes("open");
-      if (isActive) return true;
-      const isSolved = stage.includes("solved") || stage.includes("closed") || stage.includes("resolved");
-      if (isSolved) {
-        const createdDate = t.created_date ? parseISO(t.created_date) : null;
-        return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
-      }
-      return false;
-    };
-
-    const isGSTOwned = (t) => {
-      const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
-      return !ownerName.includes("anmol sawhney");
-    };
 
     const saveProgress = async (isComplete) => {
       if (!processed.length) return processed;
 
       if (isComplete) {
         await redisSet("tickets:active", processed, CACHE_TTL.TICKETS);
+        // Populate per-ticket Hash for O(1) lookups by display_id.
+        // Used by activityService.getTicketOwner / getAccountCohort to avoid
+        // parsing the entire ~20MB ticket array for a single ticket lookup.
+        const hashEntries = processed.map((t) => [t.display_id, t]);
+        await redisHSetBatch("tickets:active:hash", hashEntries, CACHE_TTL.TICKETS);
         await redisDelete("tickets:syncing");
         await redisDelete("tickets:active:initial");
       } else {
@@ -213,15 +174,7 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       const newWorks = response.data.works || [];
       if (!newWorks.length) break;
 
-      const hasActiveTickets = newWorks.some((t) => {
-        const stage = t.stage?.name?.toLowerCase() || "";
-        return stage.includes("waiting on assignee") ||
-               stage.includes("awaiting customer reply") ||
-               stage.includes("waiting on clevertap") ||
-               stage.includes("on hold") ||
-               stage.includes("pending") ||
-               stage.includes("open");
-      });
+      const hasActiveTickets = newWorks.some((t) => isActiveStage(t.stage?.name?.toLowerCase() || ""));
 
       // Filter and trim immediately — raw API objects are GC'd after this loop
       for (const t of newWorks) {
@@ -343,167 +296,131 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
       }
 
       if (solved.length) {
+        // ── Resolve NOC links in PARALLEL batches of 5 ──────────────
+        // Previously, each ticket's links were resolved sequentially (N+1 problem).
+        // With 50 solved tickets per page and 2-3 links each, that was ~150
+        // sequential HTTP calls. Processing 5 tickets at a time cuts this by ~80%.
+        const NOC_CONCURRENCY = 5;
         const ops = [];
 
-        for (const t of solved) {
-          // Use actual_close_date, fall back to modified_date, then created_date
+        // Pre-filter tickets that are valid for processing
+        const candidates = solved.map((t) => {
           const closeDateRaw = t.actual_close_date || t.modified_date || t.created_date;
-          if (!closeDateRaw || new Date(closeDateRaw) < TARGET_DATE) {
-            continue;
-          }
-          const ownerRaw = t.owned_by?.[0]?.display_name || "";
-          const owner = resolveOwnerName(ownerRaw);
-          if (!owner) {
-            skippedCount++;
-            continue;
-          }
+          if (!closeDateRaw || new Date(closeDateRaw) < TARGET_DATE) return null;
+          const owner = resolveOwnerName(t.owned_by?.[0]?.display_name || "");
+          if (!owner) { skippedCount++; return null; }
+          return { ticket: t, closedDate: new Date(closeDateRaw), owner };
+        }).filter(Boolean);
 
-          const csatRaw = t.custom_fields?.tnt__csatrating;
-          let csatVal = 0;
-          if (csatRaw == 1 || csatRaw == "1") csatVal = 1;
-          if (csatRaw == 2 || csatRaw == "2") csatVal = 2;
+        // Process NOC resolution in parallel batches
+        for (let ci = 0; ci < candidates.length; ci += NOC_CONCURRENCY) {
+          const batch = candidates.slice(ci, ci + NOC_CONCURRENCY);
+          const results = await Promise.allSettled(batch.map(async ({ ticket: t, closedDate, owner }) => {
+            let noc = { isNoc: false, nocIssueId: null, nocJiraKey: null, nocRca: null,
+              nocReportedBy: null, nocAssignee: null, nocConfirmationBy: null,
+              hasL2NocConfirmation: false, nocConfirmationIssId: null };
 
-          let frrVal = 0;
-          if (t.custom_fields?.tnt__frr === true) frrVal = 1;
-          const iterations = t.custom_fields?.tnt__iteration_count;
-          if (iterations === 1) frrVal = 1;
+            // Resolve NOC links only for tickets closed after the check date
+            if (closedDate >= NOC_CHECK_DATE) {
+              try {
+                // Uses devrevApi.fetchTicketLinks (DI — Item 12)
+                const links = await fetchTicketLinks(t.id.match(/ticket\/(\d+)/)?.[1] || t.id);
 
-          let isNoc = false;
-          let nocIssueId = null;
-          let nocJiraKey = null;
-          let nocRca = null;
-          let nocReportedBy = null;
-          let nocAssignee = null;
-          let nocConfirmationBy = null;
-          let hasL2NocConfirmation = false;
-          let nocConfirmationIssId = null;
+                for (const link of links) {
+                  const issueId = link.target?.display_id || link.source?.display_id;
+                  if (!issueId || !issueId.startsWith("ISS-")) continue;
+                  try {
+                    // Uses devrevApi.fetchWorkItem (DI — Item 12)
+                    const issue = await fetchWorkItem(issueId);
+                    if (!issue) continue;
 
-          const closedDate = new Date(closeDateRaw);
-          if (closedDate >= NOC_CHECK_DATE) {
-            try {
-              const linksRes = await axios.post(
-                `${DEVREV_API}/links.list`,
-                {
-                  object: t.id,
-                  object_types: ["issue"],
-                  limit: 10,
-                },
-                { headers: HEADERS },
-              );
-              const links = linksRes.data.links || [];
-
-              for (const link of links) {
-                const issueId =
-                  link.target?.display_id || link.source?.display_id;
-                if (!issueId || !issueId.startsWith("ISS-")) continue;
-
-                try {
-                  const issRes = await axios.post(
-                    `${DEVREV_API}/works.get`,
-                    { id: issueId },
-                    { headers: HEADERS },
-                  );
-                  const issue = issRes.data.work;
-
-                  logger.info({ ticketId: t.display_id, issueId, issuetype: issue?.custom_fields?.ctype__issuetype || "N/A", teamInvolved: issue?.custom_fields?.ctype__team_involved || "N/A" }, "Issue link found");
-
-                  if (!isNoc && issue?.custom_fields?.ctype__issuetype === "PSN Task") {
-                    isNoc = true;
-                    nocIssueId = issue.display_id;
-                    nocJiraKey = issue.custom_fields?.ctype__key || null;
-                    nocRca =
-                      issue.custom_fields?.ctype__customfield_10169 || null;
-                    nocReportedBy =
-                      issue.reported_by?.[0]?.display_name || null;
-                    nocAssignee = issue.owned_by?.[0]?.display_name || null;
-                    nocCount++;
-                    logger.info({ ticketId: t.display_id, nocIssueId, nocAssignee, nocRca }, "NOC ticket detected");
+                    if (!noc.isNoc && issue.custom_fields?.ctype__issuetype === "PSN Task") {
+                      noc.isNoc = true;
+                      noc.nocIssueId = issue.display_id;
+                      noc.nocJiraKey = issue.custom_fields?.ctype__key || null;
+                      noc.nocRca = issue.custom_fields?.ctype__customfield_10169 || null;
+                      noc.nocReportedBy = issue.reported_by?.[0]?.display_name || null;
+                      noc.nocAssignee = issue.owned_by?.[0]?.display_name || null;
+                      nocCount++;
+                    }
+                    if (!noc.hasL2NocConfirmation && issue.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
+                      noc.hasL2NocConfirmation = true;
+                      noc.nocConfirmationBy = issue.owned_by?.[0]?.display_name || issue.modified_by?.display_name || null;
+                      noc.nocConfirmationIssId = issue.display_id;
+                    }
+                    if (noc.isNoc && noc.hasL2NocConfirmation) break;
+                  } catch (e) {
+                    logger.warn({ ticketId: t.display_id, issueId, err: e.message }, "Issue fetch error");
                   }
-
-                  if (!hasL2NocConfirmation && issue?.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
-                    hasL2NocConfirmation = true;
-                    nocConfirmationBy =
-                      issue.owned_by?.[0]?.display_name ||
-                      issue.modified_by?.display_name || null;
-                    nocConfirmationIssId = issue.display_id;
-                    logger.info({ ticketId: t.display_id, nocConfirmationIssId, nocConfirmationBy }, "L2 NOC Confirmation detected");
-                  }
-
-                  if (isNoc && hasL2NocConfirmation) break;
-                } catch (e) {
-                  logger.warn({ ticketId: t.display_id, issueId, err: e }, "Issue fetch error");
                 }
-              }
-            } catch (e) {
-              // Ignore links fetch errors
+              } catch (_) { /* links fetch error — skip NOC for this ticket */ }
             }
-          }
 
-          const isReporterGST = nocReportedBy && findGSTMember(nocReportedBy);
+            return { ticket: t, closedDate, owner, noc };
+          }));
 
-          if (
-            nocRca &&
-            nocRca.toLowerCase().includes("understanding gap - cs") &&
-            isReporterGST &&
-            !alertedTicketIds.has(t.display_id) &&
-            closedDate >= BACKFILL_CUTOFF
-          ) {
-            ticketsToAlert.push({
-              ticket_id: t.display_id,
-              noc_jira_key: nocJiraKey,
-              noc_rca: nocRca,
-              noc_reported_by: nocReportedBy,
-              noc_assignee: nocAssignee,
-              noc_confirmation_by: nocConfirmationBy,
-              account_name:
-                t.custom_fields?.tnt__instance_account_name ||
-                t.account?.display_name ||
-                "Unknown",
+          // Build upsert ops + alert candidates from settled results
+          for (const result of results) {
+            if (result.status !== "fulfilled") continue;
+            const { ticket: t, closedDate, owner, noc } = result.value;
+
+            const csatRaw = t.custom_fields?.tnt__csatrating;
+            let csatVal = 0;
+            if (csatRaw == 1 || csatRaw == "1") csatVal = 1;
+            if (csatRaw == 2 || csatRaw == "2") csatVal = 2;
+
+            let frrVal = 0;
+            if (t.custom_fields?.tnt__frr === true) frrVal = 1;
+            const iterations = t.custom_fields?.tnt__iteration_count;
+            if (iterations === 1) frrVal = 1;
+
+            // Check if this ticket should trigger a Slack alert
+            if (
+              noc.nocRca &&
+              noc.nocRca.toLowerCase().includes("understanding gap - cs") &&
+              noc.nocReportedBy && findGSTMember(noc.nocReportedBy) &&
+              !alertedTicketIds.has(t.display_id) &&
+              closedDate >= BACKFILL_CUTOFF
+            ) {
+              ticketsToAlert.push({
+                ticket_id: t.display_id,
+                noc_jira_key: noc.nocJiraKey,
+                noc_rca: noc.nocRca,
+                noc_reported_by: noc.nocReportedBy,
+                noc_assignee: noc.nocAssignee,
+                noc_confirmation_by: noc.nocConfirmationBy,
+                account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
+              });
+            }
+
+            ops.push({
+              updateOne: {
+                filter: { ticket_id: t.display_id },
+                update: {
+                  $set: {
+                    ticket_id: t.display_id, devrev_id: t.id, display_id: t.display_id,
+                    title: t.title, created_date: new Date(t.created_date), closed_date: closedDate,
+                    owner, owner_id: t.owned_by?.[0]?.id || null,
+                    account_cohort: t.custom_fields?.tnt__account_cohort_fy_25 || null,
+                    region: t.custom_fields?.tnt__region_salesforce || "Unknown",
+                    priority: t.priority,
+                    is_zendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
+                    is_noc: noc.isNoc, noc_issue_id: noc.nocIssueId,
+                    noc_jira_key: noc.nocJiraKey, noc_rca: noc.nocRca,
+                    noc_reported_by: noc.nocReportedBy, noc_assignee: noc.nocAssignee,
+                    noc_confirmation_by: noc.nocConfirmationBy,
+                    has_l2_noc_confirmation: noc.hasL2NocConfirmation,
+                    noc_confirmation_iss_id: noc.nocConfirmationIssId,
+                    rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
+                    frt: t.custom_fields?.tnt__frt_hours ?? null,
+                    iterations: iterations ?? null, csat: csatVal, frr: frrVal,
+                    account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
+                  },
+                },
+                upsert: true,
+              },
             });
           }
-
-          ops.push({
-            updateOne: {
-              filter: { ticket_id: t.display_id },
-              update: {
-                $set: {
-                  ticket_id: t.display_id,
-                  devrev_id: t.id,
-                  display_id: t.display_id,
-                  title: t.title,
-                  created_date: new Date(t.created_date),
-                  closed_date: closedDate,
-                  owner,
-                  owner_id: t.owned_by?.[0]?.id || null,
-                  account_cohort: t.custom_fields?.tnt__account_cohort_fy_25 || null,
-                  region: t.custom_fields?.tnt__region_salesforce || "Unknown",
-                  priority: t.priority,
-                  is_zendesk: t.tags?.some(
-                    (tag) => tag.tag?.name === "Zendesk import",
-                  ),
-                  is_noc: isNoc,
-                  noc_issue_id: nocIssueId,
-                  noc_jira_key: nocJiraKey,
-                  noc_rca: nocRca,
-                  noc_reported_by: nocReportedBy,
-                  noc_assignee: nocAssignee,
-                  noc_confirmation_by: nocConfirmationBy,
-                  has_l2_noc_confirmation: hasL2NocConfirmation,
-                  noc_confirmation_iss_id: nocConfirmationIssId,
-                  rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
-                  frt: t.custom_fields?.tnt__frt_hours ?? null,
-                  iterations: iterations ?? null,
-                  csat: csatVal,
-                  frr: frrVal,
-                  account_name:
-                    t.custom_fields?.tnt__instance_account_name ||
-                    t.account?.display_name ||
-                    "Unknown",
-                },
-              },
-              upsert: true,
-            },
-          });
         }
 
         if (ops.length > 0) {
@@ -569,16 +486,17 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
       logger.info({ count: recentTickets.length }, "Ownership refresh: checking recently solved tickets");
       let ownerUpdated = 0;
 
-      for (const ticket of recentTickets) {
-        try {
-          const res = await axios.post(
-            `${DEVREV_API}/works.get`,
-            { id: ticket.devrev_id },
-            { headers: HEADERS, timeout: 10000 },
-          );
-          const work = res.data?.work;
-          const currentOwnerRaw = work?.owned_by?.[0]?.display_name || "";
-          const currentOwnerId = work?.owned_by?.[0]?.id || null;
+      // Process ownership checks in parallel batches of 5 (same pattern as NOC resolution).
+      // Previously sequential: 200 tickets × 1 API call each = ~200 sequential calls.
+      // Now: 200 / 5 = 40 batches with 5 concurrent calls each.
+      const OWNERSHIP_CONCURRENCY = 5;
+      for (let i = 0; i < recentTickets.length; i += OWNERSHIP_CONCURRENCY) {
+        const batch = recentTickets.slice(i, i + OWNERSHIP_CONCURRENCY);
+        const results = await Promise.allSettled(batch.map(async (ticket) => {
+          const work = await fetchWorkItem(ticket.devrev_id);
+          if (!work) return null;
+          const currentOwnerRaw = work.owned_by?.[0]?.display_name || "";
+          const currentOwnerId = work.owned_by?.[0]?.id || null;
           const currentOwner = resolveOwnerName(currentOwnerRaw);
 
           if (currentOwner && currentOwner !== ticket.owner) {
@@ -590,10 +508,16 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
               { ticket_id: ticket.ticket_id, oldOwner: ticket.owner, newOwner: currentOwner },
               "Ownership updated",
             );
-            ownerUpdated++;
+            return true;
           }
-        } catch (e) {
-          logger.warn({ ticket_id: ticket.ticket_id, err: e.message }, "Ownership refresh: failed to fetch ticket");
+          return false;
+        }));
+
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value) ownerUpdated++;
+          if (r.status === "rejected") {
+            logger.warn({ err: r.reason?.message }, "Ownership refresh: ticket fetch failed");
+          }
         }
       }
 

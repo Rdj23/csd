@@ -54,6 +54,51 @@ export const redisSet = async (key, data, ttl = 1800) => {
   }
 };
 
+// ── REDIS HASH HELPERS ──────────────────────────────────────────────────
+// Used for per-item lookups (e.g., individual ticket by display_id) where
+// parsing the entire collection blob would be wasteful. Redis Hashes store
+// field→value pairs under a single key, so HGET is O(1) per lookup.
+
+/**
+ * Get a single field from a Redis Hash, JSON-parsed.
+ * Returns null if Redis is down, the hash doesn't exist, or the field is missing.
+ */
+export const redisHGet = async (key, field) => {
+  if (!isRedisReady()) return null;
+  try {
+    const data = await redis.hget(key, field);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    logger.error({ err: e, key, field }, "Redis HGET error");
+    return null;
+  }
+};
+
+/**
+ * Set multiple fields in a Redis Hash from a Map or Object.
+ * Each value is JSON-serialized. Sets TTL on the hash key after writing.
+ *
+ * WHY A PIPELINE:
+ * HSET with 3000 fields in one call works, but pipeline lets Redis batch
+ * the TTL command atomically. For 3000 tickets this takes ~5ms vs ~50ms
+ * for individual HSET calls.
+ */
+export const redisHSetBatch = async (key, entries, ttl = 1800) => {
+  if (!isRedisReady()) return false;
+  try {
+    const pipeline = redis.pipeline();
+    for (const [field, value] of entries) {
+      pipeline.hset(key, field, JSON.stringify(value));
+    }
+    pipeline.expire(key, ttl);
+    await pipeline.exec();
+    return true;
+  } catch (e) {
+    logger.error({ err: e, key }, "Redis HSET batch error");
+    return false;
+  }
+};
+
 /**
  * Acquire a Redis lock to prevent cache stampede (thundering herd).
  *

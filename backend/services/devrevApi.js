@@ -34,11 +34,20 @@ export const DEVREV_API = "https://api.devrev.ai";
  * DevRev user/org that grants read/write access to the API. You generate it in
  * DevRev Settings → API Tokens.
  *
- * SECURITY NOTE: This token has broad access. In production, use a service account
- * with minimal permissions instead of a personal token.
+ * SECURITY NOTE: This token has broad access. In production, generate a dedicated
+ * DevRev Service Account Token with minimal permissions instead of a personal token.
+ * A personal PAT shares rate limits with your browser session — aggressive syncs
+ * can throttle your own DevRev UI.
+ *
+ * Migration: prefer DEVREV_PAT; falls back to VITE_DEVREV_PAT for backward compat.
  */
+const DEVREV_TOKEN = process.env.DEVREV_PAT || process.env.VITE_DEVREV_PAT;
+if (!DEVREV_TOKEN) {
+  logger.warn("Neither DEVREV_PAT nor VITE_DEVREV_PAT is set — DevRev API calls will fail");
+}
+
 export const HEADERS = {
-  Authorization: `Bearer ${process.env.VITE_DEVREV_PAT}`,
+  Authorization: `Bearer ${DEVREV_TOKEN}`,
   "Content-Type": "application/json",
 };
 
@@ -110,6 +119,42 @@ export const fetchWorkItem = async (id) => {
     { headers: HEADERS },
   );
   return res.data.work || null;
+};
+
+/**
+ * Fetch multiple work items by display IDs in a single API call.
+ * Uses works.list with an `apply_to` filter instead of N separate works.get calls.
+ * Returns a Map of display_id → work object for O(1) lookups.
+ */
+export const fetchWorkItems = async (ids) => {
+  if (!ids.length) return new Map();
+  const res = await axios.post(
+    `${DEVREV_API}/works.list`,
+    { apply_to: ids, limit: ids.length },
+    { headers: HEADERS },
+  );
+  const works = res.data.works || [];
+  return new Map(works.map((w) => [w.display_id, w]));
+};
+
+/**
+ * Fetch timeline entries (comments/events) for a work item.
+ * Used by activityService for syncing comment data.
+ * Returns { entries: Array, nextCursor: string|null }.
+ */
+export const fetchTimelineEntries = async (objectId, { cursor, limit = 50 } = {}) => {
+  const body = { object: objectId, collections: ["discussions"], limit };
+  if (cursor) body.cursor = cursor;
+
+  const res = await axios.post(
+    `${DEVREV_API}/timeline-entries.list`,
+    body,
+    { headers: HEADERS, timeout: 30000 },
+  );
+  return {
+    entries: res.data?.timeline_entries || [],
+    nextCursor: res.data?.next_cursor || null,
+  };
 };
 
 /**

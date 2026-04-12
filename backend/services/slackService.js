@@ -5,15 +5,22 @@ import logger from "../config/logger.js";
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
-// Lookup GST member by full name or first name fallback
+// Precomputed first-name → Slack ID lookup for O(1) access.
+// Built once at module load from the full GST_SLACK_MEMBER_IDS map.
+// This avoids O(n) linear scan on every findGSTMember call.
+const FIRST_NAME_TO_SLACK_ID = new Map();
+for (const [fullName, slackId] of Object.entries(GST_SLACK_MEMBER_IDS)) {
+  const firstName = fullName.toLowerCase().split(" ")[0];
+  if (!FIRST_NAME_TO_SLACK_ID.has(firstName)) {
+    FIRST_NAME_TO_SLACK_ID.set(firstName, slackId);
+  }
+}
+
+// Lookup GST member by full name (O(1) direct lookup) or first name (O(1) Map lookup)
 export const findGSTMember = (name) => {
   if (!name) return null;
   if (GST_SLACK_MEMBER_IDS[name]) return GST_SLACK_MEMBER_IDS[name];
-  const nameLower = name.toLowerCase();
-  const match = Object.entries(GST_SLACK_MEMBER_IDS).find(
-    ([fullName]) => fullName.toLowerCase().split(" ")[0] === nameLower
-  );
-  return match ? match[1] : null;
+  return FIRST_NAME_TO_SLACK_ID.get(name.toLowerCase()) || null;
 };
 
 /**

@@ -1,13 +1,25 @@
 import { startOfISOWeek, addWeeks, addDays, endOfDay, startOfDay as dfnsStartOfDay } from "date-fns";
 import { AnalyticsTicket } from "../models/index.js";
 import { redisGet, redisGetRaw, redisSet, CACHE_TTL } from "../config/database.js";
-import { fetchTicketLinks, fetchWorkItem, classifyIssueTeam } from "../services/devrevApi.js";
+import { fetchTicketLinks, fetchWorkItem, fetchWorkItems, classifyIssueTeam } from "../services/devrevApi.js";
 import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
 import { getTicketSyncQueue } from "../lib/queues.js";
 import { ok, okRaw, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 import { applyOwnerFilter, applyRegionFilter, applyExclusionFilters, applyBacklogFilter } from "../utils/queryBuilders.js";
 import { SOLVED_STATUSES } from "../config/constants.js";
+
+// Parse a keyset cursor "<ISO_date>_<_id>" into { cursorDate, cursorId }.
+// Handles URL-encoded values (colons, plus signs in ISO dates) transparently.
+const parseCursor = (raw) => {
+  if (!raw) return null;
+  const decoded = decodeURIComponent(raw);
+  const sep = decoded.lastIndexOf("_");
+  if (sep <= 0) return null;
+  const cursorDate = new Date(decoded.slice(0, sep));
+  if (isNaN(cursorDate.getTime())) return null;
+  return { cursorDate, cursorId: decoded.slice(sep + 1) };
+};
 
 // Fields the frontend analytics table actually renders — excludes heavy NOC
 // metadata, devrev_id, owner_id, sync fields, etc. to keep documents small.
@@ -190,24 +202,14 @@ export const getTicketsByRange = async (req, res) => {
 
     // Build ticket query — cursor-based when cursor is provided, offset otherwise
     const ticketQuery = { ...matchConditions };
-    let usingCursor = false;
-    if (cursor) {
-      // cursor = "<closed_date ISO>_<_id>" — encodes the last item seen
-      const sep = cursor.lastIndexOf("_");
-      if (sep > 0) {
-        const cursorDate = new Date(cursor.slice(0, sep));
-        const cursorId = cursor.slice(sep + 1);
-        if (!isNaN(cursorDate.getTime())) {
-          // Fetch the next page: items whose (closed_date, _id) sort AFTER the cursor
-          ticketQuery.$or = [
-            { closed_date: { ...ticketQuery.closed_date, $lt: cursorDate } },
-            { closed_date: cursorDate, _id: { $lt: cursorId } },
-          ];
-          usingCursor = true;
-        }
-      }
+    const parsed = parseCursor(cursor);
+    if (parsed) {
+      ticketQuery.$or = [
+        { closed_date: { ...ticketQuery.closed_date, $lt: parsed.cursorDate } },
+        { closed_date: parsed.cursorDate, _id: { $lt: parsed.cursorId } },
+      ];
     }
-    const page = usingCursor ? null : Math.max(1, parseInt(req.query.page) || 1);
+    const page = parsed ? null : Math.max(1, parseInt(req.query.page) || 1);
 
     // Compute stats via aggregation (avoids loading all docs into Node.js memory)
     const [statsAgg, tickets] = await Promise.all([
@@ -229,7 +231,7 @@ export const getTicketsByRange = async (req, res) => {
       AnalyticsTicket.find(ticketQuery)
         .select(TICKET_TABLE_FIELDS)
         .sort({ closed_date: -1, _id: -1 })
-        .skip(usingCursor ? 0 : (page - 1) * pageSize)
+        .skip(parsed ? 0 : (page - 1) * pageSize)
         .limit(pageSize)
         .lean(),
     ]);
@@ -290,29 +292,21 @@ export const getTicketsByDate = async (req, res) => {
     const { cursor } = req.query;
 
     const ticketQuery = { ...matchConditions };
-    let usingCursor = false;
-    if (cursor) {
-      const sep = cursor.lastIndexOf("_");
-      if (sep > 0) {
-        const cursorDate = new Date(cursor.slice(0, sep));
-        const cursorId = cursor.slice(sep + 1);
-        if (!isNaN(cursorDate.getTime())) {
-          ticketQuery.$or = [
-            { closed_date: { ...ticketQuery.closed_date, $lt: cursorDate } },
-            { closed_date: cursorDate, _id: { $lt: cursorId } },
-          ];
-          usingCursor = true;
-        }
-      }
+    const parsed = parseCursor(cursor);
+    if (parsed) {
+      ticketQuery.$or = [
+        { closed_date: { ...ticketQuery.closed_date, $lt: parsed.cursorDate } },
+        { closed_date: parsed.cursorDate, _id: { $lt: parsed.cursorId } },
+      ];
     }
-    const page = usingCursor ? null : Math.max(1, parseInt(req.query.page) || 1);
+    const page = parsed ? null : Math.max(1, parseInt(req.query.page) || 1);
 
     const [totalCount, tickets] = await Promise.all([
       AnalyticsTicket.countDocuments(matchConditions),
       AnalyticsTicket.find(ticketQuery)
         .select(TICKET_TABLE_FIELDS)
         .sort({ closed_date: -1, _id: -1 })
-        .skip(usingCursor ? 0 : (page - 1) * pageSize)
+        .skip(parsed ? 0 : (page - 1) * pageSize)
         .limit(pageSize)
         .lean(),
     ]);
@@ -449,63 +443,104 @@ export const getBatchDependencies = async (req, res) => {
 
     for (let i = 0; i < ticketIds.length; i += BATCH_SIZE) {
       const batch = ticketIds.slice(i, i + BATCH_SIZE);
-      await Promise.all(
+
+      // Step 1: Fetch all links for this batch of tickets in parallel
+      const batchLinks = await Promise.all(
         batch.map(async (ticketId) => {
           try {
             const links = await fetchTicketLinks(ticketId);
-
-            if (links.length === 0) {
-              results[ticketId] = { hasDependency: false, issues: [] };
-              return;
-            }
-
-            const issues = await Promise.all(
-              links.map(async (link) => {
-                const target = link.target;
-                if (!target || target.type !== "issue") return null;
-                try {
-                  const issue = await fetchWorkItem(target.display_id);
-                  if (!issue) return null;
-                  const customFields = issue.custom_fields || {};
-                  return {
-                    issueId: issue.display_id,
-                    title: issue.title,
-                    owner: issue.owned_by?.[0]?.display_name || "Unassigned",
-                    team: classifyIssueTeam(issue, "Other"),
-                    isNOC: customFields.ctype__issuetype === "PSN Task",
-                    jiraKey: customFields.ctype__key,
-                    priority: issue.priority_v2?.label,
-                    stage: issue.stage?.name,
-                  };
-                } catch (e) {
-                  return {
-                    issueId: target.display_id,
-                    title: target.title,
-                    owner: target.owned_by?.[0]?.display_name || "Unassigned",
-                    team: "Unknown",
-                    isNOC: false,
-                  };
-                }
-              }),
-            );
-
-            const validIssues = issues.filter(Boolean);
-            const sorted = [...validIssues].sort((a, b) => {
-              if (a.isNOC && !b.isNOC) return -1;
-              if (!a.isNOC && b.isNOC) return 1;
-              return 0;
-            });
-
-            results[ticketId] = {
-              hasDependency: true,
-              issues: sorted,
-              primary: sorted.find((i) => i.isNOC) || sorted[0],
-            };
+            return { ticketId, links };
           } catch (e) {
+            logger.warn({ err: e.message, ticketId }, "Failed to fetch links for ticket");
             results[ticketId] = { hasDependency: false, issues: [], error: e.message };
+            return { ticketId, links: [] };
           }
         }),
       );
+
+      // Step 2: Collect all unique issue display_ids across the batch.
+      // Uses a Set for O(1) dedup instead of Array.includes() which is O(n)
+      // per check — matters when batches have 50+ linked issues.
+      const issueIdsByTicket = new Map();
+      const allIssueIdSet = new Set();
+      for (const { ticketId, links } of batchLinks) {
+        const ids = links
+          .filter((l) => l.target?.type === "issue")
+          .map((l) => ({ displayId: l.target.display_id, link: l }));
+        issueIdsByTicket.set(ticketId, ids);
+        for (const { displayId } of ids) {
+          allIssueIdSet.add(displayId);
+        }
+      }
+      const allIssueIds = [...allIssueIdSet];
+
+      // Step 3: Single batch fetch for all linked issues (replaces N separate works.get calls)
+      let issueMap = new Map();
+      if (allIssueIds.length > 0) {
+        try {
+          issueMap = await fetchWorkItems(allIssueIds);
+        } catch (e) {
+          logger.warn({ err: e.message, issueCount: allIssueIds.length }, "Batch fetch of linked work items failed, falling back to individual fetches");
+          // Fallback: fetch individually so partial data is still returned
+          for (const id of allIssueIds) {
+            try {
+              const work = await fetchWorkItem(id);
+              if (work) issueMap.set(id, work);
+            } catch (innerErr) {
+              logger.warn({ err: innerErr.message, targetId: id }, "Failed to fetch linked work item individually");
+            }
+          }
+        }
+      }
+
+      // Step 4: Assemble results for each ticket using the pre-fetched issue map
+      for (const { ticketId } of batchLinks) {
+        if (results[ticketId]) continue; // already set (e.g. link-fetch error)
+        const ids = issueIdsByTicket.get(ticketId) || [];
+
+        if (ids.length === 0) {
+          results[ticketId] = { hasDependency: false, issues: [] };
+          continue;
+        }
+
+        const issues = ids.map(({ displayId, link }) => {
+          const issue = issueMap.get(displayId);
+          if (!issue) {
+            const target = link.target;
+            logger.warn({ targetId: displayId }, "Linked work item not found in batch response");
+            return {
+              issueId: displayId,
+              title: target.title,
+              owner: target.owned_by?.[0]?.display_name || "Unassigned",
+              team: "Unknown",
+              isNOC: false,
+            };
+          }
+          const customFields = issue.custom_fields || {};
+          return {
+            issueId: issue.display_id,
+            title: issue.title,
+            owner: issue.owned_by?.[0]?.display_name || "Unassigned",
+            team: classifyIssueTeam(issue, "Other"),
+            isNOC: customFields.ctype__issuetype === "PSN Task",
+            jiraKey: customFields.ctype__key,
+            priority: issue.priority_v2?.label,
+            stage: issue.stage?.name,
+          };
+        }).filter(Boolean);
+
+        const sorted = [...issues].sort((a, b) => {
+          if (a.isNOC && !b.isNOC) return -1;
+          if (!a.isNOC && b.isNOC) return 1;
+          return 0;
+        });
+
+        results[ticketId] = {
+          hasDependency: true,
+          issues: sorted,
+          primary: sorted.find((i) => i.isNOC) || sorted[0],
+        };
+      }
     }
 
     ok(res, results);

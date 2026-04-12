@@ -3,6 +3,7 @@ import { syncActivityBatch } from "../services/activityService.js";
 import { getActivitySyncQueue } from "../lib/queues.js";
 import { redisGet } from "../config/database.js";
 import { GST_MEMBERS, resolveOwnerName, getCurrentQuarterKey } from "../config/constants.js";
+import { ok, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 
 // ---------------------------------------------------------------------------
@@ -20,7 +21,7 @@ export const getDailySummary = async (req, res) => {
   try {
     const { user, date } = req.query;
     if (!user || !date) {
-      return res.status(400).json({ error: "user and date are required" });
+      return badRequest(res, "user and date are required");
     }
 
     const daily = await UserActivityDaily.findOne(
@@ -53,7 +54,7 @@ export const getDailySummary = async (req, res) => {
     res.json(daily);
   } catch (err) {
     logger.error({ err: err.message }, "getDailySummary error");
-    res.status(500).json({ error: "Internal server error" });
+    serverError(res, "Internal server error");
   }
 };
 
@@ -65,7 +66,7 @@ export const getCalendar = async (req, res) => {
   try {
     const { user, start, end } = req.query;
     if (!user || !start || !end) {
-      return res.status(400).json({ error: "user, start, and end are required" });
+      return badRequest(res, "user, start, and end are required");
     }
 
     const days = await UserActivityDaily.find(
@@ -78,7 +79,7 @@ export const getCalendar = async (req, res) => {
     res.json({ user, days });
   } catch (err) {
     logger.error({ err: err.message }, "getCalendar error");
-    res.status(500).json({ error: "Internal server error" });
+    serverError(res, "Internal server error");
   }
 };
 
@@ -91,7 +92,7 @@ export const getDrillDown = async (req, res) => {
   try {
     const { user, date, start, end, hour } = req.query;
     if (!user || (!date && (!start || !end))) {
-      return res.status(400).json({ error: "user and (date OR start+end) are required" });
+      return badRequest(res, "user and (date OR start+end) are required");
     }
 
     // Build date filter: single date or range
@@ -196,7 +197,7 @@ export const getDrillDown = async (req, res) => {
     res.json({ user, date: date || `${start} to ${end}`, entries: enriched });
   } catch (err) {
     logger.error({ err: err.message }, "getDrillDown error");
-    res.status(500).json({ error: "Internal server error" });
+    serverError(res, "Internal server error");
   }
 };
 
@@ -208,7 +209,7 @@ export const getLeaderboard = async (req, res) => {
   try {
     const { start, end } = req.query;
     if (!start || !end) {
-      return res.status(400).json({ error: "start and end are required" });
+      return badRequest(res, "start and end are required");
     }
 
     // Pre-aggregated daily rollups (fast)
@@ -262,7 +263,7 @@ export const getLeaderboard = async (req, res) => {
     res.json({ leaderboard: result });
   } catch (err) {
     logger.error({ err: err.message }, "getLeaderboard error");
-    res.status(500).json({ error: "Internal server error" });
+    serverError(res, "Internal server error");
   }
 };
 
@@ -274,7 +275,7 @@ export const getDependencyTable = async (req, res) => {
   try {
     const { start, end } = req.query;
     if (!start || !end) {
-      return res.status(400).json({ error: "start and end are required" });
+      return badRequest(res, "start and end are required");
     }
 
     // Step 1: Get all external co-op entries with their ticket IDs
@@ -322,7 +323,7 @@ export const getDependencyTable = async (req, res) => {
     res.json({ dependency: coopEntries });
   } catch (err) {
     logger.error({ err: err.message }, "getDependencyTable error");
-    res.status(500).json({ error: "Internal server error" });
+    serverError(res, "Internal server error");
   }
 };
 
@@ -334,7 +335,7 @@ export const getSummary = async (req, res) => {
   try {
     const { user, start, end } = req.query;
     if (!user || !start || !end) {
-      return res.status(400).json({ error: "user, start, and end are required" });
+      return badRequest(res, "user, start, and end are required");
     }
 
     const [result] = await UserActivityDaily.aggregate([
@@ -376,7 +377,7 @@ export const getSummary = async (req, res) => {
     });
   } catch (err) {
     logger.error({ err: err.message }, "getSummary error");
-    res.status(500).json({ error: "Internal server error" });
+    serverError(res, "Internal server error");
   }
 };
 
@@ -472,7 +473,7 @@ export const rebuildDailyRollups = async (_req, res) => {
     res.json({ status: "completed", deletedCount, insertedCount });
   } catch (err) {
     logger.error({ err: err.message }, "rebuildDailyRollups error");
-    res.status(500).json({ error: "Failed to rebuild daily rollups" });
+    serverError(res, "Failed to rebuild daily rollups");
   }
 };
 
@@ -502,7 +503,7 @@ export const triggerActivitySync = async (req, res) => {
     res.json({ status: "completed", ...result });
   } catch (err) {
     logger.error({ err: err.message }, "Manual activity sync failed");
-    res.status(500).json({ error: "Activity sync failed" });
+    serverError(res, "Activity sync failed");
   }
 };
 
@@ -549,6 +550,6 @@ export const resyncActivity = async (req, res) => {
     res.json({ status: "completed", clearedSynced, clearDaily, quarter, ...result });
   } catch (err) {
     logger.error({ err: err.message }, "Activity resync failed");
-    res.status(500).json({ error: "Activity resync failed" });
+    serverError(res, "Activity resync failed");
   }
 };

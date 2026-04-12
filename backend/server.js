@@ -99,6 +99,11 @@ const NODE_ROLE = process.env.NODE_ROLE || "hybrid";
 const isHybrid = NODE_ROLE === "hybrid";
 const runWorkers = NODE_ROLE === "worker" || isHybrid;
 
+logger.info({ role: NODE_ROLE }, "Server starting in %s mode", NODE_ROLE);
+if (isHybrid && process.env.NODE_ENV === "production") {
+  logger.warn("Running in hybrid mode in production — API and workers share one event loop. Set NODE_ROLE=api and NODE_ROLE=worker on separate instances to avoid lag spikes under load.");
+}
+
 // --- BullMQ Setup ---
 import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue } from "./lib/queues.js";
 

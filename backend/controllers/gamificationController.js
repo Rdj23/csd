@@ -13,6 +13,7 @@ import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 import { ownerStatsGroup, csatFields } from "../utils/aggregationStages.js";
 import { csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
+import { scoreAndRank, calculatePercentile } from "../utils/scoring.js";
 
 export const getGamification = async (req, res) => {
   try {
@@ -67,111 +68,11 @@ export const getGamification = async (req, res) => {
       if (designation === "L2") { data.L2.push(entry); } else { data.L1.push(entry); }
     });
 
-    // STEP 1: Calculate per-metric PERCENTILES (for DISPLAY ONLY)
-    const calculateMetricPercentiles = (arr, metricKey, lowerIsBetter = false) => {
-      const total = arr.length;
-      if (total === 0) return;
-      const sorted = [...arr].sort((a, b) => {
-        if (lowerIsBetter) return a[metricKey] - b[metricKey];
-        return b[metricKey] - a[metricKey];
-      });
-      sorted.forEach((entry, idx) => {
-        const rank = idx + 1;
-        const original = arr.find(e => e.name === entry.name);
-        if (original) {
-          original[`${metricKey}Rank`] = rank;
-          original[`${metricKey}Percentile`] = Math.round(((total - rank + 1) / total) * 100);
-        }
-      });
-    };
-
-    calculateMetricPercentiles(data.L1, "productivity", false);
-    calculateMetricPercentiles(data.L1, "csatPercent", false);
-    calculateMetricPercentiles(data.L1, "positiveCSAT", false);
-    calculateMetricPercentiles(data.L1, "avgRWT", true);
-    calculateMetricPercentiles(data.L1, "avgIterations", true);
-    calculateMetricPercentiles(data.L1, "frrPercent", false);
-
-    calculateMetricPercentiles(data.L2, "productivity", false);
-    calculateMetricPercentiles(data.L2, "csatPercent", false);
-    calculateMetricPercentiles(data.L2, "positiveCSAT", false);
-    calculateMetricPercentiles(data.L2, "avgRWT", true);
-    calculateMetricPercentiles(data.L2, "avgIterations", true);
-    calculateMetricPercentiles(data.L2, "frrPercent", false);
-
-    // STEP 2: Calculate NORMALIZED SCORES (0-100) using Min-Max normalization
-    const calculateNormalizedScores = (arr) => {
-      if (arr.length === 0) return;
-      const metrics = [
-        { key: "productivity", lowerIsBetter: false },
-        { key: "csatPercent", lowerIsBetter: false },
-        { key: "positiveCSAT", lowerIsBetter: false },
-        { key: "avgRWT", lowerIsBetter: true },
-        { key: "avgIterations", lowerIsBetter: true },
-        { key: "frrPercent", lowerIsBetter: false },
-      ];
-
-      metrics.forEach(({ key, lowerIsBetter }) => {
-        const values = arr.map(e => e[key] || 0);
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        const range = max - min;
-
-        arr.forEach(e => {
-          const value = e[key] || 0;
-          let normalizedScore;
-          if (range === 0) {
-            normalizedScore = 100;
-          } else if (lowerIsBetter) {
-            normalizedScore = ((max - value) / range) * 100;
-          } else {
-            normalizedScore = ((value - min) / range) * 100;
-          }
-          e[`${key}NormScore`] = parseFloat(normalizedScore.toFixed(2));
-        });
-      });
-    };
-
-    calculateNormalizedScores(data.L1);
-    calculateNormalizedScores(data.L2);
-
-    // STEP 3: Calculate FINAL SCORE using weighted sum of NORMALIZED SCORES
-    const calculateFinalScore = (e) => {
-      return (
-        (e.productivityNormScore || 0) * 0.30 +
-        (e.csatPercentNormScore || 0) * 0.15 +
-        (e.positiveCSATNormScore || 0) * 0.10 +
-        (e.avgRWTNormScore || 0) * 0.15 +
-        (e.avgIterationsNormScore || 0) * 0.15 +
-        (e.frrPercentNormScore || 0) * 0.15
-      );
-    };
-
-    data.L1.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e).toFixed(2)); });
-    data.L2.forEach(e => { e.finalScore = parseFloat(calculateFinalScore(e).toFixed(2)); });
-    data.L1.forEach(e => { e.weightedAvg = e.finalScore; });
-    data.L2.forEach(e => { e.weightedAvg = e.finalScore; });
-
-    // STEP 4: Sort by finalScore with DETERMINISTIC tie-breaking
-    data.L1.sort((a, b) => {
-      if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
-      return a.name.localeCompare(b.name);
-    });
-    data.L2.sort((a, b) => {
-      if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
-      return a.name.localeCompare(b.name);
-    });
-
-    const totalL1 = data.L1.length;
-    const totalL2 = data.L2.length;
-    data.L1.forEach((e, i) => {
-      e.rank = i + 1;
-      e.percentile = totalL1 > 0 ? Math.round(((totalL1 - e.rank + 1) / totalL1) * 100) : 0;
-    });
-    data.L2.forEach((e, i) => {
-      e.rank = i + 1;
-      e.percentile = totalL2 > 0 ? Math.round(((totalL2 - e.rank + 1) / totalL2) * 100) : 0;
-    });
+    // Full scoring pipeline: percentiles → normalization → weighted score → rank
+    // Extracted to utils/scoring.js for testability and Single Responsibility.
+    // See scoring.js for detailed documentation of the 3-stage pipeline.
+    scoreAndRank(data.L1);
+    scoreAndRank(data.L2);
 
     ok(res, {
       quarter: label,
@@ -345,21 +246,7 @@ export const getMyStats = async (req, res) => {
         return { ...stat, positiveCSAT: ownerCsat.positiveCSAT || 0, negativeCSAT: ownerCsat.negativeCSAT || 0 };
       });
 
-    const calculatePercentile = (value, allValues, lowerIsBetter = false) => {
-      if (allValues.length === 0) return 0;
-      const sorted = [...allValues].sort((a, b) => lowerIsBetter ? a - b : b - a);
-      const tolerance = 0.001;
-      let rank = sorted.findIndex(v => Math.abs(v - value) < tolerance) + 1;
-      if (rank === 0) {
-        if (lowerIsBetter) {
-          rank = sorted.filter(v => v < value).length + 1;
-        } else {
-          rank = sorted.filter(v => v > value).length + 1;
-        }
-      }
-      const percentile = Math.round(((allValues.length - rank + 1) / allValues.length) * 100);
-      return Math.min(percentile, 100);
-    };
+    // calculatePercentile imported from utils/scoring.js — no inline duplicate needed
 
     const productivityValues = teamData.map(t => {
       const days = getDaysWorked(t._id, start);
