@@ -121,10 +121,17 @@ export const verifyWebhookSignature = (req, res, next) => {
     }, "🔍 DEBUG: Webhook signature verification attempt");
 
     /**
-     * Convert the received hex signature to a Buffer for timingSafeEqual.
-     * DevRev sends the signature as a lowercase hex string.
+     * Convert the received signature to a Buffer for timingSafeEqual.
+     *
+     * DevRev sends signatures in different encodings depending on the webhook:
+     * - Some webhooks use hex (0-9, a-f only)
+     * - Agent webhooks use base64 (includes uppercase, +, /, =)
+     *
+     * We detect the encoding by checking for non-hex characters.
      */
-    const signatureBuffer = Buffer.from(signature, "hex");
+    const isHex = /^[0-9a-f]+$/i.test(signature);
+    const signatureEncoding = isHex ? "hex" : "base64";
+    const signatureBuffer = Buffer.from(signature, signatureEncoding);
 
     /**
      * TRY EACH KNOWN SECRET:
@@ -136,15 +143,15 @@ export const verifyWebhookSignature = (req, res, next) => {
        * HMAC-SHA256 COMPUTATION:
        * 1. createHmac("sha256", secret) — Create HMAC using SHA-256 algorithm with our secret
        * 2. .update(payload) — Feed in the request body bytes
-       * 3. .digest("hex") — Output the result as a hex string
+       * 3. .digest() — Output the result in the same encoding as the received signature
        *
-       * This produces the same hex string DevRev computed on their end.
+       * This produces the same string DevRev computed on their end.
        */
       const expected = crypto
         .createHmac("sha256", secret)
         .update(payload)
-        .digest("hex");
-      const expectedBuffer = Buffer.from(expected, "hex");
+        .digest(signatureEncoding);
+      const expectedBuffer = Buffer.from(expected, signatureEncoding);
 
       /**
        * WHY timingSafeEqual (not just === string comparison):
