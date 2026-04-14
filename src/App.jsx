@@ -378,7 +378,7 @@ const App = () => {
     if (isAuthenticated) {
       // ✅ NON-BLOCKING: Start all fetches in parallel, don't wait
       fetchTickets().catch(() => {});
-      connectSocket();
+      try { connectSocket(); } catch (_) { /* socket will auto-reconnect */ }
       fetchViews().catch(() => {});
       // ✅ CLEVERTAP LOGIN
       loginUser(currentUser);

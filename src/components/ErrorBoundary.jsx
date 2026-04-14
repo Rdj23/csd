@@ -4,7 +4,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, retryCount: 0 };
   }
 
   static getDerivedStateFromError(error) {
@@ -12,7 +12,11 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch() {
-    // error already captured in state
+    // Auto-retry once on first error (handles transient init failures
+    // e.g. after clearing browser cache/cookies)
+    if (this.state.retryCount === 0) {
+      this.setState({ hasError: false, error: null, retryCount: 1 });
+    }
   }
 
   handleReset = () => {

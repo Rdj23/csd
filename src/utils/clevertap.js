@@ -1,7 +1,12 @@
 import clevertap from "clevertap-web-sdk";
 
-// Initialize only once
-clevertap.init("R57-875-KK7Z"); // Replace 'us1' with your region if different
+// Initialize only once — wrapped in try/catch because clearing browser
+// cookies can leave the SDK in a broken state on first load
+try {
+  clevertap.init("R57-875-KK7Z");
+} catch (e) {
+  console.warn("CleverTap init failed (will retry on next page load):", e);
+}
 
 export const trackEvent = (eventName, eventProps = {}) => {
   try {
