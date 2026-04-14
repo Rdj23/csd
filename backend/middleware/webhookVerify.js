@@ -110,6 +110,16 @@ export const verifyWebhookSignature = (req, res, next) => {
      */
     const payload = req.rawBody || JSON.stringify(req.body);
 
+    // 🔍 DEBUG: Log signature verification details (REMOVE after debugging)
+    logger.info({
+      path: req.path,
+      hasRawBody: !!req.rawBody,
+      signatureHeader: signature?.substring(0, 16) + "...",
+      payloadLength: payload?.length,
+      secretCount: KNOWN_SECRETS.length,
+      secretPrefixes: KNOWN_SECRETS.map(s => s?.substring(0, 4) + "..."),
+    }, "🔍 DEBUG: Webhook signature verification attempt");
+
     /**
      * Convert the received hex signature to a Buffer for timingSafeEqual.
      * DevRev sends the signature as a lowercase hex string.
