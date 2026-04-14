@@ -139,19 +139,21 @@ export const verifyWebhookSignature = (req, res, next) => {
      * endpoint this request is for. The signature will only match ONE secret.
      */
     for (const secret of KNOWN_SECRETS) {
-      /**
-       * HMAC-SHA256 COMPUTATION:
-       * 1. createHmac("sha256", secret) — Create HMAC using SHA-256 algorithm with our secret
-       * 2. .update(payload) — Feed in the request body bytes
-       * 3. .digest() — Output the result in the same encoding as the received signature
-       *
-       * This produces the same string DevRev computed on their end.
-       */
       const expected = crypto
         .createHmac("sha256", secret)
         .update(payload)
         .digest(signatureEncoding);
       const expectedBuffer = Buffer.from(expected, signatureEncoding);
+
+      // 🔍 DEBUG: Compare lengths and first bytes (REMOVE after debugging)
+      logger.info({
+        signatureEncoding,
+        sigBufLen: signatureBuffer.length,
+        expBufLen: expectedBuffer.length,
+        sigPrefix: signature?.substring(0, 12),
+        expPrefix: expected?.substring(0, 12),
+        secretPrefix: secret?.substring(0, 4),
+      }, "🔍 DEBUG: HMAC comparison");
 
       /**
        * WHY timingSafeEqual (not just === string comparison):
