@@ -104,6 +104,9 @@ export async function sendAgentQuery(query, sessionObject) {
     throw err;
   }
 
+  // DEBUG: Log the full DevRev API response to understand what we're getting back
+  logger.info({ responseData: JSON.stringify(res.data).substring(0, 500), status: res.status }, "🔍 DEBUG: DevRev agent API response");
+
   // DevRev returns a session DON — this is what the webhook will use as session_object
   const devrevSessionId = res.data?.session?.id;
 

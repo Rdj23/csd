@@ -35,6 +35,12 @@ let debounceTimer = null;
 export const handleDevRevWebhook = (req, res) => {
   const event = req.body;
 
+  // DEBUG: Log every incoming webhook to see what DevRev is sending
+  logger.info(
+    { type: event.type, keys: Object.keys(event), path: req.path },
+    "🔍 DEBUG: Webhook received — raw event keys"
+  );
+
   /**
    * WEBHOOK VERIFICATION HANDSHAKE
    *
@@ -133,7 +139,9 @@ export const handleDevRevWebhook = (req, res) => {
    * storeAgentResponse() is a quick DB write — no need for the queue overhead.
    */
   const ar = event.ai_agent_response || event.payload?.ai_agent_response;
+  logger.info({ hasAr: !!ar, eventType: event.type, eventKeys: Object.keys(event) }, "🔍 DEBUG: Agent response check");
   if (ar) {
+    logger.info({ ar_full: JSON.stringify(ar).substring(0, 500) }, "🔍 DEBUG: Full agent response payload");
     logger.info({ agent_response: ar.agent_response, session_object: ar.session_object }, "AI agent webhook payload received");
     if (ar.agent_response === "message" || ar.agent_response === "error") {
       const type = ar.agent_response === "message" ? "message" : "error";
