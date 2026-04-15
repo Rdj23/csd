@@ -7,7 +7,6 @@ export const TEAM_GROUPS = {
   "Harsh": { "DEVU-1098": "Harsh", "DEVU-1072": "Neha", "DEVU-1122": "Vaibhav" },
   "Aditya": { "DEVU-5": "Aditya", "DEVU-2611": "Rishabh", "DEVU-4": "Nikita", "DEVU-1110": "Shreyas" },
   "Debashish": { "DEVU-1102": "Debashish", "DEVU-1076": "Adarsh", "DEVU-689": "Tamanna" },
-  "Tuaha": { "DEVU-1123": "Tuaha Khan" },
   "Adish": { "DEVU-1121": "Adish" }
 };
 
@@ -32,7 +31,6 @@ export const EMAIL_TO_NAME_MAP = {
   "aditya.mishra@clevertap.com": "Aditya",
   "shweta.more@clevertap.com": "Shweta",
   "nikita.narwani@clevertap.com": "Nikita",
-  "mohammed.khan@clevertap.com": "Tuaha Khan",
   "harsh.singh@clevertap.com": "Harsh",
   "rishabh.j@clevertap.com": "Rishabh",
   "tamanna@clevertap.com": "Tamanna",

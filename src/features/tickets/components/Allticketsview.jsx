@@ -318,7 +318,7 @@ const DrillDownModal = ({
   ]);
 
   // Visible filters and menu
-  const [visibleFilters, setVisibleFilters] = useState(["region", "assignee"]);
+  const [visibleFilters, setVisibleFilters] = useState(["region", "assignee", "stage"]);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
 
   // Reset all filters when opening new view
@@ -775,6 +775,20 @@ const DrillDownModal = ({
               />
             )}
 
+            {/* Stage Filter */}
+            {visibleFilters.includes("stage") && (
+              <FilterDropdown
+                icon={Activity}
+                label="Stage"
+                options={filterOptions.stages}
+                selected={selectedStages}
+                onChange={(v) => {
+                  setSelectedStages(v);
+                  setCurrentPage(1);
+                }}
+              />
+            )}
+
             {/* Account Filter */}
             {visibleFilters.includes("account") && (
               <FilterDropdown
@@ -812,20 +826,6 @@ const DrillDownModal = ({
                 selected={selectedTAMs}
                 onChange={(v) => {
                   setSelectedTAMs(v);
-                  setCurrentPage(1);
-                }}
-              />
-            )}
-
-            {/* Stage Filter */}
-            {visibleFilters.includes("stage") && (
-              <FilterDropdown
-                icon={Activity}
-                label="Stage"
-                options={filterOptions.stages}
-                selected={selectedStages}
-                onChange={(v) => {
-                  setSelectedStages(v);
                   setCurrentPage(1);
                 }}
               />

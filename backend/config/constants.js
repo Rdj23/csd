@@ -50,9 +50,6 @@ const TEAMS = [
     { name: "Adarsh",    devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com",    designation: "L1", aliases: [] },
     { name: "Tamanna",   devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L1", aliases: ["Tamanna Khan"] },
   ]},
-  { lead: "Tuaha", members: [
-    { name: "Tuaha Khan", devuId: "DEVU-1123", email: "mohammed.khan@clevertap.com",  designation: "L2", aliases: ["Taha Khan"], rosterName: "Tuaha" },
-  ]},
   { lead: "Adish", members: [
     { name: "Adish", devuId: "DEVU-1121", email: "adish@clevertap.com", designation: "L2", aliases: [] },
   ]},

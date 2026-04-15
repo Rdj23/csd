@@ -104,7 +104,6 @@ const FILTER_CONFIG = [
   { key: "accounts", label: "Account", icon: Building2 },
   { key: "csms", label: "CSM", icon: Briefcase },
   { key: "tams", label: "TAM", icon: UserCircle },
-  { key: "stages", label: "Stage", icon: Filter },
   { key: "health", label: "Health", icon: Activity },
   { key: "sentiments", label: "Sentiment", icon: Smile },
   { key: "dependency", label: "Dependency", icon: Link2 },
@@ -1960,6 +1959,13 @@ const App = () => {
                           options={options.owners}
                           selected={currentFilters.owners}
                           onChange={(v) => setFilter("owners", v)}
+                        />
+                        <MultiSelectFilter
+                          icon={Filter}
+                          label="Stage"
+                          options={options.stages}
+                          selected={currentFilters.stages}
+                          onChange={(v) => setFilter("stages", v)}
                         />
                         </>
                       )}
