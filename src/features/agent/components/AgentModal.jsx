@@ -66,7 +66,7 @@ function parseLinks(str, keyPrefix = 0) {
 
 // Parse inline content: DON URIs → markdown links → bold
 function parseInline(text, keyPrefix = 0) {
-  const DON_REGEX = /\[?<don:core:[^:]+:[^:]+:ticket\/(\d+)>\]?/g;
+  const DON_REGEX = /\[?<don:core:[^:]+:[^:]+:(ticket|issue)\/(\d+)>\]?/g;
   const parts = [];
   let lastIndex = 0;
   let match;
@@ -75,16 +75,17 @@ function parseInline(text, keyPrefix = 0) {
     if (match.index > lastIndex) {
       parts.push(...[].concat(parseLinks(text.slice(lastIndex, match.index), `${keyPrefix}-${match.index}`)));
     }
-    const ticketNum = match[1];
+    const prefix = match[1] === "issue" ? "ISS" : "TKT";
+    const ticketNum = match[2];
     parts.push(
       <a
         key={`don-${keyPrefix}-${match.index}`}
-        href={`https://app.devrev.ai/clevertapsupport/works/TKT-${ticketNum}`}
+        href={`https://app.devrev.ai/clevertapsupport/works/${prefix}-${ticketNum}`}
         target="_blank"
         rel="noopener noreferrer"
         className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
       >
-        TKT-{ticketNum}
+        {prefix}-{ticketNum}
       </a>
     );
     lastIndex = DON_REGEX.lastIndex;
