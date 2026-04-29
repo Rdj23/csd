@@ -115,10 +115,38 @@ const isRelevantTicket = (t) => {
   return false;
 };
 
-/** Check if ticket is owned by a GST member (excludes non-GST owners). */
-const isGSTOwned = (t) => {
-  const ownerName = t.owned_by?.[0]?.display_name?.toLowerCase() || "";
-  return !ownerName.includes("anmol sawhney");
+// Require a resolved GST owner before caching to Redis. Unassigned tickets
+// (including agent-resolved ones with finalOwner="Unassigned") are excluded
+// from tickets:active to keep the cache within the free-tier Valkey 25MB cap.
+// They still flow into MongoDB via syncHistoricalToDB → classifyResolution,
+// so analytics, the Resolved-By filter, and agent-handled metrics are intact.
+const isGSTOwned = (t) => !!resolveOwnerName(t.owned_by?.[0]?.display_name);
+
+// Bump VALKEY_CAP_MB when the Valkey plan is upgraded — currently 25MB free tier.
+// Hash key roughly doubles total memory because tickets:active and
+// tickets:active:hash hold the same data shaped differently, so headroom
+// thresholds are intentionally conservative.
+const VALKEY_CAP_MB = 25;
+const CACHE_WARN_PCT = 0.7;
+const CACHE_ALERT_PCT = 0.9;
+
+const checkCacheSize = (processed) => {
+  const bytes = Buffer.byteLength(JSON.stringify(processed));
+  const mb = bytes / (1024 * 1024);
+  const pctOfCap = mb / VALKEY_CAP_MB;
+  const meta = {
+    ticketCount: processed.length,
+    sizeMB: Number(mb.toFixed(2)),
+    capMB: VALKEY_CAP_MB,
+    pctOfCap: Number((pctOfCap * 100).toFixed(1)),
+  };
+  if (pctOfCap >= CACHE_ALERT_PCT) {
+    logger.error(meta, "tickets:active near Valkey cap — OOM imminent, upgrade or tighten filters");
+  } else if (pctOfCap >= CACHE_WARN_PCT) {
+    logger.warn(meta, "tickets:active past 70% of Valkey cap — investigate before it hits the limit");
+  } else {
+    logger.info(meta, "tickets:active size snapshot");
+  }
 };
 
 /**
@@ -160,6 +188,7 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       if (!processed.length) return processed;
 
       if (isComplete) {
+        checkCacheSize(processed);
         await redisSet("tickets:active", processed, CACHE_TTL.TICKETS);
         // Populate per-ticket Hash for O(1) lookups by display_id.
         // Used by activityService.getTicketOwner / getAccountCohort to avoid
