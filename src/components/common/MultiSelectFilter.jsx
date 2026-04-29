@@ -4,7 +4,10 @@ import { ChevronDown, Search, CheckSquare } from "lucide-react";
 // labelMap: optional { value: displayLabel } map. Lets callers pass enum-like
 // values (e.g. "engineer") while showing human-readable labels in the dropdown
 // (e.g. "Support Engineer Handled"). Defaults to identity (value === label).
-const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange, labelMap }) => {
+// hideCount: when true, the trigger button shows just the label (no "N Label"
+// prefix). Useful for filters where "selected count" isn't meaningful UX.
+// icon: optional — omit to render an icon-less pill.
+const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange, labelMap, hideCount }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef(null);
@@ -54,13 +57,15 @@ const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange, lab
 
   return (
     <div className="relative" ref={containerRef}>
-      <button 
-        onClick={() => setIsOpen(!isOpen)} 
+      <button
+        onClick={() => setIsOpen(!isOpen)}
         className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all whitespace-nowrap shadow-sm ${selected.length > 0 ? 'bg-white border-indigo-600 text-indigo-600 dark:bg-indigo-900/40 dark:border-indigo-500/50 dark:text-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600'}`}
       >
-        <Icon className={`w-3.5 h-3.5 ${selected.length > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
+        {Icon && (
+          <Icon className={`w-3.5 h-3.5 ${selected.length > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
+        )}
         <span className="max-w-[100px] truncate">
-          {selected.length === 0 ? label : `${selected.length} ${label}`}
+          {hideCount || selected.length === 0 ? label : `${selected.length} ${label}`}
         </span>
         <ChevronDown className={`w-3 h-3 opacity-50 ${selected.length > 0 ? 'text-indigo-600 dark:text-indigo-400' : ''}`} />
       </button>

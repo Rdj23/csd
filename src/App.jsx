@@ -1702,12 +1702,12 @@ const App = () => {
                     />
                     {/*
                       Resolved By: dashboard-wide filter. Defaults to BOTH selected
-                      (engineer + agent). Frontend treats "both" or "none" as no-op
-                      to mirror least-surprising checkbox UX.
+                      (engineer + agent). Frontend treats "both" or "none" as no-op.
+                      Rendered icon-less and count-less to match the "All" pill style.
                     */}
                     <MultiSelectFilter
-                      icon={Sparkles}
                       label="Resolved By"
+                      hideCount
                       options={RESOLVED_BY_OPTIONS.map((o) => o.value)}
                       labelMap={Object.fromEntries(
                         RESOLVED_BY_OPTIONS.map((o) => [o.value, o.label]),
@@ -1991,8 +1991,8 @@ const App = () => {
                     {/* Dashboard-wide "Resolved By" filter (analytics tab).
                         Both checked = no-op so the precomputed cache stays warm. */}
                     <MultiSelectFilter
-                      icon={Sparkles}
                       label="Resolved By"
+                      hideCount
                       options={RESOLVED_BY_OPTIONS.map((o) => o.value)}
                       labelMap={Object.fromEntries(
                         RESOLVED_BY_OPTIONS.map((o) => [o.value, o.label]),
@@ -2051,8 +2051,8 @@ const App = () => {
                         />
                         {/* Dashboard-wide "Resolved By" filter — both checked = no-op */}
                         <MultiSelectFilter
-                          icon={Sparkles}
                           label="Resolved By"
+                          hideCount
                           options={RESOLVED_BY_OPTIONS.map((o) => o.value)}
                           labelMap={Object.fromEntries(
                             RESOLVED_BY_OPTIONS.map((o) => [o.value, o.label]),
