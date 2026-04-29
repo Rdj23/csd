@@ -9,6 +9,7 @@ import logger from "../config/logger.js";
 import { ok, badRequest, serverError } from "../utils/response.js";
 import { csatPercent, roundMetric } from "../utils/formatters.js";
 import { csatFields, avgMetricFields, frrFields } from "../utils/aggregationStages.js";
+import { applyResolvedByFilter } from "../utils/queryBuilders.js";
 
 /**
  * External API: Per-user CSAT breakdown.
@@ -22,18 +23,21 @@ import { csatFields, avgMetricFields, frrFields } from "../utils/aggregationStag
  */
 export const getCSATBreakdown = async (req, res) => {
   try {
-    const { quarter = getCurrentQuarterKey(), startDate, endDate, email } = req.query;
+    const { quarter = getCurrentQuarterKey(), startDate, endDate, email, resolvedBy } = req.query;
 
     const range = resolveDateRange({ quarter, startDate, endDate });
     if (range.error) return badRequest(res, range.error);
     const { start, end, label } = range;
 
-    // Optional: filter to a single user
+    // Per-user CSAT — agent ("Unassigned") is not a user, so exclude it.
+    // The optional resolvedBy filter further narrows to engineer-only or agent-only,
+    // but for a "per user" breakdown agent-only would always be empty (no users).
     const matchConditions = {
       closed_date: { $gte: start, $lte: end },
-      owner: { $nin: [null, ""] },
+      owner: { $nin: [null, "", "Unassigned"] },
       csat: { $in: [1, 2] }, // only tickets that have CSAT ratings
     };
+    applyResolvedByFilter(matchConditions, resolvedBy);
 
     if (email) {
       const userName = EMAIL_TO_NAME_MAP[email.toLowerCase()];

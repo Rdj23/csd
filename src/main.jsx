@@ -6,7 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ErrorBoundary level="page">
+    <ErrorBoundary level="page" autoReload={3}>
       <App />
     </ErrorBoundary>
   </StrictMode>,

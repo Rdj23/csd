@@ -96,7 +96,18 @@ const EMPTY_FILTERS = {
   dateRange: { start: "", end: "" },
   dependency: ["with_dependency", "no_dependency"], // Both selected by default
   dependencyTeams: ["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"], // All teams selected by default
+  // Both checkboxes selected by default = show everything (engineer + agent).
+  // The filter only narrows the view when the user explicitly unchecks one.
+  resolvedBy: ["engineer", "agent"],
 };
+
+// "Resolved By" filter options.
+// engineer = handled by a Support Engineer (has GST owner, agent_resolved !== true)
+// agent    = handled by AI agent (agent_resolved === true OR unassigned + solved)
+const RESOLVED_BY_OPTIONS = [
+  { value: "engineer", label: "Support Engineer Handled" },
+  { value: "agent", label: "Agent Handled" },
+];
 
 const FILTER_CONFIG = [
   { key: "regions", label: "Region", icon: Globe },
@@ -631,7 +642,10 @@ const App = () => {
     const opts = {
       regions: new Set(),
       teams: Object.keys(TEAM_GROUPS),
-      owners: Object.values(FLAT_TEAM_MAP).sort(),
+      // "Unassigned" is pinned at the top so users can quickly filter to
+      // agent-handled tickets that have no human owner. The backend stores
+      // these with literal owner = "Unassigned".
+      owners: ["Unassigned", ...Object.values(FLAT_TEAM_MAP).sort()],
       accounts: new Set(),
       cohorts: new Set(),
       csms: new Set(),
@@ -836,6 +850,25 @@ const App = () => {
           !currentFilters.owners.includes(ownerName)
         )
           return false;
+
+        // ── "Resolved By" filter (dashboard-wide) ──
+        // Both checked OR none checked = no filter (show everything).
+        // Only narrows when exactly one of {engineer, agent} is selected.
+        // Agent classification mirrors the backend rule:
+        //   agent = tnt__agent_resolved === true OR (Unassigned AND solved)
+        const resolvedBySel = currentFilters.resolvedBy || [];
+        if (resolvedBySel.length === 1) {
+          const stageLower = (t.stage?.name || "").toLowerCase();
+          const isSolved =
+            stageLower.includes("solved") ||
+            stageLower.includes("closed") ||
+            stageLower.includes("resolved");
+          const agentFlag =
+            t.custom_fields?.tnt__agent_resolved === true ||
+            (ownerName === "Unassigned" && isSolved);
+          const ticketResolvedBy = agentFlag ? "agent" : "engineer";
+          if (!resolvedBySel.includes(ticketResolvedBy)) return false;
+        }
         if (
           currentFilters.regions?.length > 0 &&
           !currentFilters.regions.includes(t.region)
@@ -1110,6 +1143,21 @@ const App = () => {
         // Owner/Member filter
         if (allTicketsFilters.owners?.length > 0) {
           if (!allTicketsFilters.owners.includes(ownerName)) return false;
+        }
+
+        // Resolved By filter — same rule as the main view; both checked = no-op
+        const allTicketsResolvedBy = allTicketsFilters.resolvedBy || [];
+        if (allTicketsResolvedBy.length === 1) {
+          const stageLower = (t.stage?.name || "").toLowerCase();
+          const isSolved =
+            stageLower.includes("solved") ||
+            stageLower.includes("closed") ||
+            stageLower.includes("resolved");
+          const agentFlag =
+            t.custom_fields?.tnt__agent_resolved === true ||
+            (ownerName === "Unassigned" && isSolved);
+          const ticketResolvedBy = agentFlag ? "agent" : "engineer";
+          if (!allTicketsResolvedBy.includes(ticketResolvedBy)) return false;
         }
 
         // Account filter
@@ -1652,6 +1700,28 @@ const App = () => {
                         }))
                       }
                     />
+                    {/*
+                      Resolved By: dashboard-wide filter. Defaults to BOTH selected
+                      (engineer + agent). Frontend treats "both" or "none" as no-op
+                      to mirror least-surprising checkbox UX.
+                    */}
+                    <MultiSelectFilter
+                      icon={Sparkles}
+                      label="Resolved By"
+                      options={RESOLVED_BY_OPTIONS.map((o) => o.value)}
+                      labelMap={Object.fromEntries(
+                        RESOLVED_BY_OPTIONS.map((o) => [o.value, o.label]),
+                      )}
+                      selected={
+                        tabFilters.alltickets?.resolvedBy || ["engineer", "agent"]
+                      }
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          alltickets: { ...prev.alltickets, resolvedBy: v },
+                        }))
+                      }
+                    />
                     <MultiSelectFilter
                       icon={Globe}
                       label="Region"
@@ -1918,6 +1988,25 @@ const App = () => {
                         }))
                       }
                     />
+                    {/* Dashboard-wide "Resolved By" filter (analytics tab).
+                        Both checked = no-op so the precomputed cache stays warm. */}
+                    <MultiSelectFilter
+                      icon={Sparkles}
+                      label="Resolved By"
+                      options={RESOLVED_BY_OPTIONS.map((o) => o.value)}
+                      labelMap={Object.fromEntries(
+                        RESOLVED_BY_OPTIONS.map((o) => [o.value, o.label]),
+                      )}
+                      selected={
+                        tabFilters.analytics?.resolvedBy || ["engineer", "agent"]
+                      }
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          analytics: { ...prev.analytics, resolvedBy: v },
+                        }))
+                      }
+                    />
                   </>
                 )}
 
@@ -1959,6 +2048,17 @@ const App = () => {
                           options={options.owners}
                           selected={currentFilters.owners}
                           onChange={(v) => setFilter("owners", v)}
+                        />
+                        {/* Dashboard-wide "Resolved By" filter — both checked = no-op */}
+                        <MultiSelectFilter
+                          icon={Sparkles}
+                          label="Resolved By"
+                          options={RESOLVED_BY_OPTIONS.map((o) => o.value)}
+                          labelMap={Object.fromEntries(
+                            RESOLVED_BY_OPTIONS.map((o) => [o.value, o.label]),
+                          )}
+                          selected={currentFilters.resolvedBy || ["engineer", "agent"]}
+                          onChange={(v) => setFilter("resolvedBy", v)}
                         />
                         <MultiSelectFilter
                           icon={Filter}

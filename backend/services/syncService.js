@@ -20,6 +20,39 @@ export const getSyncState = () => ({ isSyncing: false, syncQueued: false });
 
 const SOLVED_CUTOFF_DATE = new Date("2026-01-01");
 
+// ── Agent (AI) rollout date ──
+// Tickets closed on/after this date may be handled by the AI agent. Before this
+// date, "unassigned" was always a data hygiene problem and we skipped them; now
+// it can also legitimately mean "agent solved it without a human owner".
+const AGENT_START_DATE = new Date("2026-03-01");
+
+/**
+ * Classify how a ticket was resolved.
+ * Returns { resolvedBy: "agent"|"engineer", finalOwner: string|null, agentResolved: bool }.
+ *  - Agent Handled  = tnt__agent_resolved === true OR (no GST owner AND solved)
+ *  - Engineer Handled = has a GST owner AND tnt__agent_resolved !== true
+ * `finalOwner` is the value to persist in AnalyticsTicket.owner — for unassigned
+ * agent tickets we use the literal "Unassigned" so it appears in member dropdowns.
+ * Returns null finalOwner when the ticket should be SKIPPED entirely.
+ */
+export const classifyResolution = (ticket, closedDate, gstOwner) => {
+  const agentResolved = ticket.custom_fields?.tnt__agent_resolved === true;
+
+  if (gstOwner) {
+    return {
+      resolvedBy: agentResolved ? "agent" : "engineer",
+      finalOwner: gstOwner,
+      agentResolved,
+    };
+  }
+  // No GST owner. Only keep if this is in the agent era — otherwise it's noise
+  // (non-GST owners, dropped tickets) and we preserve the legacy skip behavior.
+  if (closedDate >= AGENT_START_DATE) {
+    return { resolvedBy: "agent", finalOwner: "Unassigned", agentResolved };
+  }
+  return { resolvedBy: null, finalOwner: null, agentResolved };
+};
+
 /** Reduce a raw DevRev ticket to only the fields the frontend renders. */
 const trimTicket = (t) => {
   const cf = t.custom_fields || {};
@@ -49,6 +82,10 @@ const trimTicket = (t) => {
       tnt__last_devu_message_ts: cf.tnt__last_devu_message_ts,
       tnt__last_revu_message_ts: cf.tnt__last_revu_message_ts,
       tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
+      // Agent (AI) handling — surfaced to the live cache so the dashboard
+      // "Resolved By" filter can classify active tickets without a backend round-trip.
+      tnt__agent_resolved: cf.tnt__agent_resolved === true,
+      tnt__agent_response_count: cf.tnt__agent_response_count || 0,
     },
     tags: t.tags,
     sentiment: t.sentiment,
@@ -303,19 +340,25 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
         const NOC_CONCURRENCY = 5;
         const ops = [];
 
-        // Pre-filter tickets that are valid for processing
+        // Pre-filter tickets that are valid for processing.
+        // classifyResolution handles three cases:
+        //   1. GST-owned ticket → kept as engineer (or agent if tnt__agent_resolved=true)
+        //   2. Unassigned + closed on/after AGENT_START_DATE → kept as agent ("Unassigned")
+        //   3. Unassigned + before agent era → skipped (legacy hygiene behavior)
         const candidates = solved.map((t) => {
           const closeDateRaw = t.actual_close_date || t.modified_date || t.created_date;
           if (!closeDateRaw || new Date(closeDateRaw) < TARGET_DATE) return null;
-          const owner = resolveOwnerName(t.owned_by?.[0]?.display_name || "");
-          if (!owner) { skippedCount++; return null; }
-          return { ticket: t, closedDate: new Date(closeDateRaw), owner };
+          const closedDate = new Date(closeDateRaw);
+          const gstOwner = resolveOwnerName(t.owned_by?.[0]?.display_name || "");
+          const { resolvedBy, finalOwner, agentResolved } = classifyResolution(t, closedDate, gstOwner);
+          if (!finalOwner) { skippedCount++; return null; }
+          return { ticket: t, closedDate, owner: finalOwner, resolvedBy, agentResolved };
         }).filter(Boolean);
 
         // Process NOC resolution in parallel batches
         for (let ci = 0; ci < candidates.length; ci += NOC_CONCURRENCY) {
           const batch = candidates.slice(ci, ci + NOC_CONCURRENCY);
-          const results = await Promise.allSettled(batch.map(async ({ ticket: t, closedDate, owner }) => {
+          const results = await Promise.allSettled(batch.map(async ({ ticket: t, closedDate, owner, resolvedBy, agentResolved }) => {
             let noc = { isNoc: false, nocIssueId: null, nocJiraKey: null, nocRca: null,
               nocReportedBy: null, nocAssignee: null, nocConfirmationBy: null,
               hasL2NocConfirmation: false, nocConfirmationIssId: null };
@@ -356,13 +399,13 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
               } catch (_) { /* links fetch error — skip NOC for this ticket */ }
             }
 
-            return { ticket: t, closedDate, owner, noc };
+            return { ticket: t, closedDate, owner, resolvedBy, agentResolved, noc };
           }));
 
           // Build upsert ops + alert candidates from settled results
           for (const result of results) {
             if (result.status !== "fulfilled") continue;
-            const { ticket: t, closedDate, owner, noc } = result.value;
+            const { ticket: t, closedDate, owner, resolvedBy, agentResolved, noc } = result.value;
 
             const csatRaw = t.custom_fields?.tnt__csatrating;
             let csatVal = 0;
@@ -393,6 +436,14 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
               });
             }
 
+            // Agent resolution time = full ticket lifetime in hours.
+            // We only populate this for agent-resolved tickets so engineer rows
+            // don't get a noisy duplicate of (closed - created); engineer SLA
+            // already lives in `rwt` / `frt`.
+            const agentResolutionHours = resolvedBy === "agent" && t.created_date
+              ? Math.max(0, (closedDate - new Date(t.created_date)) / 3600000)
+              : null;
+
             ops.push({
               updateOne: {
                 filter: { ticket_id: t.display_id },
@@ -415,6 +466,13 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                     frt: t.custom_fields?.tnt__frt_hours ?? null,
                     iterations: iterations ?? null, csat: csatVal, frr: frrVal,
                     account_name: t.custom_fields?.tnt__instance_account_name || t.account?.display_name || "Unknown",
+                    actual_close_date: t.actual_close_date ? new Date(t.actual_close_date) : null,
+                    stage_name: t.stage?.name || null,
+                    // Agent (AI) handling
+                    agent_resolved: agentResolved,
+                    agent_response_count: t.custom_fields?.tnt__agent_response_count || 0,
+                    agent_resolution_hours: agentResolutionHours,
+                    resolved_by: resolvedBy,
                   },
                 },
                 upsert: true,

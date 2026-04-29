@@ -11,7 +11,7 @@ import {
 } from "../config/constants.js";
 import logger from "../config/logger.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
-import { applySingleOwnerFilter, applyExclusionFilters, applyCohortFilter } from "../utils/queryBuilders.js";
+import { applySingleOwnerFilter, applyExclusionFilters, applyCohortFilter, applyResolvedByFilter } from "../utils/queryBuilders.js";
 import { overallStatsGroup, trendGroup, leaderboardGroup, individualTrendGroup, csatFields, ticketAgeAddFields, ownerStatsGroup } from "../utils/aggregationStages.js";
 import { formatTrend, formatLeaderboardEntry, formatIndividualTrend, formatOverallStats, groupByOwner, csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
 
@@ -28,11 +28,14 @@ export const getAnalytics = async (req, res) => {
       cohorts,
       forceRefresh,
       groupBy = "daily",
+      resolvedBy,
     } = req.query;
-    const cacheKey = `analytics:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohorts || cohort || "none"}:${groupBy}`;
+    // resolvedBy is part of the cache key so engineer-only / agent-only / both
+    // each get their own cached result and don't poison each other.
+    const cacheKey = `analytics:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohorts || cohort || "none"}:${groupBy}:${resolvedBy || "all"}`;
 
     // Check pre-computed cache first (FASTEST - instant response)
-    const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && !cohort && !cohorts && groupBy === "daily";
+    const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && !cohort && !cohorts && groupBy === "daily" && !resolvedBy;
     if (isDefaultQuery && forceRefresh !== "true") {
       const cacheType = quarter.toLowerCase().replace("_", "");
       const precomputed = await PrecomputedDashboard.findOne({ cache_type: cacheType }).lean();
@@ -88,6 +91,7 @@ export const getAnalytics = async (req, res) => {
     applySingleOwnerFilter(matchConditions, owner);
     const cohortFilter = cohorts || cohort;
     applyCohortFilter(matchConditions, cohortFilter);
+    applyResolvedByFilter(matchConditions, resolvedBy);
 
     // CSAT/DSAT match conditions - never excludes NOC
     const csatMatchConditions = { ...matchConditions };

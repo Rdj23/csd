@@ -314,6 +314,11 @@ fetchAnalyticsData: async (filters = {}) => {
     if (filters.cohorts) params.append('cohorts', filters.cohorts);
     if (filters.forceRefresh) params.append('forceRefresh', 'true');
     if (filters.groupBy) params.append('groupBy', filters.groupBy);
+    // resolvedBy: only send when exactly one option is checked (engineer-only or
+    // agent-only). Both/none = no filter; omitting keeps the precomputed cache hit.
+    if (Array.isArray(filters.resolvedBy) && filters.resolvedBy.length === 1) {
+      params.append('resolvedBy', filters.resolvedBy[0]);
+    }
 
     const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
     const res = await _authFetch(url);

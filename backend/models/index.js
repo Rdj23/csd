@@ -142,6 +142,15 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     // ── Stage tracking ──
     stage_name: { type: String, index: true },  // Current stage: "solved", "closed", "resolved", etc.
     actual_close_date: Date,  // DevRev's actual_close_date (may differ from closed_date/modified_date)
+
+    // ── Agent (AI) handling ──
+    // Captured for tickets closed on/after 2026-03-01 (agent rollout).
+    // resolved_by is the canonical classification used by the dashboard-wide
+    // "Resolved By" filter — computed at sync time so reads stay simple.
+    agent_resolved: { type: Boolean, default: false, index: true },
+    agent_response_count: { type: Number, default: 0 },
+    agent_resolution_hours: { type: Number, default: null },
+    resolved_by: { type: String, enum: ["engineer", "agent"], default: "engineer", index: true },
   },
   {
     versionKey: false,  // Disables __v field. We don't need Mongoose's optimistic locking
@@ -213,6 +222,12 @@ AnalyticsTicketSchema.index({ created_date: -1, stage_name: 1 });
 AnalyticsTicketSchema.index({ owner: 1, stage_name: 1, closed_date: -1 });
 AnalyticsTicketSchema.index({ owner: 1, stage_name: 1, created_date: -1 });
 AnalyticsTicketSchema.index({ closed_date: -1, _id: -1 });
+
+// Compound index for the "Resolved By" dashboard-wide filter.
+// Most analytics queries already filter by closed_date range; adding resolved_by
+// to that index lets MongoDB satisfy "engineer-only" or "agent-only" slices
+// without an extra in-memory filter pass.
+AnalyticsTicketSchema.index({ closed_date: 1, resolved_by: 1 });
 
 export const AnalyticsTicket = mongoose.model(
   "AnalyticsTicket",

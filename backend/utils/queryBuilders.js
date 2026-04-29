@@ -66,3 +66,21 @@ export const applyBacklogFilter = (match, metric) => {
     match.$expr = { $gt: [{ $subtract: ["$closed_date", "$created_date"] }, 15 * 86400000] };
   }
 };
+
+/**
+ * Mutates `match` to apply the dashboard-wide "Resolved By" filter.
+ * Accepts a comma-separated list: "engineer", "agent", or both. Both checked
+ * (or empty / unspecified) = no filter applied. This mirrors the frontend
+ * checkbox UX where both ticked === "show everything".
+ *
+ * Why we filter on the stored `resolved_by` field rather than re-deriving from
+ * `agent_resolved` + `owner` at query time: classification was already done at
+ * sync time and indexed via { closed_date, resolved_by }. Re-deriving would
+ * defeat the index.
+ */
+export const applyResolvedByFilter = (match, resolvedBy) => {
+  if (!resolvedBy) return;
+  const list = String(resolvedBy).split(",").map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0 || list.length >= 2) return; // both or none → no filter
+  match.resolved_by = list[0];
+};

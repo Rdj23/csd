@@ -283,11 +283,11 @@ const AnalyticsDashboard = ({
     if (range.isAllTime) {
       // Fetch both previous and current quarters for "All Time"
       QUARTERS.forEach((q) => {
-        fetchAnalyticsData({ quarter: q.id, excludeZendesk, excludeNOC });
+        fetchAnalyticsData({ quarter: q.id, excludeZendesk, excludeNOC, resolvedBy: filters?.resolvedBy });
       });
     } else {
       // Fetch current quarter's data
-      fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, excludeNOC });
+      fetchAnalyticsData({ quarter: currentQuarter, excludeZendesk, excludeNOC, resolvedBy: filters?.resolvedBy });
     }
   }, [
     expandedEffectiveDateRange,
@@ -295,6 +295,7 @@ const AnalyticsDashboard = ({
     excludeZendesk,
     fetchAnalyticsData,
     excludeNOC,
+    filters?.resolvedBy,
   ]);
 
   // 1. Core Filters (Team, Owner, Region, Zendesk) - all filters EXCEPT NOC
@@ -1407,6 +1408,7 @@ const AnalyticsDashboard = ({
         cohorts: hasCohortFilter ? filters.cohorts.join(",") : null,
         groupBy,
         forceRefresh: hasCohortFilter,
+        resolvedBy: filters?.resolvedBy,
       });
     }, 150); // 150ms debounce
 
@@ -1419,6 +1421,7 @@ const AnalyticsDashboard = ({
     excludeNOC,
     filterOwner,
     filters?.cohorts,
+    filters?.resolvedBy,
     groupBy,
   ]);
   // Fetch expanded trends only when modal is open, with debouncing
@@ -1449,6 +1452,10 @@ const AnalyticsDashboard = ({
           }
           if (filters?.owners?.length > 0) {
             params.set("owners", filters.owners.join(","));
+          }
+          // resolvedBy: only forward when exactly one option is selected.
+          if (Array.isArray(filters?.resolvedBy) && filters.resolvedBy.length === 1) {
+            params.set("resolvedBy", filters.resolvedBy[0]);
           }
           return params.toString();
         };
@@ -1488,6 +1495,7 @@ const AnalyticsDashboard = ({
     excludeZendesk,
     filters?.teams,
     filters?.owners,
+    filters?.resolvedBy,
     excludeNOC,
     currentQuarter,
   ]);
@@ -1517,6 +1525,7 @@ const AnalyticsDashboard = ({
       cohorts: filters?.cohorts?.length > 0 ? filters.cohorts.join(",") : null,
       groupBy,
       forceRefresh: true,
+      resolvedBy: filters?.resolvedBy,
     });
 
   const smallChartData = useMemo(() => {
@@ -2297,6 +2306,7 @@ const AnalyticsDashboard = ({
               excludeZendesk,
               owner: filterOwner !== "All" ? filterOwner : null,
               groupBy: newGroupBy,
+              resolvedBy: filters?.resolvedBy,
             });
           }}
           isLoading={analyticsLoading}

@@ -6,7 +6,8 @@ import { API_URL } from "./apiClient";
 /**
  * Fetch pre-aggregated analytics data.
  * @param {Function} authFetch - Authenticated fetch function from store
- * @param {Object} filters - { quarter, excludeZendesk, excludeNOC, owner, forceRefresh, groupBy }
+ * @param {Object} filters - { quarter, excludeZendesk, excludeNOC, owner, forceRefresh, groupBy, resolvedBy }
+ *   resolvedBy: array like ["engineer"] or ["agent"]; both/none = omitted (backend treats as no filter).
  */
 export const fetchAnalyticsData = async (authFetch, filters = {}) => {
   const params = new URLSearchParams();
@@ -18,6 +19,11 @@ export const fetchAnalyticsData = async (authFetch, filters = {}) => {
   if (filters.cohorts) params.append("cohorts", filters.cohorts);
   if (filters.forceRefresh) params.append("forceRefresh", "true");
   if (filters.groupBy) params.append("groupBy", filters.groupBy);
+  // Only send resolvedBy when exactly one option is selected — both/none means
+  // "no filter", and sending it would just bypass the precomputed cache for nothing.
+  if (Array.isArray(filters.resolvedBy) && filters.resolvedBy.length === 1) {
+    params.append("resolvedBy", filters.resolvedBy[0]);
+  }
 
   const url = `${API_URL}/api/tickets/analytics?${params.toString()}`;
   const res = await authFetch(url);

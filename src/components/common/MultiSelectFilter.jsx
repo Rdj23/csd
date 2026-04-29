@@ -1,10 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { ChevronDown, Search, CheckSquare } from "lucide-react";
 
-const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) => {
+// labelMap: optional { value: displayLabel } map. Lets callers pass enum-like
+// values (e.g. "engineer") while showing human-readable labels in the dropdown
+// (e.g. "Support Engineer Handled"). Defaults to identity (value === label).
+const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange, labelMap }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef(null);
+  const labelOf = (opt) => (labelMap && labelMap[opt]) || opt;
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -19,15 +23,15 @@ const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) =
   const filteredOptions = useMemo(() => {
     return options
       .filter(opt => opt && opt !== "Unknown" && opt.trim() !== "" && opt !== "[not provided]") 
-      .filter(opt => opt.toLowerCase().includes(query.toLowerCase()))
+      .filter(opt => labelOf(opt).toLowerCase().includes(query.toLowerCase()))
       .sort((a, b) => {
         const aSelected = selected.includes(a);
         const bSelected = selected.includes(b);
         if (aSelected && !bSelected) return -1;
         if (!aSelected && bSelected) return 1;
-        return a.localeCompare(b);
+        return labelOf(a).localeCompare(labelOf(b));
       });
-  }, [options, query, selected]);
+  }, [options, query, selected, labelMap]);
 
   const toggleOption = (opt) => {
     const newSelected = selected.includes(opt) ? selected.filter(s => s !== opt) : [...selected, opt];
@@ -110,7 +114,7 @@ const MultiSelectFilter = ({ icon: Icon, label, options, selected, onChange }) =
                       checked={isSelected}
                       onChange={() => toggleOption(opt)}
                     />
-                    <span className="truncate flex-1">{opt}</span>
+                    <span className="truncate flex-1">{labelOf(opt)}</span>
                   </label>
                 );
               })
