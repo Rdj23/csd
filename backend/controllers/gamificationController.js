@@ -8,7 +8,7 @@ import {
   NAME_TO_ROSTER_MAP,
   EMAIL_TO_NAME_MAP,
 } from "../config/constants.js";
-import { getDaysWorked } from "../services/rosterService.js";
+import { getDaysWorked, isInRoster } from "../services/rosterService.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 import { ownerStatsGroup, csatFields } from "../utils/aggregationStages.js";
@@ -25,7 +25,11 @@ export const getGamification = async (req, res) => {
     logger.info({ label, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
 
     // Main stats aggregation (excludes NOC for general metrics)
-    const baseMatch = { closed_date: { $gte: start, $lte: end }, owner: { $nin: [null, ""] } };
+    // Exclude unassigned tickets — only count tickets with a real GST owner.
+    const baseMatch = {
+      closed_date: { $gte: start, $lte: end },
+      owner: { $nin: [null, "", "Unassigned", "unassigned"] },
+    };
     const [stats, csatStats] = await Promise.all([
       AnalyticsTicket.aggregate([
         { $match: { ...baseMatch, is_noc: { $ne: true } } },
@@ -46,9 +50,12 @@ export const getGamification = async (req, res) => {
 
     stats.forEach(s => {
       const name = s._id;
+      // Skip engineers who have been removed from the active roster (e.g. transfers).
+      // Their historic tickets stay in DB but they should not appear in gamification.
+      if (!isInRoster(name)) return;
       const designation = DESIGNATION_MAP[name] || "L1";
       const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
-      const daysWorked = getDaysWorked(name, start);
+      const daysWorked = getDaysWorked(name, start, end);
       const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
       const ownerCsat = csatByOwner[name] || s;
       const posCSAT = ownerCsat.positiveCSAT || 0;
@@ -178,7 +185,7 @@ export const getMyStats = async (req, res) => {
       ]).allowDiskUse(true),
     ]);
 
-    const daysWorked = getDaysWorked(userName, start);
+    const daysWorked = getDaysWorked(userName, start, end);
 
     if (stats.length === 0) {
       // Even with no non-NOC tickets, check CSAT from NOC tickets
@@ -249,7 +256,7 @@ export const getMyStats = async (req, res) => {
     // calculatePercentile imported from utils/scoring.js — no inline duplicate needed
 
     const productivityValues = teamData.map(t => {
-      const days = getDaysWorked(t._id, start);
+      const days = getDaysWorked(t._id, start, end);
       return days > 0 ? parseFloat((t.solved / days).toFixed(2)) : 0;
     });
     const csatPercentValues = teamData.map(t => t.negativeCSAT > 0

@@ -25,6 +25,14 @@ export const getRosterRows = () => ROSTER_ROWS;
 export const getDateColMap = () => DATE_COL_MAP;
 export const getLevelColIdx = () => LEVEL_COL_IDX;
 
+// Returns true if the engineer is present in the active roster (Google Sheet).
+// Used to exclude removed engineers (e.g. team transfers) from gamification.
+export const isInRoster = (name) => {
+  if (!name || !ROSTER_ROWS.length) return false;
+  const rosterName = NAME_TO_ROSTER_MAP[name] || name;
+  return ROSTER_ROWS.some(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
+};
+
 // Build FLAT_TEAM_MAP from TEAM_GROUPS
 const buildFlatTeamMap = () => {
   const FLAT_TEAM_MAP = {};
@@ -94,10 +102,13 @@ export const getShiftStatus = (row, colIdx) => {
   return { isOnShift: false, shift: rawShift, reason: `Unknown shift: ${rawShift}` };
 };
 
-// Calculate days worked from roster - ONLY count actual shift days up to today
-export const getDaysWorked = (name, start) => {
+// Calculate days worked from roster - ONLY count actual shift days within [start, min(today, end)]
+export const getDaysWorked = (name, start, end) => {
   const today = new Date();
   today.setHours(23, 59, 59, 999);
+
+  // Upper bound: today, OR the requested range end if it's earlier (e.g. Q1 ended Mar 31).
+  const upperBound = end && end < today ? new Date(end) : today;
 
   const rosterName = NAME_TO_ROSTER_MAP[name] || name;
   const row = ROSTER_ROWS.find(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
@@ -117,7 +128,7 @@ export const getDaysWorked = (name, start) => {
     const colDate = new Date(today.getFullYear(), MONTHS[parts[1]], parseInt(parts[0]));
     if (isNaN(colDate.getTime())) continue;
 
-    if (colDate >= start && colDate <= today) {
+    if (colDate >= start && colDate <= upperBound) {
       const val = (row[colIdx] || "").toUpperCase().trim();
       // Normalize shift format (handles "SHIFT1", "SHIFT 1", "1", etc.)
       const shiftMatch = val.match(/(?:SHIFT\s*)?(\d)/);
