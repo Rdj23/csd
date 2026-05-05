@@ -81,16 +81,32 @@ describe("AnalyticsTicket schema — agent fields", () => {
 describe("classifyResolution (sync-time decision)", () => {
   const PRE_AGENT = new Date("2026-02-15");
   const POST_AGENT = new Date("2026-04-01");
-  const tWithFlag = (resolved) => ({ custom_fields: { tnt__agent_resolved: resolved } });
+  const tWithFlags = (agent, eng) => ({
+    custom_fields: {
+      tnt__agent_resolved: agent,
+      tnt__support_engineer_handled: eng,
+    },
+  });
+  const tWithFlag = (resolved) => tWithFlags(resolved, false);
 
   it("GST owner + agent flag false → engineer, owner preserved", () => {
     const r = classifyResolution(tWithFlag(false), POST_AGENT, "Rohan");
     expect(r).toEqual({ resolvedBy: "engineer", finalOwner: "Rohan", agentResolved: false });
   });
 
-  it("GST owner + agent flag true → agent, owner preserved", () => {
-    const r = classifyResolution(tWithFlag(true), POST_AGENT, "Rohan");
+  it("GST owner + agent flag true + engineer flag false → agent, owner preserved", () => {
+    const r = classifyResolution(tWithFlags(true, false), POST_AGENT, "Rohan");
     expect(r).toEqual({ resolvedBy: "agent", finalOwner: "Rohan", agentResolved: true });
+  });
+
+  it("GST owner + agent flag true + engineer flag true → engineer (engineer co-handled overrides agent)", () => {
+    const r = classifyResolution(tWithFlags(true, true), POST_AGENT, "Rohan");
+    expect(r).toEqual({ resolvedBy: "engineer", finalOwner: "Rohan", agentResolved: false });
+  });
+
+  it("GST owner + agent flag false + engineer flag true → engineer", () => {
+    const r = classifyResolution(tWithFlags(false, true), POST_AGENT, "Rohan");
+    expect(r).toEqual({ resolvedBy: "engineer", finalOwner: "Rohan", agentResolved: false });
   });
 
   it("unassigned + post-agent + flag false → agent, owner = Unassigned", () => {
@@ -98,8 +114,8 @@ describe("classifyResolution (sync-time decision)", () => {
     expect(r).toEqual({ resolvedBy: "agent", finalOwner: "Unassigned", agentResolved: false });
   });
 
-  it("unassigned + post-agent + flag true → agent, owner = Unassigned", () => {
-    const r = classifyResolution(tWithFlag(true), POST_AGENT, null);
+  it("unassigned + post-agent + agent flag true (no engineer) → agent, owner = Unassigned", () => {
+    const r = classifyResolution(tWithFlags(true, false), POST_AGENT, null);
     expect(r).toEqual({ resolvedBy: "agent", finalOwner: "Unassigned", agentResolved: true });
   });
 

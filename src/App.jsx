@@ -102,8 +102,9 @@ const EMPTY_FILTERS = {
 };
 
 // "Resolved By" filter options.
-// engineer = handled by a Support Engineer (has GST owner, agent_resolved !== true)
-// agent    = handled by AI agent (agent_resolved === true OR unassigned + solved)
+// engineer = handled by a Support Engineer (tnt__support_engineer_handled === true OR agent flag missing)
+// agent    = handled by AI agent (tnt__agent_resolved === true AND tnt__support_engineer_handled !== true,
+//                                  OR unassigned + solved as a fallback)
 const RESOLVED_BY_OPTIONS = [
   { value: "engineer", label: "Support Engineer Handled" },
   { value: "agent", label: "Agent Handled" },
@@ -855,7 +856,8 @@ const App = () => {
         // Both checked OR none checked = no filter (show everything).
         // Only narrows when exactly one of {engineer, agent} is selected.
         // Agent classification mirrors the backend rule:
-        //   agent = tnt__agent_resolved === true OR (Unassigned AND solved)
+        //   agent = (tnt__agent_resolved === true AND tnt__support_engineer_handled !== true)
+        //           OR (Unassigned AND solved)
         const resolvedBySel = currentFilters.resolvedBy || [];
         if (resolvedBySel.length === 1) {
           const stageLower = (t.stage?.name || "").toLowerCase();
@@ -864,7 +866,8 @@ const App = () => {
             stageLower.includes("closed") ||
             stageLower.includes("resolved");
           const agentFlag =
-            t.custom_fields?.tnt__agent_resolved === true ||
+            (t.custom_fields?.tnt__agent_resolved === true &&
+              t.custom_fields?.tnt__support_engineer_handled !== true) ||
             (ownerName === "Unassigned" && isSolved);
           const ticketResolvedBy = agentFlag ? "agent" : "engineer";
           if (!resolvedBySel.includes(ticketResolvedBy)) return false;
@@ -1154,7 +1157,8 @@ const App = () => {
             stageLower.includes("closed") ||
             stageLower.includes("resolved");
           const agentFlag =
-            t.custom_fields?.tnt__agent_resolved === true ||
+            (t.custom_fields?.tnt__agent_resolved === true &&
+              t.custom_fields?.tnt__support_engineer_handled !== true) ||
             (ownerName === "Unassigned" && isSolved);
           const ticketResolvedBy = agentFlag ? "agent" : "engineer";
           if (!allTicketsResolvedBy.includes(ticketResolvedBy)) return false;

@@ -29,14 +29,18 @@ const AGENT_START_DATE = new Date("2026-03-01");
 /**
  * Classify how a ticket was resolved.
  * Returns { resolvedBy: "agent"|"engineer", finalOwner: string|null, agentResolved: bool }.
- *  - Agent Handled  = tnt__agent_resolved === true OR (no GST owner AND solved)
- *  - Engineer Handled = has a GST owner AND tnt__agent_resolved !== true
- * `finalOwner` is the value to persist in AnalyticsTicket.owner — for unassigned
- * agent tickets we use the literal "Unassigned" so it appears in member dropdowns.
- * Returns null finalOwner when the ticket should be SKIPPED entirely.
+ *  - Agent Handled  = tnt__agent_resolved === true AND tnt__support_engineer_handled !== true
+ *                     (also: no GST owner AND solved post-agent-rollout)
+ *  - Engineer Handled = anything else with a GST owner (engineer touched it,
+ *                       even if the agent flag is also set)
+ * The AND-with-NOT-engineer rule prevents tickets that an engineer co-handled
+ * from being miscounted as pure agent resolutions.
  */
 export const classifyResolution = (ticket, closedDate, gstOwner) => {
-  const agentResolved = ticket.custom_fields?.tnt__agent_resolved === true;
+  const cf = ticket.custom_fields || {};
+  const agentFlag = cf.tnt__agent_resolved === true;
+  const engineerHandled = cf.tnt__support_engineer_handled === true;
+  const agentResolved = agentFlag && !engineerHandled;
 
   if (gstOwner) {
     return {
@@ -84,7 +88,10 @@ const trimTicket = (t) => {
       tnt__account_cohort_fy_25: cf.tnt__account_cohort_fy_25,
       // Agent (AI) handling — surfaced to the live cache so the dashboard
       // "Resolved By" filter can classify active tickets without a backend round-trip.
+      // Both flags are needed: a ticket counts as agent-handled only when
+      // tnt__agent_resolved is true AND tnt__support_engineer_handled is false.
       tnt__agent_resolved: cf.tnt__agent_resolved === true,
+      tnt__support_engineer_handled: cf.tnt__support_engineer_handled === true,
       tnt__agent_response_count: cf.tnt__agent_response_count || 0,
     },
     tags: t.tags,
@@ -371,7 +378,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
 
         // Pre-filter tickets that are valid for processing.
         // classifyResolution handles three cases:
-        //   1. GST-owned ticket → kept as engineer (or agent if tnt__agent_resolved=true)
+        //   1. GST-owned ticket → kept as engineer (or agent only if tnt__agent_resolved=true AND tnt__support_engineer_handled=false)
         //   2. Unassigned + closed on/after AGENT_START_DATE → kept as agent ("Unassigned")
         //   3. Unassigned + before agent era → skipped (legacy hygiene behavior)
         const candidates = solved.map((t) => {
