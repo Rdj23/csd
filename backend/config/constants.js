@@ -31,7 +31,7 @@ const TEAMS = [
   ]},
   { lead: "Shweta", members: [
     { name: "Shweta",    devuId: "DEVU-1113", email: "shweta.more@clevertap.com",     designation: "L2", aliases: ["Shweta.M"] },
-    { name: "Archie",    devuId: "DEVU-1114", email: "archie@clevertap.com",          designation: "L1", aliases: [] },
+    { name: "Archie",    devuId: "DEVU-1114", email: "archie@clevertap.com",          designation: "L1", aliases: ["Archie Bajaj"] },
     { name: "Musaveer",  devuId: "DEVU-736",  email: "musaveer@clevertap.com",        designation: "L1", aliases: ["Musaveer Manekia"] },
   ]},
   { lead: "Harsh", members: [
