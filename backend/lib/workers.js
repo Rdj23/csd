@@ -31,6 +31,7 @@ import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/syncServic
 import { precomputeAnalytics } from "../services/analyticsService.js";
 import { syncRoster } from "../services/rosterService.js";
 import { syncActivityBatch } from "../services/activityService.js";
+import { runPartsSync } from "../services/partsService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";
 import { getCurrentQuarterKey } from "../config/constants.js";
@@ -213,6 +214,33 @@ export const registerAllWorkers = (connection) => {
   );
 
   // ─────────────────────────────────────────────────────────────────
+  // WORKER 6: parts-sync
+  // ─────────────────────────────────────────────────────────────────
+  /**
+   * WHAT IT DOES: Resolves each ticket's DevRev part ancestry and keeps the `parts`
+   * hierarchy + per-ticket part tags fresh for the Parts View tab.
+   *
+   * job.data.maxTickets — cap per phase. Omit (daily cron) to process everything still
+   * untagged; pass a small number (e.g. 100) for a validated batch before a full backfill.
+   *
+   * WHY IDEMPOTENT/RESUMABLE: each phase only touches tickets that are still untagged
+   * (applies_to_part_id null, or ancestry empty), so a crashed/retried run simply
+   * resumes where it left off — no double processing, no Slack alerts emitted.
+   *
+   * lockDuration: 600000 (10 min) — a full backfill walks many parts.
+   */
+  const partsSyncWorker = new Worker(
+    "parts-sync",
+    async (job) => {
+      logger.info({ data: job.data }, "[parts-sync] Processing");
+      const result = await runPartsSync({ maxTickets: job.data?.maxTickets ?? null });
+      if (global.gc) global.gc();
+      return result;
+    },
+    { ...opts, concurrency: 1, lockDuration: 600000 },
+  );
+
+  // ─────────────────────────────────────────────────────────────────
   // EVENT HANDLERS — Logging for all workers
   // ─────────────────────────────────────────────────────────────────
   /**
@@ -225,7 +253,7 @@ export const registerAllWorkers = (connection) => {
    * Without these handlers, failures would be silent — you'd only know
    * something broke when users complain the dashboard is stale.
    */
-  const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, rosterWorker, activitySyncWorker];
+  const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, rosterWorker, activitySyncWorker, partsSyncWorker];
 
   allWorkers.forEach((w) => {
     w.on("completed", (job) => logger.info({ worker: w.name, jobName: job.name }, "Job completed"));

@@ -48,6 +48,11 @@ const start = async () => {
     { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-precompute" },
   );
 
+  // NOTE: Parts View part-tagging is NOT a separate cron — it now happens inline inside
+  // the historical sync (each ticket is tagged with its product/part as it's written to
+  // Mongo) and inside the active-ticket sync. The parts-sync queue/worker is kept only
+  // for manual full-backfill triggers (e.g. via Bull Board): node scripts/backfillParts.js.
+
   logger.info("Repeatable cron jobs registered");
 
   // 7. Dispatch staggered startup jobs

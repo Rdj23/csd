@@ -158,6 +158,46 @@ export const fetchTimelineEntries = async (objectId, { cursor, limit = 50 } = {}
 };
 
 /**
+ * Fetch ALL links for an arbitrary DevRev object (by full DON id).
+ *
+ * WHY THIS IS SEPARATE FROM fetchTicketLinks:
+ * fetchTicketLinks() hardcodes the ticket URN shape and filters to object_types:["issue"]
+ * — it only answers "what issues is this ticket linked to?". The Parts View needs the
+ * opposite kind of walk: "what part is THIS part a child of?" That means calling
+ * links.list on a *part* DON and reading the `is_part_of` link. So we keep a generic
+ * helper that takes any object DON and returns the raw links array unfiltered.
+ *
+ * The DevRev links.list response shape (per object):
+ *   { links: [ { link_type: "is_part_of", source: {...}, target: { id, display_id,
+ *                 type, ... } }, ... ] }
+ * The caller decides which link_type to follow.
+ */
+export const fetchObjectLinks = async (objectDon) => {
+  const res = await axios.post(
+    `${DEVREV_API}/links.list`,
+    { object: objectDon },
+    { headers: HEADERS },
+  );
+  return res.data?.links || [];
+};
+
+/**
+ * Fetch a single part (product / capability / feature) by its DON id or display id.
+ * Returns the `part` object (with display_id, type, name, ...) or null.
+ *
+ * NOTE: parts.get does NOT return parent info on the public API — only links.list does.
+ * So this is used purely to resolve a part's own metadata (name + level), never its parent.
+ */
+export const fetchPart = async (id) => {
+  const res = await axios.post(
+    `${DEVREV_API}/parts.get`,
+    { id },
+    { headers: HEADERS },
+  );
+  return res.data?.part || null;
+};
+
+/**
  * Classify an issue into a team based on its custom fields and subtype.
  * Centralised here so both getIssueDetails and getBatchDependencies
  * produce consistent team labels.

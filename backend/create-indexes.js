@@ -50,6 +50,32 @@ const createIndexes = async () => {
     );
     console.log("✅ Index created");
 
+    // ── Parts View indexes (analyticstickets enrichment) ──
+    console.log("\n🌳 Creating Parts View indexes...\n");
+
+    console.log("Creating index: { applies_to_part_id: 1, closed_date: -1 }");
+    await collection.createIndex({ applies_to_part_id: 1, closed_date: -1 }, { background: true });
+    console.log("✅ Index created");
+
+    console.log("Creating index: { product_id: 1, closed_date: -1 }");
+    await collection.createIndex({ product_id: 1, closed_date: -1 }, { background: true });
+    console.log("✅ Index created");
+
+    // Multikey index on the ancestry array → "every ticket whose chain contains <part>".
+    console.log("Creating index: { ancestry: 1, closed_date: -1 }");
+    await collection.createIndex({ ancestry: 1, closed_date: -1 }, { background: true });
+    console.log("✅ Index created");
+
+    // ── Parts hierarchy collection ──
+    const partsCol = db.collection("parts");
+    console.log("\nCreating parts indexes: type, parent_id, product_id, ancestry, display_id");
+    await partsCol.createIndex({ type: 1 }, { background: true });
+    await partsCol.createIndex({ parent_id: 1 }, { background: true });
+    await partsCol.createIndex({ product_id: 1 }, { background: true });
+    await partsCol.createIndex({ ancestry: 1 }, { background: true });
+    await partsCol.createIndex({ display_id: 1 }, { background: true });
+    console.log("✅ Parts indexes created");
+
     console.log("\n📋 Listing all indexes:\n");
     const indexes = await collection.indexes();
     indexes.forEach((idx, i) => {

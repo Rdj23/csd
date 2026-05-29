@@ -5,6 +5,7 @@ import { redisGet, redisSet, redisDelete, redisHSetBatch, CACHE_TTL } from "../c
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { fetchTicketLinks, fetchWorkItem } from "./devrevApi.js";
+import { createPartContext, resolveWorkPartFields, refreshActivePartsCache } from "./partsService.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
@@ -98,6 +99,9 @@ const trimTicket = (t) => {
     sentiment: t.sentiment,
     isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
     actual_close_date: t.actual_close_date,
+    // Parts View: carry the part this ticket is filed under so the parts-sync /
+    // active-parts refresh can resolve its ancestry from cache without a works.get.
+    applies_to_part_id: t.applies_to_part?.id || null,
   };
 };
 
@@ -286,6 +290,13 @@ export const fetchAndCacheTickets = async (source = "auto") => {
 
       if (global.gc) global.gc();
       logger.info({ total: processed.length, active: processed.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
+
+      // Parts View: refresh the part-tagged snapshot of active tickets so the tree's
+      // live counts stay current. Best-effort — never let it break the ticket sync.
+      refreshActivePartsCache().catch((err) =>
+        logger.warn({ err: err?.message }, "Active parts refresh failed (non-fatal)"),
+      );
+
       return processed;
     } else {
       logger.warn("Sync completed with 0 tickets collected");
@@ -313,6 +324,16 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
   ).lean();
   const alertedTicketIds = new Set(alertedTickets.map(t => t.ticket_id));
   const ticketsToAlert = [];
+
+  // Parts View: load the part-hierarchy cache ONCE for this run so each ticket's
+  // ancestry resolves cache-first (a links.list walk only for parts we've never seen).
+  // This tags tickets with their product/part at the SAME time they sync to Mongo.
+  let partCtx = null;
+  try {
+    partCtx = await createPartContext();
+  } catch (e) {
+    logger.warn({ err: e?.message }, "Parts context init failed — tickets will sync without part tags");
+  }
 
   // Delta sync: track consecutive batches where all tickets already exist in DB
   let consecutiveKnownBatches = 0;
@@ -480,12 +501,26 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
               ? Math.max(0, (closedDate - new Date(t.created_date)) / 3600000)
               : null;
 
+            // Parts View: resolve this ticket's product/part chain (cache-first) so the
+            // upsert below tags it inline. Best-effort — if resolution fails the ticket
+            // still syncs (just untagged), and the next daily run retries it.
+            let partFields = { applies_to_part_id: t.applies_to_part?.id || null };
+            if (partCtx) {
+              try {
+                const { _viaWorksGet, ...pf } = await resolveWorkPartFields(t, partCtx);
+                partFields = pf;
+              } catch { /* leave applies_to_part_id only */ }
+            }
+
             ops.push({
               updateOne: {
                 filter: { ticket_id: t.display_id },
                 update: {
                   $set: {
                     ticket_id: t.display_id, devrev_id: t.id, display_id: t.display_id,
+                    // Parts View: product_id / product_name / ancestry resolved above,
+                    // written at the same time the ticket lands in Mongo.
+                    ...partFields,
                     title: t.title, created_date: new Date(t.created_date), closed_date: closedDate,
                     owner, owner_id: t.owned_by?.[0]?.id || null,
                     account_cohort: t.custom_fields?.tnt__account_cohort_fy_25 || null,

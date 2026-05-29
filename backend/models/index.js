@@ -151,6 +151,23 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     agent_response_count: { type: Number, default: 0 },
     agent_resolution_hours: { type: Number, default: null },
     resolved_by: { type: String, enum: ["engineer", "agent"], default: "engineer", index: true },
+
+    // ── Parts View (DevRev part hierarchy) ──
+    // WHY THESE LIVE HERE (not a separate tickets collection):
+    // analyticstickets already holds every field the Parts View renders. Rather than
+    // duplicate ticket data into a parallel collection that could drift, we enrich each
+    // ticket in place with its resolved part chain. Tagged by partsService (the daily
+    // parts-sync cron); null/empty until a ticket is first resolved.
+    //
+    // applies_to_part_id — the ONE part the ticket is filed under (any level, often a
+    //   deep feature). This is the group-by key for per-part ticket counts.
+    // product_id / product_name — the ROOT product after walking the is_part_of chain up.
+    // ancestry — ordered DON ids root→leaf (product → … → applies_to_part). Lets the tree
+    //   roll a leaf's count up into every ancestor without re-walking links at query time.
+    applies_to_part_id: { type: String, default: null, index: true },
+    product_id: { type: String, default: null, index: true },
+    product_name: { type: String, default: null },
+    ancestry: { type: [String], default: [] },
   },
   {
     versionKey: false,  // Disables __v field. We don't need Mongoose's optimistic locking
@@ -229,10 +246,55 @@ AnalyticsTicketSchema.index({ closed_date: -1, _id: -1 });
 // without an extra in-memory filter pass.
 AnalyticsTicketSchema.index({ closed_date: 1, resolved_by: 1 });
 
+// ── PARTS VIEW INDEXES ──
+// The parts-tree endpoint groups tickets by applies_to_part_id within a date range,
+// then rolls counts up the chain. product_id + ancestry power the per-product subtree
+// drilldown (/api/parts/:id/tickets). ancestry is a MULTIKEY index (array field) so
+// "every ticket whose chain contains <part DON>" is index-backed, not a collection scan.
+AnalyticsTicketSchema.index({ applies_to_part_id: 1, closed_date: -1 });
+AnalyticsTicketSchema.index({ product_id: 1, closed_date: -1 });
+AnalyticsTicketSchema.index({ ancestry: 1, closed_date: -1 });
+
 export const AnalyticsTicket = mongoose.model(
   "AnalyticsTicket",
   AnalyticsTicketSchema,
 );
+
+// ═══════════════════════════════════════════════════════════════════════
+// 11. PART — DevRev part hierarchy (Product > Capability > Feature > sub-Feature)
+// ═══════════════════════════════════════════════════════════════════════
+/**
+ * WHY THIS EXISTS:
+ * Tickets point to ONE part via applies_to_part (any level). To render DevRev's part
+ * tree and roll ticket counts up to the product, we need the hierarchy itself. The
+ * public parts.get API does NOT return parent info — only links.list does — so walking
+ * the chain is expensive. We resolve each part's ancestry ONCE via links.list and cache
+ * it here. The hierarchy rarely changes, so subsequent syncs are almost all cache hits.
+ *
+ * _id IS the DevRev DON id (e.g. "don:core:dvrv-us-1:devo/1iVu4ClfVV:product/5").
+ * Using the DON as the primary key makes upserts naturally idempotent and lets the
+ * resolver check "is this part already cached?" with a single findById.
+ *
+ * ancestry includes SELF as the last element (root product → … → this part), so a
+ * feature's ancestry = [product, capability, feature]. A product's ancestry = [product].
+ */
+const PartSchema = new mongoose.Schema(
+  {
+    _id: { type: String },              // DevRev DON id — the natural unique key
+    display_id: { type: String, index: true }, // PROD-5 / CAPL-30 / FEAT-269
+    type: { type: String, index: true },       // "product" | "capability" | "feature"
+    name: { type: String },
+    parent_id: { type: String, default: null, index: true }, // immediate is_part_of target DON (null for product)
+    product_id: { type: String, default: null, index: true }, // root product DON
+    product_name: { type: String, default: null },
+    ancestry: { type: [String], default: [] },  // ordered DON ids root→leaf, INCLUDING self
+    updated_at: { type: Date, default: Date.now },
+  },
+  // Declaring the `_id` path as String (above) is enough for Mongoose to use the DON
+  // as the key — do NOT add `{ _id: false }`, which would instead strip _id entirely.
+  { versionKey: false },
+);
+export const Part = mongoose.model("Part", PartSchema);
 
 // ═══════════════════════════════════════════════════════════════════════
 // 4. ANALYTICS CACHE — Precomputed dashboard statistics

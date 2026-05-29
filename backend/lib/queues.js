@@ -35,7 +35,7 @@ import { Queue } from "bullmq";
  * We initialize them lazily via initQueues() because the Redis connection
  * isn't available at import time (it's set up in server.js first).
  */
-let ticketSyncQueue, historicalSyncQueue, analyticsQueue, rosterQueue, activitySyncQueue;
+let ticketSyncQueue, historicalSyncQueue, analyticsQueue, rosterQueue, activitySyncQueue, partsSyncQueue;
 
 export const initQueues = (connection) => {
   /**
@@ -147,6 +147,26 @@ export const initQueues = (connection) => {
       removeOnFail: { count: 5 },
     },
   });
+
+  /**
+   * parts-sync — Resolves each ticket's DevRev part ancestry (Product>Capability>
+   * Feature) and keeps the `parts` hierarchy cache warm for the Parts View tab.
+   *
+   * WHY 30s BACKOFF (like historical/activity sync):
+   * The backfill walks links.list/parts.get for many parts and batches works.list for
+   * tickets. It's a bulk DevRev operation, so generous retry intervals avoid throttling
+   * the shared PAT. The job is fully idempotent (it only touches untagged tickets), so
+   * a retry never double-processes.
+   */
+  partsSyncQueue = new Queue("parts-sync", {
+    ...opts,
+    defaultJobOptions: {
+      attempts: 4,
+      backoff: { type: "exponential", delay: 30000 },
+      removeOnComplete: { count: 3 },
+      removeOnFail: { count: 5 },
+    },
+  });
 };
 
 /**
@@ -166,6 +186,7 @@ export const getHistoricalSyncQueue = () => historicalSyncQueue;
 export const getAnalyticsQueue = () => analyticsQueue;
 export const getRosterQueue = () => rosterQueue;
 export const getActivitySyncQueue = () => activitySyncQueue;
+export const getPartsSyncQueue = () => partsSyncQueue;
 
 /**
  * getAllQueues — Returns a map of all initialized queues.
@@ -185,5 +206,6 @@ export const getAllQueues = () => {
   if (analyticsQueue) map["analytics"] = analyticsQueue;
   if (rosterQueue) map["roster"] = rosterQueue;
   if (activitySyncQueue) map["activity-sync"] = activitySyncQueue;
+  if (partsSyncQueue) map["parts-sync"] = partsSyncQueue;
   return map;
 };

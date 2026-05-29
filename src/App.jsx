@@ -51,6 +51,7 @@ import {
   Import,
   Tag,
   Sparkles,
+  FolderTree,
 } from "lucide-react";
 import {
   parseISO,
@@ -66,6 +67,7 @@ import { Analytics } from "@vercel/analytics/react";
 
 import TicketList from "./features/tickets/components/TicketList";
 import AnalyticsDashboard from "./features/analytics/components/AnalyticsDashboard";
+import PartsView from "./features/parts/components/PartsView";
 import SmartDatePicker from "./components/common/SmartDateRangePicker";
 import MultiSelectFilter from "./components/common/MultiSelectFilter";
 import LoginScreen from "./features/auth/components/LoginScreen";
@@ -1557,6 +1559,7 @@ const App = () => {
               { id: "csd",          icon: Star,        label: "CSD Highlighted" },
               { id: "vistas",       icon: Layout,      label: "My Views" },
               { id: "analytics",    icon: BarChart3,   label: "Analytics" },
+              { id: "parts",        icon: FolderTree,  label: "Parts View" },
               ...((SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()])
                 ? [{ id: "activity", icon: Activity, label: "Activity Intel" }]
                 : []),
@@ -1639,7 +1642,7 @@ const App = () => {
           {/* RIGHT COLUMN: Filters (Fixed) + Content (Scrollable) */}
           <div className="flex-1 flex flex-col min-w-0 h-full">
             {/* FIXED FILTERS BAR - Hidden for Gamification/Activity tabs */}
-            {activeTab !== "gamification" && activeTab !== "activity" && (
+            {activeTab !== "gamification" && activeTab !== "activity" && activeTab !== "parts" && (
             <div className="shrink-0 z-40 mb-4 bg-white dark:bg-slate-900/95 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center transition-colors relative"
                  style={{ boxShadow: 'var(--shadow-card)' }}>
               {/* LEFT: Filters */}
@@ -2399,7 +2402,15 @@ const App = () => {
 
             {/* SCROLLABLE CONTENT */}
             <div className="flex-1 overflow-y-auto pr-1 pt-2 pb-10 no-scrollbar">
-              {(isLoading || isPartialData) && tickets.length === 0 ? (
+              {activeTab === "parts" ? (
+                <ErrorBoundary level="section">
+                  <PartsView
+                    filterOptions={options}
+                    tickets={tickets}
+                    isDark={theme === "dark"}
+                  />
+                </ErrorBoundary>
+              ) : (isLoading || isPartialData) && tickets.length === 0 ? (
                 <TicketSkeleton count={8} showProgress={true} progress={syncProgress} />
               ) : activeTab === "analytics" ? (
                 <ErrorBoundary level="section">
