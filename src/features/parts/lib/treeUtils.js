@@ -33,6 +33,31 @@ export const filterTree = (nodes, q) => {
 /** Root (product) ids — used by "Expand all" which stops at the capability level. */
 export const collectRootIds = (roots) => roots.map((r) => r.id);
 
+/** Depth-first lookup of a node by id. */
+export const findNode = (nodes, id) => {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    if (n.children?.length) {
+      const hit = findNode(n.children, id);
+      if (hit) return hit;
+    }
+  }
+  return null;
+};
+
+/** Path of nodes from a root down to `id` (inclusive), or [] if not found. */
+export const findPath = (nodes, id, trail = []) => {
+  for (const n of nodes) {
+    const next = [...trail, n];
+    if (n.id === id) return next;
+    if (n.children?.length) {
+      const hit = findPath(n.children, id, next);
+      if (hit.length) return hit;
+    }
+  }
+  return [];
+};
+
 /** Every node id in the tree (used to auto-expand a search result set). */
 export const collectAllIds = (nodes, acc = []) => {
   for (const n of nodes) {

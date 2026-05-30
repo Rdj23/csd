@@ -19,10 +19,10 @@ import MultiSelectFilter from "../../../components/common/MultiSelectFilter";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
 import { fetchPartsTree } from "../../../api/partsApi";
 import { usePersistentState } from "../hooks/usePersistentState";
-import { filterTree, flattenTree, collectRootIds, collectAllIds, INDENT, rowHeightFor } from "../lib/treeUtils";
+import { filterTree, flattenTree, collectRootIds, collectAllIds, findPath, INDENT, rowHeightFor } from "../lib/treeUtils";
 import { MagnitudeBar, Sparkline, TrendDelta } from "./primitives";
 import TicketDrilldown from "./TicketDrilldown";
-import OverviewChart from "./OverviewChart";
+import CompositionChart from "./CompositionChart";
 
 /**
  * PartsView — redesigned. A virtualized, depth-aware hierarchy of DevRev parts with
@@ -92,7 +92,7 @@ const GuideRail = ({ depth, guides, isLast }) => {
 };
 
 // ── Single tree row ─────────────────────────────────────────────────────────
-const PartRow = ({ row, isFocused, onToggle, onFocus }) => {
+const PartRow = ({ row, isFocused, isContext, onActivate }) => {
   const { node, depth, guides, isLast, hasChildren, expanded, siblingMax } = row;
   const t = typeOf(node.type);
   const Icon = t.Icon;
@@ -105,9 +105,9 @@ const PartRow = ({ row, isFocused, onToggle, onFocus }) => {
       aria-expanded={canExpand ? expanded : undefined}
       aria-level={depth + 1}
       tabIndex={-1}
-      onClick={() => { onFocus(); if (canExpand) onToggle(node); }}
+      onClick={() => onActivate(node)}
       className={`group flex items-stretch h-full cursor-pointer outline-none ${t.band}
-        ${isFocused ? "ring-2 ring-inset ring-indigo-500/70" : "hover:bg-slate-50 dark:hover:bg-slate-800/40"}`}
+        ${isFocused ? "ring-2 ring-inset ring-indigo-500/70" : isContext ? "bg-indigo-50/60 dark:bg-indigo-500/[0.07]" : "hover:bg-slate-50 dark:hover:bg-slate-800/40"}`}
     >
       <GuideRail depth={depth} guides={guides} isLast={isLast} />
 
@@ -160,12 +160,13 @@ const SkeletonRows = () => (
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-const PartsView = ({ filterOptions = {}, tickets = [], isDark = false }) => {
+const PartsView = ({ filterOptions = {}, tickets = [] }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
-  const [scopedId, setScopedId] = useState(null);
+  const [contextId, setContextId] = useState(null); // the part whose composition the donut shows
+  const [pendingScrollId, setPendingScrollId] = useState(null);
   const [showChart, setShowChart] = usePersistentState("parts.showChart", true);
 
   // Persisted across reloads
@@ -203,13 +204,23 @@ const PartsView = ({ filterOptions = {}, tickets = [], isDark = false }) => {
 
   useEffect(() => { loadTree(); }, [loadTree]);
 
-  // Scope (chart click) → roots; search → filtered + auto-expanded.
   const q = search.trim().toLowerCase();
-  const roots = useMemo(() => {
-    let r = data?.tree || [];
-    if (scopedId) r = r.filter((n) => n.id === scopedId);
-    return filterTree(r, q);
-  }, [data, scopedId, q]);
+  const roots = useMemo(() => filterTree(data?.tree || [], q), [data, q]);
+
+  // Donut context: the selected node's children, or products at the top. A leaf with
+  // no children falls back to its parent's children (its siblings) so the slice stays
+  // meaningful. `path` powers the breadcrumb.
+  const context = useMemo(() => {
+    const tree = data?.tree || [];
+    if (!contextId) return { slices: tree, name: "All products", total: data?.totalTickets || 0, path: [] };
+    const path = findPath(tree, contextId);
+    const node = path[path.length - 1];
+    if (!node) return { slices: tree, name: "All products", total: data?.totalTickets || 0, path: [] };
+    if (node.children?.length) return { slices: node.children, name: node.name, total: node.count, path };
+    const parent = path[path.length - 2];
+    if (parent?.children?.length) return { slices: parent.children, name: parent.name, total: parent.count, path: path.slice(0, -1) };
+    return { slices: [node], name: node.name, total: node.count, path };
+  }, [data, contextId]);
 
   const expandedSet = useMemo(() => {
     if (q) return new Set(collectAllIds(roots)); // auto-expand search matches
@@ -281,9 +292,33 @@ const PartsView = ({ filterOptions = {}, tickets = [], isDark = false }) => {
     }
   };
 
+  // Click a tree row → make it the donut context, focus it, toggle its expansion.
+  const activateRow = useCallback((node) => {
+    setFocusedKey(node.id);
+    setContextId(node.id);
+    toggle(node);
+  }, [toggle]);
+
+  // Click a donut slice → open the path in the tree, set context, scroll to it.
+  const drillTo = useCallback((id) => {
+    const path = findPath(data?.tree || [], id);
+    if (path.length) setExpandedIds((prev) => Array.from(new Set([...prev, ...path.map((n) => n.id)])));
+    setContextId(id);
+    setPendingScrollId(id);
+  }, [data, setExpandedIds]);
+
+  useEffect(() => {
+    if (!pendingScrollId) return;
+    const idx = flatRows.findIndex((r) => r.kind === "part" && r.node.id === pendingScrollId);
+    if (idx >= 0) {
+      virtualizer.scrollToIndex(idx, { align: "center" });
+      setFocusedKey(flatRows[idx].key);
+    }
+    setPendingScrollId(null);
+  }, [pendingScrollId, flatRows, virtualizer]);
+
   const activeFilterCount = priorities.length + statuses.length + accounts.length + (dateRange?.start ? 1 : 0);
   const clearFilters = () => setPFilters({ priorities: [], statuses: [], accounts: [], dateRange: { start: "", end: "" } });
-  const scopedNode = scopedId ? (data?.tree || []).find((n) => n.id === scopedId) : null;
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-3">
@@ -300,7 +335,7 @@ const PartsView = ({ filterOptions = {}, tickets = [], isDark = false }) => {
         <div className="flex items-center gap-1">
           <button onClick={() => setShowChart((s) => !s)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 ${showChart ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}`}>
-            <BarChart3 className="w-3.5 h-3.5" /> Overview
+            <BarChart3 className="w-3.5 h-3.5" /> Breakdown
           </button>
           <button onClick={expandToCapability}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -317,19 +352,32 @@ const PartsView = ({ filterOptions = {}, tickets = [], isDark = false }) => {
         </div>
       </div>
 
-      {/* Overview chart (drives the tree) */}
+      {/* Composition donut — reflects the current context, drives the tree */}
       {showChart && data && !error && (
-        <div className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pt-3 pb-1.5"
+        <div className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pt-3 pb-3"
              style={{ boxShadow: "var(--shadow-card)" }}>
-          <div className="flex items-center justify-between mb-1.5">
-            <h3 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Tickets by product</h3>
-            {scopedNode && (
-              <button onClick={() => setScopedId(null)} className="flex items-center gap-1 text-[11px] font-medium text-indigo-500 hover:underline">
-                Scoped: {scopedNode.name} <X className="w-3 h-3" />
-              </button>
-            )}
+          {/* Breadcrumb — where the donut is focused; crumbs navigate up */}
+          <div className="flex items-center gap-1 mb-2 text-[11px] flex-wrap">
+            <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mr-1">Breakdown</span>
+            <button
+              onClick={() => setContextId(null)}
+              className={`hover:underline ${contextId ? "text-indigo-500" : "text-slate-700 dark:text-slate-200 font-medium"}`}
+            >
+              All products
+            </button>
+            {context.path.map((n) => (
+              <span key={n.id} className="flex items-center gap-1">
+                <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                <button
+                  onClick={() => setContextId(n.id)}
+                  className={`hover:underline ${n.id === contextId ? "text-slate-700 dark:text-slate-200 font-medium" : "text-indigo-500"}`}
+                >
+                  {n.name}
+                </button>
+              </span>
+            ))}
           </div>
-          <OverviewChart products={data.tree} scopedId={scopedId} onScope={setScopedId} isDark={isDark} />
+          <CompositionChart slices={context.slices} contextName={context.name} total={context.total} onSlice={drillTo} />
         </div>
       )}
 
@@ -407,8 +455,8 @@ const PartsView = ({ filterOptions = {}, tickets = [], isDark = false }) => {
                       <PartRow
                         row={row}
                         isFocused={vi.index === focusedIndex}
-                        onToggle={toggle}
-                        onFocus={() => setFocusedKey(row.key)}
+                        isContext={row.node.id === contextId}
+                        onActivate={activateRow}
                       />
                     </div>
                   )}
