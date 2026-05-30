@@ -503,6 +503,83 @@ const buildSolvedMatch = ({ priorities, statuses, accounts, dateFrom, dateTo }) 
  * @param {object} filters  { priorities?, statuses?, accounts?, dateFrom?, dateTo? }
  * @returns {Promise<{tree, totalTickets, generatedAt}>}
  */
+// ── 7-day trend signal ──────────────────────────────────────────────────
+// We surface a per-part momentum signal ("is this part getting worse?"): a 7-day
+// sparkline of daily ticket volume + a delta vs the prior 7 days. Computed over a
+// fixed 14-day window (IST day buckets) regardless of the user's date filter, so it
+// stays a stable recent-momentum read; other filters (priority/status/account) still apply.
+const TREND_DAYS = 14;
+const SPARK_DAYS = 7;
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** Build the ordered IST day keys for the trend window + a key→index lookup (0=oldest). */
+const buildDayIndex = () => {
+  const days = [];
+  const index = new Map();
+  const istNow = new Date(Date.now() + IST_OFFSET_MS);
+  for (let i = TREND_DAYS - 1; i >= 0; i--) {
+    const d = new Date(istNow);
+    d.setUTCDate(d.getUTCDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const pos = TREND_DAYS - 1 - i; // oldest → 0, today → TREND_DAYS-1
+    index.set(key, pos);
+    days[pos] = key;
+  }
+  return { days, index };
+};
+
+const sumRange = (arr, start, end) => {
+  let s = 0;
+  for (let i = start; i < end; i++) s += arr[i] || 0;
+  return s;
+};
+
+/** Map<leafPartDon, number[TREND_DAYS]> of daily ticket volume over the trend window. */
+const computeLeafDaily = async (filters) => {
+  const { index } = buildDayIndex();
+  const since = new Date(Date.now() - TREND_DAYS * 86400000);
+  // Force the fixed window; keep the non-date filters.
+  const match = buildSolvedMatch({ ...filters, dateFrom: undefined, dateTo: undefined });
+  match.created_date = { $gte: since };
+
+  const rows = await AnalyticsTicket.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: {
+          part: "$applies_to_part_id",
+          day: { $dateToString: { format: "%Y-%m-%d", date: "$created_date", timezone: "Asia/Kolkata" } },
+        },
+        c: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const leafDaily = new Map();
+  const ensure = (part) => {
+    let a = leafDaily.get(part);
+    if (!a) { a = new Array(TREND_DAYS).fill(0); leafDaily.set(part, a); }
+    return a;
+  };
+  for (const r of rows) {
+    const idx = index.get(r._id.day);
+    if (idx === undefined || !r._id.part) continue;
+    ensure(r._id.part)[idx] += r.c;
+  }
+
+  // Active tickets created within the window.
+  const active = await getActivePartsCache();
+  for (const row of active) {
+    if (!row.applies_to_part_id || !row.created_date) continue;
+    if (!activeRowMatches(row, { ...filters, dateFrom: undefined, dateTo: undefined })) continue;
+    const istKey = new Date(new Date(row.created_date).getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+    const idx = index.get(istKey);
+    if (idx === undefined) continue;
+    ensure(row.applies_to_part_id)[idx] += 1;
+  }
+  return leafDaily;
+};
+
 export const buildPartsTree = async (filters = {}) => {
   const hasFilters =
     (filters.priorities?.length || filters.statuses?.length || filters.accounts?.length ||
@@ -529,12 +606,27 @@ export const buildPartsTree = async (filters = {}) => {
     leafCounts.set(row.applies_to_part_id, (leafCounts.get(row.applies_to_part_id) || 0) + 1);
   }
 
+  // 2b. Daily volume (last 14d) per leaf, for the trend sparkline/delta.
+  const leafDaily = await computeLeafDaily(filters);
+
   // 3. Load the hierarchy and roll counts up each leaf's ancestry chain.
   const parts = await Part.find().lean();
   const partsById = new Map(parts.map((p) => [p._id, p]));
   const rolled = new Map(); // partDon -> subtree total
   const direct = new Map(); // partDon -> tickets filed directly at this part
+  const rolledDaily = new Map(); // partDon -> number[TREND_DAYS] subtree daily volume
   let unknownCount = 0;
+
+  // Roll the daily arrays up each leaf's ancestry (element-wise), mirroring count rollup.
+  for (const [don, daily] of leafDaily) {
+    const part = partsById.get(don);
+    const chain = part?.ancestry?.length ? part.ancestry : [don];
+    for (const anc of chain) {
+      let agg = rolledDaily.get(anc);
+      if (!agg) { agg = new Array(TREND_DAYS).fill(0); rolledDaily.set(anc, agg); }
+      for (let i = 0; i < TREND_DAYS; i++) agg[i] += daily[i];
+    }
+  }
 
   let totalTickets = 0;
   for (const [don, cnt] of leafCounts) {
@@ -560,6 +652,12 @@ export const buildPartsTree = async (filters = {}) => {
     const kids = (childrenOf.get(p._id) || [])
       .map(buildNode)
       .sort((a, b) => b.count - a.count); // sort by ticket count desc (requirement)
+    const daily = rolledDaily.get(p._id);
+    const spark = daily ? daily.slice(TREND_DAYS - SPARK_DAYS) : new Array(SPARK_DAYS).fill(0);
+    // delta = volume in the last 7d minus the 7d before that.
+    const delta = daily
+      ? sumRange(daily, TREND_DAYS - SPARK_DAYS, TREND_DAYS) - sumRange(daily, TREND_DAYS - 2 * SPARK_DAYS, TREND_DAYS - SPARK_DAYS)
+      : 0;
     return {
       id: p._id,
       display_id: p.display_id,
@@ -567,6 +665,8 @@ export const buildPartsTree = async (filters = {}) => {
       name: p.name || p.display_id || "(unnamed)",
       count: rolled.get(p._id) || 0,
       directCount: direct.get(p._id) || 0,
+      spark,      // number[7] daily volume (oldest → today)
+      delta,      // net change vs prior 7 days
       children: kids,
     };
   };
