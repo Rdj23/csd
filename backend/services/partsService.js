@@ -52,7 +52,7 @@ export const UNKNOWN_NODE_ID = "__unresolved__";
  * DevRev web app org slug, used to build clickable ticket links for the UI.
  * Overridable via env in case the org slug differs from the email domain.
  */
-const DEVREV_ORG_SLUG = process.env.DEVREV_ORG_SLUG || "clevertap";
+const DEVREV_ORG_SLUG = process.env.DEVREV_ORG_SLUG || "clevertapsupport";
 
 /** Build the DevRev web URL for a ticket from its display id (e.g. TKT-309513). */
 export const buildDevrevTicketUrl = (displayId) =>
