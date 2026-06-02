@@ -141,6 +141,19 @@ export const getDaysWorked = (name, start, end) => {
   return days;
 };
 
+// Convert a 1-based column count to A1-notation column letters (1 -> "A",
+// 26 -> "Z", 27 -> "AA", 52 -> "AZ"). Used to build a fetch range that spans
+// the sheet's full width without hardcoding a column ceiling.
+const columnIndexToLetter = (n) => {
+  let letter = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter || "A";
+};
+
 export const syncRoster = async () => {
   logger.info("Roster Sync started");
 
@@ -166,10 +179,20 @@ export const syncRoster = async () => {
     const meta = await sheets.spreadsheets.get({
       spreadsheetId: process.env.ROSTER_SHEET_ID,
     });
-    const sheetName = meta.data.sheets?.[0]?.properties?.title || "Sheet1";
+    const firstSheet = meta.data.sheets?.[0]?.properties;
+    const sheetName = firstSheet?.title || "Sheet1";
+
+    // Derive the range from the sheet's actual dimensions instead of a fixed
+    // ceiling. The roster grows DOWNWARD — each new month is appended as a new
+    // section, so a hardcoded row limit (previously A1:AZ100) silently truncates
+    // the newest month once cumulative rows cross it (e.g. the June section at
+    // row 101+ was never fetched, so "2-Jun" was missing from DATE_COL_MAP).
+    const rowCount = firstSheet?.gridProperties?.rowCount || 1000;
+    const colCount = firstSheet?.gridProperties?.columnCount || 52;
+    const lastCol = columnIndexToLetter(colCount);
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.ROSTER_SHEET_ID,
-      range: `'${sheetName}'!A1:AZ100`,
+      range: `'${sheetName}'!A1:${lastCol}${rowCount}`,
     });
     const rows = resp.data.values || [];
 
