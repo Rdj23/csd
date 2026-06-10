@@ -1995,6 +1995,55 @@ const App = () => {
                         }))
                       }
                     />
+                    {/* Linked / Dependency filter — uses the same `dependencies`
+                        map already loaded for NOC exclusion. Both values selected
+                        (the default) is a no-op; the view narrows only when the
+                        user picks exactly one. */}
+                    <MultiSelectFilter
+                      icon={Link2}
+                      label="Dependency"
+                      hideCount
+                      options={["with_dependency", "no_dependency"]}
+                      labelMap={{
+                        with_dependency: "Has Linked / Dependency",
+                        no_dependency: "No Dependency",
+                      }}
+                      selected={tabFilters.analytics?.dependency || []}
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          analytics: { ...prev.analytics, dependency: v },
+                        }))
+                      }
+                    />
+                    {/* Dependency-team filter — only meaningful when filtering for
+                        linked tickets, so hide it otherwise. */}
+                    {tabFilters.analytics?.dependency?.includes(
+                      "with_dependency",
+                    ) && (
+                      <MultiSelectFilter
+                        icon={Link2}
+                        label="Dep. Team"
+                        options={[
+                          "NOC",
+                          "Whatsapp",
+                          "Billing",
+                          "Email",
+                          "Internal",
+                          "Other",
+                        ]}
+                        selected={tabFilters.analytics?.dependencyTeams || []}
+                        onChange={(v) =>
+                          setTabFilters((prev) => ({
+                            ...prev,
+                            analytics: {
+                              ...prev.analytics,
+                              dependencyTeams: v,
+                            },
+                          }))
+                        }
+                      />
+                    )}
                     {/* Dashboard-wide "Resolved By" filter (analytics tab).
                         Both checked = no-op so the precomputed cache stays warm. */}
                     <MultiSelectFilter

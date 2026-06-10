@@ -338,9 +338,39 @@ const AnalyticsDashboard = ({
         if (!filters.regions.includes(region)) return false;
       }
 
+      // Linked / Dependency Filter — both values selected (default) is a no-op;
+      // narrows only when the user picks exactly one. Mirrors the All Tickets view.
+      if (filters?.dependency?.length > 0 && filters?.dependency?.length < 2) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        const hasDependency = dep?.hasDependency === true;
+        if (filters.dependency.includes("with_dependency") && !hasDependency)
+          return false;
+        if (filters.dependency.includes("no_dependency") && hasDependency)
+          return false;
+      }
+
+      // Dependency-team filter — only applies when scoping to linked tickets and
+      // a strict subset of teams is selected (length < 6 = "not all").
+      if (
+        filters?.dependency?.includes("with_dependency") &&
+        filters?.dependencyTeams?.length > 0 &&
+        filters?.dependencyTeams?.length < 6
+      ) {
+        const ticketId = t.display_id?.replace("TKT-", "");
+        const dep = dependencies[ticketId];
+        if (dep?.hasDependency) {
+          const ticketTeams = dep.issues?.map((i) => i.team) || [];
+          const hasMatchingTeam = filters.dependencyTeams.some((team) =>
+            ticketTeams.includes(team),
+          );
+          if (!hasMatchingTeam) return false;
+        }
+      }
+
       return true;
     });
-  }, [tickets, filters, excludeZendesk]);
+  }, [tickets, filters, excludeZendesk, dependencies]);
 
   // 1b. Apply NOC filter on top of core filters (for non-CSAT metrics)
   const baseFilteredTickets = useMemo(() => {
