@@ -138,6 +138,26 @@ const DEPENDENCY_TEAM_OPTIONS = [
   { value: "Other", label: "Other" },
 ];
 
+// Tab ids that double as URL paths, e.g. /parts, /analytics, /activity.
+// "tickets" is the default and maps to the root path "/".
+const TAB_PATHS = [
+  "tickets",
+  "alltickets",
+  "csd",
+  "vistas",
+  "analytics",
+  "parts",
+  "activity",
+  "gamification",
+];
+
+// Derive the active tab from the current URL path (first path segment).
+// Unknown / empty paths fall back to the default "tickets" tab.
+const tabFromPath = () => {
+  const seg = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0];
+  return TAB_PATHS.includes(seg) ? seg : "tickets";
+};
+
 const App = () => {
   const {
     tickets,
@@ -160,8 +180,26 @@ const App = () => {
   } = useTicketStore();
 
   const [googleClientId, setGoogleClientId] = useState(null);
-  const [activeTab, setActiveTab] = useState("tickets");
+  const [activeTab, setActiveTab] = useState(tabFromPath);
   const [showAgentModal, setShowAgentModal] = useState(false);
+
+  // Keep the browser URL in sync with the active tab so each tab is
+  // directly linkable (e.g. https://supportintel.clevertap.com/parts).
+  // Watching `activeTab` covers every way the tab can change — clicks,
+  // programmatic jumps, etc. — without touching each call site.
+  useEffect(() => {
+    const path = activeTab === "tickets" ? "/" : `/${activeTab}`;
+    if (window.location.pathname !== path) {
+      window.history.pushState({ tab: activeTab }, "", path);
+    }
+  }, [activeTab]);
+
+  // Reflect browser back/forward (popstate) navigation back into state.
+  useEffect(() => {
+    const onPopState = () => setActiveTab(tabFromPath());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
