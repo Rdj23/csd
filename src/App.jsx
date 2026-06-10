@@ -176,9 +176,15 @@ const App = () => {
   const depsInFlightRef = useRef(new Set());
   const depsFetchTimerRef = useRef(null);
 
-  // Fetch dependencies — debounced + in-flight tracking to prevent request floods
+  // Fetch dependencies — debounced + in-flight tracking to prevent request floods.
+  // Needed on every tab that exposes a dependency/linked filter or NOC exclusion:
+  // the main Tickets board, All Tickets, and Analytics all read the same map.
   useEffect(() => {
-    if (tickets.length === 0 || activeTab !== "tickets") return;
+    if (
+      tickets.length === 0 ||
+      !["tickets", "alltickets", "analytics"].includes(activeTab)
+    )
+      return;
 
     clearTimeout(depsFetchTimerRef.current);
     depsFetchTimerRef.current = setTimeout(() => {

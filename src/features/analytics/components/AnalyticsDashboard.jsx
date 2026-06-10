@@ -298,6 +298,20 @@ const AnalyticsDashboard = ({
     filters?.resolvedBy,
   ]);
 
+  // A dependency filter is "active" (narrowing the view) only when the user picked
+  // exactly one of Has/No, or a strict subset of dependency teams. The backend daily
+  // rollups (analyticsData.trends / individualTrends) carry no per-ticket dependency
+  // dimension, so when this is active we recompute stats AND charts client-side from
+  // the already-dependency-filtered ticket arrays (solvedTickets / volumeTickets).
+  const hasDependencyFilter = useMemo(() => {
+    return (
+      (filters?.dependency?.length > 0 && filters?.dependency?.length < 2) ||
+      (filters?.dependency?.includes("with_dependency") &&
+        filters?.dependencyTeams?.length > 0 &&
+        filters?.dependencyTeams?.length < 6)
+    );
+  }, [filters]);
+
   // 1. Core Filters (Team, Owner, Region, Zendesk) - all filters EXCEPT NOC
   const coreFilteredTickets = useMemo(() => {
     return tickets.filter((t) => {
@@ -1579,40 +1593,23 @@ const AnalyticsDashboard = ({
       };
     });
 
-    // For Solved/RWT/Backlog: Use MongoDB individualTrends (filtered by owner/team)
-    const individualTrends = analyticsData?.individualTrends || {};
-
-    // Determine which owners to include based on filters
-    let ownersToInclude = Object.keys(individualTrends);
-
-    // Filter Owners (case-insensitive)
-    if (filters?.owners?.length > 0) {
-      const lowerFilters = filters.owners.map((o) => o.toLowerCase());
-      ownersToInclude = ownersToInclude.filter((owner) =>
-        lowerFilters.includes(owner.toLowerCase()),
-      );
-    }
-
-    if (filters?.teams?.length > 0) {
-      ownersToInclude = ownersToInclude.filter((owner) => {
-        const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
-          Object.values(TEAM_GROUPS[teamKey]).includes(owner),
-        );
-        return filters.teams.some((team) => ownerTeams.includes(team));
-      });
-    }
-
-    // Build aggregated data per day
+    // For Solved/RWT/Backlog the default source is the MongoDB individualTrends
+    // rollup (filtered by owner/team). But those rollups have no dependency
+    // dimension, so when a dependency filter is active we rebuild the same
+    // per-day aggregates directly from solvedTickets (already filtered upstream
+    // for dependency + owner/team/region). Field/threshold definitions mirror the
+    // backend aggregation: solved = count by close-date, avgRWT = mean of rwt>0,
+    // backlogCleared = tickets whose (closed - created) age >= 15 days.
     const dailyAggregates = {};
 
-    ownersToInclude.forEach((owner) => {
-      const ownerTrends = individualTrends[owner] || [];
+    if (hasDependencyFilter) {
+      solvedTickets.forEach((t) => {
+        const closedDate = t.actual_close_date || t.closed_date;
+        if (!closedDate) return;
+        const dateKey = format(parseISO(closedDate), "yyyy-MM-dd");
 
-      ownerTrends.forEach((day) => {
-        if (!day.date) return;
-
-        if (!dailyAggregates[day.date]) {
-          dailyAggregates[day.date] = {
+        if (!dailyAggregates[dateKey]) {
+          dailyAggregates[dateKey] = {
             solved: 0,
             totalRWT: 0,
             rwtCount: 0,
@@ -1620,14 +1617,69 @@ const AnalyticsDashboard = ({
           };
         }
 
-        dailyAggregates[day.date].solved += day.solved || 0;
-        if (day.avgRWT && day.solved) {
-          dailyAggregates[day.date].totalRWT += day.avgRWT * day.solved;
-          dailyAggregates[day.date].rwtCount += day.solved;
+        dailyAggregates[dateKey].solved += 1;
+
+        const rwt = t.custom_fields?.tnt__rwt_business_hours;
+        if (rwt > 0) {
+          dailyAggregates[dateKey].totalRWT += rwt;
+          dailyAggregates[dateKey].rwtCount += 1;
         }
-        dailyAggregates[day.date].backlogCleared += day.backlogCleared || 0;
+
+        if (t.created_date) {
+          const ageDays =
+            (parseISO(closedDate).getTime() -
+              parseISO(t.created_date).getTime()) /
+            (1000 * 60 * 60 * 24);
+          if (ageDays >= 15) dailyAggregates[dateKey].backlogCleared += 1;
+        }
       });
-    });
+    } else {
+      const individualTrends = analyticsData?.individualTrends || {};
+
+      // Determine which owners to include based on filters
+      let ownersToInclude = Object.keys(individualTrends);
+
+      // Filter Owners (case-insensitive)
+      if (filters?.owners?.length > 0) {
+        const lowerFilters = filters.owners.map((o) => o.toLowerCase());
+        ownersToInclude = ownersToInclude.filter((owner) =>
+          lowerFilters.includes(owner.toLowerCase()),
+        );
+      }
+
+      if (filters?.teams?.length > 0) {
+        ownersToInclude = ownersToInclude.filter((owner) => {
+          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
+            Object.values(TEAM_GROUPS[teamKey]).includes(owner),
+          );
+          return filters.teams.some((team) => ownerTeams.includes(team));
+        });
+      }
+
+      ownersToInclude.forEach((owner) => {
+        const ownerTrends = individualTrends[owner] || [];
+
+        ownerTrends.forEach((day) => {
+          if (!day.date) return;
+
+          if (!dailyAggregates[day.date]) {
+            dailyAggregates[day.date] = {
+              solved: 0,
+              totalRWT: 0,
+              rwtCount: 0,
+              backlogCleared: 0,
+            };
+          }
+
+          dailyAggregates[day.date].solved += day.solved || 0;
+          if (day.avgRWT && day.solved) {
+            dailyAggregates[day.date].totalRWT += day.avgRWT * day.solved;
+            dailyAggregates[day.date].rwtCount += day.solved;
+          }
+          dailyAggregates[day.date].backlogCleared += day.backlogCleared || 0;
+        });
+      });
+    }
 
     // Solved: From aggregated individualTrends
     const solvedData = daysInterval.map((day) => {
@@ -1673,16 +1725,27 @@ const AnalyticsDashboard = ({
       rwt: rwtData,
       backlog: backlogData,
     };
-  }, [volumeTickets, effectiveDateRange, analyticsData, filters, excludeNOC]);
+  }, [
+    volumeTickets,
+    solvedTickets,
+    hasDependencyFilter,
+    effectiveDateRange,
+    analyticsData,
+    filters,
+    excludeNOC,
+  ]);
 
   const filteredStats = useMemo(() => {
     // NOC exclusion is already handled by baseFilteredTickets -> solvedTickets
     // CSAT/DSAT uses solvedTicketsForCSAT which always includes NOC tickets
+    // When hasDependencyFilter is active we fall into Scenario 0 (client-side calc)
+    // because solvedTickets already had the dependency filter applied upstream.
 
     // =================================================================================
-    // SCENARIO 0: REGION FILTER APPLIED - Must use DevRev data (MongoDB doesn't have region per trend)
+    // SCENARIO 0: REGION OR DEPENDENCY FILTER APPLIED - Must use DevRev data
+    // (MongoDB rollups don't carry region / dependency per trend)
     // =================================================================================
-    if (filters?.regions?.length > 0) {
+    if (filters?.regions?.length > 0 || hasDependencyFilter) {
       // When region filter is active, calculate from solvedTickets (already filtered by region in baseFilteredTickets)
       let filteredSolved = solvedTickets;
 
@@ -1974,6 +2037,7 @@ const AnalyticsDashboard = ({
     solvedTickets,
     solvedTicketsForCSAT,
     filters,
+    hasDependencyFilter,
     effectiveDateRange,
     excludeNOC,
     dependencies,
