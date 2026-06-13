@@ -15,14 +15,24 @@ const buildParams = (filters = {}) => {
   if (filters.statuses?.length)
     p.append("statuses", filters.statuses.map((s) => s.toLowerCase()).join(","));
   if (filters.accounts?.length) p.append("accounts", filters.accounts.join(","));
+  // subtypes lowercased to match the backend's case-insensitive substring matcher.
+  if (filters.subtypes?.length)
+    p.append("subtypes", filters.subtypes.map((s) => s.toLowerCase()).join(","));
+  if (filters.regions?.length) p.append("regions", filters.regions.join(","));
   if (filters.dateFrom) p.append("dateFrom", filters.dateFrom);
   if (filters.dateTo) p.append("dateTo", filters.dateTo);
   return p;
 };
 
-/** Fetch the nested product→capability→feature tree with rolled-up counts. */
-export const fetchPartsTree = async (filters = {}) => {
-  const res = await authAxios.get(`${API_URL}/api/parts-tree?${buildParams(filters)}`);
+/**
+ * Fetch the nested product→capability→feature tree with rolled-up counts.
+ * Pass { fresh:true } (the Refresh button) to bypass the cached default tree and
+ * re-tag the live active set server-side.
+ */
+export const fetchPartsTree = async (filters = {}, { fresh = false } = {}) => {
+  const p = buildParams(filters);
+  if (fresh) p.append("forceRefresh", "1");
+  const res = await authAxios.get(`${API_URL}/api/parts-tree?${p}`);
   return res.data; // { success, tree, totalTickets, generatedAt }
 };
 

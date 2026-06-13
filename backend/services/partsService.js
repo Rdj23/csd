@@ -441,6 +441,10 @@ const makeActiveRow = (t, leaf) => ({
   account_name: t.account?.display_name || t.account || t.custom_fields?.tnt__instance_account_name || "Unknown",
   priority: t.priority || t.severity || null,
   stage_name: t.stage?.name || null,
+  // Classification + region carried so the tree's subtype/region filters apply to
+  // active tickets identically to solved ones (see activeRowMatches).
+  subtype: t.subtype || null,
+  region: t.custom_fields?.tnt__region_salesforce || null,
   created_date: t.created_date || null,
   applies_to_part_id: t.applies_to_part_id || "",
   product_id: leaf?.product_id || null,
@@ -465,9 +469,15 @@ const stageFilterFromStatuses = (statuses) => {
 };
 
 /** Does a slim active row pass the same filters we apply to solved tickets? */
-const activeRowMatches = (row, { priorities, statuses, accounts, dateFrom, dateTo }) => {
+const activeRowMatches = (row, { priorities, statuses, accounts, subtypes, regions, dateFrom, dateTo }) => {
   if (priorities?.length && !priorities.includes(row.priority)) return false;
   if (accounts?.length && !accounts.includes(row.account_name)) return false;
+  if (regions?.length && !regions.includes(row.region)) return false;
+  if (subtypes?.length) {
+    // Case-insensitive contains so "feature" still matches e.g. "feature_request".
+    const st = (row.subtype || "").toLowerCase();
+    if (!subtypes.some((s) => st.includes(s.toLowerCase()))) return false;
+  }
   if (statuses?.length) {
     const subs = statuses.flatMap((s) => STATUS_STAGE_MATCHERS[s?.toLowerCase()] || []);
     const sn = (row.stage_name || "").toLowerCase();
@@ -479,7 +489,7 @@ const activeRowMatches = (row, { priorities, statuses, accounts, dateFrom, dateT
 };
 
 /** Translate UI filters into a Mongo match on analyticstickets (created_date based). */
-const buildSolvedMatch = ({ priorities, statuses, accounts, dateFrom, dateTo }) => {
+const buildSolvedMatch = ({ priorities, statuses, accounts, subtypes, regions, dateFrom, dateTo }) => {
   const match = { applies_to_part_id: { $nin: [null, ""] } };
   if (dateFrom || dateTo) {
     match.created_date = {};
@@ -488,6 +498,9 @@ const buildSolvedMatch = ({ priorities, statuses, accounts, dateFrom, dateTo }) 
   }
   if (priorities?.length) match.priority = { $in: priorities };
   if (accounts?.length) match.account_name = { $in: accounts };
+  if (regions?.length) match.region = { $in: regions };
+  // Match subtype case-insensitively as a substring so value variants group together.
+  if (subtypes?.length) match.subtype = { $in: subtypes.map((s) => new RegExp(s, "i")) };
   const stageFilter = statuses?.length ? stageFilterFromStatuses(statuses) : null;
   if (stageFilter) match.stage_name = stageFilter;
   return match;
@@ -580,13 +593,26 @@ const computeLeafDaily = async (filters) => {
   return leafDaily;
 };
 
-export const buildPartsTree = async (filters = {}) => {
+export const buildPartsTree = async (filters = {}, { fresh = false } = {}) => {
   const hasFilters =
     (filters.priorities?.length || filters.statuses?.length || filters.accounts?.length ||
+      filters.subtypes?.length || filters.regions?.length ||
       filters.dateFrom || filters.dateTo) ? true : false;
 
-  // Serve the cached default tree for the common unfiltered case.
-  if (!hasFilters) {
+  // Explicit refresh (the UI's Refresh button): re-tag the live active set and drop the
+  // cached default tree so this rebuild reflects newly-active/newly-resolved tickets.
+  // Without this, Refresh on the unfiltered view just re-served the 10-min Redis cache.
+  if (fresh) {
+    try {
+      await refreshActivePartsCache();
+    } catch (err) {
+      logger.warn({ err: err?.message }, "[parts] fresh active-cache refresh failed");
+    }
+    await redisDelete(TREE_CACHE_KEY).catch(() => {});
+  }
+
+  // Serve the cached default tree for the common unfiltered case (skipped on refresh).
+  if (!hasFilters && !fresh) {
     const cached = await redisGet(TREE_CACHE_KEY);
     if (cached) return cached;
   }
@@ -651,6 +677,8 @@ export const buildPartsTree = async (filters = {}) => {
   const buildNode = (p) => {
     const kids = (childrenOf.get(p._id) || [])
       .map(buildNode)
+      .filter((n) => n.count > 0) // hide parts with no tickets (counts roll up, so a
+                                  // zero-count node has only zero-count descendants)
       .sort((a, b) => b.count - a.count); // sort by ticket count desc (requirement)
     const daily = rolledDaily.get(p._id);
     const spark = daily ? daily.slice(TREND_DAYS - SPARK_DAYS) : new Array(SPARK_DAYS).fill(0);
@@ -672,9 +700,11 @@ export const buildPartsTree = async (filters = {}) => {
   };
 
   // Roots = products (parent_id null) plus any orphan whose parent isn't cached.
+  // Drop zero-count roots too, so only parts with tickets remain.
   const roots = parts
     .filter((p) => !p.parent_id || !partsById.has(p.parent_id))
     .map(buildNode)
+    .filter((n) => n.count > 0)
     .sort((a, b) => b.count - a.count);
 
   if (unknownCount > 0) {

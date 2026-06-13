@@ -22,6 +22,8 @@ const parseFilters = (q) => ({
   priorities: csv(q.priorities),
   statuses: csv(q.statuses),
   accounts: csv(q.accounts),
+  subtypes: csv(q.subtypes), // classification: query / bug / feature
+  regions: csv(q.regions),
   dateFrom: q.dateFrom || undefined,
   dateTo: q.dateTo || undefined,
 });
@@ -29,7 +31,9 @@ const parseFilters = (q) => ({
 export const getPartsTree = async (req, res) => {
   try {
     const filters = parseFilters(req.query);
-    const data = await buildPartsTree(filters);
+    // forceRefresh=1 bypasses the cached default tree and re-tags the active set.
+    const fresh = req.query.forceRefresh === "1" || req.query.forceRefresh === "true";
+    const data = await buildPartsTree(filters, { fresh });
     return ok(res, data);
   } catch (err) {
     logger.error({ err }, "[parts] getPartsTree failed");

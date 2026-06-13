@@ -14,6 +14,10 @@ import {
   ChevronsUpDown,
   X,
   BarChart3,
+  Pin,
+  PinOff,
+  Tag,
+  Globe,
 } from "lucide-react";
 import MultiSelectFilter from "../../../components/common/MultiSelectFilter";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
@@ -168,18 +172,21 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
   const [contextId, setContextId] = useState(null); // the part whose composition the donut shows
   const [pendingScrollId, setPendingScrollId] = useState(null);
   const [showChart, setShowChart] = usePersistentState("parts.showChart", true);
+  // Pin = expand the donut; unpinned (default) keeps the breakdown a compact strip so
+  // it doesn't eat half the screen. The "Breakdown" button still fully hides the panel.
+  const [chartPinned, setChartPinned] = usePersistentState("parts.chartPinned", false);
 
   // Persisted across reloads
   const [expandedIds, setExpandedIds] = usePersistentState("parts.expanded", []);
   const [pFilters, setPFilters] = usePersistentState("parts.filters", {
-    priorities: [], statuses: [], accounts: [], dateRange: { start: "", end: "" },
+    priorities: [], statuses: [], accounts: [], subtypes: [], regions: [], dateRange: { start: "", end: "" },
   });
-  const { priorities, statuses, accounts, dateRange } = pFilters;
+  const { priorities, statuses, accounts, subtypes = [], regions = [], dateRange } = pFilters;
   const patch = (key, val) => setPFilters((f) => ({ ...f, [key]: val }));
 
   const filters = useMemo(
-    () => ({ priorities, statuses, accounts, dateFrom: dateRange?.start || undefined, dateTo: dateRange?.end || undefined }),
-    [priorities, statuses, accounts, dateRange],
+    () => ({ priorities, statuses, accounts, subtypes, regions, dateFrom: dateRange?.start || undefined, dateTo: dateRange?.end || undefined }),
+    [priorities, statuses, accounts, subtypes, regions, dateRange],
   );
 
   const priorityOptions = useMemo(() => {
@@ -189,12 +196,15 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
   }, [tickets]);
   const accountOptions = filterOptions.accounts || [];
   const statusOptions = filterOptions.stages || ["Open", "Pending", "On Hold", "Solved"];
+  const regionOptions = filterOptions.regions || [];
+  // DevRev ticket classification. Sent lowercased; matched case-insensitively backend-side.
+  const subtypeOptions = ["Query", "Bug", "Feature"];
 
-  const loadTree = useCallback(async () => {
+  const loadTree = useCallback(async ({ fresh = false } = {}) => {
     setLoading(true);
     setError(null);
     try {
-      setData(await fetchPartsTree(filters));
+      setData(await fetchPartsTree(filters, { fresh }));
     } catch (e) {
       setError(e?.response?.data?.error?.message || "Failed to load the parts tree");
     } finally {
@@ -317,8 +327,8 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
     setPendingScrollId(null);
   }, [pendingScrollId, flatRows, virtualizer]);
 
-  const activeFilterCount = priorities.length + statuses.length + accounts.length + (dateRange?.start ? 1 : 0);
-  const clearFilters = () => setPFilters({ priorities: [], statuses: [], accounts: [], dateRange: { start: "", end: "" } });
+  const activeFilterCount = priorities.length + statuses.length + accounts.length + subtypes.length + regions.length + (dateRange?.start ? 1 : 0);
+  const clearFilters = () => setPFilters({ priorities: [], statuses: [], accounts: [], subtypes: [], regions: [], dateRange: { start: "", end: "" } });
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-3">
@@ -345,39 +355,65 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <ChevronsDownUp className="w-3.5 h-3.5" /> Collapse
           </button>
-          <button onClick={loadTree}
+          <button onClick={() => loadTree({ fresh: true })} title="Re-tag the live active set and rebuild (bypasses cache)"
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
         </div>
       </div>
 
-      {/* Composition donut — reflects the current context, drives the tree */}
+      {/* Composition donut — reflects the current context, drives the tree.
+          Unpinned (default) it's a compact strip; pin to expand the donut. */}
       {showChart && data && !error && (
         <div className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pt-3 pb-3"
              style={{ boxShadow: "var(--shadow-card)" }}>
-          {/* Breadcrumb — where the donut is focused; crumbs navigate up */}
-          <div className="flex items-center gap-1 mb-2 text-[11px] flex-wrap">
-            <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mr-1">Breakdown</span>
+          <div className="flex items-start justify-between gap-2 mb-2">
+            {/* Breadcrumb — where the donut is focused; crumbs navigate up */}
+            <div className="flex items-center gap-1 text-[11px] flex-wrap min-w-0">
+              <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mr-1">Breakdown</span>
+              <button
+                onClick={() => setContextId(null)}
+                className={`hover:underline ${contextId ? "text-indigo-500" : "text-slate-700 dark:text-slate-200 font-medium"}`}
+              >
+                All products
+              </button>
+              {context.path.map((n) => (
+                <span key={n.id} className="flex items-center gap-1">
+                  <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                  <button
+                    onClick={() => setContextId(n.id)}
+                    className={`hover:underline ${n.id === contextId ? "text-slate-700 dark:text-slate-200 font-medium" : "text-indigo-500"}`}
+                  >
+                    {n.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+            {/* Pin toggle — expand/collapse the donut to reclaim screen space */}
             <button
-              onClick={() => setContextId(null)}
-              className={`hover:underline ${contextId ? "text-indigo-500" : "text-slate-700 dark:text-slate-200 font-medium"}`}
+              onClick={() => setChartPinned((p) => !p)}
+              title={chartPinned ? "Unpin — collapse the chart" : "Pin — expand the chart"}
+              aria-pressed={chartPinned}
+              className={`shrink-0 flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md ${chartPinned ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10" : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
             >
-              All products
+              {chartPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+              {chartPinned ? "Unpin" : "Pin"}
             </button>
-            {context.path.map((n) => (
-              <span key={n.id} className="flex items-center gap-1">
-                <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                <button
-                  onClick={() => setContextId(n.id)}
-                  className={`hover:underline ${n.id === contextId ? "text-slate-700 dark:text-slate-200 font-medium" : "text-indigo-500"}`}
-                >
-                  {n.name}
-                </button>
-              </span>
-            ))}
           </div>
-          <CompositionChart slices={context.slices} contextName={context.name} total={context.total} onSlice={drillTo} />
+          {chartPinned ? (
+            <CompositionChart slices={context.slices} contextName={context.name} total={context.total} onSlice={drillTo} />
+          ) : (
+            <button
+              onClick={() => setChartPinned(true)}
+              className="w-full flex items-center gap-2 text-left text-[12px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span className="truncate">
+                <span className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">{(context.total || 0).toLocaleString()}</span>
+                {" "}tickets in <span className="font-medium">{context.name}</span> · pin to see the breakdown
+              </span>
+            </button>
+          )}
         </div>
       )}
 
@@ -400,6 +436,10 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
           <MultiSelectFilter icon={FilterIcon} label="Priority" options={priorityOptions} selected={priorities} onChange={(v) => patch("priorities", v)} />
         )}
         <MultiSelectFilter icon={FilterIcon} label="Status" options={statusOptions} selected={statuses} onChange={(v) => patch("statuses", v)} />
+        <MultiSelectFilter icon={Tag} label="Classification" options={subtypeOptions} selected={subtypes} onChange={(v) => patch("subtypes", v)} />
+        {regionOptions.length > 0 && (
+          <MultiSelectFilter icon={Globe} label="Region" options={regionOptions} selected={regions} onChange={(v) => patch("regions", v)} />
+        )}
         {accountOptions.length > 0 && (
           <MultiSelectFilter icon={FilterIcon} label="Account" options={accountOptions} selected={accounts} onChange={(v) => patch("accounts", v)} />
         )}

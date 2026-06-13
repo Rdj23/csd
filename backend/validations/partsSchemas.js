@@ -16,6 +16,8 @@ export const partsTreeSchema = z.object({
       priorities: optionalString, // e.g. "P0,P1"
       statuses: optionalString, // team vocab: "open,pending,on hold,solved"
       accounts: optionalString,
+      subtypes: optionalString, // classification: "query,bug,feature"
+      regions: optionalString, // e.g. "APAC,EMEA"
       dateFrom: dateString,
       dateTo: dateString,
       forceRefresh: optionalString,
@@ -31,6 +33,8 @@ export const partTicketsSchema = z.object({
       priorities: optionalString,
       statuses: optionalString,
       accounts: optionalString,
+      subtypes: optionalString,
+      regions: optionalString,
       dateFrom: dateString,
       dateTo: dateString,
       page: z.coerce.number().int().min(1).optional().default(1),

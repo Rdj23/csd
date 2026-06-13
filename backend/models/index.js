@@ -168,6 +168,11 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     product_id: { type: String, default: null, index: true },
     product_name: { type: String, default: null },
     ancestry: { type: [String], default: [] },
+    // subtype — DevRev work subtype used to classify a ticket as a query / bug /
+    //   feature. Powers the Parts View classification filter. Stored raw (e.g. "query");
+    //   the parts read-path matches it case-insensitively so value variants still group.
+    //   null until a sync (or backfillSubtype.js) tags the ticket.
+    subtype: { type: String, default: null, index: true },
   },
   {
     versionKey: false,  // Disables __v field. We don't need Mongoose's optimistic locking

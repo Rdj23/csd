@@ -65,6 +65,9 @@ const trimTicket = (t) => {
     id: t.id,
     display_id: t.display_id,
     title: t.title,
+    // Work subtype (query / bug / feature) — carried to the live cache so the Parts
+    // View classification filter can scope active tickets without a backend round-trip.
+    subtype: t.subtype || null,
     priority: t.priority,
     severity: t.severity,
     account: t.account?.display_name || t.account,
@@ -522,6 +525,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                     // written at the same time the ticket lands in Mongo.
                     ...partFields,
                     title: t.title, created_date: new Date(t.created_date), closed_date: closedDate,
+                    subtype: t.subtype || null,  // Parts View classification (query/bug/feature)
                     owner, owner_id: t.owned_by?.[0]?.id || null,
                     account_cohort: t.custom_fields?.tnt__account_cohort_fy_25 || null,
                     region: t.custom_fields?.tnt__region_salesforce || "Unknown",
