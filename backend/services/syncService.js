@@ -171,16 +171,34 @@ const checkCacheSize = (processed) => {
 export const quickFetchTickets = async () => {
   let collected = [];
 
-  // Single page, no retries, short timeout — must finish well within
-  // Render's ~30s HTTP timeout so the frontend gets a response.
-  try {
-    const response = await axios.get(
-      `${DEVREV_API}/works.list?limit=50&type=ticket`,
-      { headers: HEADERS, timeout: 10000 },
-    );
-    collected = response.data.works || [];
-  } catch (err) {
-    logger.warn({ err }, "quickFetchTickets failed");
+  // Single page so we always answer well within Render's ~30s HTTP timeout.
+  // We DO retry transient connection resets: a freshly-woken hibernate pod often
+  // reuses a stale keep-alive socket that DevRev already closed, surfacing as
+  // ECONNRESET / "aborted" mid-response. One such reset would otherwise leave the
+  // cold-start request with zero tickets. Resets fail fast, so a couple of quick
+  // retries (fresh socket each time) stay well within budget. We do NOT retry
+  // client-side timeouts (ECONNABORTED) — those would blow the time budget.
+  // Accept-Encoding: gzip drops Brotli, whose CPU-heavy decompress is throttled
+  // on a cold pod and was where the aborted stream surfaced.
+  const TRANSIENT = new Set(["ECONNRESET", "ETIMEDOUT", "EPIPE"]);
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await axios.get(
+        `${DEVREV_API}/works.list?limit=50&type=ticket`,
+        { headers: { ...HEADERS, "Accept-Encoding": "gzip" }, timeout: 8000 },
+      );
+      collected = response.data.works || [];
+      break;
+    } catch (err) {
+      const transient = TRANSIENT.has(err.code) || /aborted/i.test(err.message || "");
+      if (attempt === MAX_ATTEMPTS || !transient) {
+        logger.warn({ err, attempt }, "quickFetchTickets failed");
+        break;
+      }
+      logger.warn({ code: err.code, msg: err.message, attempt }, "quickFetchTickets transient reset, retrying");
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
   }
 
   return collected.filter(isRelevantTicket).filter(isGSTOwned).map(trimTicket);
