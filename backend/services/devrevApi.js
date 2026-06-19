@@ -122,19 +122,26 @@ export const fetchWorkItem = async (id) => {
 };
 
 /**
- * Fetch multiple work items by display IDs in a single API call.
- * Uses works.list with an `apply_to` filter instead of N separate works.get calls.
+ * Fetch multiple work items by display IDs.
  * Returns a Map of display_id → work object for O(1) lookups.
+ *
+ * NOTE: DevRev's works.list has no "fetch by a list of display_ids" filter
+ * (the old `apply_to` body was rejected with HTTP 400 on every call), so we
+ * fan out parallel works.get requests instead. allSettled keeps partial data:
+ * one failed ID logs a warning but never sinks the whole batch.
  */
 export const fetchWorkItems = async (ids) => {
   if (!ids.length) return new Map();
-  const res = await axios.post(
-    `${DEVREV_API}/works.list`,
-    { apply_to: ids, limit: ids.length },
-    { headers: HEADERS },
-  );
-  const works = res.data.works || [];
-  return new Map(works.map((w) => [w.display_id, w]));
+  const settled = await Promise.allSettled(ids.map((id) => fetchWorkItem(id)));
+  const map = new Map();
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled" && r.value) {
+      map.set(r.value.display_id, r.value);
+    } else if (r.status === "rejected") {
+      logger.warn({ err: r.reason?.message, targetId: ids[i] }, "Failed to fetch linked work item");
+    }
+  });
+  return map;
 };
 
 /**

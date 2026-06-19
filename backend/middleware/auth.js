@@ -496,6 +496,10 @@ export const authLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  // /config is a public, read-only endpoint (returns the Google client ID) that the
+  // frontend hits on every page load — it must not share the strict login ceiling,
+  // or normal bootstrap traffic 429s the whole app. Still covered by apiLimiter.
+  skip: (req) => req.path === "/config",
   message: { error: "Too many authentication attempts, please try again later" },
   handler: rateLimitHandler,
 });
