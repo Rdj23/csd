@@ -5,7 +5,7 @@ import { redisGet, redisSet, redisDelete, redisHSetBatch, CACHE_TTL } from "../c
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { fetchTicketLinks, fetchWorkItem } from "./devrevApi.js";
-import { createPartContext, resolveWorkPartFields, refreshActivePartsCache } from "./partsService.js";
+import { createPartContext, resolveWorkPartFields } from "./partsService.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
@@ -312,11 +312,9 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       if (global.gc) global.gc();
       logger.info({ total: processed.length, active: processed.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
 
-      // Parts View: refresh the part-tagged snapshot of active tickets so the tree's
-      // live counts stay current. Best-effort — never let it break the ticket sync.
-      refreshActivePartsCache().catch((err) =>
-        logger.warn({ err: err?.message }, "Active parts refresh failed (non-fatal)"),
-      );
+      // NOTE: Parts View no longer maintains a live active-ticket snapshot — it reads
+      // cold data (solved tickets in analyticstickets) only. Part tagging for those
+      // happens inline in the historical sync, so nothing to refresh here.
 
       return processed;
     } else {

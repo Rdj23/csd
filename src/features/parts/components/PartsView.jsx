@@ -14,6 +14,7 @@ import {
   ChevronsUpDown,
   X,
   BarChart3,
+  LineChart,
   Pin,
   PinOff,
   Tag,
@@ -27,6 +28,7 @@ import { filterTree, flattenTree, collectRootIds, collectAllIds, findPath, INDEN
 import { MagnitudeBar, Sparkline, TrendDelta } from "./primitives";
 import TicketDrilldown from "./TicketDrilldown";
 import CompositionChart from "./CompositionChart";
+import PartsTrendChart from "./PartsTrendChart";
 
 /**
  * PartsView — redesigned. A virtualized, depth-aware hierarchy of DevRev parts with
@@ -172,6 +174,7 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
   const [contextId, setContextId] = useState(null); // the part whose composition the donut shows
   const [pendingScrollId, setPendingScrollId] = useState(null);
   const [showChart, setShowChart] = usePersistentState("parts.showChart", true);
+  const [showTrend, setShowTrend] = usePersistentState("parts.showTrend", true);
   // Pin = expand the donut; unpinned (default) keeps the breakdown a compact strip so
   // it doesn't eat half the screen. The "Breakdown" button still fully hides the panel.
   const [chartPinned, setChartPinned] = usePersistentState("parts.chartPinned", false);
@@ -181,12 +184,16 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
   const [pFilters, setPFilters] = usePersistentState("parts.filters", {
     priorities: [], statuses: [], accounts: [], subtypes: [], regions: [], dateRange: { start: "", end: "" },
   });
-  const { priorities, statuses, accounts, subtypes = [], regions = [], dateRange } = pFilters;
+  // NOTE: `statuses` is intentionally NOT destructured/sent. The Parts tab reads cold,
+  // solved-only data, so Open/Pending/On Hold would match nothing and Solved matches
+  // everything — the Status filter was removed. We also drop any value a user persisted
+  // before this change so a stale "pending" can't silently empty the tree.
+  const { priorities, accounts, subtypes = [], regions = [], dateRange } = pFilters;
   const patch = (key, val) => setPFilters((f) => ({ ...f, [key]: val }));
 
   const filters = useMemo(
-    () => ({ priorities, statuses, accounts, subtypes, regions, dateFrom: dateRange?.start || undefined, dateTo: dateRange?.end || undefined }),
-    [priorities, statuses, accounts, subtypes, regions, dateRange],
+    () => ({ priorities, accounts, subtypes, regions, dateFrom: dateRange?.start || undefined, dateTo: dateRange?.end || undefined }),
+    [priorities, accounts, subtypes, regions, dateRange],
   );
 
   const priorityOptions = useMemo(() => {
@@ -195,7 +202,6 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
     return Array.from(set).sort();
   }, [tickets]);
   const accountOptions = filterOptions.accounts || [];
-  const statusOptions = filterOptions.stages || ["Open", "Pending", "On Hold", "Solved"];
   const regionOptions = filterOptions.regions || [];
   // DevRev ticket classification. Sent lowercased; matched case-insensitively backend-side.
   const subtypeOptions = ["Query", "Bug", "Feature"];
@@ -231,6 +237,14 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
     if (parent?.children?.length) return { slices: parent.children, name: parent.name, total: parent.count, path: path.slice(0, -1) };
     return { slices: [node], name: node.name, total: node.count, path };
   }, [data, contextId]);
+
+  // Trendline scope: the actually-selected part (contextId), independent of the donut's
+  // childless-leaf fallback. Null contextId → the all-products line.
+  const trendName = useMemo(() => {
+    if (!contextId) return "All products";
+    const p = findPath(data?.tree || [], contextId);
+    return p[p.length - 1]?.name || "All products";
+  }, [contextId, data]);
 
   const expandedSet = useMemo(() => {
     if (q) return new Set(collectAllIds(roots)); // auto-expand search matches
@@ -327,7 +341,7 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
     setPendingScrollId(null);
   }, [pendingScrollId, flatRows, virtualizer]);
 
-  const activeFilterCount = priorities.length + statuses.length + accounts.length + subtypes.length + regions.length + (dateRange?.start ? 1 : 0);
+  const activeFilterCount = priorities.length + accounts.length + subtypes.length + regions.length + (dateRange?.start ? 1 : 0);
   const clearFilters = () => setPFilters({ priorities: [], statuses: [], accounts: [], subtypes: [], regions: [], dateRange: { start: "", end: "" } });
 
   return (
@@ -339,10 +353,14 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
             <TreePine className="w-4 h-4 text-indigo-500" /> Parts View
           </h2>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            {data ? `${(data.totalTickets || 0).toLocaleString()} tickets across the DevRev part hierarchy` : "Tickets by DevRev part hierarchy"}
+            {data ? `${(data.totalTickets || 0).toLocaleString()} solved tickets across the DevRev part hierarchy` : "Solved tickets by DevRev part hierarchy"}
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <button onClick={() => setShowTrend((s) => !s)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 ${showTrend ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}`}>
+            <LineChart className="w-3.5 h-3.5" /> Trend
+          </button>
           <button onClick={() => setShowChart((s) => !s)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 ${showChart ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}`}>
             <BarChart3 className="w-3.5 h-3.5" /> Breakdown
@@ -355,12 +373,20 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <ChevronsDownUp className="w-3.5 h-3.5" /> Collapse
           </button>
-          <button onClick={() => loadTree({ fresh: true })} title="Re-tag the live active set and rebuild (bypasses cache)"
+          <button onClick={() => loadTree({ fresh: true })} title="Re-aggregate the latest synced data (bypasses the 10-min cache)"
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
         </div>
       </div>
+
+      {/* Volume trendline — analytics-style area chart of ticket volume over time for the
+          focused part (or all products), with its own daily/weekly/monthly toggle. */}
+      {showTrend && data && !error && (
+        <div className="shrink-0">
+          <PartsTrendChart partId={contextId} contextName={trendName} filters={filters} />
+        </div>
+      )}
 
       {/* Composition donut — reflects the current context, drives the tree.
           Unpinned (default) it's a compact strip; pin to expand the donut. */}
@@ -435,7 +461,6 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
         {priorityOptions.length > 0 && (
           <MultiSelectFilter icon={FilterIcon} label="Priority" options={priorityOptions} selected={priorities} onChange={(v) => patch("priorities", v)} />
         )}
-        <MultiSelectFilter icon={FilterIcon} label="Status" options={statusOptions} selected={statuses} onChange={(v) => patch("statuses", v)} />
         <MultiSelectFilter icon={Tag} label="Classification" options={subtypeOptions} selected={subtypes} onChange={(v) => patch("subtypes", v)} />
         {regionOptions.length > 0 && (
           <MultiSelectFilter icon={Globe} label="Region" options={regionOptions} selected={regions} onChange={(v) => patch("regions", v)} />

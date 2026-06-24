@@ -29,19 +29,16 @@ import {
 } from "./devrevApi.js";
 import { AnalyticsTicket, Part, SyncMetadata } from "../models/index.js";
 import { redisGet, redisSet, redisDelete } from "../config/database.js";
-import { SOLVED_STATUSES } from "../config/constants.js";
+import { SOLVED_STATUSES, getQuarterDateRange, getCurrentQuarterKey } from "../config/constants.js";
 import logger from "../config/logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Redis key holding the slim, part-tagged list of currently-ACTIVE tickets. */
-const ACTIVE_PARTS_KEY = "parts:active_tickets";
 /** Redis key caching the default (unfiltered) parts tree for instant first paint. */
 const TREE_CACHE_KEY = "parts:tree:default";
 const TREE_CACHE_TTL = 600; // 10 min — cron refreshes the underlying data daily
-const ACTIVE_PARTS_TTL = 3600; // 1 hour
 /** SyncMetadata key for the cron's last-run timestamp (resumability). */
 export const PARTS_LAST_SYNC_KEY = "parts_last_sync";
 
@@ -69,9 +66,6 @@ const STATUS_STAGE_MATCHERS = {
   "on hold": ["waiting on clevertap"],
   solved: SOLVED_STATUSES, // ["solved","closed","resolved"]
 };
-
-const isSolvedStage = (stageName = "") =>
-  SOLVED_STATUSES.some((s) => stageName.toLowerCase().includes(s));
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1. THE RESOLVER (pure, dependency-injected — unit tested)
@@ -301,7 +295,7 @@ export const resolveWorkPartFields = async (work, ctx) => {
  * full work objects that include `applies_to_part`), resolves each ticket's ancestry
  * cache-first, and updates the matching analyticstickets row's part fields. Tickets
  * not present in analyticstickets (active / pre-cutoff) are no-ops here — their parts
- * still get cached, and active tickets are tagged separately in PHASE C.
+ * still get cached for when they're later solved and ingested into analyticstickets.
  *
  * IDEMPOTENT/RESUMABLE: uses plain updateOne (no upsert), so re-running only refreshes
  * the same rows; a crash just means the next run re-walks (mostly cache hits). NO Slack.
@@ -309,11 +303,11 @@ export const resolveWorkPartFields = async (work, ctx) => {
  * @param {object} opts
  *   @param {number} [opts.maxTickets]  stop after processing this many works — use a
  *                                       small value (e.g. 100) for a validated batch.
- * @returns {Promise<{processed,tagged,viaWorksGet,newParts,activeTagged,errors,lastRun}>}
+ * @returns {Promise<{processed,tagged,viaWorksGet,newParts,errors,lastRun}>}
  */
 export const runPartsSync = async ({ maxTickets = null } = {}) => {
   const startedAt = new Date();
-  const stats = { processed: 0, tagged: 0, viaWorksGet: 0, newParts: 0, activeTagged: 0, errors: 0 };
+  const stats = { processed: 0, tagged: 0, viaWorksGet: 0, newParts: 0, errors: 0 };
   // Match historical-sync's lower bound so we don't page into ancient tickets.
   const TARGET_DATE = new Date("2026-01-01");
   logger.info({ maxTickets }, "[parts-sync] starting");
@@ -373,14 +367,6 @@ export const runPartsSync = async ({ maxTickets = null } = {}) => {
     loop++;
   } while (cursor && !stop && loop < 1000);
 
-  // ── Refresh part-tagged snapshot of active tickets (no-op without Redis) ──
-  try {
-    stats.activeTagged = await refreshActivePartsCache(ctx);
-  } catch (err) {
-    stats.errors++;
-    logger.error({ err }, "[parts-sync] active refresh error");
-  }
-
   // ── Persist last-run + invalidate the cached default tree ──
   await SyncMetadata.updateOne(
     { key: PARTS_LAST_SYNC_KEY },
@@ -394,71 +380,15 @@ export const runPartsSync = async ({ maxTickets = null } = {}) => {
   return result;
 };
 
-/**
- * refreshActivePartsCache — resolve part ancestry for the live active-ticket set and
- * store a slim, part-tagged snapshot in Redis for the tree/drilldown endpoints.
- *
- * IMPORTANT (no double-counting): the `tickets:active` cache also holds recently-SOLVED
- * tickets, which already live in analyticstickets. We keep ONLY genuinely-active stages
- * here so the tree doesn't count those tickets twice.
- */
-export const refreshActivePartsCache = async (ctx = null) => {
-  const active = (await redisGet("tickets:active")) || [];
-  if (!Array.isArray(active) || !active.length) {
-    await redisSet(ACTIVE_PARTS_KEY, [], ACTIVE_PARTS_TTL);
-    return 0;
-  }
-  const context = ctx || (await createPartContext());
-  const slim = [];
-
-  for (const t of active) {
-    const stageName = t.stage?.name || "";
-    if (isSolvedStage(stageName)) continue; // already counted via analyticstickets
-    if (!t.applies_to_part_id) {
-      slim.push(makeActiveRow(t, null));
-      continue;
-    }
-    let leaf = context.partsById.get(t.applies_to_part_id);
-    if (!leaf?.ancestry?.length) {
-      try {
-        leaf = await context.resolveLeaf(t.applies_to_part_id);
-      } catch {
-        leaf = null;
-      }
-    }
-    slim.push(makeActiveRow(t, leaf));
-  }
-
-  await redisSet(ACTIVE_PARTS_KEY, slim, ACTIVE_PARTS_TTL);
-  return slim.length;
-};
-
-/** Reduce a live active ticket + its resolved leaf part to the slim row we cache. */
-const makeActiveRow = (t, leaf) => ({
-  ticket_id: t.display_id,
-  display_id: t.display_id,
-  title: t.title,
-  account_name: t.account?.display_name || t.account || t.custom_fields?.tnt__instance_account_name || "Unknown",
-  priority: t.priority || t.severity || null,
-  stage_name: t.stage?.name || null,
-  // Classification + region carried so the tree's subtype/region filters apply to
-  // active tickets identically to solved ones (see activeRowMatches).
-  subtype: t.subtype || null,
-  region: t.custom_fields?.tnt__region_salesforce || null,
-  created_date: t.created_date || null,
-  applies_to_part_id: t.applies_to_part_id || "",
-  product_id: leaf?.product_id || null,
-  product_name: leaf?.product_name || null,
-  ancestry: leaf?.ancestry || [],
-});
-
-const getActivePartsCache = async () => {
-  const cached = await redisGet(ACTIVE_PARTS_KEY);
-  return Array.isArray(cached) ? cached : [];
-};
-
 // ─────────────────────────────────────────────────────────────────────────
-// 4. THE READ SIDE (tree + drilldown the API serves)
+// 4. THE READ SIDE (tree + drilldown the API serves) — COLD DATA ONLY
+//
+// As of the cold-data migration, every read below sources EXCLUSIVELY from
+// analyticstickets (solved/closed tickets, refreshed by the daily historical
+// sync) + the `parts` hierarchy cache. We no longer merge the live Redis
+// active-ticket set or walk DevRev at read time — that was the server-load /
+// latency source. The tradeoff (accepted): pending/on-hold tickets, which only
+// ever live in Redis, are not represented here; the tree shows solved volume.
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Build a case-insensitive stage_name regex filter from team-vocab statuses. */
@@ -466,26 +396,6 @@ const stageFilterFromStatuses = (statuses) => {
   const subs = statuses.flatMap((s) => STATUS_STAGE_MATCHERS[s?.toLowerCase()] || []);
   if (!subs.length) return null;
   return { $in: subs.map((sub) => new RegExp(sub, "i")) };
-};
-
-/** Does a slim active row pass the same filters we apply to solved tickets? */
-const activeRowMatches = (row, { priorities, statuses, accounts, subtypes, regions, dateFrom, dateTo }) => {
-  if (priorities?.length && !priorities.includes(row.priority)) return false;
-  if (accounts?.length && !accounts.includes(row.account_name)) return false;
-  if (regions?.length && !regions.includes(row.region)) return false;
-  if (subtypes?.length) {
-    // Case-insensitive contains so "feature" still matches e.g. "feature_request".
-    const st = (row.subtype || "").toLowerCase();
-    if (!subtypes.some((s) => st.includes(s.toLowerCase()))) return false;
-  }
-  if (statuses?.length) {
-    const subs = statuses.flatMap((s) => STATUS_STAGE_MATCHERS[s?.toLowerCase()] || []);
-    const sn = (row.stage_name || "").toLowerCase();
-    if (!subs.some((sub) => sn.includes(sub.toLowerCase()))) return false;
-  }
-  if (dateFrom && new Date(row.created_date) < new Date(dateFrom)) return false;
-  if (dateTo && new Date(row.created_date) > new Date(dateTo)) return false;
-  return true;
 };
 
 /** Translate UI filters into a Mongo match on analyticstickets (created_date based). */
@@ -510,8 +420,8 @@ const buildSolvedMatch = ({ priorities, statuses, accounts, subtypes, regions, d
  * buildPartsTree — assemble the nested product→capability→feature tree with ticket
  * counts ROLLED UP to every level, honoring the supplied filters.
  *
- * counts come from two cheap sources, merged: (1) a Mongo $group of analyticstickets
- * by applies_to_part_id, (2) the in-memory active snapshot. Never calls DevRev.
+ * Counts come from a single cold source: a Mongo $group of analyticstickets by
+ * applies_to_part_id. Never reads Redis, never calls DevRev.
  *
  * @param {object} filters  { priorities?, statuses?, accounts?, dateFrom?, dateTo? }
  * @returns {Promise<{tree, totalTickets, generatedAt}>}
@@ -579,17 +489,6 @@ const computeLeafDaily = async (filters) => {
     if (idx === undefined || !r._id.part) continue;
     ensure(r._id.part)[idx] += r.c;
   }
-
-  // Active tickets created within the window.
-  const active = await getActivePartsCache();
-  for (const row of active) {
-    if (!row.applies_to_part_id || !row.created_date) continue;
-    if (!activeRowMatches(row, { ...filters, dateFrom: undefined, dateTo: undefined })) continue;
-    const istKey = new Date(new Date(row.created_date).getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
-    const idx = index.get(istKey);
-    if (idx === undefined) continue;
-    ensure(row.applies_to_part_id)[idx] += 1;
-  }
   return leafDaily;
 };
 
@@ -599,15 +498,10 @@ export const buildPartsTree = async (filters = {}, { fresh = false } = {}) => {
       filters.subtypes?.length || filters.regions?.length ||
       filters.dateFrom || filters.dateTo) ? true : false;
 
-  // Explicit refresh (the UI's Refresh button): re-tag the live active set and drop the
-  // cached default tree so this rebuild reflects newly-active/newly-resolved tickets.
-  // Without this, Refresh on the unfiltered view just re-served the 10-min Redis cache.
+  // Explicit refresh (the UI's Refresh button): drop the cached default tree so this
+  // rebuild re-aggregates the latest cold data (post daily-sync). No DevRev / Redis
+  // active walk anymore — the rebuild is a pure Mongo re-read.
   if (fresh) {
-    try {
-      await refreshActivePartsCache();
-    } catch (err) {
-      logger.warn({ err: err?.message }, "[parts] fresh active-cache refresh failed");
-    }
     await redisDelete(TREE_CACHE_KEY).catch(() => {});
   }
 
@@ -617,7 +511,7 @@ export const buildPartsTree = async (filters = {}, { fresh = false } = {}) => {
     if (cached) return cached;
   }
 
-  // 1. Solved/closed counts grouped by the leaf part.
+  // 1. Solved/closed counts grouped by the leaf part. This is the ONLY count source.
   const grouped = await AnalyticsTicket.aggregate([
     { $match: buildSolvedMatch(filters) },
     { $group: { _id: "$applies_to_part_id", c: { $sum: 1 } } },
@@ -625,14 +519,7 @@ export const buildPartsTree = async (filters = {}, { fresh = false } = {}) => {
   const leafCounts = new Map(); // partDon -> direct ticket count
   for (const g of grouped) if (g._id) leafCounts.set(g._id, g.c);
 
-  // 2. Merge in genuinely-active tickets.
-  const active = await getActivePartsCache();
-  for (const row of active) {
-    if (!row.applies_to_part_id || !activeRowMatches(row, filters)) continue;
-    leafCounts.set(row.applies_to_part_id, (leafCounts.get(row.applies_to_part_id) || 0) + 1);
-  }
-
-  // 2b. Daily volume (last 14d) per leaf, for the trend sparkline/delta.
+  // 2. Daily volume (last 14d) per leaf, for the trend sparkline/delta.
   const leafDaily = await computeLeafDaily(filters);
 
   // 3. Load the hierarchy and roll counts up each leaf's ancestry chain.
@@ -728,8 +615,8 @@ export const buildPartsTree = async (filters = {}, { fresh = false } = {}) => {
  * getPartTickets — paginated tickets for a part SUBTREE (the part + all descendants).
  *
  * Uses the multikey `ancestry` index: any ticket whose chain contains `partId` belongs
- * to that subtree. Active (genuinely-open) tickets matching the subtree are surfaced
- * FIRST on page 1 (they're the "live" ones); solved tickets paginate after them.
+ * to that subtree. Cold data only — solved/closed tickets from analyticstickets,
+ * newest first.
  *
  * @param {string} partId   DON id, or UNKNOWN_NODE_ID for the unresolved bucket.
  * @param {object} filters  same shape as buildPartsTree.
@@ -759,18 +646,7 @@ export const getPartTickets = async (partId, filters = {}, { page = 1, pageSize 
     AnalyticsTicket.countDocuments(baseMatch),
   ]);
 
-  // Active matches (small set) — included on page 1 only.
-  let activeRows = [];
-  if (page === 1) {
-    const active = await getActivePartsCache();
-    activeRows = active.filter((row) => {
-      if (!activeRowMatches(row, filters)) return false;
-      if (partId === UNKNOWN_NODE_ID) return !row.ancestry?.length;
-      return (row.ancestry || []).includes(partId);
-    });
-  }
-
-  const toRow = (t, isActive) => ({
+  const toRow = (t) => ({
     ticket_id: t.ticket_id || t.display_id,
     display_id: t.display_id,
     title: t.title,
@@ -778,20 +654,70 @@ export const getPartTickets = async (partId, filters = {}, { page = 1, pageSize 
     priority: t.priority || null,
     status: t.stage_name || null,
     created_date: t.created_date,
-    is_active: isActive,
+    is_active: false, // cold data — every row is a solved/closed ticket
     devrevUrl: buildDevrevTicketUrl(t.display_id),
   });
 
-  const tickets = [
-    ...activeRows.map((t) => toRow(t, true)),
-    ...solved.map((t) => toRow(t, false)),
-  ];
-
   return {
-    tickets,
+    tickets: solved.map(toRow),
     page,
     pageSize,
-    total: total + activeRows.length, // active surfaced once, on page 1
+    total,
     hasMore: skip + solved.length < total,
   };
+};
+
+/**
+ * getPartsTrend — ticket-volume trend over time for a part SUBTREE (or all parts),
+ * grouped daily / weekly / monthly. Powers the Parts tab's analytics-style trendline.
+ *
+ * Cold data only: a single $group over analyticstickets, bucketed by created_date in
+ * IST so it lines up with the tree's filters and per-row sparkline. The `ancestry`
+ * multikey index keeps the subtree scope index-backed. Never reads Redis / DevRev.
+ *
+ * @param {string|null} partId  DON id to scope to its subtree, UNKNOWN_NODE_ID for the
+ *                              unresolved bucket, or null/undefined for all tagged tickets.
+ * @param {object} filters      same shape as buildPartsTree.
+ * @param {object} opts         { groupBy: "daily" | "weekly" | "monthly" }
+ * @returns {Promise<{trend: Array<{date:string,count:number}>, groupBy:string, total:number}>}
+ */
+export const getPartsTrend = async (partId, filters = {}, { groupBy = "daily" } = {}) => {
+  const match = buildSolvedMatch(filters);
+
+  // Scope to the part's subtree (or the unresolved bucket) when an id is supplied.
+  if (partId === UNKNOWN_NODE_ID) {
+    delete match.applies_to_part_id;
+    match.$or = [{ ancestry: { $size: 0 } }, { applies_to_part_id: { $in: [null, ""] } }];
+  } else if (partId) {
+    match.ancestry = partId;
+  }
+
+  // Default the window to the current quarter when no date range is set, so the line
+  // spans something sensible (mirrors analytics' quarter scoping). An explicit
+  // dateFrom/dateTo from buildSolvedMatch already wins when present.
+  if (!filters.dateFrom && !filters.dateTo) {
+    const { start } = getQuarterDateRange(getCurrentQuarterKey());
+    match.created_date = { ...(match.created_date || {}), $gte: start };
+  }
+
+  // Same bucket formats analytics uses, so the frontend can render them identically.
+  let dateFormat = "%Y-%m-%d";
+  if (groupBy === "weekly") dateFormat = "%Y-W%V";
+  if (groupBy === "monthly") dateFormat = "%Y-%m";
+
+  const rows = await AnalyticsTicket.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: { $dateToString: { format: dateFormat, date: "$created_date", timezone: "Asia/Kolkata" } },
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { _id: 1 } },
+    { $limit: 400 },
+  ]).allowDiskUse(true);
+
+  const trend = rows.map((r) => ({ date: r._id, count: r.count }));
+  const total = trend.reduce((s, r) => s + r.count, 0);
+  return { trend, groupBy, total };
 };

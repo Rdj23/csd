@@ -5,9 +5,10 @@
  * stays fast. The daily parts-sync cron is what keeps that data fresh.
  *
  *   GET /api/parts-tree           → nested product→capability→feature tree w/ rolled-up counts
+ *   GET /api/parts-trend          → ticket-volume trendline (daily/weekly/monthly) for a subtree
  *   GET /api/parts/:id/tickets     → paginated tickets for a part subtree
  */
-import { buildPartsTree, getPartTickets } from "../services/partsService.js";
+import { buildPartsTree, getPartTickets, getPartsTrend } from "../services/partsService.js";
 import { ok, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 
@@ -38,6 +39,20 @@ export const getPartsTree = async (req, res) => {
   } catch (err) {
     logger.error({ err }, "[parts] getPartsTree failed");
     return serverError(res, "Failed to build parts tree");
+  }
+};
+
+export const getPartsTrendHandler = async (req, res) => {
+  try {
+    const filters = parseFilters(req.query);
+    // partId scopes the trend to a part's subtree; omit for the all-products line.
+    const partId = req.query.partId || null;
+    const groupBy = req.query.groupBy || "daily";
+    const data = await getPartsTrend(partId, filters, { groupBy });
+    return ok(res, data);
+  } catch (err) {
+    logger.error({ err, part: req.query?.partId }, "[parts] getPartsTrend failed");
+    return serverError(res, "Failed to build parts trend");
   }
 };
 

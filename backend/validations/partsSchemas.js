@@ -25,6 +25,26 @@ export const partsTreeSchema = z.object({
     .passthrough(),
 });
 
+/**
+ * GET /api/parts-trend — same filter set as the tree, plus an optional partId to scope
+ * the line to a subtree and a groupBy bucket size. Drives the Parts tab trendline.
+ */
+export const partsTrendSchema = z.object({
+  query: z
+    .object({
+      partId: optionalString, // DON id to scope to a subtree; omit for all products
+      groupBy: z.enum(["daily", "weekly", "monthly"]).optional().default("daily"),
+      priorities: optionalString,
+      statuses: optionalString,
+      accounts: optionalString,
+      subtypes: optionalString,
+      regions: optionalString,
+      dateFrom: dateString,
+      dateTo: dateString,
+    })
+    .passthrough(),
+});
+
 /** GET /api/parts/:id/tickets — same filters plus pagination. */
 export const partTicketsSchema = z.object({
   params: z.object({ id: z.string().min(1) }),
