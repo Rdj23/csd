@@ -7,6 +7,7 @@ import {
   GAMIFICATION_TEAM_MAP,
   NAME_TO_ROSTER_MAP,
   EMAIL_TO_NAME_MAP,
+  isGamificationExcluded,
 } from "../config/constants.js";
 import { getDaysWorked, isInRoster } from "../services/rosterService.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
@@ -53,6 +54,8 @@ export const getGamification = async (req, res) => {
       // Skip engineers who have been removed from the active roster (e.g. transfers).
       // Their historic tickets stay in DB but they should not appear in gamification.
       if (!isInRoster(name)) return;
+      // Hard-exclude leavers (e.g. Debashish) from the leaderboard entirely.
+      if (isGamificationExcluded(name)) return;
       const designation = DESIGNATION_MAP[name] || "L1";
       const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
       const daysWorked = getDaysWorked(name, start, end);
@@ -248,6 +251,7 @@ export const getMyStats = async (req, res) => {
     // Merge NOC-inclusive CSAT into allStats for percentile calculation
     const teamData = allStats
       .filter(stat => (DESIGNATION_MAP[stat._id] || "L1") === designation)
+      .filter(stat => !isGamificationExcluded(stat._id))
       .map(stat => {
         const ownerCsat = allCSATByOwner[stat._id] || stat;
         return { ...stat, positiveCSAT: ownerCsat.positiveCSAT || 0, negativeCSAT: ownerCsat.negativeCSAT || 0 };

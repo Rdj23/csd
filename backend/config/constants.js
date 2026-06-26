@@ -190,6 +190,23 @@ export const isGSTMember = (ownerName) => {
   return GST_MEMBERS.has(ownerName);
 };
 
+// ═══════════════════════════════════════════════════════════════════════
+// LEAVERS / INACTIVE-MEMBER HANDLING
+// ═══════════════════════════════════════════════════════════════════════
+// People who have left the org keep their historical data (for integrity)
+// but should disappear from the live views.
+
+/** Canonical names hard-excluded from the gamification leaderboard & percentile
+ *  baselines. Their historical tickets stay in the DB. */
+export const GAMIFICATION_EXCLUDED = new Set(["Debashish"]);
+export const isGamificationExcluded = (name) => GAMIFICATION_EXCLUDED.has(name);
+
+/** Activity view hides any member whose most recent comment is older than this
+ *  many days (treated as "left the org"). Applied dynamically in
+ *  activityController so a member who returns is automatically restored, and
+ *  future leavers drop off without a config edit. */
+export const INACTIVITY_HIDE_DAYS = 20;
+
 // Helper to get current IST time (handles server running in UTC)
 export const getISTTime = () => {
   const now = new Date();

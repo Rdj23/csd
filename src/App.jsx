@@ -2526,14 +2526,14 @@ const App = () => {
                   <ActivityDashboard
                     isDark={theme === "dark"}
                     currentUser={currentUser}
-                    isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
+                    isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email?.toLowerCase())}
                   />
                 </ErrorBoundary>
               ) : activeTab === "gamification" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
   <ErrorBoundary level="section">
     <GamificationView
       currentUser={currentUser}
-      isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email)}
+      isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email?.toLowerCase())}
     />
   </ErrorBoundary>
 ) : activeTab === "alltickets" ? (

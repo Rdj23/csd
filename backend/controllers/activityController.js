@@ -2,15 +2,39 @@ import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, ActivitySyncedTi
 import { syncActivityBatch } from "../services/activityService.js";
 import { getActivitySyncQueue } from "../lib/queues.js";
 import { redisGet } from "../config/database.js";
-import { GST_MEMBERS, resolveOwnerName, getCurrentQuarterKey } from "../config/constants.js";
+import { GST_MEMBERS, resolveOwnerName, getCurrentQuarterKey, INACTIVITY_HIDE_DAYS } from "../config/constants.js";
 import { ok, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 
 // ---------------------------------------------------------------------------
-// GET /api/activity/members — list of all GST members for the sidebar
+// Inactive-member (leaver) detection
 // ---------------------------------------------------------------------------
-export const getMembers = (_req, res) => {
-  res.json({ members: [...GST_MEMBERS].sort() });
+// A member whose most recent comment is older than INACTIVITY_HIDE_DAYS is
+// treated as "left the org" and hidden from the activity view. Members with NO
+// activity at all are NOT hidden (benefit of the doubt — could be new / on
+// leave); only people who were once active and then went silent are dropped.
+const getInactiveMemberSet = async (days = INACTIVITY_HIDE_DAYS) => {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const rows = await UserActivityEntry.aggregate([
+    { $group: { _id: "$user_name", last: { $max: "$created_date" } } },
+    { $match: { last: { $lt: cutoff } } },
+  ]).allowDiskUse(true);
+  return new Set(rows.map((r) => r._id));
+};
+
+// ---------------------------------------------------------------------------
+// GET /api/activity/members — list of active GST members for the sidebar
+// ---------------------------------------------------------------------------
+export const getMembers = async (_req, res) => {
+  try {
+    const inactive = await getInactiveMemberSet();
+    const members = [...GST_MEMBERS].filter((m) => !inactive.has(m)).sort();
+    res.json({ members });
+  } catch (err) {
+    // Fail open: a broken inactivity query should never blank the sidebar.
+    logger.error({ err: err.message }, "getMembers inactivity filter failed");
+    res.json({ members: [...GST_MEMBERS].sort() });
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -250,15 +274,21 @@ export const getLeaderboard = async (req, res) => {
       coopMap[c._id] = c.coop_count;
     }
 
-    const result = dailyResult.map((d) => ({
-      user_name: d._id,
-      total_points: d.total_points,
-      internal_count: d.internal_count,
-      external_count: d.external_count,
-      coop_count: coopMap[d._id] || 0,
-      days_active: d.days_active,
-      ticket_count: ticketMap[d._id] || 0,
-    }));
+    // Hide members who have left the org (no comment in the last
+    // INACTIVITY_HIDE_DAYS days) — same rule as the members sidebar.
+    const inactive = await getInactiveMemberSet();
+
+    const result = dailyResult
+      .filter((d) => !inactive.has(d._id))
+      .map((d) => ({
+        user_name: d._id,
+        total_points: d.total_points,
+        internal_count: d.internal_count,
+        external_count: d.external_count,
+        coop_count: coopMap[d._id] || 0,
+        days_active: d.days_active,
+        ticket_count: ticketMap[d._id] || 0,
+      }));
 
     res.json({ leaderboard: result });
   } catch (err) {

@@ -234,6 +234,9 @@ const upsertDailyRollup = async (userName, dateBucket, hourBucket, visibility, p
     await UserActivityDaily.updateOne(
       { user_name: userName, date_bucket: dateBucket },
       [{ $set: { coop_count: { $size: { $ifNull: ["$coop_tickets", []] } } } }],
+      // Mongoose 9 requires opting in to aggregation-pipeline updates (array form).
+      // Without this the call throws, breaking timeline pagination mid-ticket.
+      { updatePipeline: true },
     );
   }
 };
