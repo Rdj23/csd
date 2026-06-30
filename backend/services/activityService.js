@@ -1,4 +1,5 @@
 import { fetchWorkItem, fetchTimelineEntries } from "./devrevApi.js";
+import { fetchAndCacheTickets } from "./syncService.js";
 import { redisGet, redisHGet } from "../config/database.js";
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata, ActivitySyncedTicket } from "../models/index.js";
 import {
@@ -434,17 +435,32 @@ export const syncActivityBatch = async (opts = {}) => {
       }
     }
   } else {
-    // --- Incremental: recently modified active tickets ---
-    const active = await redisGet("tickets:active");
-    if (!active) {
-      logger.warn("No active tickets in Redis — skipping activity sync");
-      return { totalProcessed: 0, ticketsProcessed: 0, skipped: 0 };
-    }
+    // --- Incremental: recently modified ACTIVE tickets (Redis) + recently CLOSED tickets (Mongo) ---
     const sinceDate = since ? new Date(since) : new Date(Date.now() - 24 * 60 * 60 * 1000);
-    for (const t of active) {
+    const seen = new Set();
+
+    // 1. Active tickets from Redis.
+    //    WHY SELF-HEAL: tickets:active has a 5-min TTL and is only refreshed by
+    //    webhook-driven ticket syncs. In quiet periods (nights/weekends) it can be
+    //    EXPIRED when this job runs. Previously that meant we logged a warning and
+    //    silently captured nothing — the cause of whole-day activity gaps. Now we
+    //    repopulate the cache before giving up, so the sync no longer depends on
+    //    another job having run recently.
+    let active = await redisGet("tickets:active");
+    if (!active) {
+      logger.warn("tickets:active missing — repopulating before activity sync");
+      try {
+        await fetchAndCacheTickets("activity-sync");
+        active = await redisGet("tickets:active");
+      } catch (e) {
+        logger.error({ err: e.message }, "Failed to repopulate tickets:active for activity sync");
+      }
+    }
+    for (const t of (active || [])) {
       if (new Date(t.modified_date) < sinceDate) continue;
       const owner = resolveOwnerName(t.owned_by?.[0]?.display_name);
       if (!owner) continue;
+      seen.add(t.display_id);
       tickets.push({
         devrev_id: t.id,
         display_id: t.display_id,
@@ -453,6 +469,37 @@ export const syncActivityBatch = async (opts = {}) => {
         stage: t.stage?.name,
         isSolved: false,
       });
+    }
+
+    // 2. Durable Mongo safety-net: tickets CLOSED within the window (with a 1h buffer).
+    //    The Redis-only path above can miss comments on tickets that were solved during
+    //    a cache-cold gap — once a ticket is solved it leaves tickets:active entirely.
+    //    AnalyticsTicket has no TTL, so this guarantees solved-ticket activity is picked
+    //    up. Gated by ActivitySyncedTicket so each closed ticket is deep-synced once
+    //    (bounds DevRev timeline fetches on the every-10-min frequent job).
+    const closedSince = new Date(sinceDate.getTime() - 60 * 60 * 1000);
+    const recentlyClosed = await AnalyticsTicket.find(
+      { closed_date: { $gte: closedSince } },
+      { ticket_id: 1, devrev_id: 1, owner: 1, account_cohort: 1, stage_name: 1 },
+    ).lean();
+    if (recentlyClosed.length) {
+      const syncedDocs = await ActivitySyncedTicket.find(
+        { ticket_display_id: { $in: recentlyClosed.map((t) => t.ticket_id) } },
+        { ticket_display_id: 1 },
+      ).lean();
+      const syncedSet = new Set(syncedDocs.map((d) => d.ticket_display_id));
+      for (const t of recentlyClosed) {
+        if (seen.has(t.ticket_id) || syncedSet.has(t.ticket_id)) continue;
+        seen.add(t.ticket_id);
+        tickets.push({
+          devrev_id: t.devrev_id,
+          display_id: t.ticket_id,
+          owner: t.owner,
+          accountCohort: t.account_cohort,
+          stage: t.stage_name || "solved",
+          isSolved: true,
+        });
+      }
     }
   }
 
