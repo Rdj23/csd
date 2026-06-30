@@ -252,6 +252,113 @@ export const getTicketsByRange = async (req, res) => {
   }
 };
 
+// Fields the All Tickets reshape needs from Mongo. Mirrors TICKET_TABLE_FIELDS
+// plus the classification fields the frontend uses to bucket "Resolved By".
+const ALL_SOLVED_FIELDS = {
+  display_id: 1, ticket_id: 1, title: 1, owner: 1,
+  created_date: 1, closed_date: 1, actual_close_date: 1,
+  rwt: 1, frt: 1, iterations: 1, csat: 1, frr: 1,
+  account_name: 1, region: 1, stage_name: 1, priority: 1,
+  is_zendesk: 1, resolved_by: 1, agent_resolved: 1, devrev_id: 1,
+  _id: 1,
+};
+
+// Defensive ceiling on a single quarter's solved set. Far above realistic
+// volume (~a few thousand/quarter); if we ever hit it we log rather than
+// silently truncate, so the gap is visible instead of looking like "all data".
+const ALL_SOLVED_MAX = 20000;
+
+/**
+ * Reshape a flat AnalyticsTicket (Mongo) doc into the nested DevRev-style shape
+ * the All Tickets view expects, so it flows through the same client-side
+ * mapping/filtering pipeline as live cache tickets — no frontend branching.
+ *
+ * Lossy by necessity: CSM/TAM are not persisted in analyticstickets, so they
+ * surface as "Unknown" for historical solved tickets (the CSM/TAM group-by and
+ * filters degrade gracefully; GST/Region/Account remain accurate).
+ */
+const reshapeSolvedTicket = (d) => ({
+  id: d.devrev_id || d.ticket_id || String(d._id),
+  display_id: d.display_id || d.ticket_id,
+  title: d.title,
+  stage: { name: d.stage_name || "Solved" },
+  // owner already holds the resolved GST name (or "Unassigned" for agent-only).
+  // No display_id, so the frontend's FLAT_TEAM_MAP lookup misses and falls back
+  // to display_name — exactly the resolved name we want.
+  owned_by: d.owner ? [{ display_name: d.owner }] : [],
+  created_date: d.created_date,
+  // Expose the canonical closed_date (the field the server filtered on, and the
+  // one Analytics counts) as actual_close_date so the client's re-filter keeps
+  // exactly this set — avoids drift when DevRev's actual_close_date differs.
+  actual_close_date: d.closed_date || d.actual_close_date,
+  isZendesk: d.is_zendesk === true,
+  custom_fields: {
+    tnt__region_salesforce: d.region || "Unknown",
+    tnt__instance_account_name: d.account_name || "Unknown",
+    tnt__rwt_business_hours: d.rwt ?? null,
+    tnt__frt_hours: d.frt ?? null,
+    tnt__iteration_count: d.iterations ?? null,
+    tnt__csatrating: d.csat ?? null,
+    tnt__frr: d.frr === 1,
+    // Mirror Mongo's canonical resolved_by into the two flags the frontend reads.
+    tnt__agent_resolved: d.resolved_by === "agent",
+    tnt__support_engineer_handled: d.resolved_by === "engineer",
+  },
+});
+
+/**
+ * All Tickets — full solved/closed history for a date range, sourced from
+ * MongoDB (analyticstickets) by closed_date.
+ *
+ * WHY this exists: GET /api/tickets serves the Redis "tickets:active" cache,
+ * which only retains solved tickets created since SOLVED_CUTOFF_DATE and is
+ * bounded by the Valkey memory cap. Past quarters' solved tickets get squeezed
+ * out, so the All Tickets view showed zeros for e.g. Q1. Mongo is the permanent
+ * store, so we read solved buckets from here while the live (open/pending/
+ * on-hold) buckets keep coming from the active cache.
+ */
+export const getAllSolvedForRange = async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!start || !end) return badRequest(res, "Start and end dates required");
+
+    const startDate = new Date(start);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(end);
+    endDate.setHours(23, 59, 59, 999);
+
+    const cacheKey = `alltickets:solved:${start}:${end}`;
+    const cachedRaw = await redisGetRaw(cacheKey);
+    if (cachedRaw) {
+      logger.info("AllSolved Redis HIT");
+      return okRaw(res, cachedRaw);
+    }
+
+    const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
+
+    const docs = await AnalyticsTicket.find(matchConditions)
+      .select(ALL_SOLVED_FIELDS)
+      .sort({ closed_date: -1, _id: -1 })
+      .limit(ALL_SOLVED_MAX)
+      .lean();
+
+    if (docs.length >= ALL_SOLVED_MAX) {
+      logger.warn(
+        { start, end, returned: docs.length, cap: ALL_SOLVED_MAX },
+        "AllSolved hit the result cap — older solved tickets in range were truncated",
+      );
+    }
+
+    const tickets = docs.map(reshapeSolvedTicket);
+    const result = { tickets, count: tickets.length, capped: docs.length >= ALL_SOLVED_MAX };
+    await redisSet(cacheKey, result, CACHE_TTL.DRILLDOWN);
+    ok(res, result);
+  } catch (e) {
+    logger.error({ err: e }, "AllSolved fetch error");
+    serverError(res, e.message);
+  }
+};
+
 export const getTicketsByDate = async (req, res) => {
   try {
     const { date, owners, metric, excludeZendesk, region, excludeNOC } = req.query;

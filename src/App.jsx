@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import { authFetch } from "./utils/authFetch";
+import { fetchAllSolvedTickets } from "./api/ticketApi";
 import ErrorBoundary from "./components/ErrorBoundary";
 import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
 import AllTicketsView from "./features/tickets/components/Allticketsview";
@@ -201,6 +202,11 @@ const App = () => {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
+  // All Tickets — solved/closed history pulled from Mongo for the selected range.
+  // The Redis active cache only holds recent solved tickets, so past quarters
+  // (e.g. Q1) need the permanent store. Live buckets still come from the cache.
+  const [allSolvedTickets, setAllSolvedTickets] = useState([]);
+  const [allSolvedLoading, setAllSolvedLoading] = useState(false);
   const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedTeamLead, setSelectedTeamLead] = useState(null);
@@ -1049,13 +1055,64 @@ const App = () => {
   // All Tickets filters are rendered inline in the main content area below
   // This is just a placeholder to indicate the filter location
 
+  // Fetch the solved/closed history from Mongo whenever the All Tickets tab has
+  // a date range applied. The active cache can't be trusted for past quarters
+  // (it only keeps recently-created solved tickets within the Valkey cap), so
+  // the Solved bucket is sourced from the permanent store keyed on closed_date.
+  const allSolvedRange = tabFilters.alltickets?.dateRange;
+  useEffect(() => {
+    if (activeTab !== "alltickets") return;
+    const { start, end } = allSolvedRange || {};
+    if (!start || !end) {
+      setAllSolvedTickets([]);
+      return;
+    }
+
+    let cancelled = false;
+    setAllSolvedLoading(true);
+    fetchAllSolvedTickets(authFetch, { start, end })
+      .then((data) => {
+        if (!cancelled) setAllSolvedTickets(data?.tickets || []);
+      })
+      .catch(() => {
+        if (!cancelled) setAllSolvedTickets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAllSolvedLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, allSolvedRange?.start, allSolvedRange?.end]);
+
   // All Tickets View - includes solved/closed tickets
   const allTicketsFiltered = useMemo(() => {
     if (activeTab !== "alltickets") return [];
 
     const allTicketsFilters = tabFilters.alltickets || EMPTY_FILTERS;
+    const hasRange = !!(
+      allTicketsFilters.dateRange?.start && allTicketsFilters.dateRange?.end
+    );
 
-    return tickets
+    // When a range is set, solved tickets come from Mongo (full history). Drop
+    // solved tickets from the active cache so they aren't double-counted, then
+    // splice in the Mongo-sourced set. Live buckets (open/pending/on-hold) keep
+    // coming from the active cache, filtered by created_date below.
+    const isSolvedStage = (name) => {
+      const s = (name || "").toLowerCase();
+      return (
+        s.includes("solved") || s.includes("closed") || s.includes("resolved")
+      );
+    };
+    const sourceTickets = hasRange
+      ? [
+          ...tickets.filter((t) => !isSolvedStage(t.stage?.name)),
+          ...allSolvedTickets,
+        ]
+      : tickets;
+
+    return sourceTickets
       .map((t) => {
         const { status, color, icon, priority, days } = getTicketStatus(
           t.created_date,
@@ -1304,7 +1361,7 @@ const App = () => {
 
         return true;
       });
-  }, [tickets, tabFilters.alltickets, activeTab, dependencies]);
+  }, [tickets, tabFilters.alltickets, activeTab, dependencies, allSolvedTickets]);
 
   // ✅ KPI STATS - Count from displayTicketsBeforeHealth so cards always show real counts
   const stats = useMemo(() => {
@@ -2549,6 +2606,7 @@ const App = () => {
                     }}
                     filterOptions={options}
                     dependencies={dependencies}
+                    solvedLoading={allSolvedLoading}
                   />
                 </ErrorBoundary>
               ) : (

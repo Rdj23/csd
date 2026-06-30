@@ -1522,6 +1522,7 @@ const AllTicketsView = ({
   onFilterChange,
   filterOptions,
   dependencies = {},
+  solvedLoading = false,
 }) => {
   const [drillDown, setDrillDown] = useState(null); // { state, assignee?, title }
   const [groupBy, setGroupBy] = useState("gst"); // gst, csm, tam, region
@@ -1844,8 +1845,14 @@ const AllTicketsView = ({
           <h2 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">
             All Tickets Overview
           </h2>
-          <p className="text-[12px] text-slate-400 dark:text-slate-500 mt-0.5">
+          <p className="text-[12px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1.5">
             Click any slice or card to drill down
+            {solvedLoading && (
+              <span className="inline-flex items-center gap-1 text-indigo-500 dark:text-indigo-400">
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                Loading solved…
+              </span>
+            )}
           </p>
         </div>
 

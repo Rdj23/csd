@@ -4,6 +4,7 @@ import {
   getDrilldown,
   getTicketsByRange,
   getTicketsByDate,
+  getAllSolvedForRange,
   getActiveTickets,
   getTicketLinks,
   getIssueDetails,
@@ -27,6 +28,7 @@ router.get("/tickets/live-stats", validate(liveStatsSchema), getLiveStats);
 router.get("/tickets/drilldown", validate(drilldownSchema), getDrilldown);
 router.get("/tickets/by-range", validate(byRangeSchema), getTicketsByRange);
 router.get("/tickets/by-date", validate(byDateSchema), getTicketsByDate);
+router.get("/tickets/all-solved", validate(byRangeSchema), getAllSolvedForRange);
 router.get("/tickets", getActiveTickets);
 router.post("/tickets/links", validate(ticketLinksSchema), getTicketLinks);
 router.post("/issues/get", validate(issueDetailsSchema), getIssueDetails);
