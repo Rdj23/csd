@@ -4,7 +4,7 @@ import "./config/env.js";
 import process from "process";
 import { connectMongoDB, initRedis, getBullMQConnection } from "./config/database.js";
 import { initPublisher } from "./lib/pubsub.js";
-import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue } from "./lib/queues.js";
+import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue } from "./lib/queues.js";
 import { registerAllWorkers } from "./lib/workers.js";
 import logger from "./config/logger.js";
 import { getCurrentQuarterKey } from "./config/constants.js";
@@ -46,6 +46,21 @@ const start = async () => {
     "precompute",
     { quarter: getCurrentQuarterKey() },
     { repeat: { pattern: "30 19 * * *" }, jobId: "daily-analytics-precompute" },
+  );
+
+  // Activity sync — MUST be registered here too. When the app is deployed with a
+  // dedicated worker (NODE_ROLE=api + this worker.js), server.js's cron block is
+  // skipped (runWorkers=false there), so this file is the ONLY place that would
+  // schedule activity ingestion. Omitting these previously meant the Activity
+  // Intelligence tracker silently stopped updating in split deployments.
+  // Patterns mirror server.js so the schedule is identical in both topologies.
+  await getActivitySyncQueue().add(
+    "incremental", {},
+    { repeat: { pattern: "0 5 * * *" }, jobId: "daily-activity-sync" },  // 05:00 UTC = 10:30 AM IST
+  );
+  await getActivitySyncQueue().add(
+    "frequent", {},
+    { repeat: { pattern: "*/10 * * * *" }, jobId: "frequent-activity-sync" },  // Every 10 min catch-up
   );
 
   // NOTE: Parts View part-tagging is NOT a separate cron — it now happens inline inside

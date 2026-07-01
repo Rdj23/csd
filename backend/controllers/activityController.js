@@ -1,10 +1,53 @@
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, ActivitySyncedTicket } from "../models/index.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { getActivitySyncQueue } from "../lib/queues.js";
-import { redisGet } from "../config/database.js";
+import { redisGet, redisLock } from "../config/database.js";
 import { GST_MEMBERS, resolveOwnerName, getCurrentQuarterKey, INACTIVITY_HIDE_DAYS } from "../config/constants.js";
 import { ok, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
+
+// ---------------------------------------------------------------------------
+// Demand-driven ("sync-on-read") activity refresh
+// ---------------------------------------------------------------------------
+// WHY THIS EXISTS:
+// The background crons (frequent/daily) are the intended freshness mechanism,
+// but they are fragile on a spin-down host: when the instance sleeps, the
+// scheduler dies, and if it comes back as NODE_ROLE=api the crons never
+// re-register — so the tracker silently stops updating (fine till date X,
+// then nothing). This makes freshness DEMAND-DRIVEN instead: when a human
+// actually opens the Activity view, we kick off one incremental sync.
+//
+// WHY IT DOESN'T STRESS THE SERVER (the explicit requirement):
+//  - Rate-limited: a Redis NX key (redisLock, no unlock) acts as a cooldown —
+//    at most ONE sync per READ_SYNC_COOLDOWN_S window, no matter how many
+//    users/tabs/endpoints fire. Idle hours = zero DevRev calls.
+//  - Non-blocking: fire-and-forget. The read returns immediately from Mongo;
+//    the (~seconds-long) DevRev sync happens in the worker. The user sees
+//    fresh numbers on their next poll — the "5s is fine" tolerance.
+//  - Deduped: the sync itself dedups by entry_id, so overlapping runs are safe.
+const READ_SYNC_COOLDOWN_S = 600; // 10 min — matches the frequent-cron cadence
+const READ_SYNC_COOLDOWN_KEY = "activity:read-sync:cooldown";
+
+const maybeTriggerReadSync = async () => {
+  try {
+    const queue = getActivitySyncQueue();
+    if (!queue) return; // No BullMQ worker — never run a heavy sync on the API event loop.
+
+    // NX cooldown: first caller in the window wins; everyone else is a no-op.
+    // We intentionally DON'T release the lock — its TTL is the cooldown window.
+    const token = await redisLock(READ_SYNC_COOLDOWN_KEY, READ_SYNC_COOLDOWN_S);
+    if (!token || token === "no-redis") return; // synced recently, or Redis unavailable
+
+    // No fixed jobId: the queue keeps only the last few completed jobs
+    // (removeOnComplete), so a reused id would eventually be rejected. The
+    // cooldown above is what prevents pile-up, not the id.
+    await queue.add("frequent", {});
+    logger.info("Dispatched demand-driven activity sync (read-triggered)");
+  } catch (err) {
+    // A trigger failure must never affect the read response.
+    logger.warn({ err: err.message }, "Read-triggered activity sync dispatch failed");
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Inactive-member (leaver) detection
@@ -27,6 +70,7 @@ const getInactiveMemberSet = async (days = INACTIVITY_HIDE_DAYS) => {
 // ---------------------------------------------------------------------------
 export const getMembers = async (_req, res) => {
   try {
+    maybeTriggerReadSync(); // fire-and-forget: refresh activity when someone opens the view
     const inactive = await getInactiveMemberSet();
     const members = [...GST_MEMBERS].filter((m) => !inactive.has(m)).sort();
     res.json({ members });
@@ -235,6 +279,7 @@ export const getLeaderboard = async (req, res) => {
     if (!start || !end) {
       return badRequest(res, "start and end are required");
     }
+    maybeTriggerReadSync(); // fire-and-forget: refresh activity when someone opens the view
 
     // Pre-aggregated daily rollups (fast)
     const dailyResult = await UserActivityDaily.aggregate([
