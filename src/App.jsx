@@ -82,6 +82,8 @@ import {
   getTicketStatus,
   formatRWT,
   TEAM_REGION_MAP,
+  DEPENDENCY_EXPORT_HEADERS,
+  getDependencyExportCells,
 } from "./utils";
 import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
 import { EMAIL_TO_NAME_MAP } from "./utils";
@@ -579,6 +581,7 @@ const App = () => {
       "FRR",
       "Last CT Reply",
       "Last Customer Reply",
+      ...DEPENDENCY_EXPORT_HEADERS,
     ];
 
     const formatTimestamp = (ts) => {
@@ -625,6 +628,7 @@ const App = () => {
           t.frr || "-",
           `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
           `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+          ...getDependencyExportCells(dependencies, t.display_id),
         ];
         csvContent += row.join(",") + "\n";
       });

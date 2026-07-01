@@ -3374,6 +3374,7 @@ const AnalyticsDashboard = ({
         tickets={drillDownData?.tickets || []}
         metricKey={drillDownData?.metricKey || ""}
         summary={drillDownData?.summary || ""}
+        dependencies={dependencies}
       />
     </div>
   );

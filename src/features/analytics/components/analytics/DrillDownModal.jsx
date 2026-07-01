@@ -9,8 +9,13 @@ import {
   AlertCircle,
   ExternalLink,
   Search,
+  Download,
 } from "lucide-react";
-import { FLAT_TEAM_MAP } from "../../../../utils";
+import {
+  FLAT_TEAM_MAP,
+  DEPENDENCY_EXPORT_HEADERS,
+  getDependencyExportCells,
+} from "../../../../utils";
 
 const DrillDownModal = ({
   isOpen,
@@ -19,6 +24,7 @@ const DrillDownModal = ({
   tickets,
   metricKey,
   summary,
+  dependencies = {},
 }) => {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -227,6 +233,109 @@ const DrillDownModal = ({
     }
   };
 
+  // Plain-text metric for CSV (getMetricDisplay returns JSX for FRR/CSAT).
+  const getMetricCsvValue = (t) => {
+    switch (metricKey) {
+      case "avgRWT":
+      case "rwt": {
+        const rwt = t.custom_fields?.tnt__rwt_business_hours || t.rwt;
+        return rwt ? `${Number(rwt).toFixed(1)} hrs` : "-";
+      }
+      case "avgFRT": {
+        const frt = t.custom_fields?.tnt__frt_hours || t.frt;
+        return frt ? `${Number(frt).toFixed(1)} hrs` : "-";
+      }
+      case "frrPercent":
+        return t.custom_fields?.tnt__frr === true ||
+          t.custom_fields?.tnt__iteration_count === 1 ||
+          t.frr === 1
+          ? "Yes"
+          : "No";
+      case "csat": {
+        const rating = t.custom_fields?.tnt__csatrating || t.csat;
+        return rating === 2 ? "Good" : rating === 1 ? "Bad" : "-";
+      }
+      case "avgIterations":
+        return String(
+          t.custom_fields?.tnt__iteration_count || t.iterations || "-",
+        );
+      case "volume":
+        return t.created_date
+          ? format(parseISO(t.created_date), "MMM d, yyyy")
+          : "-";
+      case "solved": {
+        const cd = t.actual_close_date || t.closed_date;
+        return cd ? format(parseISO(cd), "MMM d, yyyy") : "-";
+      }
+      case "backlog":
+        if (t.created_date && (t.actual_close_date || t.closed_date)) {
+          return `${differenceInDays(
+            parseISO(t.actual_close_date || t.closed_date),
+            parseISO(t.created_date),
+          )} days`;
+        }
+        return "-";
+      default:
+        return "-";
+    }
+  };
+
+  // Export the full filtered/sorted set (not just the visible page) to CSV.
+  const handleExport = () => {
+    if (!sortedTickets.length) return;
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const headers = [
+      "Ticket ID",
+      "Title",
+      "Account",
+      "Assignee",
+      "Stage",
+      "Created Date",
+      "Solved Date",
+      getMetricColumnLabel(),
+      ...DEPENDENCY_EXPORT_HEADERS,
+    ];
+    const rows = sortedTickets.map((t) => {
+      const owner =
+        FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
+        t.owned_by?.[0]?.display_name ||
+        t.owner ||
+        "Unassigned";
+      const account =
+        t.custom_fields?.tnt__instance_account_name ||
+        t.account_name ||
+        t.account?.display_name ||
+        "-";
+      const stage = t.stage?.name || t.stage_name || "-";
+      const created = t.created_date
+        ? format(parseISO(t.created_date), "MMM d, yyyy")
+        : "-";
+      const closed = t.actual_close_date || t.closed_date;
+      const solved = closed ? format(parseISO(closed), "MMM d, yyyy") : "-";
+      return [
+        t.display_id || t.ticket_id || "-",
+        q(t.title || ""),
+        q(account),
+        q(owner),
+        q(stage),
+        q(created),
+        q(solved),
+        q(getMetricCsvValue(t)),
+        ...getDependencyExportCells(dependencies, t.display_id || t.ticket_id),
+      ].join(",");
+    });
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    const safeTitle = (title || "analytics")
+      .replace(/[^a-z0-9]+/gi, "_")
+      .replace(/^_+|_+$/g, "");
+    link.download = `Analytics_${safeTitle}_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
@@ -252,6 +361,15 @@ const DrillDownModal = ({
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              disabled={!sortedTickets.length}
+              className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Export these tickets to CSV"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </button>
             <span className="text-sm font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
               {sortedTickets.length} tickets
             </span>

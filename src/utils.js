@@ -94,3 +94,37 @@ export const formatRWT = (epoch) => {
   return Math.max(0, Date.now() - (epoch * 1000));
 };
 
+// ── CSV export: dependency columns ──────────────────────────────────────────
+// The dependency map (App-level) is keyed by display_id WITHOUT the "TKT-"
+// prefix; each entry is { hasDependency, issues: [{ team, owner, ... }] } as
+// returned by /api/tickets/dependencies.
+//
+// Returns three CSV-ready cells: [hadDependency, dependencyTeams, dependencyAssignees].
+//  - "Not checked" (not "No") when the ticket's links were never fetched — the
+//    live map only covers active-cache tickets, so historical/analytics tickets
+//    are unknown rather than dependency-free. This avoids a false "No".
+//  - Team/assignee cells are pre-quoted so "; "-joined multi-values stay in one
+//    column even if a name ever contains a comma.
+export const DEPENDENCY_EXPORT_HEADERS = [
+  "Had Dependency",
+  "Dependency Team(s)",
+  "Dependency Assignee(s)",
+];
+
+const csvQuote = (v) => `"${String(v).replace(/"/g, '""')}"`;
+
+export const getDependencyExportCells = (deps, displayId) => {
+  const id = (displayId || "").replace("TKT-", "");
+  const dep = deps?.[id];
+  if (!dep) return ["Not checked", "-", "-"];
+  if (!dep.hasDependency) return ["No", "-", "-"];
+  const issues = dep.issues || [];
+  const teams = [...new Set(issues.map((i) => i.team).filter(Boolean))];
+  const assignees = [...new Set(issues.map((i) => i.owner).filter(Boolean))];
+  return [
+    "Yes",
+    teams.length ? csvQuote(teams.join("; ")) : "-",
+    assignees.length ? csvQuote(assignees.join("; ")) : "-",
+  ];
+};
+

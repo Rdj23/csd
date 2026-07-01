@@ -44,7 +44,13 @@ import {
   endOfDay,
   subDays,
 } from "date-fns";
-import { FLAT_TEAM_MAP, TEAM_GROUPS, STAGE_MAP } from "../../../utils";
+import {
+  FLAT_TEAM_MAP,
+  TEAM_GROUPS,
+  STAGE_MAP,
+  DEPENDENCY_EXPORT_HEADERS,
+  getDependencyExportCells,
+} from "../../../utils";
 
 // GST Users list (for filtering)
 const GST_USERS = Object.values(FLAT_TEAM_MAP).sort();
@@ -554,6 +560,7 @@ const DrillDownModal = ({
       "FRR",
       "Last CT Reply",
       "Last Customer Reply",
+      ...DEPENDENCY_EXPORT_HEADERS,
     ];
 
     const formatTimestamp = (ts) => {
@@ -600,6 +607,7 @@ const DrillDownModal = ({
           t.frr || "-",
           `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
           `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+          ...getDependencyExportCells(dependencies, t.display_id),
         ];
         csvContent += row.join(",") + "\n";
       });
@@ -612,7 +620,7 @@ const DrillDownModal = ({
     a.download = `Ticket_Report_${title.replace(/\s+/g, "_")}_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [filteredTickets, title]);
+  }, [filteredTickets, title, dependencies]);
 
    const calculateAge = (t) => {
     if (!t.created_date) return 0;
@@ -1777,6 +1785,7 @@ const AllTicketsView = ({
       "FRR",
       "Last CT Reply",
       "Last Customer Reply",
+      ...DEPENDENCY_EXPORT_HEADERS,
     ];
 
     const formatTimestamp = (ts) => {
@@ -1824,6 +1833,7 @@ const AllTicketsView = ({
             t.frr || "-",
             `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
             `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
+            ...getDependencyExportCells(dependencies, t.display_id),
           ].join(",") + "\n";
       });
     });
@@ -1835,7 +1845,7 @@ const AllTicketsView = ({
     a.download = `All_Tickets_Report_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [categorizedTickets]);
+  }, [categorizedTickets, dependencies]);
 
   return (
     <div className="space-y-5">
