@@ -174,14 +174,43 @@ export const getQuarterDates = (quarter) => {
   };
 };
 
-/** Build the list of available quarters for toggles (previous + current). */
+// Data availability starts Q1 2026 (mirrors ALL_TIME_START_DATE below).
+// Every quarter selector/preset is enumerated from here up to the current quarter.
+const DATA_START_QUARTER = { q: 1, year: 2026 };
+
+/**
+ * Build the list of available quarters for toggles/presets — every quarter
+ * from the data-start quarter (Q1 '26) through the current quarter, inclusive.
+ * e.g. in Q3 '26 this returns [Q1_26, Q2_26, Q3_26].
+ */
 export const getAvailableQuarters = () => {
-  const prev = getPreviousQuarterKey();
-  const curr = getCurrentQuarterKey();
-  return [
-    { id: prev, label: formatQuarterLabel(prev) },
-    { id: curr, label: formatQuarterLabel(curr) },
-  ];
+  const now = new Date();
+  const currQ = Math.ceil((now.getMonth() + 1) / 3);
+  const currYear = now.getFullYear();
+
+  const quarters = [];
+  let q = DATA_START_QUARTER.q;
+  let year = DATA_START_QUARTER.year;
+  // Advance quarter-by-quarter until we pass the current quarter.
+  while (year < currYear || (year === currYear && q <= currQ)) {
+    const key = `Q${q}_${String(year).slice(-2)}`;
+    quarters.push({ id: key, label: formatQuarterLabel(key) });
+    q += 1;
+    if (q > 4) {
+      q = 1;
+      year += 1;
+    }
+  }
+  return quarters;
+};
+
+/** Return the quarter key whose date span contains the given Date, or null. */
+export const getQuarterKeyForDate = (date) => {
+  const match = getAvailableQuarters().find((qtr) => {
+    const { start, end } = getQuarterDates(qtr.id);
+    return date >= start && date <= end;
+  });
+  return match ? match.id : null;
 };
 
 // All Time date range (starts from Q1_26)

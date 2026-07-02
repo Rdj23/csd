@@ -95,6 +95,7 @@ import {
   getCurrentQuarterKey,
   getAvailableQuarters,
   getQuarterDates as getQuarterDatesFromConfig,
+  getQuarterKeyForDate,
 } from "./analytics/analyticsConfig";
 
 // Import skeleton loaders for better perceived performance
@@ -205,22 +206,32 @@ const AnalyticsDashboard = ({
     };
   }, [filters?.dateRange, currentQuarter]);
 
-  // Sync currentQuarter when date picker selection matches a quarter preset
-  // This ensures the backend fetch uses the correct quarter for data
+  // Sync currentQuarter when the date picker selection falls within a quarter.
+  // The backend fetch is keyed by quarter, so we must translate any chosen date
+  // range into the quarter that holds it — otherwise the fetched data won't
+  // overlap the range and the view renders zeros (e.g. a custom Jan–Mar range
+  // while currentQuarter is still Q3).
   useEffect(() => {
     const dateRange = filters?.dateRange;
     if (!dateRange?.start || !dateRange?.end) return;
 
+    // 1. Exact quarter-preset match (keeps preset selections crisp).
     for (const q of QUARTERS) {
       const qd = getQuarterDatesFromConfig(q.id);
       const qStart = format(qd.start, "yyyy-MM-dd");
       const qEnd = format(qd.end, "yyyy-MM-dd");
       if (dateRange.start === qStart && dateRange.end === qEnd) {
-        if (currentQuarter !== q.id) {
-          setCurrentQuarter(q.id);
-        }
+        if (currentQuarter !== q.id) setCurrentQuarter(q.id);
         return;
       }
+    }
+
+    // 2. Custom range: resolve to the quarter containing the range's start.
+    // Handles Jan–Mar and any sub-range within a single quarter. Cross-quarter
+    // custom ranges resolve to the start quarter (a single-quarter fetch limit).
+    const resolved = getQuarterKeyForDate(parseISO(dateRange.start));
+    if (resolved && currentQuarter !== resolved) {
+      setCurrentQuarter(resolved);
     }
   }, [filters?.dateRange]);
 
