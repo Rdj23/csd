@@ -12,7 +12,10 @@ import { authAxios, API_URL } from "./apiClient";
  */
 const buildParams = (filters = {}) => {
   const p = new URLSearchParams();
-  if (filters.priorities?.length) p.append("priorities", filters.priorities.join(","));
+  // priorities (DevRev severity) are stored lowercase — lowercase before sending so the
+  // match works even against a backend doing exact $in.
+  if (filters.priorities?.length)
+    p.append("priorities", filters.priorities.map((s) => s.toLowerCase()).join(","));
   if (filters.statuses?.length)
     p.append("statuses", filters.statuses.map((s) => s.toLowerCase()).join(","));
   if (filters.accounts?.length) p.append("accounts", filters.accounts.join(","));
