@@ -166,7 +166,7 @@ const SkeletonRows = () => (
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-const PartsView = ({ filterOptions = {}, tickets = [] }) => {
+const PartsView = ({ filterOptions = {} }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -196,11 +196,10 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
     [priorities, accounts, subtypes, regions, dateRange],
   );
 
-  const priorityOptions = useMemo(() => {
-    const set = new Set();
-    tickets.forEach((t) => t.priority && set.add(t.priority));
-    return Array.from(set).sort();
-  }, [tickets]);
+  // DevRev ticket severity (stored in the `priority` column). Static list — deriving
+  // options from the live `tickets` prop hid the filter whenever the active cache was
+  // empty, and Parts reads cold solved data anyway. Matched case-insensitively backend-side.
+  const priorityOptions = ["Blocker", "High", "Medium", "Low"];
   const accountOptions = filterOptions.accounts || [];
   const regionOptions = filterOptions.regions || [];
   // DevRev ticket classification. Sent lowercased; matched case-insensitively backend-side.
@@ -458,9 +457,7 @@ const PartsView = ({ filterOptions = {}, tickets = [] }) => {
             </button>
           )}
         </div>
-        {priorityOptions.length > 0 && (
-          <MultiSelectFilter icon={FilterIcon} label="Priority" options={priorityOptions} selected={priorities} onChange={(v) => patch("priorities", v)} />
-        )}
+        <MultiSelectFilter icon={FilterIcon} label="Priority" options={priorityOptions} selected={priorities} onChange={(v) => patch("priorities", v)} />
         <MultiSelectFilter icon={Tag} label="Classification" options={subtypeOptions} selected={subtypes} onChange={(v) => patch("subtypes", v)} />
         {regionOptions.length > 0 && (
           <MultiSelectFilter icon={Globe} label="Region" options={regionOptions} selected={regions} onChange={(v) => patch("regions", v)} />

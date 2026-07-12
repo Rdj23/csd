@@ -2560,7 +2560,6 @@ const App = () => {
                 <ErrorBoundary level="section">
                   <PartsView
                     filterOptions={options}
-                    tickets={tickets}
                     isDark={theme === "dark"}
                   />
                 </ErrorBoundary>

@@ -13,7 +13,7 @@ const dateString = z
 export const partsTreeSchema = z.object({
   query: z
     .object({
-      priorities: optionalString, // e.g. "P0,P1"
+      priorities: optionalString, // DevRev severity, e.g. "high,blocker"
       statuses: optionalString, // team vocab: "open,pending,on hold,solved"
       accounts: optionalString,
       subtypes: optionalString, // classification: "query,bug,feature"

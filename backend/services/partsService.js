@@ -406,7 +406,10 @@ const buildSolvedMatch = ({ priorities, statuses, accounts, subtypes, regions, d
     if (dateFrom) match.created_date.$gte = new Date(dateFrom);
     if (dateTo) match.created_date.$lte = new Date(dateTo);
   }
-  if (priorities?.length) match.priority = { $in: priorities };
+  // Priority is DevRev severity (low/medium/high/blocker), stored lowercase; match
+  // case-insensitively so pretty-cased UI labels still hit.
+  if (priorities?.length)
+    match.priority = { $in: priorities.map((p) => new RegExp(`^${p}$`, "i")) };
   if (accounts?.length) match.account_name = { $in: accounts };
   if (regions?.length) match.region = { $in: regions };
   // Match subtype case-insensitively as a substring so value variants group together.

@@ -545,7 +545,10 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                     owner, owner_id: t.owned_by?.[0]?.id || null,
                     account_cohort: t.custom_fields?.tnt__account_cohort_fy_25 || null,
                     region: t.custom_fields?.tnt__region_salesforce || "Unknown",
-                    priority: t.priority,
+                    // DevRev tickets carry `severity` (low/medium/high/blocker), not
+                    // `priority` — stored under the existing `priority` column that the
+                    // Parts View filter chain already matches on.
+                    priority: t.severity || null,
                     is_zendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
                     is_noc: noc.isNoc, noc_issue_id: noc.nocIssueId,
                     noc_jira_key: noc.nocJiraKey, noc_rca: noc.nocRca,

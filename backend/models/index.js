@@ -106,7 +106,7 @@ const AnalyticsTicketSchema = new mongoose.Schema(
                               // Used for gamification scoring: key accounts = 2 pts, non-key = 4 pts
     team: String,             // Which support team handles this ticket
     region: String,           // Geographic region (APAC, EMEA, Americas) from DevRev custom field
-    priority: String,         // P0, P1, P2, etc.
+    priority: String,         // DevRev ticket severity: low / medium / high / blocker
 
     // ── Migration tracking ──
     is_zendesk: { type: Boolean, index: true },  // Was this ticket imported from Zendesk?
