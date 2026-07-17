@@ -96,13 +96,18 @@ const ticketUrn = (ticketId) =>
   `don:core:dvrv-us-1:devo/1iVu4ClfVV:ticket/${ticketId}`;
 
 /**
- * Fetch linked issues for a ticket via DevRev links.list.
+ * Fetch links for a ticket via DevRev links.list.
  * Returns the raw `links` array (may be empty).
+ *
+ * Deliberately UNFILTERED (no object_types): dependencies aren't only issues —
+ * UCMR-synced tickets (external_sync_unit "UCMR (ex-PROD)") and TAM tasks /
+ * custom objects also count. Callers pick relevant targets with
+ * dependencyCounterpart().
  */
 export const fetchTicketLinks = async (ticketId) => {
   const res = await axios.post(
     `${DEVREV_API}/links.list`,
-    { object: ticketUrn(ticketId), object_types: ["issue"], limit: 10 },
+    { object: ticketUrn(ticketId), limit: 20 },
     { headers: HEADERS },
   );
   return res.data.links || [];
@@ -168,8 +173,8 @@ export const fetchTimelineEntries = async (objectId, { cursor, limit = 50 } = {}
  * Fetch ALL links for an arbitrary DevRev object (by full DON id).
  *
  * WHY THIS IS SEPARATE FROM fetchTicketLinks:
- * fetchTicketLinks() hardcodes the ticket URN shape and filters to object_types:["issue"]
- * — it only answers "what issues is this ticket linked to?". The Parts View needs the
+ * fetchTicketLinks() hardcodes the ticket URN shape — it answers "what is this
+ * ticket linked to?". The Parts View needs the
  * opposite kind of walk: "what part is THIS part a child of?" That means calling
  * links.list on a *part* DON and reading the `is_part_of` link. So we keep a generic
  * helper that takes any object DON and returns the raw links array unfiltered.
@@ -218,5 +223,86 @@ export const classifyIssueTeam = (issue, fallback = "Unknown") => {
   if (subtype === "internal_clevertap_slack") return customFields.ctype__team_involved || "Internal";
   if (subtype.includes("email")) return "Email";
   if (subtype.includes("whatsapp")) return "Whatsapp";
+  return fallback;
+};
+
+// ── Dependency link helpers ─────────────────────────────────────────────
+// A ticket's "dependency" can be an issue, another ticket (e.g. UCMR-synced
+// "UCMR (ex-PROD)" tickets), a task, or a custom object (e.g. TAM tasks
+// defined via schemas.custom.list). Parts (is_part_of) and conversations are
+// never dependencies.
+
+const DEP_WORK_TYPES = new Set(["issue", "ticket", "task"]);
+
+const isDependencyTarget = (obj) => {
+  if (!obj || !obj.display_id) return false;
+  const type = (obj.type || "").toLowerCase();
+  return DEP_WORK_TYPES.has(type) || type.includes("custom") || Boolean(obj.leaf_type);
+};
+
+/**
+ * The sync-unit name of an airdropped object ("UCMR (ex-PROD)" etc.), if any.
+ * Verified against works.get: lives at
+ * sync_metadata.last_sync_in.sync_unit.external_sync_unit_name.
+ */
+export const getSyncUnitName = (obj) => {
+  const sm = obj?.sync_metadata;
+  return (
+    sm?.last_sync_in?.sync_unit?.external_sync_unit_name ||
+    sm?.last_sync_out?.sync_unit?.external_sync_unit_name ||
+    sm?.last_sync_in?.sync_unit?.name ||
+    obj?.external_sync_unit_name ||
+    ""
+  );
+};
+
+/**
+ * Pick the dependency object out of a link, whichever side of the link it is
+ * on. Returns the target/source summary object, or null if the link isn't a
+ * dependency (part links, self-references, conversations...).
+ */
+export const dependencyCounterpart = (link, ticketId) => {
+  const selfId = String(ticketId).replace(/^TKT-/i, "");
+  return (
+    [link.target, link.source].find(
+      (o) =>
+        isDependencyTarget(o) &&
+        (o.display_id || "").replace(/^TKT-/i, "") !== selfId,
+    ) || null
+  );
+};
+
+/**
+ * Team label for any linked work item / custom object.
+ * `snapshot` is the summary object embedded in the links.list response — the
+ * full works.get record doesn't exist for custom objects and may omit
+ * sync_metadata, so both are consulted.
+ */
+export const classifyLinkedWorkTeam = (work, snapshot = null, fallback = "Other") => {
+  const src = work || snapshot || {};
+  const type = (src.type || snapshot?.type || "").toLowerCase();
+  const customFields = src.custom_fields || {};
+
+  // Issues keep the existing classification (NOC, ctype__team_involved —
+  // which is how TAM-owned issues are labeled — email/whatsapp subtypes...).
+  if (type === "issue" || !type) {
+    const team = classifyIssueTeam(src, "");
+    if (team) return team;
+  }
+
+  // UCMR: Jira-synced objects carry the sync-unit name ("UCMR (ex-PROD)")
+  // and/or UCMR-flavored ctype fields (verified on ISS-135552 / TKT-315943).
+  const syncUnit = getSyncUnitName(work) || getSyncUnitName(snapshot);
+  const ucmrHint = `${syncUnit} ${customFields.ctype__ext_object_type || ""} ${customFields.ctype__issuetype || ""} ${customFields.ctype__project || ""}`;
+  if (/ucmr/i.test(ucmrHint)) return "UCMR";
+
+  // TAM tasks / custom objects. Issues are excluded here: their subtype can
+  // be an opaque hash that could contain "tam" by accident.
+  const kind = `${src.leaf_type || snapshot?.leaf_type || ""} ${src.subtype || snapshot?.subtype || ""}`;
+  if (type !== "issue" && type !== "" && (/tam/i.test(kind) || type === "task")) return "TAM";
+
+  // Other sync units: use the unit name minus any "(ex-PROD)"-style suffix.
+  if (syncUnit) return syncUnit.replace(/\s*\(.*\)\s*$/, "").trim() || fallback;
+  if (type === "ticket") return "Linked Ticket";
   return fallback;
 };

@@ -86,7 +86,7 @@ import {
   getDependencyExportCells,
 } from "./utils";
 import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
-import { EMAIL_TO_NAME_MAP } from "./utils";
+import { EMAIL_TO_NAME_MAP, DEPENDENCY_TEAMS, depTeamBadgeClass } from "./utils";
 const EMPTY_FILTERS = {
   teams: [],
   owners: [],
@@ -100,7 +100,7 @@ const EMPTY_FILTERS = {
   sentiments: [],
   dateRange: { start: "", end: "" },
   dependency: ["with_dependency", "no_dependency"], // Both selected by default
-  dependencyTeams: ["NOC", "Whatsapp", "Billing", "Email", "Internal", "Other"], // All teams selected by default
+  dependencyTeams: [...DEPENDENCY_TEAMS], // All teams selected by default
   // Both checkboxes selected by default = show everything (engineer + agent).
   // The filter only narrows the view when the user explicitly unchecks one.
   resolvedBy: ["engineer", "agent"],
@@ -132,14 +132,10 @@ const DEPENDENCY_OPTIONS = [
   { value: "no_dependency", label: "No Dependency" },
 ];
 
-const DEPENDENCY_TEAM_OPTIONS = [
-  { value: "NOC", label: "NOC" },
-  { value: "Whatsapp", label: "Whatsapp" },
-  { value: "Billing", label: "Billing" },
-  { value: "Email", label: "Email" },
-  { value: "Internal", label: "Internal" },
-  { value: "Other", label: "Other" },
-];
+const DEPENDENCY_TEAM_OPTIONS = DEPENDENCY_TEAMS.map((team) => ({
+  value: team,
+  label: team,
+}));
 
 // Tab ids that double as URL paths, e.g. /parts, /analytics, /activity.
 // "tickets" is the default and maps to the root path "/".
@@ -998,7 +994,7 @@ const App = () => {
         if (
           currentFilters.dependency?.includes("with_dependency") &&
           currentFilters.dependencyTeams?.length > 0 &&
-          currentFilters.dependencyTeams.length < 6
+          currentFilters.dependencyTeams.length < DEPENDENCY_TEAMS.length
         ) {
           // Only filter if NOT all teams are selected
           const ticketId = t.display_id?.replace("TKT-", "");
@@ -1350,7 +1346,7 @@ const App = () => {
         if (
           allTicketsFilters.dependency?.includes("with_dependency") &&
           allTicketsFilters.dependencyTeams?.length > 0 &&
-          allTicketsFilters.dependencyTeams?.length < 6
+          allTicketsFilters.dependencyTeams?.length < DEPENDENCY_TEAMS.length
         ) {
           const ticketId = t.display_id?.replace("TKT-", "");
           const dep = dependencies[ticketId];
@@ -2017,15 +2013,7 @@ const App = () => {
                                   />
                                   <span
                                     className={`text-xs px-2 py-0.5 rounded font-medium ${
-                                      opt.value === "NOC"
-                                        ? "bg-rose-100 text-rose-700"
-                                        : opt.value === "Whatsapp"
-                                          ? "bg-emerald-100 text-emerald-700"
-                                          : opt.value === "Billing"
-                                            ? "bg-amber-100 text-amber-700"
-                                            : opt.value === "Email"
-                                              ? "bg-blue-100 text-blue-700"
-                                              : "bg-slate-100 text-slate-700"
+                                      depTeamBadgeClass(opt.value)
                                     }`}
                                   >
                                     {opt.label}
@@ -2129,14 +2117,7 @@ const App = () => {
                       <MultiSelectFilter
                         icon={Link2}
                         label="Dep. Team"
-                        options={[
-                          "NOC",
-                          "Whatsapp",
-                          "Billing",
-                          "Email",
-                          "Internal",
-                          "Other",
-                        ]}
+                        options={[...DEPENDENCY_TEAMS]}
                         selected={tabFilters.analytics?.dependencyTeams || []}
                         onChange={(v) =>
                           setTabFilters((prev) => ({
@@ -2341,15 +2322,7 @@ const App = () => {
                                           />
                                           <span
                                             className={`text-xs px-2 py-0.5 rounded font-medium ${
-                                              opt.value === "NOC"
-                                                ? "bg-rose-100 text-rose-700"
-                                                : opt.value === "Whatsapp"
-                                                  ? "bg-emerald-100 text-emerald-700"
-                                                  : opt.value === "Billing"
-                                                    ? "bg-amber-100 text-amber-700"
-                                                    : opt.value === "Email"
-                                                      ? "bg-blue-100 text-blue-700"
-                                                      : "bg-slate-100 text-slate-700"
+                                              depTeamBadgeClass(opt.value)
                                             }`}
                                           >
                                             {opt.label}
@@ -2623,19 +2596,30 @@ const App = () => {
                       <p className="text-sm">Select a view from the sidebar</p>
                     </div>
                   ) : activeTab === "vistas" ? (
-                    <GroupedTicketList
-                      tickets={displayTickets}
-                      onProfileClick={setSelectedUserProfile}
-                      dependencies={dependencies}
-                    />
+                    <ErrorBoundary level="section">
+                      <GroupedTicketList
+                        tickets={displayTickets}
+                        onProfileClick={setSelectedUserProfile}
+                        dependencies={dependencies}
+                      />
+                    </ErrorBoundary>
                   ) : (
-                    <TicketList
-                      tickets={displayTickets}
-                      isCSDView={activeTab === "csd"}
-                      onCardClick={handleKPIFilter}
-                      onProfileClick={setSelectedUserProfile}
-                      dependencies={dependencies}
-                    />
+                    <ErrorBoundary level="section">
+                      <TicketList
+                        tickets={displayTickets}
+                        isCSDView={activeTab === "csd"}
+                        onCardClick={handleKPIFilter}
+                        onProfileClick={setSelectedUserProfile}
+                        dependencies={dependencies}
+                        searchQuery={searchQueries[activeTab] || ""}
+                        onClearSearch={() =>
+                          setSearchQueries((prev) => ({
+                            ...prev,
+                            [activeTab]: "",
+                          }))
+                        }
+                      />
+                    </ErrorBoundary>
                   )}
                 </>
               )}

@@ -7,7 +7,7 @@ import {
   User,
   Ticket,
 } from "lucide-react";
-import { FLAT_TEAM_MAP, TEAM_GROUPS, STAGE_MAP } from "../../../utils";
+import { FLAT_TEAM_MAP, TEAM_GROUPS, STAGE_MAP, depTeamBadgeClass } from "../../../utils";
 
 const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
   const [expandedOwners, setExpandedOwners] = useState(new Set());
@@ -307,17 +307,7 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                             <td className="py-2.5 px-3">
                               {dep?.hasDependency ? (
                                 <span
-                                  className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    primary?.team === "NOC"
-                                      ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
-                                      : primary?.team === "Whatsapp"
-                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                        : primary?.team === "Billing"
-                                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                          : primary?.team === "Email"
-                                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                                  }`}
+                                  className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${depTeamBadgeClass(primary?.team)}`}
                                 >
                                   {primary?.team || "Other"}
                                 </span>

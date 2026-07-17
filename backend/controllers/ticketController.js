@@ -1,7 +1,7 @@
 import { startOfISOWeek, addWeeks, addDays, endOfDay, startOfDay as dfnsStartOfDay } from "date-fns";
 import { AnalyticsTicket } from "../models/index.js";
 import { redisGet, redisGetRaw, redisSet, CACHE_TTL } from "../config/database.js";
-import { fetchTicketLinks, fetchWorkItem, fetchWorkItems, classifyIssueTeam } from "../services/devrevApi.js";
+import { fetchTicketLinks, fetchWorkItem, fetchWorkItems, dependencyCounterpart, classifyLinkedWorkTeam } from "../services/devrevApi.js";
 import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
 import { getTicketSyncQueue } from "../lib/queues.js";
 import { ok, okRaw, badRequest, serverError } from "../utils/response.js";
@@ -483,19 +483,18 @@ export const getTicketLinks = async (req, res) => {
     const { ticketId } = req.body;
     const links = await fetchTicketLinks(ticketId);
 
-    if (links.length === 0) {
-      return ok(res, { hasDependency: false, issues: [] });
-    }
-
+    const seen = new Set();
     const issues = links
       .map((link) => {
-        const target = link.target;
-        if (!target || target.type !== "issue") return null;
+        const target = dependencyCounterpart(link, ticketId);
+        if (!target || seen.has(target.display_id)) return null;
+        seen.add(target.display_id);
         return {
           issueId: target.display_id,
           title: target.title,
           owner: target.owned_by?.[0]?.display_name || "Unassigned",
           ownerEmail: target.owned_by?.[0]?.email,
+          team: classifyLinkedWorkTeam(target),
           priority: target.priority || target.priority_v2?.label,
           stage: target.stage?.name,
           jiraLink: target.sync_metadata?.external_reference,
@@ -503,7 +502,7 @@ export const getTicketLinks = async (req, res) => {
       })
       .filter(Boolean);
 
-    ok(res, { hasDependency: true, issues });
+    ok(res, { hasDependency: issues.length > 0, issues });
   } catch (e) {
     logger.error({ err: e }, "Links fetch error");
     ok(res, { hasDependency: false, issues: [], error: e.message });
@@ -520,7 +519,7 @@ export const getIssueDetails = async (req, res) => {
     }
 
     const customFields = issue.custom_fields || {};
-    const team = classifyIssueTeam(issue);
+    const team = classifyLinkedWorkTeam(issue, null, "Unknown");
 
     ok(res, {
       issueId: issue.display_id,
@@ -565,18 +564,26 @@ export const getBatchDependencies = async (req, res) => {
         }),
       );
 
-      // Step 2: Collect all unique issue display_ids across the batch.
-      // Uses a Set for O(1) dedup instead of Array.includes() which is O(n)
-      // per check — matters when batches have 50+ linked issues.
-      const issueIdsByTicket = new Map();
+      // Step 2: Pick the dependency counterpart of every link — issues, plus
+      // UCMR-synced tickets and TAM tasks / custom objects — deduped per
+      // ticket and across the batch (Sets keep the dedup O(1) per check).
+      const depsByTicket = new Map();
       const allIssueIdSet = new Set();
       for (const { ticketId, links } of batchLinks) {
-        const ids = links
-          .filter((l) => l.target?.type === "issue")
-          .map((l) => ({ displayId: l.target.display_id, link: l }));
-        issueIdsByTicket.set(ticketId, ids);
-        for (const { displayId } of ids) {
-          allIssueIdSet.add(displayId);
+        const seen = new Set();
+        const deps = [];
+        for (const link of links) {
+          const counterpart = dependencyCounterpart(link, ticketId);
+          if (!counterpart || seen.has(counterpart.display_id)) continue;
+          seen.add(counterpart.display_id);
+          deps.push({ displayId: counterpart.display_id, snapshot: counterpart });
+        }
+        depsByTicket.set(ticketId, deps);
+        for (const { displayId } of deps) {
+          // Custom objects (e.g. TAM tasks) aren't works — works.get would
+          // fail on them, so only real work items get the enrichment fetch;
+          // everything else renders from the links.list snapshot.
+          if (/^(ISS|TKT|TASK)-/i.test(displayId)) allIssueIdSet.add(displayId);
         }
       }
       const allIssueIds = [...allIssueIdSet];
@@ -603,36 +610,27 @@ export const getBatchDependencies = async (req, res) => {
       // Step 4: Assemble results for each ticket using the pre-fetched issue map
       for (const { ticketId } of batchLinks) {
         if (results[ticketId]) continue; // already set (e.g. link-fetch error)
-        const ids = issueIdsByTicket.get(ticketId) || [];
+        const deps = depsByTicket.get(ticketId) || [];
 
-        if (ids.length === 0) {
+        if (deps.length === 0) {
           results[ticketId] = { hasDependency: false, issues: [] };
           continue;
         }
 
-        const issues = ids.map(({ displayId, link }) => {
-          const issue = issueMap.get(displayId);
-          if (!issue) {
-            const target = link.target;
-            logger.warn({ targetId: displayId }, "Linked work item not found in batch response");
-            return {
-              issueId: displayId,
-              title: target.title,
-              owner: target.owned_by?.[0]?.display_name || "Unassigned",
-              team: "Unknown",
-              isNOC: false,
-            };
-          }
-          const customFields = issue.custom_fields || {};
+        const issues = deps.map(({ displayId, snapshot }) => {
+          // Custom objects and failed fetches fall back to the links.list
+          // snapshot, which already carries owner/stage/title.
+          const work = issueMap.get(displayId) || snapshot;
+          const customFields = work.custom_fields || {};
           return {
-            issueId: issue.display_id,
-            title: issue.title,
-            owner: issue.owned_by?.[0]?.display_name || "Unassigned",
-            team: classifyIssueTeam(issue, "Other"),
+            issueId: displayId,
+            title: work.title,
+            owner: work.owned_by?.[0]?.display_name || "Unassigned",
+            team: classifyLinkedWorkTeam(work, snapshot),
             isNOC: customFields.ctype__issuetype === "PSN Task",
             jiraKey: customFields.ctype__key,
-            priority: issue.priority_v2?.label,
-            stage: issue.stage?.name,
+            priority: work.priority_v2?.label || work.priority,
+            stage: work.stage?.name,
           };
         }).filter(Boolean);
 

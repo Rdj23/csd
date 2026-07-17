@@ -9,6 +9,8 @@ import {
   CheckCircle,
   AlertTriangle,
   Building2,
+  Inbox,
+  X,
 } from "lucide-react";
 
 const SENTIMENT_EMOJI = {
@@ -20,7 +22,7 @@ const SENTIMENT_EMOJI = {
 };
 const getSentimentEmoji = (label) =>
   label ? SENTIMENT_EMOJI[label.toLowerCase()] : null;
-import { FLAT_TEAM_MAP, STAGE_MAP } from "../../../utils";
+import { FLAT_TEAM_MAP, STAGE_MAP, depTeamBadgeClass } from "../../../utils";
 import RemarkPopover from "../../remarks/components/RemarkPopover";
 
 const ITEMS_PER_PAGE = 20;
@@ -32,6 +34,8 @@ const TicketList = ({
   onCardClick,
   onProfileClick,
   dependencies,
+  searchQuery = "",
+  onClearSearch,
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState({
@@ -149,9 +153,26 @@ const TicketList = ({
                 <Inbox className="w-8 h-8 text-slate-400 dark:text-slate-500" />
               </div>
               <div className="text-center">
-                <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No tickets found</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Adjust your filters or try a different search</p>
+                <p className="text-base font-semibold text-slate-700 dark:text-slate-300">
+                  {searchQuery
+                    ? `No tickets match "${searchQuery}"`
+                    : "No tickets found"}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  {searchQuery
+                    ? "This ticket may be solved/closed or outside the current view — try the All Tickets tab for history"
+                    : "Adjust your filters or try a different search"}
+                </p>
               </div>
+              {searchQuery && onClearSearch && (
+                <button
+                  onClick={onClearSearch}
+                  className="mt-1 px-3 py-1.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5"
+                >
+                  <X className="w-3 h-3" />
+                  Clear search
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -370,17 +391,7 @@ const TicketList = ({
                     <td className="p-3 text-center">
                       {dep?.hasDependency ? (
                         <span
-                          className={`px-2 py-1 rounded-full text-[10px] font-bold ${
-                            primary?.team === "NOC"
-                              ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
-                              : primary?.team === "Whatsapp"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                              : primary?.team === "Billing"
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                              : primary?.team === "Email"
-                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
-                          }`}
+                          className={`px-2 py-1 rounded-full text-[10px] font-bold ${depTeamBadgeClass(primary?.team)}`}
                         >
                           {primary?.team || "Unknown"}
                         </span>

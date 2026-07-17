@@ -111,6 +111,38 @@ export const DEPENDENCY_EXPORT_HEADERS = [
   "Dependency Assignee(s)",
 ];
 
+// Canonical list of dependency teams shown in filters. "All selected" checks
+// must compare against DEPENDENCY_TEAMS.length, never a hardcoded count —
+// UCMR (synced ex-PROD tickets) and TAM (task/custom-object links) were added
+// after the original six.
+export const DEPENDENCY_TEAMS = [
+  "NOC",
+  "Whatsapp",
+  "Billing",
+  "Email",
+  "Internal",
+  "UCMR",
+  "TAM",
+  "Other",
+];
+
+// Badge colors for dependency-team chips. Full class strings (not computed)
+// so Tailwind's scanner picks them up.
+const DEP_TEAM_BADGE_CLASSES = {
+  NOC: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
+  Whatsapp:
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  Billing:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  Email: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  UCMR: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+  TAM: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400",
+};
+
+export const depTeamBadgeClass = (team) =>
+  DEP_TEAM_BADGE_CLASSES[team] ||
+  "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400";
+
 const csvQuote = (v) => `"${String(v).replace(/"/g, '""')}"`;
 
 export const getDependencyExportCells = (deps, displayId) => {

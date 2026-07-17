@@ -50,6 +50,8 @@ import {
   STAGE_MAP,
   DEPENDENCY_EXPORT_HEADERS,
   getDependencyExportCells,
+  DEPENDENCY_TEAMS,
+  depTeamBadgeClass,
 } from "../../../utils";
 
 // GST Users list (for filtering)
@@ -315,12 +317,7 @@ const DrillDownModal = ({
     "no_dependency",
   ]);
   const [selectedDepTeams, setSelectedDepTeams] = useState([
-    "NOC",
-    "Whatsapp",
-    "Billing",
-    "Email",
-    "Internal",
-    "Other",
+    ...DEPENDENCY_TEAMS,
   ]);
 
   // Visible filters and menu
@@ -338,14 +335,7 @@ const DrillDownModal = ({
     setSelectedTAMs([]);
     setSelectedStages([]);
     setSelectedDependency(["with_dependency", "no_dependency"]);
-    setSelectedDepTeams([
-      "NOC",
-      "Whatsapp",
-      "Billing",
-      "Email",
-      "Internal",
-      "Other",
-    ]);
+    setSelectedDepTeams([...DEPENDENCY_TEAMS]);
   }, [tickets]);
 
   // Get unique values for filters
@@ -469,7 +459,7 @@ const DrillDownModal = ({
       if (
         selectedDependency.includes("with_dependency") &&
         selectedDepTeams.length > 0 &&
-        selectedDepTeams.length < 6
+        selectedDepTeams.length < DEPENDENCY_TEAMS.length
       ) {
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];
@@ -881,14 +871,7 @@ const DrillDownModal = ({
                       <div className="text-xs font-bold text-slate-500 uppercase mt-3 mb-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                         Team
                       </div>
-                      {[
-                        "NOC",
-                        "Whatsapp",
-                        "Billing",
-                        "Email",
-                        "Internal",
-                        "Other",
-                      ].map((team) => (
+                      {DEPENDENCY_TEAMS.map((team) => (
                         <label
                           key={team}
                           className="flex items-center gap-2 cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 px-2 rounded"
@@ -906,17 +889,7 @@ const DrillDownModal = ({
                             className="rounded border-slate-300 text-indigo-600"
                           />
                           <span
-                            className={`text-xs px-2 py-0.5 rounded font-medium ${
-                              team === "NOC"
-                                ? "bg-rose-100 text-rose-700"
-                                : team === "Whatsapp"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : team === "Billing"
-                                    ? "bg-amber-100 text-amber-700"
-                                    : team === "Email"
-                                      ? "bg-blue-100 text-blue-700"
-                                      : "bg-slate-100 text-slate-700"
-                            }`}
+                            className={`text-xs px-2 py-0.5 rounded font-medium ${depTeamBadgeClass(team)}`}
                           >
                             {team}
                           </span>
@@ -1126,15 +1099,9 @@ const DrillDownModal = ({
                         const team = dep?.primary?.team || null;
                         if (!team)
                           return <span className="text-slate-400">-</span>;
-                        const colors = {
-                          NOC: "bg-rose-100 text-rose-700",
-                          Whatsapp: "bg-emerald-100 text-emerald-700",
-                          Billing: "bg-amber-100 text-amber-700",
-                          Email: "bg-blue-100 text-blue-700",
-                        };
                         return (
                           <span
-                            className={`text-xs px-2 py-0.5 rounded font-medium ${colors[team] || "bg-slate-100 text-slate-700"}`}
+                            className={`text-xs px-2 py-0.5 rounded font-medium ${depTeamBadgeClass(team)}`}
                           >
                             {team}
                           </span>
