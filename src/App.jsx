@@ -2171,15 +2171,24 @@ const App = () => {
                           options={options.teams}
                           selected={currentFilters.teams}
                           onChange={(v) => {
+                            const hadAdish =
+                              currentFilters.teams?.includes("Adish");
                             setFilter("teams", v);
+                            const adishRegions =
+                              TEAM_REGION_MAP["Adish"] || [];
                             // Auto-select regions for Adish
-                            if (v.includes("Adish")) {
-                              setFilter("regions", [
-                                "South America",
-                                "North America",
-                              ]);
+                            if (v.includes("Adish") && !hadAdish) {
+                              setFilter("regions", adishRegions);
                               setVisibleFilterKeys((prev) =>
                                 Array.from(new Set([...prev, "regions"])),
+                              );
+                            } else if (hadAdish && !v.includes("Adish")) {
+                              // Adish unchecked: clear its auto-selected regions
+                              setFilter(
+                                "regions",
+                                (currentFilters.regions || []).filter(
+                                  (r) => !adishRegions.includes(r),
+                                ),
                               );
                             }
                           }}
