@@ -309,25 +309,32 @@ const AnalyticsDashboard = ({
     filters?.resolvedBy,
   ]);
 
-  // A dependency filter is "active" (narrowing the view) only when the user picked
-  // exactly one of Has/No, or a strict subset of dependency teams. The backend daily
-  // rollups (analyticsData.trends / individualTrends) carry no per-ticket dependency
-  // dimension, so when this is active we recompute stats AND charts client-side from
-  // the already-dependency-filtered ticket arrays (solvedTickets / volumeTickets).
+  // A dependency filter is "active" (narrowing the view) whenever the user's
+  // selection is NOT the default "both Has + No" (the only no-op state). That
+  // includes selecting exactly one box AND deselecting both — the latter must
+  // yield zero results, not everything. It's also active for a strict subset of
+  // dependency teams. The backend daily rollups (analyticsData.trends /
+  // individualTrends) carry no per-ticket dependency dimension, so when this is
+  // active we recompute stats AND charts client-side from the already-filtered
+  // ticket arrays (solvedTickets / volumeTickets).
   const hasDependencyFilter = useMemo(() => {
+    const dep = filters?.dependency || [];
+    // Both boxes selected (length 2) is the only no-op; 0 or 1 selected narrows.
+    if (dep.length < 2) return true;
     return (
-      (filters?.dependency?.length > 0 && filters?.dependency?.length < 2) ||
-      (filters?.dependency?.includes("with_dependency") &&
-        filters?.dependencyTeams?.length > 0 &&
-        filters?.dependencyTeams?.length < 6)
+      dep.includes("with_dependency") &&
+      filters?.dependencyTeams?.length > 0 &&
+      filters?.dependencyTeams?.length < 6
     );
   }, [filters]);
 
-  // 1. Core Filters (Team, Owner, Region, Zendesk) - all filters EXCEPT NOC
-  const coreFilteredTickets = useMemo(() => {
+  // 1. Core Filters WITHOUT the dependency dimension (Team, Owner, Region,
+  // Zendesk). Split out from the dependency narrowing so we can tell whether the
+  // (async, live-fetched) dependency map has loaded for every ticket the
+  // dependency filter would examine — see dependencyDataReady below.
+  const nonDepFilteredTickets = useMemo(() => {
     return tickets.filter((t) => {
       // Exclude Zendesk if toggle is on
-      // Inside AnalyticsDashboard.jsx -> coreFilteredTickets
       if (excludeZendesk) {
         const isZendesk = t.tags?.some(
           (tagObj) => tagObj.tag?.name === "Zendesk import",
@@ -363,16 +370,56 @@ const AnalyticsDashboard = ({
         if (!filters.regions.includes(region)) return false;
       }
 
-      // Linked / Dependency Filter — both values selected (default) is a no-op;
-      // narrows only when the user picks exactly one. Mirrors the All Tickets view.
-      if (filters?.dependency?.length > 0 && filters?.dependency?.length < 2) {
+      return true;
+    });
+  }, [tickets, filters, excludeZendesk]);
+
+  // Is the dependency map loaded for every ticket the filter would examine?
+  // The map is fetched asynchronously (App.jsx, batched) — until a ticket's entry
+  // exists, `dependencies[id]` is undefined and we CANNOT tell if it has a
+  // dependency. We only wait on tickets that fall in the date range (created OR
+  // closed), i.e. those the volume/solved arrays actually use — not the whole
+  // active cache. `pendingDependencyCount` drives the "loading" banner.
+  const pendingDependencyCount = useMemo(() => {
+    if (!hasDependencyFilter) return 0;
+    const { start, end } = effectiveDateRange;
+    return nonDepFilteredTickets.reduce((count, t) => {
+      const created = t.created_date ? parseISO(t.created_date) : null;
+      const closedRaw = t.actual_close_date || t.closed_date;
+      const closed = closedRaw ? parseISO(closedRaw) : null;
+      const inRange =
+        (created && created >= start && created <= end) ||
+        (closed && closed >= start && closed <= end);
+      if (!inRange) return count;
+      const id = t.display_id?.replace("TKT-", "");
+      return dependencies[id] === undefined ? count + 1 : count;
+    }, 0);
+  }, [hasDependencyFilter, nonDepFilteredTickets, dependencies, effectiveDateRange]);
+
+  const dependencyDataReady = pendingDependencyCount === 0;
+
+  // 1a. Apply the dependency narrowing on top of the non-dependency filters.
+  // While a dependency filter is active but its data is still loading, we HOLD
+  // the narrowing (pass everything through) so tickets like TKT-315055 aren't
+  // wrongly dropped before their links resolve. The banner tells the user.
+  const coreFilteredTickets = useMemo(() => {
+    if (!hasDependencyFilter || !dependencyDataReady) {
+      return nonDepFilteredTickets;
+    }
+    return nonDepFilteredTickets.filter((t) => {
+      // Linked / Dependency Filter. Every ticket falls into exactly one bucket
+      // (has a dependency, or doesn't), so keep it only when its bucket is among
+      // the selected checkboxes. Both selected (length 2) = default no-op; one
+      // selected narrows; NONE selected correctly yields zero results.
+      const depSel = filters?.dependency || [];
+      if (depSel.length < 2) {
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];
         const hasDependency = dep?.hasDependency === true;
-        if (filters.dependency.includes("with_dependency") && !hasDependency)
-          return false;
-        if (filters.dependency.includes("no_dependency") && hasDependency)
-          return false;
+        const matchesSelection =
+          (hasDependency && depSel.includes("with_dependency")) ||
+          (!hasDependency && depSel.includes("no_dependency"));
+        if (!matchesSelection) return false;
       }
 
       // Dependency-team filter — only applies when scoping to linked tickets and
@@ -395,7 +442,13 @@ const AnalyticsDashboard = ({
 
       return true;
     });
-  }, [tickets, filters, excludeZendesk, dependencies]);
+  }, [
+    nonDepFilteredTickets,
+    filters,
+    dependencies,
+    hasDependencyFilter,
+    dependencyDataReady,
+  ]);
 
   // 1b. Apply NOC filter on top of core filters (for non-CSAT metrics)
   const baseFilteredTickets = useMemo(() => {
@@ -2551,6 +2604,19 @@ const AnalyticsDashboard = ({
 
   return (
     <div className="space-y-6 p-6 max-w-[1600px] mx-auto">
+      {/* Dependency filter is applied client-side against a live-fetched map that
+          loads asynchronously. While it's still loading we HOLD the has/no
+          narrowing (show everything) so nothing is wrongly excluded, and tell the
+          user the numbers are provisional. */}
+      {hasDependencyFilter && !dependencyDataReady && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          Loading dependency data for {pendingDependencyCount} ticket
+          {pendingDependencyCount === 1 ? "" : "s"} — the dependency filter will
+          apply once loaded (showing all tickets meanwhile).
+        </div>
+      )}
+
       {/* GST/Global Toggle - ONLY FOR SUPER ADMIN */}
       {isSuperAdmin && (
         <div className="flex items-center gap-3">
