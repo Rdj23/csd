@@ -480,6 +480,92 @@ const AnalyticsDashboard = ({
         return;
       }
 
+      // When a dependency filter is active, the MongoDB drill-down endpoint
+      // (/api/tickets/by-date) can't scope by dependency, so it would return the
+      // full unfiltered day. Serve the drill-down from the already-filtered
+      // solvedTickets array instead — matching the expanded chart series.
+      if (hasDependencyFilter) {
+        const inBucket = (t) => {
+          const cd = t.actual_close_date || t.closed_date;
+          if (!cd) return false;
+          const d = parseISO(cd);
+          if (expandedGroupBy === "weekly")
+            return format(d, "RRRR-'W'II") === dateKey;
+          if (expandedGroupBy === "monthly")
+            return format(d, "yyyy-MM") === dateKey;
+          return format(d, "yyyy-MM-dd") === dateKey;
+        };
+
+        let ticketsForDate = solvedTickets.filter(inBucket);
+
+        // Backlog counts only aged (>=15 day) tickets, so scope the list to match.
+        if (metricKey === "backlog") {
+          ticketsForDate = ticketsForDate.filter((t) => {
+            const cd = t.actual_close_date || t.closed_date;
+            if (!cd || !t.created_date) return false;
+            const ageDays =
+              (parseISO(cd).getTime() - parseISO(t.created_date).getTime()) /
+              (1000 * 60 * 60 * 24);
+            return ageDays >= 15;
+          });
+        }
+
+        const cf = (t) => t.custom_fields || {};
+        let summary = `${ticketsForDate.length} tickets`;
+        if (metricKey === "frrPercent" || metricKey === "frr") {
+          const met = ticketsForDate.filter(
+            (t) =>
+              cf(t).tnt__frr === true || cf(t).tnt__iteration_count === 1,
+          ).length;
+          const total = ticketsForDate.length;
+          const pct = total > 0 ? Math.round((met / total) * 100) : 0;
+          summary = `FRR Met: ${met} of ${total} (${pct}%) | Total: ${total} tickets`;
+        } else if (metricKey === "csat" || metricKey === "positiveCSAT") {
+          const good = ticketsForDate.filter(
+            (t) => Number(cf(t).tnt__csatrating) === 2,
+          ).length;
+          const bad = ticketsForDate.filter(
+            (t) => Number(cf(t).tnt__csatrating) === 1,
+          ).length;
+          summary = `Good: ${good} 👍 | Bad: ${bad} 👎 | Total: ${ticketsForDate.length}`;
+        } else if (metricKey === "rwt" || metricKey === "avgRWT") {
+          const v = ticketsForDate
+            .map((t) => cf(t).tnt__rwt_business_hours)
+            .filter((x) => x > 0);
+          const avg =
+            v.length > 0
+              ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1)
+              : 0;
+          summary = `Avg RWT: ${avg} hrs | ${ticketsForDate.length} tickets`;
+        } else if (metricKey === "frt" || metricKey === "avgFRT") {
+          const v = ticketsForDate
+            .map((t) => cf(t).tnt__frt_hours)
+            .filter((x) => x > 0);
+          const avg =
+            v.length > 0
+              ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1)
+              : 0;
+          summary = `Avg FRT: ${avg} hrs | ${ticketsForDate.length} tickets`;
+        } else if (metricKey === "iterations" || metricKey === "avgIterations") {
+          const v = ticketsForDate
+            .map((t) => cf(t).tnt__iteration_count)
+            .filter((x) => x > 0);
+          const avg =
+            v.length > 0
+              ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1)
+              : 0;
+          summary = `Avg Iterations: ${avg} | ${ticketsForDate.length} tickets`;
+        }
+
+        setDrillDownData({
+          title: `${getMetricLabel(metricKey)} - ${dataPointName}`,
+          tickets: ticketsForDate,
+          metricKey,
+          summary,
+        });
+        return;
+      }
+
       // For SOLVED metrics - ALWAYS fetch from MongoDB
       const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -609,7 +695,15 @@ const AnalyticsDashboard = ({
         });
       }
     },
-    [volumeTickets, filters, excludeZendesk, excludeNOC],
+    [
+      volumeTickets,
+      filters,
+      excludeZendesk,
+      excludeNOC,
+      hasDependencyFilter,
+      solvedTickets,
+      expandedGroupBy,
+    ],
   );
 
   // Helper function for metric labels
@@ -770,6 +864,104 @@ const AnalyticsDashboard = ({
     return `${h - 12} PM`;
   });
 
+  // When a dependency filter is active, the MongoDB rollups feeding the expanded
+  // chart (individualTrends / trends) carry NO per-ticket dependency dimension, so
+  // they'd render unfiltered totals. Rebuild a daily "trends"-shaped series from the
+  // already-dependency-filtered ticket arrays (solvedTickets / volumeTickets) so the
+  // expanded chart matches the KPI cards. Field/threshold definitions mirror the
+  // Scenario-0 client-side stat calc (see filteredStats).
+  const buildDepDailyTrends = useCallback(
+    (metricKey) => {
+      const start = expandedEffectiveDateRange.start;
+      const end = expandedEffectiveDateRange.end;
+      const byDate = {};
+      const ensure = (key) =>
+        (byDate[key] ||= {
+          date: key,
+          solved: 0,
+          volume: 0,
+          backlogCleared: 0,
+          rwtSum: 0,
+          rwtCount: 0,
+          frtSum: 0,
+          frtCount: 0,
+          iterSum: 0,
+          iterCount: 0,
+          positiveCSAT: 0,
+          negativeCSAT: 0,
+          frrMet: 0,
+        });
+
+      if (metricKey === "volume") {
+        // Volume is keyed by CREATED date (uses the created-in-range array).
+        volumeTickets.forEach((t) => {
+          if (!t.created_date) return;
+          const d = parseISO(t.created_date);
+          if (d < start || d > end) return;
+          ensure(format(d, "yyyy-MM-dd")).volume += 1;
+        });
+      } else {
+        // All other metrics are keyed by CLOSE date.
+        solvedTickets.forEach((t) => {
+          const closedDate = t.actual_close_date || t.closed_date;
+          if (!closedDate) return;
+          const d = parseISO(closedDate);
+          if (d < start || d > end) return;
+          const agg = ensure(format(d, "yyyy-MM-dd"));
+          const cf = t.custom_fields || {};
+
+          agg.solved += 1;
+          if (cf.tnt__rwt_business_hours > 0) {
+            agg.rwtSum += cf.tnt__rwt_business_hours;
+            agg.rwtCount += 1;
+          }
+          if (cf.tnt__frt_hours > 0) {
+            agg.frtSum += cf.tnt__frt_hours;
+            agg.frtCount += 1;
+          }
+          if (cf.tnt__iteration_count > 0) {
+            agg.iterSum += cf.tnt__iteration_count;
+            agg.iterCount += 1;
+          }
+          if (Number(cf.tnt__csatrating) === 2) agg.positiveCSAT += 1;
+          if (Number(cf.tnt__csatrating) === 1) agg.negativeCSAT += 1;
+          if (cf.tnt__frr === true || cf.tnt__iteration_count === 1)
+            agg.frrMet += 1;
+          if (t.created_date) {
+            const ageDays =
+              (d.getTime() - parseISO(t.created_date).getTime()) /
+              (1000 * 60 * 60 * 24);
+            if (ageDays >= 15) agg.backlogCleared += 1;
+          }
+        });
+      }
+
+      // Emit trend objects in the exact shape the shared daily/weekly/monthly
+      // grouping below expects. `solved` doubles as the generic value carrier for
+      // the sum metrics whose dataKey resolves to "solved" (volume, solved, backlog).
+      return Object.values(byDate)
+        .sort((a, b) => new Date(a.date) - new Date(b.date))
+        .map((a) => ({
+          date: a.date,
+          solved:
+            metricKey === "volume"
+              ? a.volume
+              : metricKey === "backlog"
+                ? a.backlogCleared
+                : a.solved,
+          avgRWT: a.rwtCount > 0 ? a.rwtSum / a.rwtCount : 0,
+          avgFRT: a.frtCount > 0 ? a.frtSum / a.frtCount : 0,
+          avgIterations: a.iterCount > 0 ? a.iterSum / a.iterCount : 0,
+          positiveCSAT: a.positiveCSAT,
+          negativeCSAT: a.negativeCSAT,
+          frrMet: a.frrMet,
+          frrPercent:
+            a.solved > 0 ? Math.round((a.frrMet / a.solved) * 100) : 0,
+        }));
+    },
+    [solvedTickets, volumeTickets, expandedEffectiveDateRange],
+  );
+
   const getExpandedChartData = useCallback(
     (metricKey) => {
       // =====================================================
@@ -804,13 +996,18 @@ const AnalyticsDashboard = ({
         }));
       }
 
+      // Dependency filter active → the MongoDB rollups below have no dependency
+      // dimension, so build the series from the already-filtered ticket arrays and
+      // feed it through the shared daily/weekly/monthly grouping (fallback path).
+      const depTrends = hasDependencyFilter ? buildDepDailyTrends(metricKey) : null;
+
       // =====================================================
       // When owner/team filter is active, aggregate from individualTrends
       // =====================================================
       const hasOwnerFilters =
         filters?.owners?.length > 0 || filters?.teams?.length > 0;
 
-      if (hasOwnerFilters && analyticsData?.individualTrends) {
+      if (!depTrends && hasOwnerFilters && analyticsData?.individualTrends) {
         const individualTrends = analyticsData.individualTrends;
         let ownersToInclude = Object.keys(individualTrends);
 
@@ -1020,11 +1217,13 @@ const AnalyticsDashboard = ({
           });
       }
 
-      // Use expandedAllTrends instead of analyticsData?.trends
+      // Dependency-filtered series (client-side) takes precedence over the MongoDB
+      // rollups, which don't carry a dependency dimension.
       const trends =
-        expandedAllTrends.length > 0
+        depTrends ||
+        (expandedAllTrends.length > 0
           ? expandedAllTrends
-          : analyticsData?.trends || [];
+          : analyticsData?.trends || []);
       if (!trends.length) return [];
 
       // Use the effective date range (global or overridden)
@@ -1241,6 +1440,8 @@ const AnalyticsDashboard = ({
       filters?.teams,
       excludeNOC,
       baseFilteredTickets,
+      hasDependencyFilter,
+      buildDepDailyTrends,
     ],
   );
 
