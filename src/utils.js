@@ -14,7 +14,19 @@ export const TEAM_REGION_MAP = {
   "Adish": ["South America", "North America"]
 };
 
-export const FLAT_TEAM_MAP = Object.values(TEAM_GROUPS).reduce((acc, group) => ({ ...acc, ...group }), {});
+// GST members not (yet) under a team lead. They resolve for ticket ownership /
+// name normalization but are deliberately kept OUT of TEAM_GROUPS so no team is
+// created for them — they only populate individual/member views. Move a DEVU-ID
+// into a TEAM_GROUPS block above once the person is assigned a lead.
+export const TEAMLESS_MEMBERS = {
+  "DEVU-3225": "Zeel",
+  "DEVU-3226": "Soham",
+};
+
+export const FLAT_TEAM_MAP = {
+  ...Object.values(TEAM_GROUPS).reduce((acc, group) => ({ ...acc, ...group }), {}),
+  ...TEAMLESS_MEMBERS,
+};
 
 // Map email addresses to GST names
 export const EMAIL_TO_NAME_MAP = {
@@ -36,6 +48,8 @@ export const EMAIL_TO_NAME_MAP = {
   "tamanna@clevertap.com": "Tamanna",
   "shreyas.naikwadi@clevertap.com": "Shreyas",
   "adish@clevertap.com": "Adish",
+  "zeel@clevertap.com": "Zeel",
+  "soham@clevertap.com": "Soham",
 };
 
 export const calculateResolutionTime = (createdISO, closedISO) => {

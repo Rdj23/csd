@@ -47,12 +47,26 @@ const TEAMS = [
   ]},
   { lead: "Debashish", members: [
     { name: "Debashish", devuId: "DEVU-1102", email: "debashish@clevertap.com",       designation: "L2", aliases: ["Debashish Muni"] },
-    { name: "Adarsh",    devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com",    designation: "L1", aliases: [] },
-    { name: "Tamanna",   devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L1", aliases: ["Tamanna Khan"] },
+    { name: "Adarsh",    devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com",    designation: "L2", aliases: [] },
+    { name: "Tamanna",   devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L2", aliases: ["Tamanna Khan"] },
   ]},
   { lead: "Adish", members: [
     { name: "Adish", devuId: "DEVU-1121", email: "adish@clevertap.com", designation: "L2", aliases: [] },
   ]},
+];
+
+// ── TEAMLESS MEMBERS — GST members not (yet) under a team lead ────────────
+// These people ARE part of GST for individual/member purposes — ticket
+// attribution, individual stats, and the gamification leaderboard (by
+// designation) — but they intentionally do NOT belong to any team group, so
+// no team is created for them and they never surface in team-level views.
+// When a lead is assigned, move the entry into that lead's TEAMS block above.
+//
+// aliases = the exact DevRev owner display_name(s), so tickets owned by them
+// resolve to the canonical name (their DevRev names are lowercase).
+const TEAMLESS_MEMBERS = [
+  { name: "Zeel",  devuId: "DEVU-3225", email: "zeel@clevertap.com",  designation: "L1", aliases: ["zeel"] },
+  { name: "Soham", devuId: "DEVU-3226", email: "soham@clevertap.com", designation: "L1", aliases: ["soham"] },
 ];
 
 // ── AUTO-DERIVED MAPS (computed once at module load) ─────────────────
@@ -77,6 +91,16 @@ for (const team of TEAMS) {
     for (const alias of (m.aliases || [])) {
       GST_NAME_MAP[alias] = m.name;
     }
+  }
+}
+
+// Teamless members join the member-level maps ONLY (GST_MEMBERS + name
+// resolution) — deliberately NOT TEAM_GROUPS, so no team group is created.
+for (const m of TEAMLESS_MEMBERS) {
+  GST_MEMBERS.add(m.name);
+  GST_NAME_MAP[m.name] = m.name;
+  for (const alias of (m.aliases || [])) {
+    GST_NAME_MAP[alias] = m.name;
   }
 }
 
@@ -130,6 +154,13 @@ for (const team of TEAMS) {
   }
 }
 
+// Teamless members get a designation (drives their L1/L2 gamification bucket)
+// but no team info — GAMIFICATION_TEAM_MAP intentionally omits them, so the
+// leaderboard reports their team as the default "Unknown".
+for (const m of TEAMLESS_MEMBERS) {
+  DESIGNATION_MAP[m.name] = m.designation;
+}
+
 // --- SLACK ALERT CONFIGURATION ---
 export const SLACK_ADMIN_ID = "<@U06G06YQR6E>"; // Tuaha Khan - Admin to notify
 
@@ -168,13 +199,21 @@ for (const team of TEAMS) {
     EMAIL_TO_NAME_MAP[m.email] = m.name;
   }
 }
+// Teamless members: email resolution only, no GAMIFICATION_TEAM_MAP entry.
+for (const m of TEAMLESS_MEMBERS) {
+  EMAIL_TO_NAME_MAP[m.email] = m.name;
+}
 
-// Flat DEVU-ID → GST name mapping (built from TEAM_GROUPS)
+// Flat DEVU-ID → GST name mapping (built from TEAM_GROUPS + teamless members)
 export const GST_DEVU_MAP = {};
 for (const members of Object.values(TEAM_GROUPS)) {
   for (const [devuId, name] of Object.entries(members)) {
     GST_DEVU_MAP[devuId] = name;
   }
+}
+// Teamless members still need DEVU-ID → name resolution for ticket ownership.
+for (const m of TEAMLESS_MEMBERS) {
+  GST_DEVU_MAP[m.devuId] = m.name;
 }
 
 // Helper functions
