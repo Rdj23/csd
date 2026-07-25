@@ -67,7 +67,7 @@ import {
   ChevronRight,
   Edit3,
 } from "lucide-react";
-import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../utils";
+import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS, DEPENDENCY_TEAMS } from "../../../utils";
 import { useTicketStore } from "../../../store";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
 import MultiSelectFilter from "../../../components/common/MultiSelectFilter";
@@ -324,7 +324,7 @@ const AnalyticsDashboard = ({
     return (
       dep.includes("with_dependency") &&
       filters?.dependencyTeams?.length > 0 &&
-      filters?.dependencyTeams?.length < 6
+      filters?.dependencyTeams?.length < DEPENDENCY_TEAMS.length
     );
   }, [filters]);
 
@@ -423,11 +423,13 @@ const AnalyticsDashboard = ({
       }
 
       // Dependency-team filter — only applies when scoping to linked tickets and
-      // a strict subset of teams is selected (length < 6 = "not all").
+      // a strict subset of teams is selected (fewer than ALL = "not all"). Must
+      // compare against DEPENDENCY_TEAMS.length (8), never a hardcoded number —
+      // a hardcoded 6 silently skipped the filter when 6–7 teams were selected.
       if (
         filters?.dependency?.includes("with_dependency") &&
         filters?.dependencyTeams?.length > 0 &&
-        filters?.dependencyTeams?.length < 6
+        filters?.dependencyTeams?.length < DEPENDENCY_TEAMS.length
       ) {
         const ticketId = t.display_id?.replace("TKT-", "");
         const dep = dependencies[ticketId];

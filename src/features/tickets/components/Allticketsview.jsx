@@ -1530,7 +1530,7 @@ const AllTicketsView = ({
     const hasDepTeamsFilter =
       depFilter.includes("with_dependency") &&
       depTeamsFilter.length > 0 &&
-      depTeamsFilter.length < 6;
+      depTeamsFilter.length < DEPENDENCY_TEAMS.length;
 
     cleanTickets.forEach((t) => {
       // Apply dependency filter first
