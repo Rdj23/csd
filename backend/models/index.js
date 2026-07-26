@@ -139,6 +139,18 @@ const AnalyticsTicketSchema = new mongoose.Schema(
     noc_confirmation_iss_id: { type: String, default: null },  // The confirmation issue ID
     slack_alerted_at: { type: Date, default: null },   // When Slack alert was sent (prevents re-alerting)
 
+    // ── Dependency (linked work) fields ──
+    // Persisted at sync time from the same links.list/works.get walk that
+    // resolves NOC, so historical tickets keep their dependency info after they
+    // age out of the Redis active cache (the live map only covers cached
+    // tickets). null has_dependency = "never checked" (pre-backfill rows) —
+    // distinct from false ("checked, no links"), so filters/exports can say
+    // "Not checked" instead of a false "No".
+    has_dependency: { type: Boolean, default: null },
+    dependency_issue_ids: { type: [String], default: undefined },  // e.g. ["ISS-133748"]
+    dependency_teams: { type: [String], default: undefined },      // classifyLinkedWorkTeam labels, deduped
+    dependency_assignees: { type: [String], default: undefined },  // linked-item owners, deduped
+
     // ── Stage tracking ──
     stage_name: { type: String, index: true },  // Current stage: "solved", "closed", "resolved", etc.
     actual_close_date: Date,  // DevRev's actual_close_date (may differ from closed_date/modified_date)

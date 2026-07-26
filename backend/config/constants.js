@@ -305,6 +305,27 @@ const parseQuarterKey = (key) => {
  */
 const lastDayOfMonth = (year, month) => new Date(year, month + 1, 0).getDate();
 
+// ── IST day-boundary helpers ────────────────────────────────────────────
+// All dashboards bucket closed_date by IST days (see DASH_TZ in
+// aggregationStages.js), so query windows must open/close at IST midnight —
+// not UTC midnight — or the first/last 5.5 hours of a range land in the
+// wrong bucket (e.g. "solved Jul 05, 01:09 IST" counted under Jul 04).
+export const IST_OFFSET = "+05:30";
+
+/** Start of an IST calendar day. Accepts "YYYY-MM-DD". */
+export const istDayStart = (ymd) => new Date(`${ymd}T00:00:00.000${IST_OFFSET}`);
+
+/** End of an IST calendar day (inclusive). Accepts "YYYY-MM-DD". */
+export const istDayEnd = (ymd) => new Date(`${ymd}T23:59:59.999${IST_OFFSET}`);
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+/** istDayStart/istDayEnd from numeric year/month(0-based)/day. */
+const istDate = (year, month, day, end = false) => {
+  const ymd = `${year}-${pad2(month + 1)}-${pad2(day)}`;
+  return end ? istDayEnd(ymd) : istDayStart(ymd);
+};
+
 /**
  * Dynamically compute date range for any quarter key.
  * Supports: "Q2_26", "Q1_26_W5", "Q1_26_M2", etc.
@@ -323,10 +344,10 @@ export const getQuarterDateRange = (quarter) => {
   const { q, year, subType, subNum } = parsed;
   const { startMonth, endMonth } = QUARTER_MONTHS[q];
 
-  // Full quarter range
-  const qStart = new Date(Date.UTC(year, startMonth, 1));
+  // Full quarter range — IST calendar days (see istDate helpers above)
+  const qStart = istDate(year, startMonth, 1);
   const qEndDay = lastDayOfMonth(year, endMonth);
-  const qEnd = new Date(Date.UTC(year, endMonth, qEndDay, 23, 59, 59));
+  const qEnd = istDate(year, endMonth, qEndDay, true);
 
   if (!subType) {
     return { start: qStart, end: qEnd };
@@ -337,18 +358,18 @@ export const getQuarterDateRange = (quarter) => {
     const m = startMonth + (subNum - 1);
     const mEnd = lastDayOfMonth(year, m);
     return {
-      start: new Date(Date.UTC(year, m, 1)),
-      end: new Date(Date.UTC(year, m, mEnd, 23, 59, 59)),
+      start: istDate(year, m, 1),
+      end: istDate(year, m, mEnd, true),
     };
   }
 
   // Weekly sub-range: W1–W13 (each quarter has ~13 weeks)
   if (subType === "W" && subNum >= 1 && subNum <= 14) {
-    const wStart = new Date(qStart);
-    wStart.setDate(wStart.getDate() + (subNum - 1) * 7);
-    const wEnd = new Date(wStart);
-    wEnd.setDate(wEnd.getDate() + 6);
-    wEnd.setHours(23, 59, 59, 999);
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    // Fixed-ms arithmetic keeps the IST-midnight instant (IST has no DST);
+    // setDate/setHours would re-anchor to the server's timezone.
+    const wStart = new Date(qStart.getTime() + (subNum - 1) * 7 * DAY_MS);
+    const wEnd = new Date(wStart.getTime() + 7 * DAY_MS - 1);
     // Clamp to quarter end
     if (wEnd > qEnd) return { start: wStart, end: qEnd };
     return { start: wStart, end: wEnd };
@@ -364,8 +385,10 @@ export const getQuarterDateRange = (quarter) => {
  */
 export const resolveDateRange = ({ quarter, startDate, endDate }) => {
   if (startDate && endDate) {
-    const start = new Date(startDate);
-    const end = new Date(`${endDate}T23:59:59Z`);
+    // Date-only params mean IST calendar days; full ISO datetimes pass through.
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+    const start = dateOnly.test(startDate) ? istDayStart(startDate) : new Date(startDate);
+    const end = dateOnly.test(endDate) ? istDayEnd(endDate) : new Date(endDate);
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return { error: "Invalid startDate or endDate. Use YYYY-MM-DD format." };
     }

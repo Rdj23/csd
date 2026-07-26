@@ -50,6 +50,7 @@ import {
   STAGE_MAP,
   DEPENDENCY_EXPORT_HEADERS,
   getDependencyExportCells,
+  getTicketDepInfo,
   DEPENDENCY_TEAMS,
   depTeamBadgeClass,
 } from "../../../utils";
@@ -433,40 +434,26 @@ const DrillDownModal = ({
         if (!selectedStages.includes(stageCategory)) return false;
       }
 
-      // Dependency filter
+      // Dependency filter — getTicketDepInfo prefers the sync-time Mongo
+      // snapshot on all-solved rows, falling back to the live dependencies map.
       if (selectedDependency.length > 0 && selectedDependency.length < 2) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        const hasDep = dep?.hasDependency === true;
+        const hasDep = getTicketDepInfo(dependencies, t).hasDependency;
         if (selectedDependency.includes("with_dependency") && !hasDep)
           return false;
         if (selectedDependency.includes("no_dependency") && hasDep)
           return false;
       }
 
-      // Dependency filter
-      if (selectedDependency.length > 0 && selectedDependency.length < 2) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        const hasDep = dep?.hasDependency === true;
-        if (selectedDependency.includes("with_dependency") && !hasDep)
-          return false;
-        if (selectedDependency.includes("no_dependency") && hasDep)
-          return false;
-      }
-
-      // Dependency team filter
+      // Dependency team filter — zero teams selected yields zero dependency
+      // tickets (an empty selection is a narrowing, not a no-op).
       if (
         selectedDependency.includes("with_dependency") &&
-        selectedDepTeams.length > 0 &&
         selectedDepTeams.length < DEPENDENCY_TEAMS.length
       ) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        if (dep?.hasDependency) {
-          const ticketTeams = dep.issues?.map((i) => i.team) || [];
+        const depInfo = getTicketDepInfo(dependencies, t);
+        if (depInfo.hasDependency) {
           const hasMatchingTeam = selectedDepTeams.some((team) =>
-            ticketTeams.includes(team),
+            depInfo.teams.includes(team),
           );
           if (!hasMatchingTeam) return false;
         }
@@ -597,7 +584,7 @@ const DrillDownModal = ({
           t.frr || "-",
           `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
           `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
-          ...getDependencyExportCells(dependencies, t.display_id),
+          ...getDependencyExportCells(dependencies, t.display_id, t),
         ];
         csvContent += row.join(",") + "\n";
       });
@@ -1523,21 +1510,20 @@ const AllTicketsView = ({
       solved: [],
     };
 
-    // Dependency filter settings
+    // Dependency filter settings. Team subset check: any non-full selection
+    // narrows — zero teams selected must yield zero dependency tickets.
     const depFilter = filters?.dependency || [];
-    const depTeamsFilter = filters?.dependencyTeams || [];
+    const depTeamsFilter = filters?.dependencyTeams;
     const hasDepFilter = depFilter.length > 0 && depFilter.length < 2;
     const hasDepTeamsFilter =
       depFilter.includes("with_dependency") &&
-      depTeamsFilter.length > 0 &&
+      Array.isArray(depTeamsFilter) &&
       depTeamsFilter.length < DEPENDENCY_TEAMS.length;
 
     cleanTickets.forEach((t) => {
-      // Apply dependency filter first
+      // Apply dependency filter first (Mongo snapshot, live-map fallback)
       if (hasDepFilter) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        const hasDep = dep?.hasDependency === true;
+        const hasDep = getTicketDepInfo(dependencies, t).hasDependency;
 
         if (
           depFilter.includes("with_dependency") &&
@@ -1557,12 +1543,10 @@ const AllTicketsView = ({
 
       // Apply dependency team filter
       if (hasDepTeamsFilter) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        if (dep?.hasDependency) {
-          const ticketTeams = dep.issues?.map((i) => i.team) || [];
+        const depInfo = getTicketDepInfo(dependencies, t);
+        if (depInfo.hasDependency) {
           const hasMatchingTeam = depTeamsFilter.some((team) =>
-            ticketTeams.includes(team),
+            depInfo.teams.includes(team),
           );
           if (!hasMatchingTeam) return; // Skip - no matching team
         }
@@ -1800,7 +1784,7 @@ const AllTicketsView = ({
             t.frr || "-",
             `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
             `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
-            ...getDependencyExportCells(dependencies, t.display_id),
+            ...getDependencyExportCells(dependencies, t.display_id, t),
           ].join(",") + "\n";
       });
     });

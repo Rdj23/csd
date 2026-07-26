@@ -62,12 +62,18 @@ export const ownerStatsGroup = () => ({
   ...frrFields(),
 });
 
+// All closed_date bucketing happens in IST ("Asia/Kolkata"), matching the
+// frontend's local-time grouping. Without this, $dateToString buckets in UTC
+// and a ticket solved at 01:09 IST lands on the PREVIOUS day's data point
+// (chart said Jul 04, drill-down row displayed Jul 05).
+export const DASH_TZ = "Asia/Kolkata";
+
 /**
  * Trend $group by date — daily/weekly/monthly charts.
  * @param {string} dateFormat - MongoDB date format string (default: "%Y-%m-%d")
  */
 export const trendGroup = (dateFormat = "%Y-%m-%d") => ({
-  _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
+  _id: { $dateToString: { format: dateFormat, date: "$closed_date", timezone: DASH_TZ } },
   solved: { $sum: 1 },
   avgRWT: { $avg: "$rwt" },
   avgFRT: { $avg: "$frt" },
@@ -82,7 +88,7 @@ export const trendGroup = (dateFormat = "%Y-%m-%d") => ({
  * Requires a preceding $addFields stage with `ticketAge`.
  */
 export const individualTrendGroup = () => ({
-  _id: { date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } }, owner: "$owner" },
+  _id: { date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date", timezone: DASH_TZ } }, owner: "$owner" },
   solved: { $sum: 1 },
   ...avgMetricFields(),
   ...validCountFields(),

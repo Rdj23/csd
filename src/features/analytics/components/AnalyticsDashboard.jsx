@@ -67,7 +67,7 @@ import {
   ChevronRight,
   Edit3,
 } from "lucide-react";
-import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS, DEPENDENCY_TEAMS } from "../../../utils";
+import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS, DEPENDENCY_TEAMS, getTicketDepInfo } from "../../../utils";
 import { useTicketStore } from "../../../store";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
 import MultiSelectFilter from "../../../components/common/MultiSelectFilter";
@@ -321,24 +321,80 @@ const AnalyticsDashboard = ({
     const dep = filters?.dependency || [];
     // Both boxes selected (length 2) is the only no-op; 0 or 1 selected narrows.
     if (dep.length < 2) return true;
+    // Any non-full team selection narrows — INCLUDING zero teams selected,
+    // which must yield zero dependency tickets (not "ignore the filter").
     return (
       dep.includes("with_dependency") &&
-      filters?.dependencyTeams?.length > 0 &&
-      filters?.dependencyTeams?.length < DEPENDENCY_TEAMS.length
+      Array.isArray(filters?.dependencyTeams) &&
+      filters.dependencyTeams.length < DEPENDENCY_TEAMS.length
     );
   }, [filters]);
 
-  // 1. Core Filters WITHOUT the dependency dimension (Team, Owner, Region,
-  // Zendesk). Split out from the dependency narrowing so we can tell whether the
-  // (async, live-fetched) dependency map has loaded for every ticket the
-  // dependency filter would examine — see dependencyDataReady below.
-  const nonDepFilteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
+  // ── Mongo-sourced solved history for dependency-filtered views ──────────
+  // The Redis active cache loses solved tickets over time, so KPIs/trends
+  // computed from it undercount when a dependency filter is active (the
+  // drill-downs already read Mongo). While the filter is on, fetch the range's
+  // complete solved history — those rows carry the sync-time dependency
+  // fields — and use IT as the solved source so every card, trend, and
+  // drill-down reconciles. Falls back to the active cache on fetch failure.
+  const [mongoSolved, setMongoSolved] = useState({
+    key: null,
+    tickets: [],
+    loading: false,
+    loaded: false,
+  });
+  const mongoSolvedKeyRef = useRef(null);
+  useEffect(() => {
+    if (
+      !hasDependencyFilter ||
+      !effectiveDateRange?.start ||
+      !effectiveDateRange?.end
+    )
+      return;
+    const start = format(effectiveDateRange.start, "yyyy-MM-dd");
+    const end = format(effectiveDateRange.end, "yyyy-MM-dd");
+    const key = `${start}:${end}`;
+    if (mongoSolvedKeyRef.current === key) return;
+    mongoSolvedKeyRef.current = key;
+    let cancelled = false;
+    setMongoSolved({ key, tickets: [], loading: true, loaded: false });
+    const API_BASE = import.meta.env.VITE_API_URL || "";
+    authFetch(`${API_BASE}/api/tickets/all-solved?start=${start}&end=${end}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setMongoSolved({
+          key,
+          tickets: data?.tickets || [],
+          loading: false,
+          loaded: true,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Allow a retry on the next filter toggle / range change; callers fall
+        // back to the active-cache arrays meanwhile.
+        mongoSolvedKeyRef.current = null;
+        setMongoSolved({ key, tickets: [], loading: false, loaded: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasDependencyFilter, effectiveDateRange]);
+
+  // Shared core-filter predicate (Zendesk / Team / Owner / Region) — applied to
+  // BOTH the active-cache tickets and the Mongo all-solved rows (reshaped rows
+  // carry `isZendesk` instead of raw DevRev tags, hence the dual check).
+  const passesCoreFilters = useCallback(
+    (t) => {
       // Exclude Zendesk if toggle is on
       if (excludeZendesk) {
-        const isZendesk = t.tags?.some(
-          (tagObj) => tagObj.tag?.name === "Zendesk import",
-        );
+        const isZendesk =
+          t.isZendesk === true ||
+          t.tags?.some((tagObj) => tagObj.tag?.name === "Zendesk import");
         if (isZendesk) return false;
       }
 
@@ -371,8 +427,18 @@ const AnalyticsDashboard = ({
       }
 
       return true;
-    });
-  }, [tickets, filters, excludeZendesk]);
+    },
+    [filters, excludeZendesk],
+  );
+
+  // 1. Core Filters WITHOUT the dependency dimension (Team, Owner, Region,
+  // Zendesk). Split out from the dependency narrowing so we can tell whether the
+  // (async, live-fetched) dependency map has loaded for every ticket the
+  // dependency filter would examine — see dependencyDataReady below.
+  const nonDepFilteredTickets = useMemo(
+    () => tickets.filter(passesCoreFilters),
+    [tickets, passesCoreFilters],
+  );
 
   // Is the dependency map loaded for every ticket the filter would examine?
   // The map is fetched asynchronously (App.jsx, batched) — until a ticket's entry
@@ -391,12 +457,53 @@ const AnalyticsDashboard = ({
         (created && created >= start && created <= end) ||
         (closed && closed >= start && closed <= end);
       if (!inRange) return count;
-      const id = t.display_id?.replace("TKT-", "");
-      return dependencies[id] === undefined ? count + 1 : count;
+      // Known via either the sync-time Mongo snapshot or the live map.
+      return getTicketDepInfo(dependencies, t).known ? count : count + 1;
     }, 0);
   }, [hasDependencyFilter, nonDepFilteredTickets, dependencies, effectiveDateRange]);
 
   const dependencyDataReady = pendingDependencyCount === 0;
+
+  // Shared dependency-narrowing predicate (bucket + team subset). Every ticket
+  // falls into exactly one bucket (has a dependency, or doesn't), so keep it
+  // only when its bucket is among the selected checkboxes. Both selected
+  // (length 2) = default no-op; one selected narrows; NONE selected correctly
+  // yields zero results. Team subset: any non-full selection narrows — a
+  // ZERO-team selection matches no dependency ticket (never "show all"), and
+  // the length check must compare against DEPENDENCY_TEAMS.length (8), never a
+  // hardcoded number (a hardcoded 6 once silently skipped the filter).
+  const passesDependencyNarrowing = useCallback(
+    (t) => {
+      const depSel = filters?.dependency || [];
+      const depInfo = getTicketDepInfo(dependencies, t);
+      if (depSel.length < 2) {
+        // Rows never checked by either source (pre-backfill Mongo rows) can't
+        // prove membership in either bucket — exclude rather than guess. The
+        // active-cache chain never hits this: it waits on dependencyDataReady.
+        if (!depInfo.known) return false;
+        const matchesSelection =
+          (depInfo.hasDependency && depSel.includes("with_dependency")) ||
+          (!depInfo.hasDependency && depSel.includes("no_dependency"));
+        if (!matchesSelection) return false;
+      }
+
+      if (
+        filters?.dependency?.includes("with_dependency") &&
+        Array.isArray(filters?.dependencyTeams) &&
+        filters.dependencyTeams.length < DEPENDENCY_TEAMS.length
+      ) {
+        if (depInfo.hasDependency) {
+          const hasMatchingTeam = filters.dependencyTeams.some((team) =>
+            depInfo.teams.includes(team),
+          );
+          if (!hasMatchingTeam) return false;
+        }
+      }
+
+      return true;
+    },
+    [filters, dependencies],
+  );
 
   // 1a. Apply the dependency narrowing on top of the non-dependency filters.
   // While a dependency filter is active but its data is still loading, we HOLD
@@ -406,61 +513,62 @@ const AnalyticsDashboard = ({
     if (!hasDependencyFilter || !dependencyDataReady) {
       return nonDepFilteredTickets;
     }
-    return nonDepFilteredTickets.filter((t) => {
-      // Linked / Dependency Filter. Every ticket falls into exactly one bucket
-      // (has a dependency, or doesn't), so keep it only when its bucket is among
-      // the selected checkboxes. Both selected (length 2) = default no-op; one
-      // selected narrows; NONE selected correctly yields zero results.
-      const depSel = filters?.dependency || [];
-      if (depSel.length < 2) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        const hasDependency = dep?.hasDependency === true;
-        const matchesSelection =
-          (hasDependency && depSel.includes("with_dependency")) ||
-          (!hasDependency && depSel.includes("no_dependency"));
-        if (!matchesSelection) return false;
-      }
-
-      // Dependency-team filter — only applies when scoping to linked tickets and
-      // a strict subset of teams is selected (fewer than ALL = "not all"). Must
-      // compare against DEPENDENCY_TEAMS.length (8), never a hardcoded number —
-      // a hardcoded 6 silently skipped the filter when 6–7 teams were selected.
-      if (
-        filters?.dependency?.includes("with_dependency") &&
-        filters?.dependencyTeams?.length > 0 &&
-        filters?.dependencyTeams?.length < DEPENDENCY_TEAMS.length
-      ) {
-        const ticketId = t.display_id?.replace("TKT-", "");
-        const dep = dependencies[ticketId];
-        if (dep?.hasDependency) {
-          const ticketTeams = dep.issues?.map((i) => i.team) || [];
-          const hasMatchingTeam = filters.dependencyTeams.some((team) =>
-            ticketTeams.includes(team),
-          );
-          if (!hasMatchingTeam) return false;
-        }
-      }
-
-      return true;
-    });
+    return nonDepFilteredTickets.filter(passesDependencyNarrowing);
   }, [
     nonDepFilteredTickets,
-    filters,
-    dependencies,
+    passesDependencyNarrowing,
     hasDependencyFilter,
     dependencyDataReady,
   ]);
 
+  // NOC-linked tickets are excluded via the dependency team list ("NOC" =
+  // PSN-Task-linked) — works for active-cache tickets (live map) AND Mongo
+  // rows (sync-time dependency_teams).
+  const passesNocExclusion = useCallback(
+    (t) => {
+      const depInfo = getTicketDepInfo(dependencies, t);
+      return !(depInfo.hasDependency && depInfo.teams.includes("NOC"));
+    },
+    [dependencies],
+  );
+
   // 1b. Apply NOC filter on top of core filters (for non-CSAT metrics)
   const baseFilteredTickets = useMemo(() => {
     if (!excludeNOC) return coreFilteredTickets;
-    return coreFilteredTickets.filter((t) => {
-      const ticketId = t.display_id?.replace("TKT-", "");
-      const dep = dependencies[ticketId];
-      return !(dep?.hasDependency && dep?.issues?.some((i) => i.team === "NOC"));
-    });
-  }, [coreFilteredTickets, excludeNOC, dependencies]);
+    return coreFilteredTickets.filter(passesNocExclusion);
+  }, [coreFilteredTickets, excludeNOC, passesNocExclusion]);
+
+  // The range's Mongo solved rows, run through the SAME core + dependency
+  // narrowing as the active-cache chain (their dependency info is embedded, so
+  // there is nothing to wait for). null = dependency filter off or rows not
+  // loaded yet — callers then use the active-cache arrays as before.
+  // Unlike the active cache (engineer-owned only), Mongo rows include
+  // agent-resolved tickets, so the dashboard's Resolved-By filter must be
+  // applied here too (same single-selection rule as the backend rollups).
+  const mongoDepSolvedAll = useMemo(() => {
+    if (!hasDependencyFilter || !mongoSolved.loaded) return null;
+    let rows = mongoSolved.tickets
+      .filter(passesCoreFilters)
+      .filter(passesDependencyNarrowing);
+    const resolvedBySel = filters?.resolvedBy;
+    if (Array.isArray(resolvedBySel) && resolvedBySel.length === 1) {
+      rows = rows.filter((t) => {
+        const ticketResolvedBy =
+          t.custom_fields?.tnt__agent_resolved === true &&
+          t.custom_fields?.tnt__support_engineer_handled !== true
+            ? "agent"
+            : "engineer";
+        return resolvedBySel.includes(ticketResolvedBy);
+      });
+    }
+    return rows;
+  }, [
+    hasDependencyFilter,
+    mongoSolved,
+    passesCoreFilters,
+    passesDependencyNarrowing,
+    filters?.resolvedBy,
+  ]);
 
   // 2. Volume Tickets: Strictly CREATED in the date range
   const volumeTickets = useMemo(() => {
@@ -473,9 +581,9 @@ const AnalyticsDashboard = ({
     });
   }, [baseFilteredTickets, effectiveDateRange]);
 
-  // 3. Solved Tickets: Strictly SOLVED in the date range (ignores created date)
-  const solvedTickets = useMemo(() => {
-    return baseFilteredTickets.filter((t) => {
+  // Shared "closed in range + actually solved" check for the solved arrays.
+  const isSolvedInRange = useCallback(
+    (t) => {
       const closedDate = t.actual_close_date || t.closed_date;
       if (!closedDate) return false;
       const closed = parseISO(closedDate);
@@ -491,26 +599,41 @@ const AnalyticsDashboard = ({
         stage.includes("closed") ||
         stage.includes("resolved")
       );
-    });
-  }, [baseFilteredTickets, effectiveDateRange]);
+    },
+    [effectiveDateRange],
+  );
+
+  // 3. Solved Tickets: Strictly SOLVED in the date range (ignores created date).
+  // Dependency filter active → sourced from the complete Mongo history so KPI
+  // cards, trends, and the Mongo-backed drill-downs all count the same tickets;
+  // otherwise from the active cache as before.
+  const solvedTickets = useMemo(() => {
+    const source = mongoDepSolvedAll
+      ? excludeNOC
+        ? mongoDepSolvedAll.filter(passesNocExclusion)
+        : mongoDepSolvedAll
+      : baseFilteredTickets;
+    return source.filter(isSolvedInRange);
+  }, [
+    mongoDepSolvedAll,
+    excludeNOC,
+    passesNocExclusion,
+    baseFilteredTickets,
+    isSolvedInRange,
+  ]);
 
   // 3b. Solved tickets INCLUDING NOC (for CSAT/DSAT computation - NOC never excluded from CSAT)
   const solvedTicketsForCSAT = useMemo(() => {
     if (!excludeNOC) return solvedTickets;
-    return coreFilteredTickets.filter((t) => {
-      const closedDate = t.actual_close_date || t.closed_date;
-      if (!closedDate) return false;
-      const closed = parseISO(closedDate);
-      if (closed < effectiveDateRange.start || closed > effectiveDateRange.end)
-        return false;
-      const stage = t.stage?.name?.toLowerCase() || "";
-      return (
-        stage.includes("solved") ||
-        stage.includes("closed") ||
-        stage.includes("resolved")
-      );
-    });
-  }, [coreFilteredTickets, solvedTickets, excludeNOC, effectiveDateRange]);
+    const source = mongoDepSolvedAll ?? coreFilteredTickets;
+    return source.filter(isSolvedInRange);
+  }, [
+    coreFilteredTickets,
+    solvedTickets,
+    excludeNOC,
+    isSolvedInRange,
+    mongoDepSolvedAll,
+  ]);
 
   const handleDrillDown = useCallback(
     async (metricKey, dateKey, dataPointName, chartData) => {
@@ -535,93 +658,11 @@ const AnalyticsDashboard = ({
         return;
       }
 
-      // When a dependency filter is active, the MongoDB drill-down endpoint
-      // (/api/tickets/by-date) can't scope by dependency, so it would return the
-      // full unfiltered day. Serve the drill-down from the already-filtered
-      // solvedTickets array instead — matching the expanded chart series.
-      if (hasDependencyFilter) {
-        const inBucket = (t) => {
-          const cd = t.actual_close_date || t.closed_date;
-          if (!cd) return false;
-          const d = parseISO(cd);
-          if (expandedGroupBy === "weekly")
-            return format(d, "RRRR-'W'II") === dateKey;
-          if (expandedGroupBy === "monthly")
-            return format(d, "yyyy-MM") === dateKey;
-          return format(d, "yyyy-MM-dd") === dateKey;
-        };
-
-        let ticketsForDate = solvedTickets.filter(inBucket);
-
-        // Backlog counts only aged (>=15 day) tickets, so scope the list to match.
-        if (metricKey === "backlog") {
-          ticketsForDate = ticketsForDate.filter((t) => {
-            const cd = t.actual_close_date || t.closed_date;
-            if (!cd || !t.created_date) return false;
-            const ageDays =
-              (parseISO(cd).getTime() - parseISO(t.created_date).getTime()) /
-              (1000 * 60 * 60 * 24);
-            return ageDays >= 15;
-          });
-        }
-
-        const cf = (t) => t.custom_fields || {};
-        let summary = `${ticketsForDate.length} tickets`;
-        if (metricKey === "frrPercent" || metricKey === "frr") {
-          const met = ticketsForDate.filter(
-            (t) =>
-              cf(t).tnt__frr === true || cf(t).tnt__iteration_count === 1,
-          ).length;
-          const total = ticketsForDate.length;
-          const pct = total > 0 ? Math.round((met / total) * 100) : 0;
-          summary = `FRR Met: ${met} of ${total} (${pct}%) | Total: ${total} tickets`;
-        } else if (metricKey === "csat" || metricKey === "positiveCSAT") {
-          const good = ticketsForDate.filter(
-            (t) => Number(cf(t).tnt__csatrating) === 2,
-          ).length;
-          const bad = ticketsForDate.filter(
-            (t) => Number(cf(t).tnt__csatrating) === 1,
-          ).length;
-          summary = `Good: ${good} 👍 | Bad: ${bad} 👎 | Total: ${ticketsForDate.length}`;
-        } else if (metricKey === "rwt" || metricKey === "avgRWT") {
-          const v = ticketsForDate
-            .map((t) => cf(t).tnt__rwt_business_hours)
-            .filter((x) => x > 0);
-          const avg =
-            v.length > 0
-              ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1)
-              : 0;
-          summary = `Avg RWT: ${avg} hrs | ${ticketsForDate.length} tickets`;
-        } else if (metricKey === "frt" || metricKey === "avgFRT") {
-          const v = ticketsForDate
-            .map((t) => cf(t).tnt__frt_hours)
-            .filter((x) => x > 0);
-          const avg =
-            v.length > 0
-              ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1)
-              : 0;
-          summary = `Avg FRT: ${avg} hrs | ${ticketsForDate.length} tickets`;
-        } else if (metricKey === "iterations" || metricKey === "avgIterations") {
-          const v = ticketsForDate
-            .map((t) => cf(t).tnt__iteration_count)
-            .filter((x) => x > 0);
-          const avg =
-            v.length > 0
-              ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1)
-              : 0;
-          summary = `Avg Iterations: ${avg} | ${ticketsForDate.length} tickets`;
-        }
-
-        setDrillDownData({
-          title: `${getMetricLabel(metricKey)} - ${dataPointName}`,
-          tickets: ticketsForDate,
-          metricKey,
-          summary,
-        });
-        return;
-      }
-
-      // For SOLVED metrics - ALWAYS fetch from MongoDB
+      // For SOLVED metrics - ALWAYS fetch from MongoDB. When a dependency
+      // filter is active, the rows are narrowed client-side below using the
+      // sync-time dependency fields each row carries (live-map fallback) —
+      // serving these from the active cache instead would silently drop
+      // tickets that aged out of it (the TKT-315055 bug).
       const API_BASE = import.meta.env.VITE_API_URL || "";
 
       // Build owner filter
@@ -661,6 +702,13 @@ const AnalyticsDashboard = ({
 
         const data = await response.json();
         let ticketsForDate = data.tickets || [];
+
+        // Dependency narrowing — the by-date endpoint can't scope by
+        // dependency, so filter the returned rows with the SAME predicate the
+        // KPI/trend arrays use; the drill-down list and the cards can't drift.
+        if (hasDependencyFilter) {
+          ticketsForDate = ticketsForDate.filter(passesDependencyNarrowing);
+        }
 
         let summary = `${ticketsForDate.length} tickets`;
 
@@ -756,8 +804,7 @@ const AnalyticsDashboard = ({
       excludeZendesk,
       excludeNOC,
       hasDependencyFilter,
-      solvedTickets,
-      expandedGroupBy,
+      passesDependencyNarrowing,
     ],
   );
 
@@ -2610,12 +2657,14 @@ const AnalyticsDashboard = ({
           loads asynchronously. While it's still loading we HOLD the has/no
           narrowing (show everything) so nothing is wrongly excluded, and tell the
           user the numbers are provisional. */}
-      {hasDependencyFilter && !dependencyDataReady && (
+      {hasDependencyFilter && (mongoSolved.loading || !dependencyDataReady) && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">
           <RefreshCw className="w-4 h-4 animate-spin" />
-          Loading dependency data for {pendingDependencyCount} ticket
-          {pendingDependencyCount === 1 ? "" : "s"} — the dependency filter will
-          apply once loaded (showing all tickets meanwhile).
+          {mongoSolved.loading
+            ? "Loading the solved-ticket history for this range — dependency-filtered numbers will settle in a moment."
+            : `Loading dependency data for ${pendingDependencyCount} ticket${
+                pendingDependencyCount === 1 ? "" : "s"
+              } — the dependency filter will apply once loaded (showing all tickets meanwhile).`}
         </div>
       )}
 

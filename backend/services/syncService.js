@@ -4,7 +4,7 @@ import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisDelete, redisHSetBatch, CACHE_TTL } from "../config/database.js";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
-import { fetchTicketLinks, fetchWorkItem } from "./devrevApi.js";
+import { fetchTicketLinks, fetchWorkItem, dependencyCounterpart, classifyLinkedWorkTeam } from "./devrevApi.js";
 import { createPartContext, resolveWorkPartFields } from "./partsService.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
@@ -438,50 +438,77 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
             let noc = { isNoc: false, nocIssueId: null, nocJiraKey: null, nocRca: null,
               nocReportedBy: null, nocAssignee: null, nocConfirmationBy: null,
               hasL2NocConfirmation: false, nocConfirmationIssId: null };
+            // hasDependency stays null when links were never resolved (pre-cutoff
+            // close or links.list failure) so Mongo records "not checked", never a
+            // false "no dependency".
+            let dep = { hasDependency: null, issueIds: [], teams: [], assignees: [] };
 
-            // Resolve NOC links only for tickets closed after the check date
+            // Resolve links only for tickets closed after the check date.
+            // ONE links.list walk feeds both NOC classification and the
+            // persisted dependency fields (same logic as the live
+            // /api/tickets/dependencies endpoint: dependencyCounterpart picks
+            // linked issues/tickets/tasks/custom objects, works.get enriches).
             if (closedDate >= NOC_CHECK_DATE) {
               try {
                 // Uses devrevApi.fetchTicketLinks (DI — Item 12)
                 const links = await fetchTicketLinks(t.id.match(/ticket\/(\d+)/)?.[1] || t.id);
 
+                const seenDeps = new Set();
+                const counterparts = [];
                 for (const link of links) {
-                  const issueId = link.target?.display_id || link.source?.display_id;
-                  if (!issueId || !issueId.startsWith("ISS-")) continue;
-                  try {
-                    // Uses devrevApi.fetchWorkItem (DI — Item 12)
-                    const issue = await fetchWorkItem(issueId);
-                    if (!issue) continue;
-
-                    if (!noc.isNoc && issue.custom_fields?.ctype__issuetype === "PSN Task") {
-                      noc.isNoc = true;
-                      noc.nocIssueId = issue.display_id;
-                      noc.nocJiraKey = issue.custom_fields?.ctype__key || null;
-                      noc.nocRca = issue.custom_fields?.ctype__customfield_10169 || null;
-                      noc.nocReportedBy = issue.reported_by?.[0]?.display_name || null;
-                      noc.nocAssignee = issue.owned_by?.[0]?.display_name || null;
-                      nocCount++;
-                    }
-                    if (!noc.hasL2NocConfirmation && issue.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
-                      noc.hasL2NocConfirmation = true;
-                      noc.nocConfirmationBy = issue.owned_by?.[0]?.display_name || issue.modified_by?.display_name || null;
-                      noc.nocConfirmationIssId = issue.display_id;
-                    }
-                    if (noc.isNoc && noc.hasL2NocConfirmation) break;
-                  } catch (e) {
-                    logger.warn({ ticketId: t.display_id, issueId, err: e.message }, "Issue fetch error");
+                  const cp = dependencyCounterpart(link, t.display_id);
+                  if (cp && !seenDeps.has(cp.display_id)) {
+                    seenDeps.add(cp.display_id);
+                    counterparts.push(cp);
                   }
                 }
-              } catch (_) { /* links fetch error — skip NOC for this ticket */ }
+                dep.hasDependency = counterparts.length > 0;
+
+                for (const snapshot of counterparts) {
+                  let work = null;
+                  // Custom objects aren't works — works.get fails on them, so
+                  // they classify from the links.list snapshot alone.
+                  if (/^(ISS|TKT|TASK)-/i.test(snapshot.display_id)) {
+                    try {
+                      // Uses devrevApi.fetchWorkItem (DI — Item 12)
+                      work = await fetchWorkItem(snapshot.display_id);
+                    } catch (e) {
+                      logger.warn({ ticketId: t.display_id, issueId: snapshot.display_id, err: e.message }, "Issue fetch error");
+                    }
+                  }
+                  const item = work || snapshot;
+
+                  dep.issueIds.push(snapshot.display_id);
+                  const team = classifyLinkedWorkTeam(work, snapshot);
+                  if (team && !dep.teams.includes(team)) dep.teams.push(team);
+                  const assignee = item.owned_by?.[0]?.display_name;
+                  if (assignee && !dep.assignees.includes(assignee)) dep.assignees.push(assignee);
+
+                  if (!noc.isNoc && item.custom_fields?.ctype__issuetype === "PSN Task") {
+                    noc.isNoc = true;
+                    noc.nocIssueId = item.display_id;
+                    noc.nocJiraKey = item.custom_fields?.ctype__key || null;
+                    noc.nocRca = item.custom_fields?.ctype__customfield_10169 || null;
+                    noc.nocReportedBy = item.reported_by?.[0]?.display_name || null;
+                    noc.nocAssignee = item.owned_by?.[0]?.display_name || null;
+                    nocCount++;
+                  }
+                  if (!noc.hasL2NocConfirmation && item.custom_fields?.ctype__team_involved === "L2 NOC Confirmation") {
+                    noc.hasL2NocConfirmation = true;
+                    noc.nocConfirmationBy = item.owned_by?.[0]?.display_name || item.modified_by?.display_name || null;
+                    noc.nocConfirmationIssId = item.display_id;
+                  }
+                }
+              } catch (_) { /* links fetch error — skip NOC/dependency for this ticket */ }
             }
 
-            return { ticket: t, closedDate, owner, resolvedBy, agentResolved, noc };
+            return { ticket: t, closedDate, owner, resolvedBy, agentResolved, noc, dep };
           }));
 
           // Build upsert ops + alert candidates from settled results
           for (const result of results) {
             if (result.status !== "fulfilled") continue;
-            const { ticket: t, closedDate, owner, resolvedBy, agentResolved, noc } = result.value;
+            const { ticket: t, closedDate, owner, resolvedBy, agentResolved, noc, dep } = result.value;
 
             const csatRaw = t.custom_fields?.tnt__csatrating;
             let csatVal = 0;
@@ -556,6 +583,15 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
                     noc_confirmation_by: noc.nocConfirmationBy,
                     has_l2_noc_confirmation: noc.hasL2NocConfirmation,
                     noc_confirmation_iss_id: noc.nocConfirmationIssId,
+                    // Dependency fields — skipped (not nulled) when links were
+                    // never resolved, so a transient links.list failure can't
+                    // wipe a previous successful check.
+                    ...(dep.hasDependency !== null && {
+                      has_dependency: dep.hasDependency,
+                      dependency_issue_ids: dep.issueIds,
+                      dependency_teams: dep.teams,
+                      dependency_assignees: dep.assignees,
+                    }),
                     rwt: t.custom_fields?.tnt__rwt_business_hours ?? null,
                     frt: t.custom_fields?.tnt__frt_hours ?? null,
                     iterations: iterations ?? null, csat: csatVal, frr: frrVal,

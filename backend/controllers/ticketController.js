@@ -1,4 +1,3 @@
-import { startOfISOWeek, addWeeks, addDays, endOfDay, startOfDay as dfnsStartOfDay } from "date-fns";
 import { AnalyticsTicket } from "../models/index.js";
 import { redisGet, redisGetRaw, redisSet, CACHE_TTL } from "../config/database.js";
 import { fetchTicketLinks, fetchWorkItem, fetchWorkItems, dependencyCounterpart, classifyLinkedWorkTeam } from "../services/devrevApi.js";
@@ -7,7 +6,8 @@ import { getTicketSyncQueue } from "../lib/queues.js";
 import { ok, okRaw, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 import { applyOwnerFilter, applyRegionFilter, applyExclusionFilters, applyBacklogFilter } from "../utils/queryBuilders.js";
-import { SOLVED_STATUSES } from "../config/constants.js";
+import { SOLVED_STATUSES, istDayStart, istDayEnd } from "../config/constants.js";
+import { DASH_TZ } from "../utils/aggregationStages.js";
 
 // Parse a keyset cursor "<ISO_date>_<_id>" into { cursorDate, cursorId }.
 // Handles URL-encoded values (colons, plus signs in ISO dates) transparently.
@@ -29,6 +29,7 @@ const TICKET_TABLE_FIELDS = {
   rwt: 1, frt: 1, iterations: 1, csat: 1, frr: 1,
   account_name: 1, region: 1, stage_name: 1,
   is_noc: 1, account_cohort: 1, priority: 1,
+  has_dependency: 1, dependency_teams: 1, dependency_assignees: 1,
   _id: 1,
 };
 
@@ -55,17 +56,18 @@ export const getLiveStats = async (req, res) => {
       return badRequest(res, "Start and End dates required");
     }
 
-    const cacheKey = `livestats:${start}:${end}:${owners || "all"}:${region || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
+    // "ist" = IST-bucketed cache format; keeps old UTC-bucketed entries from serving.
+    const cacheKey = `livestats:ist:${start}:${end}:${owners || "all"}:${region || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
     const cachedRaw = await redisGetRaw(cacheKey);
     if (cachedRaw) {
       logger.info("LiveStats Redis HIT");
       return okRaw(res, cachedRaw);
     }
 
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    if (startDate.getHours() === 0) startDate.setHours(0, 0, 0, 0);
-    if (endDate.getHours() === 0) endDate.setHours(23, 59, 59, 999);
+    // Date-only params are IST calendar days (matches the IST trend bucketing).
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+    const startDate = dateOnly.test(start) ? istDayStart(start) : new Date(start);
+    const endDate = dateOnly.test(end) ? istDayEnd(end) : new Date(end);
 
     const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
     applyOwnerFilter(matchConditions, owners);
@@ -95,7 +97,7 @@ export const getLiveStats = async (req, res) => {
         { $match: matchConditions },
         {
           $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } },
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date", timezone: DASH_TZ } },
             solved: { $sum: 1 },
             positiveCSAT: { $sum: { $cond: [{ $eq: ["$csat", 2] }, 1, 0] } },
             frrMet: { $sum: { $cond: [{ $eq: ["$frr", 1] }, 1, 0] } },
@@ -153,10 +155,9 @@ export const getDrilldown = async (req, res) => {
     const { date, metric, type } = req.query;
     if (!date) return badRequest(res, "Date required");
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    // IST calendar day (matches the IST trend bucketing)
+    const startOfDay = istDayStart(date.slice(0, 10));
+    const endOfDay = istDayEnd(date.slice(0, 10));
 
     let query = {};
     if (type === "created") {
@@ -184,10 +185,9 @@ export const getTicketsByRange = async (req, res) => {
       return badRequest(res, "Start and end dates required");
     }
 
-    const startDate = new Date(start);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(end);
-    endDate.setHours(23, 59, 59, 999);
+    // IST calendar days (matches the IST trend bucketing)
+    const startDate = istDayStart(start.slice(0, 10));
+    const endDate = istDayEnd(end.slice(0, 10));
 
     logger.info({ start, end, metric }, "By-Range request");
 
@@ -260,6 +260,7 @@ const ALL_SOLVED_FIELDS = {
   rwt: 1, frt: 1, iterations: 1, csat: 1, frr: 1,
   account_name: 1, region: 1, stage_name: 1, priority: 1,
   is_zendesk: 1, resolved_by: 1, agent_resolved: 1, devrev_id: 1,
+  has_dependency: 1, dependency_teams: 1, dependency_assignees: 1,
   _id: 1,
 };
 
@@ -292,6 +293,11 @@ const reshapeSolvedTicket = (d) => ({
   // exactly this set — avoids drift when DevRev's actual_close_date differs.
   actual_close_date: d.closed_date || d.actual_close_date,
   isZendesk: d.is_zendesk === true,
+  // Sync-time dependency snapshot (see AnalyticsTicketSchema). undefined/null
+  // means "never checked" — the frontend then falls back to the live map.
+  has_dependency: d.has_dependency ?? null,
+  dependency_teams: d.dependency_teams || [],
+  dependency_assignees: d.dependency_assignees || [],
   custom_fields: {
     tnt__region_salesforce: d.region || "Unknown",
     tnt__instance_account_name: d.account_name || "Unknown",
@@ -322,12 +328,12 @@ export const getAllSolvedForRange = async (req, res) => {
     const { start, end } = req.query;
     if (!start || !end) return badRequest(res, "Start and end dates required");
 
-    const startDate = new Date(start);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(end);
-    endDate.setHours(23, 59, 59, 999);
+    // Interpret the yyyy-MM-dd range as IST calendar days so the solved bucket
+    // matches the IST-bucketed analytics (was UTC/server-local midnight).
+    const startDate = istDayStart(start.slice(0, 10));
+    const endDate = istDayEnd(end.slice(0, 10));
 
-    const cacheKey = `alltickets:solved:${start}:${end}`;
+    const cacheKey = `alltickets:solved:ist:${start}:${end}`;
     const cachedRaw = await redisGetRaw(cacheKey);
     if (cachedRaw) {
       logger.info("AllSolved Redis HIT");
@@ -364,29 +370,38 @@ export const getTicketsByDate = async (req, res) => {
     const { date, owners, metric, excludeZendesk, region, excludeNOC } = req.query;
     if (!date) return badRequest(res, "Date required");
 
-    const cacheKey = `bydate:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
+    const cacheKey = `bydate:ist:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
     const cachedRaw = await redisGetRaw(cacheKey);
     if (cachedRaw) {
       logger.info("ByDate Redis HIT");
       return okRaw(res, cachedRaw);
     }
 
+    // All windows are IST calendar days/weeks/months — the trend buckets the
+    // user clicked were produced with timezone: DASH_TZ, so the drill-down
+    // window must open/close at IST midnight to return the same tickets.
+    const DAY_MS = 24 * 60 * 60 * 1000;
     let startDate, endDate;
     if (date.includes("W")) {
-      // "2026-W10" → ISO week 10 of 2026 (Monday–Sunday)
-      const [year, weekPart] = date.split("-W");
+      // "2026-W10" → ISO week 10 of 2026 (Monday–Sunday, IST days)
+      const [yearStr, weekPart] = date.split("-W");
       const weekNum = parseInt(weekPart);
-      // startOfISOWeek of Jan 4 always lands in ISO week 1
-      const week1Monday = startOfISOWeek(new Date(parseInt(year), 0, 4));
-      startDate = dfnsStartOfDay(addWeeks(week1Monday, weekNum - 1));
-      endDate = endOfDay(addDays(startDate, 6));
+      // Jan 4 always lands in ISO week 1. Its weekday is timezone-independent
+      // for a calendar date, so derive Monday's date arithmetically.
+      const jan4 = new Date(Date.UTC(parseInt(yearStr), 0, 4));
+      const mondayOffset = (jan4.getUTCDay() + 6) % 7; // days since Monday
+      const week1MondayUTC = new Date(jan4.getTime() - mondayOffset * DAY_MS);
+      const targetMondayUTC = new Date(week1MondayUTC.getTime() + (weekNum - 1) * 7 * DAY_MS);
+      startDate = istDayStart(targetMondayUTC.toISOString().slice(0, 10));
+      endDate = new Date(startDate.getTime() + 7 * DAY_MS - 1);
     } else if (date.length === 7 && date.match(/^\d{4}-\d{2}$/)) {
       const [year, month] = date.split("-").map(Number);
-      startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
-      endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      startDate = istDayStart(`${date}-01`);
+      endDate = istDayEnd(`${date}-${String(lastDay).padStart(2, "0")}`);
     } else {
-      startDate = new Date(date + "T00:00:00.000Z");
-      endDate = new Date(date + "T23:59:59.999Z");
+      startDate = istDayStart(date);
+      endDate = istDayEnd(date);
     }
 
     const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };

@@ -12,7 +12,7 @@ import {
 import logger from "../config/logger.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import { applySingleOwnerFilter, applyExclusionFilters, applyCohortFilter, applyResolvedByFilter } from "../utils/queryBuilders.js";
-import { overallStatsGroup, trendGroup, leaderboardGroup, individualTrendGroup, csatFields, ticketAgeAddFields, ownerStatsGroup } from "../utils/aggregationStages.js";
+import { overallStatsGroup, trendGroup, leaderboardGroup, individualTrendGroup, csatFields, ticketAgeAddFields, ownerStatsGroup, DASH_TZ } from "../utils/aggregationStages.js";
 import { formatTrend, formatLeaderboardEntry, formatIndividualTrend, formatOverallStats, groupByOwner, csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
 
 export const getAnalytics = async (req, res) => {
@@ -32,7 +32,9 @@ export const getAnalytics = async (req, res) => {
     } = req.query;
     // resolvedBy is part of the cache key so engineer-only / agent-only / both
     // each get their own cached result and don't poison each other.
-    const cacheKey = `analytics:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohorts || cohort || "none"}:${groupBy}:${resolvedBy || "all"}`;
+    // "ist" marks the IST-bucketed format — old UTC-bucketed cache entries
+    // (both Redis and AnalyticsCache) miss and age out instead of serving.
+    const cacheKey = `analytics:ist:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohorts || cohort || "none"}:${groupBy}:${resolvedBy || "all"}`;
 
     // Check pre-computed cache first (FASTEST - instant response)
     const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && !cohort && !cohorts && groupBy === "daily" && !resolvedBy;
@@ -127,7 +129,7 @@ export const getAnalytics = async (req, res) => {
       },
       {
         $group: {
-          _id: { $dateToString: { format: dateFormat, date: "$closed_date" } },
+          _id: { $dateToString: { format: dateFormat, date: "$closed_date", timezone: DASH_TZ } },
           count: { $sum: 1 },
         },
       },
@@ -187,7 +189,7 @@ export const getAnalytics = async (req, res) => {
         ]).allowDiskUse(true),
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
-          { $group: { _id: { $dateToString: { format: dateFormat, date: "$closed_date" } }, ...csatOnlyGroup } },
+          { $group: { _id: { $dateToString: { format: dateFormat, date: "$closed_date", timezone: DASH_TZ } }, ...csatOnlyGroup } },
         ]).allowDiskUse(true),
         AnalyticsTicket.aggregate([
           { $match: csatMatchConditions },
@@ -203,7 +205,7 @@ export const getAnalytics = async (req, res) => {
           { $match: csatMatchConditions },
           {
             $group: {
-              _id: { date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date" } }, owner: "$owner" },
+              _id: { date: { $dateToString: { format: "%Y-%m-%d", date: "$closed_date", timezone: DASH_TZ } }, owner: "$owner" },
               ...csatOnlyGroup,
             },
           },

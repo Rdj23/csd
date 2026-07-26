@@ -15,6 +15,8 @@ import {
   FLAT_TEAM_MAP,
   DEPENDENCY_EXPORT_HEADERS,
   getDependencyExportCells,
+  getTicketDepInfo,
+  depTeamBadgeClass,
 } from "../../../../utils";
 
 const DrillDownModal = ({
@@ -142,7 +144,11 @@ const DrillDownModal = ({
       (t.custom_fields?.tnt__instance_account_name || t.account_name || "")
         .toLowerCase()
         .includes(searchLower) ||
-      owner.toLowerCase().includes(searchLower)
+      owner.toLowerCase().includes(searchLower) ||
+      getTicketDepInfo(dependencies, t)
+        .teams.join(" ")
+        .toLowerCase()
+        .includes(searchLower)
     );
   });
 
@@ -321,7 +327,7 @@ const DrillDownModal = ({
         q(created),
         q(solved),
         q(getMetricCsvValue(t)),
-        ...getDependencyExportCells(dependencies, t.display_id || t.ticket_id),
+        ...getDependencyExportCells(dependencies, t.display_id || t.ticket_id, t),
       ].join(",");
     });
     const csvContent = [headers.join(","), ...rows].join("\n");
@@ -393,7 +399,7 @@ const DrillDownModal = ({
                 setSearch(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search by ticket ID, title, account, or assignee..."
+              placeholder="Search by ticket ID, title, account, assignee, or dependency team..."
               className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
@@ -425,6 +431,9 @@ const DrillDownModal = ({
                 >
                   Solved <SortIcon column="solved_date" />
                 </th>
+                <th className="py-3 px-3 text-left font-semibold">
+                  Dependency
+                </th>
                 <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
                   onClick={() => handleSort("metric")}
@@ -437,7 +446,7 @@ const DrillDownModal = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {paginatedTickets.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center gap-2">
                       <AlertCircle className="w-8 h-8 opacity-50" />
                       <span>No tickets found for this selection</span>
@@ -451,6 +460,8 @@ const DrillDownModal = ({
                     t.owned_by?.[0]?.display_name ||
                     t.owner ||
                     "Unassigned";
+                  // Sync-time Mongo snapshot first, live map fallback.
+                  const depInfo = getTicketDepInfo(dependencies, t);
                   return (
                     <tr
                       key={t.id || t.display_id || idx}
@@ -495,6 +506,37 @@ const DrillDownModal = ({
                               "MMM dd, yyyy",
                             )
                           : "-"}
+                      </td>
+                      <td className="py-3 px-3">
+                        {!depInfo.known ? (
+                          <span
+                            className="text-xs text-slate-400"
+                            title="Dependency links not checked for this ticket"
+                          >
+                            —
+                          </span>
+                        ) : !depInfo.hasDependency ? (
+                          <span className="text-xs text-slate-400">None</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {(depInfo.teams.length
+                              ? depInfo.teams
+                              : ["Other"]
+                            ).map((team) => (
+                              <span
+                                key={team}
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${depTeamBadgeClass(team)}`}
+                                title={
+                                  depInfo.assignees.length
+                                    ? `Assignee: ${depInfo.assignees.join(", ")}`
+                                    : undefined
+                                }
+                              >
+                                {team}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-right text-xs font-semibold">
                         {getMetricDisplay(t)}

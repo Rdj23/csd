@@ -159,18 +159,45 @@ export const depTeamBadgeClass = (team) =>
 
 const csvQuote = (v) => `"${String(v).replace(/"/g, '""')}"`;
 
-export const getDependencyExportCells = (deps, displayId) => {
-  const id = (displayId || "").replace("TKT-", "");
+/**
+ * Resolve a ticket's dependency info from BOTH sources:
+ * 1. Sync-time snapshot persisted in Mongo (has_dependency / dependency_teams /
+ *    dependency_assignees) — present on by-date drill-down and all-solved rows,
+ *    survives the ticket aging out of the Redis active cache.
+ * 2. The live `dependencies` map (App.jsx, async-batched links.list) — covers
+ *    active-cache tickets that haven't been re-synced with the new fields.
+ * Returns { known, hasDependency, teams, assignees }; known=false means the
+ * ticket was never checked by either source ("Not checked", not "No").
+ */
+export const getTicketDepInfo = (deps, ticket) => {
+  if (ticket && ticket.has_dependency !== undefined && ticket.has_dependency !== null) {
+    return {
+      known: true,
+      hasDependency: ticket.has_dependency === true,
+      teams: ticket.dependency_teams || [],
+      assignees: ticket.dependency_assignees || [],
+    };
+  }
+  const id = (ticket?.display_id || ticket?.ticket_id || "").replace("TKT-", "");
   const dep = deps?.[id];
-  if (!dep) return ["Not checked", "-", "-"];
-  if (!dep.hasDependency) return ["No", "-", "-"];
+  if (!dep) return { known: false, hasDependency: false, teams: [], assignees: [] };
   const issues = dep.issues || [];
-  const teams = [...new Set(issues.map((i) => i.team).filter(Boolean))];
-  const assignees = [...new Set(issues.map((i) => i.owner).filter(Boolean))];
+  return {
+    known: true,
+    hasDependency: dep.hasDependency === true,
+    teams: [...new Set(issues.map((i) => i.team).filter(Boolean))],
+    assignees: [...new Set(issues.map((i) => i.owner).filter(Boolean))],
+  };
+};
+
+export const getDependencyExportCells = (deps, displayId, ticket = null) => {
+  const info = getTicketDepInfo(deps, ticket || { display_id: displayId });
+  if (!info.known) return ["Not checked", "-", "-"];
+  if (!info.hasDependency) return ["No", "-", "-"];
   return [
     "Yes",
-    teams.length ? csvQuote(teams.join("; ")) : "-",
-    assignees.length ? csvQuote(assignees.join("; ")) : "-",
+    info.teams.length ? csvQuote(info.teams.join("; ")) : "-",
+    info.assignees.length ? csvQuote(info.assignees.join("; ")) : "-",
   ];
 };
 

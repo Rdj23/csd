@@ -86,7 +86,7 @@ import {
   getDependencyExportCells,
 } from "./utils";
 import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
-import { EMAIL_TO_NAME_MAP, DEPENDENCY_TEAMS, depTeamBadgeClass } from "./utils";
+import { EMAIL_TO_NAME_MAP, DEPENDENCY_TEAMS, depTeamBadgeClass, getTicketDepInfo } from "./utils";
 const EMPTY_FILTERS = {
   teams: [],
   owners: [],
@@ -624,7 +624,7 @@ const App = () => {
           t.frr || "-",
           `"${formatTimestamp(cf.tnt__last_devu_message_ts)}"`,
           `"${formatTimestamp(cf.tnt__last_revu_message_ts)}"`,
-          ...getDependencyExportCells(dependencies, t.display_id),
+          ...getDependencyExportCells(dependencies, t.display_id, t),
         ];
         csvContent += row.join(",") + "\n";
       });
@@ -970,9 +970,7 @@ const App = () => {
           currentFilters.dependency.length < 2
         ) {
           // Only filter if NOT both options are selected (if both selected, show all)
-          const ticketId = t.display_id?.replace("TKT-", "");
-          const dep = dependencies[ticketId];
-          const hasDep = dep?.hasDependency === true;
+          const hasDep = getTicketDepInfo(dependencies, t).hasDependency;
 
           if (
             currentFilters.dependency.includes("with_dependency") &&
@@ -990,20 +988,18 @@ const App = () => {
           }
         }
 
-        // Dependency team filter (only applies when filtering for dependency tickets)
+        // Dependency team filter (only applies when filtering for dependency
+        // tickets). Any non-full selection narrows — zero teams selected must
+        // yield zero dependency tickets, not "show all".
         if (
           currentFilters.dependency?.includes("with_dependency") &&
-          currentFilters.dependencyTeams?.length > 0 &&
+          Array.isArray(currentFilters.dependencyTeams) &&
           currentFilters.dependencyTeams.length < DEPENDENCY_TEAMS.length
         ) {
-          // Only filter if NOT all teams are selected
-          const ticketId = t.display_id?.replace("TKT-", "");
-          const dep = dependencies[ticketId];
-
-          if (dep?.hasDependency) {
-            const ticketTeams = dep.issues?.map((i) => i.team) || [];
+          const depInfo = getTicketDepInfo(dependencies, t);
+          if (depInfo.hasDependency) {
             const hasMatchingTeam = currentFilters.dependencyTeams.some(
-              (team) => ticketTeams.includes(team),
+              (team) => depInfo.teams.includes(team),
             );
             if (!hasMatchingTeam) return false;
           }
@@ -1319,14 +1315,14 @@ const App = () => {
           }
         }
 
-        // Dependency filter
+        // Dependency filter — getTicketDepInfo prefers the sync-time Mongo
+        // snapshot carried by all-solved rows (which the live map never covers),
+        // falling back to the live dependencies map for active-cache tickets.
         if (
           allTicketsFilters.dependency?.length > 0 &&
           allTicketsFilters.dependency?.length < 2
         ) {
-          const ticketId = t.display_id?.replace("TKT-", "");
-          const dep = dependencies[ticketId];
-          const hasDependency = dep?.hasDependency === true;
+          const hasDependency = getTicketDepInfo(dependencies, t).hasDependency;
 
           if (
             allTicketsFilters.dependency.includes("with_dependency") &&
@@ -1342,18 +1338,17 @@ const App = () => {
           }
         }
 
-        // Dependency team filter
+        // Dependency team filter — zero teams selected yields zero dependency
+        // tickets (an empty selection is a narrowing, not a no-op).
         if (
           allTicketsFilters.dependency?.includes("with_dependency") &&
-          allTicketsFilters.dependencyTeams?.length > 0 &&
-          allTicketsFilters.dependencyTeams?.length < DEPENDENCY_TEAMS.length
+          Array.isArray(allTicketsFilters.dependencyTeams) &&
+          allTicketsFilters.dependencyTeams.length < DEPENDENCY_TEAMS.length
         ) {
-          const ticketId = t.display_id?.replace("TKT-", "");
-          const dep = dependencies[ticketId];
-          if (dep?.hasDependency) {
-            const ticketTeams = dep.issues?.map((i) => i.team) || [];
+          const depInfo = getTicketDepInfo(dependencies, t);
+          if (depInfo.hasDependency) {
             const hasMatchingTeam = allTicketsFilters.dependencyTeams.some(
-              (team) => ticketTeams.includes(team),
+              (team) => depInfo.teams.includes(team),
             );
             if (!hasMatchingTeam) return false;
           }
