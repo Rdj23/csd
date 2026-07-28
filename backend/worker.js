@@ -63,6 +63,15 @@ const start = async () => {
     { repeat: { pattern: "*/10 * * * *" }, jobId: "frequent-activity-sync" },  // Every 10 min catch-up
   );
 
+  // Hourly active-ticket refresh — same safety net as server.js (see comment
+  // there). Registered here too because in split deployments this file is the
+  // only cron scheduler; without it, live states/dependencies rely solely on
+  // webhooks and go stale whenever one is missed.
+  await getTicketSyncQueue().add(
+    "sync-active", { source: "cron" },
+    { repeat: { pattern: "0 * * * *" }, jobId: "hourly-active-sync" },
+  );
+
   // NOTE: Parts View part-tagging is NOT a separate cron — it now happens inline inside
   // the historical sync (each ticket is tagged with its product/part as it's written to
   // Mongo) and inside the active-ticket sync. The parts-sync queue/worker is kept only

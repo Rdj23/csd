@@ -218,6 +218,20 @@ const App = () => {
   const depsInFlightRef = useRef(new Set());
   const depsFetchTimerRef = useRef(null);
 
+  // Dependency entries older than this are considered stale and refetched.
+  // The map persists in localStorage, so without a TTL an issue fetched while
+  // unassigned would show "Unassigned" forever even after someone picked it up.
+  const DEP_STALE_MS = 60 * 60 * 1000; // 1 hour
+
+  // Bumped every 15 min so the fetch effect below re-evaluates staleness even
+  // when tickets/activeTab haven't changed — guarantees dependency owner/team
+  // data is never more than ~1h15m old while the dashboard sits open.
+  const [depRefreshTick, setDepRefreshTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setDepRefreshTick((t) => t + 1), 15 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Fetch dependencies — debounced + in-flight tracking to prevent request floods.
   // Needed on every tab that exposes a dependency/linked filter or NOC exclusion:
   // the main Tickets board, All Tickets, and Analytics all read the same map.
@@ -234,9 +248,14 @@ const App = () => {
         .map((t) => t.display_id?.replace("TKT-", ""))
         .filter(Boolean);
 
-      const unfetchedIds = ticketIds.filter(
-        (id) => !dependencies[id] && !depsInFlightRef.current.has(id)
-      );
+      // Fetch ids that are missing OR stale (fetched >1h ago, or persisted
+      // by an older app version without a _fetchedAt stamp).
+      const now = Date.now();
+      const unfetchedIds = ticketIds.filter((id) => {
+        if (depsInFlightRef.current.has(id)) return false;
+        const dep = dependencies[id];
+        return !dep || !dep._fetchedAt || now - dep._fetchedAt > DEP_STALE_MS;
+      });
 
       if (unfetchedIds.length === 0) return;
 
@@ -250,7 +269,13 @@ const App = () => {
           try {
             await fetchDependencies(batch);
           } catch {
-            // Remove failed IDs so they can be retried
+            // Swallow so one failed batch doesn't abort the remaining ones;
+            // the released ids below are retried on the next refresh tick.
+          } finally {
+            // Always release in-flight ids. Success: the fresh _fetchedAt
+            // stamp now guards against refetching. Failure: they're free to
+            // retry. Previously ids were only released on error, so a
+            // successful fetch could never be refreshed within a session.
             batch.forEach((id) => depsInFlightRef.current.delete(id));
           }
         }
@@ -259,7 +284,7 @@ const App = () => {
     }, 500);
 
     return () => clearTimeout(depsFetchTimerRef.current);
-  }, [tickets, activeTab]);
+  }, [tickets, activeTab, depRefreshTick]);
 
   // ✅ TRACK TAB VISITS
   useEffect(() => {

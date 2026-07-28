@@ -202,7 +202,7 @@ server.listen(PORT, async () => {
   if (runWorkers && bullmqConn) {
     try {
       // Clean up old repeatable schedules before registering new ones
-      for (const queue of [getHistoricalSyncQueue(), getAnalyticsQueue(), getActivitySyncQueue()]) {
+      for (const queue of [getTicketSyncQueue(), getHistoricalSyncQueue(), getAnalyticsQueue(), getActivitySyncQueue()]) {
         const repeatables = await queue.getRepeatableJobs();
         for (const job of repeatables) {
           await queue.removeRepeatableByKey(job.key);
@@ -225,6 +225,14 @@ server.listen(PORT, async () => {
       await getActivitySyncQueue().add(
         "frequent", {},
         { repeat: { pattern: "*/10 * * * *" }, jobId: "frequent-activity-sync" },  // Every 10 min — near-real-time catch-up
+      );
+      // Hourly active-ticket refresh — safety net for the webhook-driven sync.
+      // Webhooks are the primary trigger, but if DevRev drops one (or the dedupe
+      // job is stuck) ticket states/dependency assignees would go stale forever.
+      // This guarantees the live board is never more than ~1h behind.
+      await getTicketSyncQueue().add(
+        "sync-active", { source: "cron" },
+        { repeat: { pattern: "0 * * * *" }, jobId: "hourly-active-sync" },
       );
       logger.info("Cron jobs registered");
     } catch (e) {

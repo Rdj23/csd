@@ -99,6 +99,17 @@ export const handleDevRevWebhook = (req, res) => {
          * After 5s, the single job runs and fetches ALL latest data.
          */
         delay: 5000,
+        /**
+         * removeOnComplete/removeOnFail: true — CRITICAL with a fixed jobId.
+         * BullMQ dedupes against jobs in ANY state, including completed/failed
+         * ones still sitting in Redis. The queue default keeps the last 5
+         * completed jobs, so a finished "webhook-sync" job would block every
+         * future webhook add forever — live ticket states silently stopped
+         * updating. Deleting the job the moment it finishes frees the id, so
+         * dedupe only applies during the 5s batch window (as intended).
+         */
+        removeOnComplete: true,
+        removeOnFail: true,
       }).catch((err) => {
         /**
          * WHY CATCH + FALLBACK:

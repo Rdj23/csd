@@ -288,12 +288,22 @@ fetchDependencies: async (ticketIds) => {
       body: JSON.stringify({ ticketIds }),
     });
     const data = await res.json();
-    
+
+    // Stamp every entry with when it was fetched. The map is persisted to
+    // localStorage, so without a timestamp an entry fetched while the linked
+    // issue was still unassigned would show "Unassigned" forever — App.jsx
+    // uses _fetchedAt to treat entries older than 1h as stale and refetch.
+    const now = Date.now();
+    const stamped = {};
+    for (const [id, dep] of Object.entries(data)) {
+      stamped[id] = { ...dep, _fetchedAt: now };
+    }
+
     set((state) => ({
-      dependencies: { ...state.dependencies, ...data },
+      dependencies: { ...state.dependencies, ...stamped },
       dependenciesLoading: false,
     }));
-    
+
     return data;
   } catch (e) {
     set({ dependenciesLoading: false });
