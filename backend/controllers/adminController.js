@@ -6,6 +6,7 @@ import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/
 import { resolveOwnerName, GST_SLACK_MEMBER_IDS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 import { syncHistoricalToDB } from "../services/syncService.js";
+import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { hashApiKey, VALID_SCOPES } from "../middleware/auth.js";
 import { ok, accepted, fail, badRequest, notFound, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
@@ -74,6 +75,25 @@ export const backfill = async (req, res) => {
     // Direct fallback
     syncHistoricalToDB(true);
     ok(res, { message: "Full backfill started directly." });
+  } catch (e) {
+    serverError(res, e.message);
+  }
+};
+
+/**
+ * On-demand run of the daily count reconciliation: per-GST-member
+ * open/pending/on-hold counts straight from DevRev (state-filtered, no date
+ * window) compared against the dashboard's tickets:active cache. Pass
+ * ?heal=false to skip the auto resync, ?slack=true to also send the alert.
+ * Runs inline (~20 DevRev pages, well under HTTP timeout).
+ */
+export const reconcileCounts = async (req, res) => {
+  try {
+    const report = await reconcileActiveCounts({
+      autoHeal: req.query.heal !== "false",
+      notifySlack: req.query.slack === "true",
+    });
+    ok(res, report);
   } catch (e) {
     serverError(res, e.message);
   }

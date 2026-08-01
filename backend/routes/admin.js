@@ -4,6 +4,7 @@ import {
   getSyncStatus,
   backfill,
   getJobStatus,
+  reconcileCounts,
   verifyGSTNames,
   getPendingAlerts,
   sendPendingAlerts,
@@ -26,6 +27,7 @@ router.get("/admin/sync-status", requireAdmin, getSyncStatus);
 router.post("/admin/backfill", requireAdmin, backfill);
 router.get("/admin/job-status/:jobId", requireAdmin, validate(jobStatusSchema), getJobStatus);
 router.get("/admin/verify-gst-names", requireAdmin, verifyGSTNames);
+router.get("/admin/reconcile-counts", requireAdmin, reconcileCounts);
 router.get("/admin/pending-alerts", requireAdmin, getPendingAlerts);
 router.post("/admin/send-pending-alerts", requireAdmin, sendPendingAlerts);
 router.post("/admin/test-slack", requireAdmin, testSlack);

@@ -1184,7 +1184,12 @@ const App = () => {
           t.owned_by?.[0]?.display_name ||
           "";
 
-        // Date Range filter
+        // Date Range filter — applies to SOLVED tickets only (by close date).
+        // Open/Pending/On-Hold buckets always show the complete backlog: an
+        // active ticket is still someone's workload no matter when it was
+        // created, so filtering actives by created_date silently hid old
+        // tickets (e.g. a Feb-created ticket still pending in July vanished
+        // whenever a recent range was selected).
         if (
           allTicketsFilters.dateRange?.start &&
           allTicketsFilters.dateRange?.end
@@ -1196,19 +1201,16 @@ const App = () => {
               stageLower.includes("closed") ||
               stageLower.includes("resolved");
 
-            // IF SOLVED: Use Close Date. IF OPEN: Use Created Date.
-            let dateStrToCheck = t.created_date;
-
-            if (isSolved && t.actual_close_date) {
-              dateStrToCheck = t.actual_close_date;
+            if (isSolved) {
+              const ticketDate = parseISO(
+                t.actual_close_date || t.created_date,
+              );
+              const start = startOfDay(
+                parseISO(allTicketsFilters.dateRange.start),
+              );
+              const end = endOfDay(parseISO(allTicketsFilters.dateRange.end));
+              if (!isWithinInterval(ticketDate, { start, end })) return false;
             }
-
-            const ticketDate = parseISO(dateStrToCheck);
-            const start = startOfDay(
-              parseISO(allTicketsFilters.dateRange.start),
-            );
-            const end = endOfDay(parseISO(allTicketsFilters.dateRange.end));
-            if (!isWithinInterval(ticketDate, { start, end })) return false;
           } catch (e) {
             // Skip invalid dates
           }

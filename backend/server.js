@@ -234,6 +234,14 @@ server.listen(PORT, async () => {
         "sync-active", { source: "cron" },
         { repeat: { pattern: "0 * * * *" }, jobId: "hourly-active-sync" },
       );
+      // Daily count reconciliation — per-GST-member open/pending/on-hold counts
+      // from DevRev (state-filtered, no date window) vs the dashboard cache.
+      // Mismatches → Slack alert + auto-heal resync. 10 min after the hourly
+      // sync so it verifies a fresh cache. 04:10 UTC = 9:40 AM IST.
+      await getTicketSyncQueue().add(
+        "reconcile-counts", {},
+        { repeat: { pattern: "10 4 * * *" }, jobId: "daily-count-reconcile" },
+      );
       logger.info("Cron jobs registered");
     } catch (e) {
       logger.warn({ err: e }, "Failed to register cron jobs (Redis down?)");

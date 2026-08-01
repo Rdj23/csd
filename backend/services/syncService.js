@@ -50,9 +50,13 @@ export const classifyResolution = (ticket, closedDate, gstOwner) => {
       agentResolved,
     };
   }
-  // No GST owner. Only keep if this is in the agent era — otherwise it's noise
-  // (non-GST owners, dropped tickets) and we preserve the legacy skip behavior.
-  if (closedDate >= AGENT_START_DATE) {
+  // No GST owner. Keep only genuinely agent-resolved tickets (flag set AND no
+  // engineer co-handling) in the agent era. A non-GST HUMAN owner (e.g. a
+  // Solutions/CSM engineer) previously fell through here and was stored as
+  // "Unassigned"/agent, inflating GST analytics with tickets GST never solved
+  // (e.g. TKT-314228, solved by a non-roster engineer with
+  // tnt__agent_resolved=false). Those are now skipped entirely.
+  if (closedDate >= AGENT_START_DATE && agentResolved) {
     return { resolvedBy: "agent", finalOwner: "Unassigned", agentResolved };
   }
   return { resolvedBy: null, finalOwner: null, agentResolved };
@@ -163,6 +167,77 @@ const checkCacheSize = (processed) => {
   }
 };
 
+// ── Complete active-ticket fetch ─────────────────────────────────────────
+// works.list supports server-side `state` filters: open + in_progress covers
+// every non-closed stage (Waiting on Assignee / Awaiting Customer Reply /
+// Waiting on CleverTap / New / queued / ...) REGARDLESS of ticket age.
+// The old approach — scanning the org's whole newest-first stream and keeping
+// actives — was capped at 100 pages (5,000 tickets), so any still-active
+// ticket older than the window silently disappeared from the dashboard
+// (e.g. TKT-308723: created Feb 11, still pending in Aug, beyond the cap).
+// Verified 2026-08-01: ~2k non-closed tickets org-wide ≈ 20 pages.
+const ACTIVE_STATES = ["open", "in_progress"];
+
+/** Fetch ALL non-closed tickets from DevRev (raw, org-wide, no owner filter). */
+export const fetchAllActiveFromDevRev = async () => {
+  const collected = [];
+  let cursor = null,
+    loop = 0;
+  do {
+    const params = new URLSearchParams({ limit: "100", type: "ticket" });
+    for (const s of ACTIVE_STATES) params.append("state", s);
+    if (cursor) params.set("cursor", cursor);
+    const response = await fetchWithRetry(
+      `${DEVREV_API}/works.list?${params.toString()}`,
+      { headers: HEADERS, timeout: 60000 },
+    );
+    collected.push(...(response.data.works || []));
+    cursor = response.data.next_cursor;
+    loop++;
+  } while (cursor && loop < 200);
+  return collected;
+};
+
+/**
+ * Remove previously-solved rows for tickets that are active again (reopened).
+ * Called from the live sync with the COMPLETE active set, so solved→open
+ * transitions leave Mongo within the hour instead of waiting for (and
+ * sometimes being missed by) the nightly historical sync. Idempotent — if a
+ * ticket is re-solved later, the nightly sync upserts it back.
+ */
+export const removeReopenedFromMongo = async (activeTicketIds) => {
+  if (!activeTicketIds.length) return 0;
+  try {
+    const reopened = await AnalyticsTicket.find(
+      { ticket_id: { $in: activeTicketIds } },
+      { ticket_id: 1 },
+    ).lean();
+    if (!reopened.length) return 0;
+
+    const ids = reopened.map((t) => t.ticket_id);
+    await Promise.all([
+      AnalyticsTicket.deleteMany({ ticket_id: { $in: ids } }),
+      ActivitySyncedTicket.deleteMany({ ticket_display_id: { $in: ids } }),
+    ]);
+    // Solved-side caches now hold rows that no longer exist — bust them all.
+    // NOTE: "alltickets:*" is a separate keyspace from "tickets:*" (SCAN MATCH
+    // does not glob across the prefix), it must be listed explicitly.
+    await Promise.all([
+      AnalyticsCache.deleteMany({}),
+      PrecomputedDashboard.deleteMany({}),
+      redisDelete("alltickets:*"),
+      redisDelete("analytics:*"),
+      redisDelete("livestats:*"),
+      redisDelete("bydate:*"),
+    ]);
+    logger.info({ count: ids.length, ticketIds: ids }, "Removed reopened tickets from solved database");
+    return ids.length;
+  } catch (e) {
+    logger.warn({ err: e }, "Reopened-ticket cleanup failed (non-fatal)");
+    return 0;
+  }
+};
+
 /**
  * Quick fetch: grab the first page of tickets from DevRev and return
  * immediately. Designed for cold-start HTTP requests where we can't wait
@@ -213,8 +288,7 @@ export const fetchAndCacheTickets = async (source = "auto") => {
     // Uses shared trimTicket/isRelevantTicket/isGSTOwned extracted above.
     let processed = [],
       cursor = null,
-      loop = 0,
-      consecutiveInactiveBatches = 0;
+      loop = 0;
 
     const saveProgress = async (isComplete) => {
       if (!processed.length) return processed;
@@ -251,6 +325,51 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       return processed;
     };
 
+    // ── Phase 1: COMPLETE active set (state-filtered, age-independent) ──
+    // Guarantees every open / pending / on-hold ticket assigned to a GST
+    // member is in the cache, no matter how old the ticket is.
+    const activeIds = new Set();
+    const droppedOwners = {};
+    try {
+      const rawActive = await fetchAllActiveFromDevRev();
+      for (const t of rawActive) {
+        activeIds.add(t.display_id);
+        if (isGSTOwned(t)) {
+          processed.push(trimTicket(t));
+        } else {
+          // Observability for the silent-drop gotcha: if a roster member's
+          // DevRev display_name stops matching their aliases, their tickets
+          // land here instead of vanishing without a trace.
+          const name = t.owned_by?.[0]?.display_name || "(unowned)";
+          droppedOwners[name] = (droppedOwners[name] || 0) + 1;
+        }
+      }
+      logger.info(
+        { activeTotal: rawActive.length, gstActive: processed.length, droppedOwnerCount: Object.keys(droppedOwners).length },
+        "Complete active set fetched",
+      );
+      if (Object.keys(droppedOwners).length > 0) {
+        logger.info({ droppedOwners }, "Active tickets excluded (owner not in GST roster — add an alias in constants.js if one of these is a GST member)");
+      }
+      await saveProgress(false);
+    } catch (activeErr) {
+      logger.error({ err: activeErr }, "Complete active fetch failed — falling back to stream scan only");
+    }
+
+    // Reopened tickets: anything currently active that still has a solved row
+    // in Mongo was solved and reopened — remove it from the solved database.
+    // Only when the active fetch succeeded (otherwise activeIds is partial).
+    if (activeIds.size > 0) {
+      await removeReopenedFromMongo([...activeIds]);
+    }
+
+    // ── Phase 2: recently-solved scan (newest-first stream) ──
+    // The active cache also carries solved tickets created on/after
+    // SOLVED_CUTOFF_DATE (live-stats / Resolved-By classification read them).
+    // works.list streams newest-first by created_date, so once a page's last
+    // ticket predates the cutoff no further page can contain a relevant
+    // solved ticket and we stop. Active tickets are already covered by
+    // phase 1 — dedupe via activeIds.
     do {
       let response;
       try {
@@ -272,11 +391,9 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       const newWorks = response.data.works || [];
       if (!newWorks.length) break;
 
-      const hasActiveTickets = newWorks.some((t) => isActiveStage(t.stage?.name?.toLowerCase() || ""));
-
       // Filter and trim immediately — raw API objects are GC'd after this loop
       for (const t of newWorks) {
-        if (isRelevantTicket(t) && isGSTOwned(t)) {
+        if (!activeIds.has(t.display_id) && isRelevantTicket(t) && isGSTOwned(t)) {
           processed.push(trimTicket(t));
         }
       }
@@ -286,20 +403,15 @@ export const fetchAndCacheTickets = async (source = "auto") => {
         logger.info({ count: processed.length, batch: loop + 1 }, "Incrementally cached tickets");
       }
 
-      if (!hasActiveTickets) {
-        consecutiveInactiveBatches++;
-        const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
-        if (lastDate < SOLVED_CUTOFF_DATE && consecutiveInactiveBatches >= 10) {
-          logger.info({ consecutiveInactiveBatches }, "Early exit after consecutive inactive batches");
-          break;
-        }
-      } else {
-        consecutiveInactiveBatches = 0;
+      const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
+      if (lastDate < SOLVED_CUTOFF_DATE) {
+        logger.info({ batch: loop + 1 }, "Early exit: stream is past the solved cutoff date");
+        break;
       }
 
       cursor = response.data.next_cursor;
       loop++;
-    } while (cursor && loop < 100);
+    } while (cursor && loop < 200);
 
     if (processed.length > 0) {
       await saveProgress(true);
@@ -369,6 +481,17 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
       );
       const works = res.data.works || [];
       if (!works.length) break;
+
+      // Track non-solved tickets — these may have been solved before and reopened.
+      // Collected BEFORE the delta-mode date break below: the break fires on the
+      // batch that crosses TARGET_DATE, and discarding that batch's active
+      // tickets used to make their reopens invisible to delta runs forever.
+      const nonSolved = works.filter((t) => {
+        const stage = t.stage?.name?.toLowerCase() || "";
+        return !(stage.includes("solved") || stage.includes("closed") || stage.includes("resolved"));
+      });
+      nonSolved.forEach((t) => activeTicketIds.push(t.display_id));
+
       if (
         new Date(works[works.length - 1].created_date) < TARGET_DATE &&
         !fullHistory
@@ -383,13 +506,6 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
           stage.includes("resolved")
         );
       });
-
-      // Track non-solved tickets — these may have been solved before and reopened
-      const nonSolved = works.filter((t) => {
-        const stage = t.stage?.name?.toLowerCase() || "";
-        return !(stage.includes("solved") || stage.includes("closed") || stage.includes("resolved"));
-      });
-      nonSolved.forEach((t) => activeTicketIds.push(t.display_id));
 
       // Delta sync: check if all solved tickets in this batch already exist in DB
       if (solved.length > 0 && !fullHistory) {
@@ -419,8 +535,8 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
         // Pre-filter tickets that are valid for processing.
         // classifyResolution handles three cases:
         //   1. GST-owned ticket → kept as engineer (or agent only if tnt__agent_resolved=true AND tnt__support_engineer_handled=false)
-        //   2. Unassigned + closed on/after AGENT_START_DATE → kept as agent ("Unassigned")
-        //   3. Unassigned + before agent era → skipped (legacy hygiene behavior)
+        //   2. No GST owner + closed on/after AGENT_START_DATE + genuinely agent-resolved → kept as agent ("Unassigned")
+        //   3. Anything else without a GST owner (non-GST humans, legacy unassigned) → skipped
         const candidates = solved.map((t) => {
           const closeDateRaw = t.actual_close_date || t.modified_date || t.created_date;
           if (!closeDateRaw || new Date(closeDateRaw) < TARGET_DATE) return null;
@@ -637,21 +753,9 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
   // ── Remove reopened tickets from solved database ──
   // Tickets seen as active (non-solved) during sync that still exist in
   // AnalyticsTicket were previously solved but have since been reopened.
-  if (activeTicketIds.length > 0) {
-    const reopened = await AnalyticsTicket.find(
-      { ticket_id: { $in: activeTicketIds } },
-      { ticket_id: 1 },
-    ).lean();
-
-    if (reopened.length > 0) {
-      const ids = reopened.map((t) => t.ticket_id);
-      await Promise.all([
-        AnalyticsTicket.deleteMany({ ticket_id: { $in: ids } }),
-        ActivitySyncedTicket.deleteMany({ ticket_display_id: { $in: ids } }),
-      ]);
-      logger.info({ count: ids.length, ticketIds: ids }, "Removed reopened tickets from solved database");
-    }
-  }
+  // (The live sync also does this hourly with the complete active set —
+  // this pass is the nightly belt to that hourly suspenders.)
+  await removeReopenedFromMongo(activeTicketIds);
 
   if (ticketsToAlert.length > 0) {
     logger.info({ count: ticketsToAlert.length }, "Sending Slack alerts for Understanding Gap tickets");
@@ -724,6 +828,10 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
     redisDelete("livestats:*"),
     redisDelete("bydate:*"),
     redisDelete("tickets:*"),
+    // Separate keyspace from tickets:* — SCAN MATCH doesn't cross the prefix,
+    // so without this line the All Tickets solved bucket can serve rows the
+    // sync just deleted/changed until the TTL expires.
+    redisDelete("alltickets:*"),
   ]);
   logger.info({ processedCount, nocCount, skippedCount }, "SYNC COMPLETE. Caches cleared.");
 };

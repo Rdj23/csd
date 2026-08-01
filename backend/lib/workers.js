@@ -28,6 +28,7 @@
 
 import { Worker } from "bullmq";
 import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/syncService.js";
+import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { precomputeAnalytics } from "../services/analyticsService.js";
 import { syncRoster } from "../services/rosterService.js";
 import { syncActivityBatch } from "../services/activityService.js";
@@ -68,6 +69,13 @@ export const registerAllWorkers = (connection) => {
   const ticketSyncWorker = new Worker(
     "ticket-sync",
     async (job) => {
+      // "reconcile-counts" — daily per-member DevRev-vs-dashboard count check.
+      // Shares this queue (concurrency 1) so it never races a running sync,
+      // and any heal job it dispatches simply runs next in line.
+      if (job.name === "reconcile-counts") {
+        logger.info("[ticket-sync] Reconciling active counts vs DevRev");
+        return await reconcileActiveCounts();
+      }
       logger.info({ source: job.data.source }, "[ticket-sync] Processing");
       await fetchAndCacheTickets(job.data.source);
     },

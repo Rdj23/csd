@@ -109,9 +109,17 @@ describe("classifyResolution (sync-time decision)", () => {
     expect(r).toEqual({ resolvedBy: "engineer", finalOwner: "Rohan", agentResolved: false });
   });
 
-  it("unassigned + post-agent + flag false → agent, owner = Unassigned", () => {
+  it("no GST owner + post-agent + flag false → SKIP (non-GST human solved it, not our ticket)", () => {
+    // e.g. TKT-314228: solved by a non-roster engineer with agent_resolved=false.
+    // Storing these as Unassigned/agent inflated GST analytics with tickets
+    // GST never solved — they must be skipped entirely.
     const r = classifyResolution(tWithFlag(false), POST_AGENT, null);
-    expect(r).toEqual({ resolvedBy: "agent", finalOwner: "Unassigned", agentResolved: false });
+    expect(r).toEqual({ resolvedBy: null, finalOwner: null, agentResolved: false });
+  });
+
+  it("no GST owner + post-agent + agent flag true + engineer flag true → SKIP (engineer co-handled, but not a GST engineer)", () => {
+    const r = classifyResolution(tWithFlags(true, true), POST_AGENT, null);
+    expect(r).toEqual({ resolvedBy: null, finalOwner: null, agentResolved: false });
   });
 
   it("unassigned + post-agent + agent flag true (no engineer) → agent, owner = Unassigned", () => {

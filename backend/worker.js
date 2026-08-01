@@ -72,6 +72,14 @@ const start = async () => {
     { repeat: { pattern: "0 * * * *" }, jobId: "hourly-active-sync" },
   );
 
+  // Daily count reconciliation — per-GST-member open/pending/on-hold counts
+  // from DevRev vs the dashboard cache; Slack alert + auto-heal on mismatch.
+  // Mirrors server.js so split deployments get the same check. 9:40 AM IST.
+  await getTicketSyncQueue().add(
+    "reconcile-counts", {},
+    { repeat: { pattern: "10 4 * * *" }, jobId: "daily-count-reconcile" },
+  );
+
   // NOTE: Parts View part-tagging is NOT a separate cron — it now happens inline inside
   // the historical sync (each ticket is tagged with its product/part as it's written to
   // Mongo) and inside the active-ticket sync. The parts-sync queue/worker is kept only
