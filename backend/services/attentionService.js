@@ -609,8 +609,16 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
     const inWindow = nowMs >= c.endAt.getTime() - QUEUE_WINDOW_MS && nowMs <= c.endAt.getTime();
     if (!force && !inWindow) continue;
 
-    const exists = await AttentionQueue.findOne({ member: c.name, shift_date: c.shiftDate }, { _id: 1 }).lean();
-    if (exists) continue;
+    // force + member = REPLACE any existing queue for today, so repeated
+    // test runs actually rebuild (and a queue built against a cold/empty
+    // ticket cache doesn't wedge the whole day). Cron runs still build at
+    // most once per member per shift-date.
+    if (force && member) {
+      await AttentionQueue.deleteOne({ member: c.name, shift_date: c.shiftDate });
+    } else {
+      const exists = await AttentionQueue.findOne({ member: c.name, shift_date: c.shiftDate }, { _id: 1 }).lean();
+      if (exists) continue;
+    }
 
     try {
       built.push(await buildQueueForMember(c, ticketsByMember, nowMs));

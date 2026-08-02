@@ -173,7 +173,7 @@ const AttentionBell = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
 
-          <div className="relative w-full max-w-2xl max-h-[86vh] flex flex-col rounded-2xl overflow-hidden bg-white dark:bg-[#0B1322] border border-slate-200 dark:border-slate-700/60 shadow-2xl shadow-black/40 animate-[attnPop_.22s_ease-out]">
+          <div className="relative w-full max-w-4xl h-[88vh] flex flex-col rounded-2xl overflow-hidden bg-white dark:bg-[#0B1322] border border-slate-200 dark:border-slate-700/60 shadow-2xl shadow-black/40 animate-[attnPop_.22s_ease-out]">
             <style>{`@keyframes attnPop { from { transform: scale(.97) translateY(8px); opacity: 0 } to { transform: scale(1) translateY(0); opacity: 1 } }`}</style>
 
             {/* ── Header ─────────────────────────────────────────── */}
@@ -263,7 +263,7 @@ const AttentionBell = () => {
             <div className="flex-1 overflow-y-auto px-6 py-5">
               {/* No queue yet */}
               {!queue && (
-                <div className="py-16 flex flex-col items-center text-center px-8">
+                <div className="h-full flex flex-col items-center justify-center text-center px-8">
                   <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800/80 flex items-center justify-center mb-4">
                     <Bell className="w-6 h-6 text-slate-400" />
                   </div>
@@ -276,7 +276,7 @@ const AttentionBell = () => {
 
               {/* Superstar */}
               {queue?.status === "empty" && (
-                <div className="py-16 flex flex-col items-center text-center px-8">
+                <div className="h-full flex flex-col items-center justify-center text-center px-8">
                   <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-yellow-300 to-amber-500 flex items-center justify-center mb-4 shadow-lg shadow-amber-500/25">
                     <Star className="w-7 h-7 text-white fill-white" />
                   </div>
@@ -479,9 +479,6 @@ const AttentionBell = () => {
             </span>
             <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-500 animate-ping opacity-30" />
           </>
-        )}
-        {queue?.status === "empty" && (
-          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-gradient-to-br from-yellow-300 to-amber-500" />
         )}
       </button>
       {modal}
