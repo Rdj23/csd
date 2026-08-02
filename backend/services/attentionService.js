@@ -16,8 +16,9 @@
  *             Skipped when a first/second-reminder tag is present (the DevRev
  *             reminder automation owns those tickets end-to-end).
  *   pending — customer silent ≥5 days (tnt__last_revu_message_ts).
- *   onHold  — linked ISS created ≥7 days ago AND no org-side external
- *             message on the main ticket in the last 2 days.
+ *   onHold  — no org-side external message on the main ticket in the last
+ *             2 days AND (linked ISS created ≥7 days ago, OR no linked ISS
+ *             at all — a young ISS is the only exemption).
  *
  * TIMESTAMP SOURCES (from the Redis active cache, no Mongo polling):
  *   tnt__last_devu_message_ts — last org-side EXTERNAL message (agent reply
@@ -224,15 +225,22 @@ export const buildItems = async (tickets, nowMs = Date.now()) => {
       try {
         iss = await oldestLinkedIss(t.display_id);
       } catch (e) {
+        // Unknown whether a young ISS exists (the <7d exemption) → don't alert.
         logger.warn({ err: e.message, ticket: t.display_id }, "Attention: ISS lookup failed — skipping on-hold ticket");
-        continue; // can't prove the AND condition → don't alert
+        continue;
       }
-      if (!iss) continue; // on hold with no linked work — AND condition can't hold
-      const issAge = daysAgo(ms(iss.created_date), nowMs);
-      if (issAge < ATTENTION_RULES.ONHOLD_ISS_MIN_AGE_DAYS) continue;
-      item.iss_id = iss.id;
-      item.iss_created_date = new Date(iss.created_date);
-      item.reason = `${iss.id} open for ${issAge}d — ${verdict.reason.charAt(0).toLowerCase()}${verdict.reason.slice(1)}`;
+      if (iss) {
+        // Linked ISS present: the AND condition applies — exempt while young.
+        const issAge = daysAgo(ms(iss.created_date), nowMs);
+        if (issAge < ATTENTION_RULES.ONHOLD_ISS_MIN_AGE_DAYS) continue;
+        item.iss_id = iss.id;
+        item.iss_created_date = new Date(iss.created_date);
+        item.reason = `${iss.id} open for ${issAge}d — ${verdict.reason.charAt(0).toLowerCase()}${verdict.reason.slice(1)}`;
+      } else {
+        // No linked ISS (per team decision 2026-08-02): the 2-day silence
+        // check alone decides — and it already passed in evaluateTicket.
+        item.reason = `On hold with no linked issue — ${verdict.reason.charAt(0).toLowerCase()}${verdict.reason.slice(1)}`;
+      }
     }
 
     items.push(item);
@@ -573,6 +581,25 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
     if (!hours || r.shift === "ON CALL") continue;
     // For overnight SHIFT 4, hours.end (7.5) already lands on this morning.
     candidates.push({ ...r, shiftDate: todayYmd, endAt: istInstant(todayYmd, hours.end) });
+  }
+
+  // Force-testing for a member who isn't on a working shift today (demo on a
+  // week-off day): synthesize a candidate. shift "MANUAL" has no SHIFT_HOURS
+  // entry, so no escalation clock gets set for these test queues.
+  if (force && member && !candidates.some((c) => c.name === member)) {
+    const row = roster.find((r) => r.name === member);
+    const email =
+      row?.email ||
+      Object.keys(EMAIL_TO_NAME_MAP).find((e) => EMAIL_TO_NAME_MAP[e] === member) ||
+      null;
+    candidates.push({
+      name: member,
+      email,
+      shift: row?.shift && SHIFT_HOURS[row.shift] ? row.shift : "MANUAL",
+      slackMention: row?.slackMention || findGSTMember(member),
+      shiftDate: todayYmd,
+      endAt: new Date(nowMs + QUEUE_WINDOW_MS),
+    });
   }
 
   const ticketsByMember = await activeTicketsByMember();
