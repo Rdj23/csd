@@ -245,6 +245,13 @@ export const fetchRosterShifts = async () => {
 
 const attentionWebhook = () => process.env.ATTENTION_SLACK_WEBHOOK_URL;
 
+// Mentions only make sense once this runs in the OFFICIAL workspace (the
+// roster's slack_ids don't resolve in the test workspace — they render as
+// blank). Until then messages use plain bold names. Flip by setting
+// ATTENTION_SLACK_MENTIONS=true; slack_id is stored on every queue doc, so
+// nothing else needs to change.
+const useMentions = () => process.env.ATTENTION_SLACK_MENTIONS === "true";
+
 export const postSlack = async (text) => {
   const url = attentionWebhook();
   if (!url) {
@@ -288,9 +295,31 @@ export const queueMessage = (queue, mention) => {
 
 // ── Queue building ───────────────────────────────────────────────────────
 
-/** Members' active tickets straight from the live Redis cache. */
-const activeTicketsByMember = async () => {
-  const cached = (await redisGet("tickets:active")) || [];
+/**
+ * Members' active tickets from the live Redis cache.
+ *
+ * GUARD (bug 2026-08-02, twice): right after a deploy/restart the stable
+ * `tickets:active` key can be empty while the startup sync rebuilds it —
+ * a sweep in that window would build EMPTY queues ("Superstar!" for someone
+ * with 20+ aging tickets) and wedge the member's day. So:
+ *   - stable cache empty + cron run  → throw (BullMQ retries in 30s, and
+ *     the next 15-min sweep covers the window anyway)
+ *   - stable cache empty + force run → fall back to the partial sync keys
+ *     so demos still work, logged as partial
+ *   - everything empty              → always throw, never build
+ */
+const activeTicketsByMember = async ({ allowPartial = false } = {}) => {
+  let cached = (await redisGet("tickets:active")) || [];
+  if (!cached.length) {
+    if (!allowPartial) {
+      throw new Error("Attention sweep: tickets:active cache empty (sync in progress?) — retry later");
+    }
+    cached = (await redisGet("tickets:syncing")) || (await redisGet("tickets:active:initial")) || [];
+    if (!cached.length) {
+      throw new Error("Attention sweep: no ticket cache available at all — retry later");
+    }
+    logger.warn({ count: cached.length }, "Attention sweep: using PARTIAL ticket cache (forced run during sync)");
+  }
   const byMember = new Map();
   for (const t of cached) {
     if (isSolvedStatus(t.stage?.name)) continue;
@@ -333,10 +362,11 @@ const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
     items,
   });
 
+  const mention = useMentions() ? candidate.slackMention : null;
   if (status === "empty") {
-    await postSlack(`🌟 Superstar — no tickets in the attention queue today, ${candidate.slackMention || candidate.name}! Enjoy the end of your shift.`);
+    await postSlack(`🌟 Superstar — no tickets in the attention queue today, ${mention || `*${candidate.name}*`}! Enjoy the end of your shift.`);
   } else {
-    await postSlack(queueMessage(queue, candidate.slackMention));
+    await postSlack(queueMessage(queue, mention));
   }
 
   await publishSocketEvent("ATTENTION_QUEUE", {
@@ -426,8 +456,9 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
   if (remaining === 0) {
     queue.status = "cleared";
     queue.cleared_at = new Date();
+    const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
     await postSlack(
-      `✅ ${queue.slack_id || queue.member} cleared their attention queue — *${queue.items.length} ticket${queue.items.length === 1 ? "" : "s"}* actioned. 👏`,
+      `✅ ${who} cleared their attention queue — *${queue.items.length} ticket${queue.items.length === 1 ? "" : "s"}* actioned. 👏`,
     );
   }
   await queue.save();
@@ -445,7 +476,7 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
 // ── Escalation ───────────────────────────────────────────────────────────
 
 const escalationMessage = (queue, tlMention, remaining) => {
-  const who = queue.slack_id || `*${queue.member}*`;
+  const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
   const tl = tlMention ? ` cc ${tlMention}` : "";
   return (
     `🚨 Attention queue from ${queue.shift_date} is still open — ${who} has *${remaining} unactioned ticket${remaining === 1 ? "" : "s"}*${tl}\n` +
@@ -483,8 +514,11 @@ const runEscalations = async (rosterRows, nowMs) => {
     // the TL's mention id.
     const leadName = TEAM_MAPPING[q.member]?.team || null;
     const tlRow = leadName ? rosterRows.find((r) => r.name === leadName) : null;
-    const tlMention =
-      tlRow?.slackMention || (leadName ? findGSTMember(leadName) : null) || (leadName ? `*${leadName}* (TL)` : null);
+    const tlMention = !leadName
+      ? null
+      : useMentions()
+        ? tlRow?.slackMention || findGSTMember(leadName) || `*${leadName}* (TL)`
+        : `*${leadName}* (TL)`;
 
     await postSlack(escalationMessage(updated, tlMention, remaining));
     updated.escalation = {
@@ -545,7 +579,7 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
     });
   }
 
-  const ticketsByMember = await activeTicketsByMember();
+  const ticketsByMember = await activeTicketsByMember({ allowPartial: force });
   const built = [];
   for (const c of candidates) {
     if (member && c.name !== member) continue;
