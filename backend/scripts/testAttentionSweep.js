@@ -56,7 +56,7 @@ const main = async () => {
   if (!memberArg) return;
 
   const tickets = byMember.get(memberArg) || [];
-  console.log(`\nFull queue build for ${memberArg} (${tickets.length} active tickets, incl. linked-ISS checks)…`);
+  console.log(`\nFull queue build for ${memberArg} (${tickets.length} active tickets)…`);
   const items = await buildItems(tickets, nowMs);
   for (const i of items) {
     console.log(`  [${i.bucket}] ${i.display_id} — ${i.reason}`);

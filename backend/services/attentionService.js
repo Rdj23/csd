@@ -15,10 +15,13 @@
  *   open    — created ≥4 days ago AND no org-side external reply today (IST).
  *             Skipped when a first/second-reminder tag is present (the DevRev
  *             reminder automation owns those tickets end-to-end).
- *   pending — customer silent ≥5 days (tnt__last_revu_message_ts).
+ *   pending — no org-side EXTERNAL reply in ≥5 days (tnt__last_devu_message_ts).
+ *             OUR silence, not the customer's — a recent nudge resets the
+ *             clock. Pure timestamp check, no tag logic (tags are sticky).
  *   onHold  — no org-side external message on the main ticket in the last
- *             2 days AND (linked ISS created ≥7 days ago, OR no linked ISS
- *             at all — a young ISS is the only exemption).
+ *             2 days. Same "our side went quiet" principle: even with
+ *             engineering actively working the linked ISS, the customer
+ *             must hear from us every 2 days.
  *
  * TIMESTAMP SOURCES (from the Redis active cache, no Mongo polling):
  *   tnt__last_devu_message_ts — last org-side EXTERNAL message (agent reply
@@ -38,12 +41,7 @@ import {
 } from "../config/constants.js";
 import { bucketForStage } from "./reconcileService.js";
 import { findGSTMember } from "./slackService.js";
-import {
-  fetchTicketLinks,
-  fetchWorkItem,
-  fetchWorkItems,
-  dependencyCounterpart,
-} from "./devrevApi.js";
+import { fetchWorkItem } from "./devrevApi.js";
 import { AttentionQueue } from "../models/index.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
@@ -53,7 +51,6 @@ export const ATTENTION_RULES = {
   OPEN_MIN_AGE_DAYS: 4,
   PENDING_CUSTOMER_SILENCE_DAYS: 5,
   ONHOLD_AGENT_SILENCE_DAYS: 2,
-  ONHOLD_ISS_MIN_AGE_DAYS: 7,
 };
 
 const QUEUE_WINDOW_MS = 30 * 60 * 1000;      // build window before shift end
@@ -61,21 +58,17 @@ const ESCALATE_LEAD_MS = 45 * 60 * 1000;     // before next shift start
 const ESCALATE_INTERVAL_MS = 60 * 60 * 1000; // repeat escalation hourly
 
 // Tags the DevRev auto-reminder workflow sets ("First Reminder Sent" /
-// "Second Reminder Sent" in DevRev — compared lowercased). A ticket carrying
-// one is excluded from open AND pending rules: the automation nudges the
-// customer itself and auto-closes after its final check, so alerting the
-// agent would just double-nudge. Verified 2026-08-02: 282 of 773 pending GST
-// tickets carried these tags.
+// "Second Reminder Sent" in DevRev — compared lowercased). These exempt
+// OPEN tickets only (original spec: the automation nudges + auto-closes
+// them). NOTE these tags are sticky — they survive the conversation
+// resuming — which is why pending/on-hold rules use timestamps only and
+// never consult tags (team decision 2026-08-02).
 const REMINDER_TAGS = new Set([
   "first-reminder-sent",
   "second-reminder-sent",
   "first reminder sent",
   "second reminder sent",
 ]);
-
-// "keep_pending" is a deliberate team marker: leave this ticket pending
-// (e.g. customer asked to keep it open). Never alert on those.
-const KEEP_PENDING_TAGS = new Set(["keep_pending", "keep pending"]);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TICKET_URL = (id) => `https://app.devrev.ai/clevertapsupport/works/${id}`;
@@ -105,7 +98,6 @@ const hasTagIn = (t, tagSet) =>
     tagSet.has((tag.tag?.name || "").toLowerCase().trim()),
   );
 const hasReminderTag = (t) => hasTagIn(t, REMINDER_TAGS);
-const hasKeepPendingTag = (t) => hasTagIn(t, KEEP_PENDING_TAGS);
 
 // ── Rule engine ──────────────────────────────────────────────────────────
 // Pure per-ticket evaluation. Used by BOTH the queue builder and the
@@ -139,65 +131,40 @@ export const evaluateTicket = (t, nowMs = Date.now()) => {
   }
 
   if (bucket === "pending") {
-    // Awaiting customer — the customer went quiet. Nudge or close.
-    // Reminder-tagged tickets are the automation's job; keep_pending is a
-    // deliberate "leave it open" marker. Neither should page a human.
-    if (hasReminderTag(t) || hasKeepPendingTag(t)) return null;
-    const lc = lastCustomerMs(t) ?? createdMs;
-    if (!lc || nowMs - lc < ATTENTION_RULES.PENDING_CUSTOMER_SILENCE_DAYS * DAY_MS) return null;
+    // Awaiting customer — triggers only when WE went quiet: no org-side
+    // EXTERNAL reply in 5 days (team decision 2026-08-02). A recent nudge
+    // (agent or workflow bot) resets the clock, so tickets being actively
+    // chased never flag. Pure timestamp check, no tag logic — tags are
+    // sticky and would hide tickets that go silent again.
+    const la = lastAgentExternalMs(t) ?? createdMs;
+    if (!la || nowMs - la < ATTENTION_RULES.PENDING_CUSTOMER_SILENCE_DAYS * DAY_MS) return null;
     return {
       bucket,
       rule: "pending-silent",
-      reason: `Customer silent for ${daysAgo(lc, nowMs)}d — nudge or close`,
+      reason: `No reply sent to the customer in ${daysAgo(la, nowMs)}d — nudge or close`,
       needsIssCheck: false,
     };
   }
 
   if (bucket === "onHold") {
     // Waiting on CleverTap — even if the linked ISS is being worked, the
-    // customer must hear from us every 2 days.
+    // customer must hear from us every 2 days. Pure silence rule; the linked
+    // ISS's age does not matter.
     const la = lastAgentExternalMs(t) ?? createdMs;
     if (!la || nowMs - la < ATTENTION_RULES.ONHOLD_AGENT_SILENCE_DAYS * DAY_MS) return null;
     return {
       bucket,
       rule: "onhold-stale",
       reason: `Customer hasn't heard from us in ${daysAgo(la, nowMs)}d`,
-      needsIssCheck: true, // AND: linked ISS must be ≥7d old
     };
   }
 
   return null; // "other" stages (New, queued, Waiting on CSM…) are out of scope
 };
 
-/** Oldest linked work item (ISS/TKT/TASK) for a ticket: { id, created_date } or null. */
-const oldestLinkedIss = async (displayId) => {
-  // fetchTicketLinks builds the DON URN as ticket/<numeric id> — a "TKT-"
-  // prefix produces an invalid URN and DevRev answers 403.
-  const links = await fetchTicketLinks(String(displayId).replace(/^TKT-/i, ""));
-  const seen = new Set();
-  const depIds = [];
-  for (const link of links) {
-    const c = dependencyCounterpart(link, displayId);
-    if (!c || seen.has(c.display_id)) continue;
-    seen.add(c.display_id);
-    if (/^(ISS|TKT|TASK)-/i.test(c.display_id)) depIds.push(c.display_id);
-  }
-  if (!depIds.length) return null;
-  const works = await fetchWorkItems(depIds);
-  let oldest = null;
-  for (const w of works.values()) {
-    if (!w.created_date) continue;
-    if (!oldest || new Date(w.created_date) < new Date(oldest.created_date)) {
-      oldest = { id: w.display_id, created_date: w.created_date };
-    }
-  }
-  return oldest;
-};
-
 /**
- * Build queue items for a member's active tickets. Cheap cache-only checks
- * run first; the DevRev links walk happens only for on-hold tickets that
- * already passed the 2-day-silence pre-check (typically a handful).
+ * Build queue items for a member's active tickets. Runs entirely off the
+ * cached ticket objects — no DevRev calls needed at build time.
  */
 export const buildItems = async (tickets, nowMs = Date.now()) => {
   const items = [];
@@ -219,29 +186,6 @@ export const buildItems = async (tickets, nowMs = Date.now()) => {
       last_customer_ts: t.custom_fields?.tnt__last_revu_message_ts || null,
       status: "pending",
     };
-
-    if (verdict.needsIssCheck) {
-      let iss = null;
-      try {
-        iss = await oldestLinkedIss(t.display_id);
-      } catch (e) {
-        // Unknown whether a young ISS exists (the <7d exemption) → don't alert.
-        logger.warn({ err: e.message, ticket: t.display_id }, "Attention: ISS lookup failed — skipping on-hold ticket");
-        continue;
-      }
-      if (iss) {
-        // Linked ISS present: the AND condition applies — exempt while young.
-        const issAge = daysAgo(ms(iss.created_date), nowMs);
-        if (issAge < ATTENTION_RULES.ONHOLD_ISS_MIN_AGE_DAYS) continue;
-        item.iss_id = iss.id;
-        item.iss_created_date = new Date(iss.created_date);
-        item.reason = `${iss.id} open for ${issAge}d — ${verdict.reason.charAt(0).toLowerCase()}${verdict.reason.slice(1)}`;
-      } else {
-        // No linked ISS (per team decision 2026-08-02): the 2-day silence
-        // check alone decides — and it already passed in evaluateTicket.
-        item.reason = `On hold with no linked issue — ${verdict.reason.charAt(0).toLowerCase()}${verdict.reason.slice(1)}`;
-      }
-    }
 
     items.push(item);
   }
@@ -423,7 +367,6 @@ const itemStillBlocked = (item, fresh, queueCreatedMs, nowMs) => {
   const bucket = bucketForStage(stageName);
   if (bucket !== item.bucket) return null; // moved on — whatever they did worked
   const la = lastAgentExternalMs(fresh);
-  const lc = lastCustomerMs(fresh);
 
   if (item.bucket === "open") {
     if (hasReminderTag(fresh)) return null;
@@ -431,10 +374,10 @@ const itemStillBlocked = (item, fresh, queueCreatedMs, nowMs) => {
     return "Still no external reply to the customer today";
   }
   if (item.bucket === "pending") {
-    if (hasReminderTag(fresh) || hasKeepPendingTag(fresh)) return null; // automation/deliberate hold took over
-    if (la && la >= queueCreatedMs) return null; // nudged since queue creation
-    if (lc && nowMs - lc < ATTENTION_RULES.PENDING_CUSTOMER_SILENCE_DAYS * DAY_MS) return null;
-    return "No nudge sent since this queue was created";
+    // Any org-side external reply within the window clears it — a nudge sent
+    // after the queue was built makes la fresh, so this covers that case.
+    if (la && nowMs - la < ATTENTION_RULES.PENDING_CUSTOMER_SILENCE_DAYS * DAY_MS) return null;
+    return "Still no external reply to the customer in the last 5 days";
   }
   if (item.bucket === "onHold") {
     if (la && nowMs - la < ATTENTION_RULES.ONHOLD_AGENT_SILENCE_DAYS * DAY_MS) return null;
