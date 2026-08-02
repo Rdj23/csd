@@ -15,6 +15,7 @@ import AllTicketsView from "./features/tickets/components/Allticketsview";
 import GamificationView from "./features/gamification/components/GamificationView";
 import ActivityDashboard from "./features/activity/components/ActivityDashboard";
 import AgentModal from "./features/agent/components/AgentModal";
+import AttentionBell from "./features/attention/components/AttentionBell";
 
 import {
   Users,
@@ -1630,6 +1631,9 @@ const App = () => {
 
             {/* Actions */}
             <div className="flex items-center gap-2">
+              {/* Attention Queue bell (GST members only — renders null otherwise) */}
+              <AttentionBell />
+
               {/* Theme toggle */}
               <button
                 onClick={toggleTheme}

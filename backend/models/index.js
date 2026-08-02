@@ -576,3 +576,69 @@ export const UserActivityDaily = mongoose.model(
   "UserActivityDaily",
   UserActivityDailySchema,
 );
+
+// ═══════════════════════════════════════════════════════════════════════
+// 11. ATTENTION QUEUE — shift-end backlog queue per member
+// ═══════════════════════════════════════════════════════════════════════
+/**
+ * WHY THIS EXISTS:
+ * One document per member per shift-date, created ~30 min before their shift
+ * ends by the attention sweep (attentionService.js). Holds the snapshot of
+ * tickets that matched the attention rules at build time, plus the clearing/
+ * escalation state machine. Ticket STATUS always comes from Redis/DevRev —
+ * this collection only persists the queue itself (it must survive restarts
+ * and next-day escalation checks).
+ *
+ * LIFECYCLE:
+ *   pending → (member actions tickets, Verify & Clear re-checks DevRev)
+ *           → cleared                       … Slack congrats
+ *   pending → next shift start −45 min      … Slack escalation to TL, hourly
+ *   empty   → nothing matched at build time … Slack "superstar" message
+ */
+const AttentionItemSchema = new mongoose.Schema(
+  {
+    display_id: String,           // TKT-xxx
+    title: String,
+    account: String,
+    severity: String,
+    bucket: { type: String, enum: ["open", "pending", "onHold"] },
+    rule: String,                 // which attention rule matched (open-aging, …)
+    reason: String,               // human-readable, shown in Slack + dashboard
+    created_date: Date,
+    last_agent_external_ts: Date, // snapshot at build time (fresh values come live)
+    last_customer_ts: Date,
+    iss_id: String,               // on-hold rule: the linked ISS that anchored the age check
+    iss_created_date: Date,
+    status: { type: String, enum: ["pending", "cleared"], default: "pending" },
+    cleared_at: Date,
+    block_reason: String,         // why the last verify attempt kept it pending
+  },
+  { _id: false, versionKey: false },
+);
+
+const AttentionQueueSchema = new mongoose.Schema(
+  {
+    member: { type: String, index: true },       // canonical GST name
+    member_email: String,
+    slack_id: String,                            // "<@Uxxxx>" mention, from roster API
+    shift: String,                               // "SHIFT 2"
+    shift_date: { type: String, index: true },   // IST "YYYY-MM-DD" the shift belongs to
+    shift_end_at: Date,
+    next_shift_start_at: Date,                   // null = off next day → no escalation clock
+    status: { type: String, enum: ["pending", "cleared", "empty"], default: "pending", index: true },
+    items: [AttentionItemSchema],
+    created_at: { type: Date, default: Date.now },
+    cleared_at: Date,
+    escalation: {
+      alert_count: { type: Number, default: 0 },
+      last_alert_at: Date,
+    },
+  },
+  { versionKey: false },
+);
+
+// One queue per member per shift-date — makes duplicate builds impossible
+// even if two sweeps race (the second insert fails with E11000).
+AttentionQueueSchema.index({ member: 1, shift_date: 1 }, { unique: true });
+
+export const AttentionQueue = mongoose.model("AttentionQueue", AttentionQueueSchema);

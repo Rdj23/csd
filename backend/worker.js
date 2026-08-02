@@ -4,7 +4,7 @@ import "./config/env.js";
 import process from "process";
 import { connectMongoDB, initRedis, getBullMQConnection } from "./config/database.js";
 import { initPublisher } from "./lib/pubsub.js";
-import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue } from "./lib/queues.js";
+import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue, getAttentionQueue } from "./lib/queues.js";
 import { registerAllWorkers } from "./lib/workers.js";
 import logger from "./config/logger.js";
 import { getCurrentQuarterKey } from "./config/constants.js";
@@ -78,6 +78,13 @@ const start = async () => {
   await getTicketSyncQueue().add(
     "reconcile-counts", {},
     { repeat: { pattern: "10 4 * * *" }, jobId: "daily-count-reconcile" },
+  );
+
+  // Attention Queue sweep — mirrors server.js (see comment there). Every 15
+  // min: builds shift-end queues + processes TL escalations. Idempotent.
+  await getAttentionQueue().add(
+    "sweep", {},
+    { repeat: { pattern: "*/15 * * * *" }, jobId: "attention-sweep" },
   );
 
   // NOTE: Parts View part-tagging is NOT a separate cron — it now happens inline inside

@@ -35,7 +35,7 @@ import { Queue } from "bullmq";
  * We initialize them lazily via initQueues() because the Redis connection
  * isn't available at import time (it's set up in server.js first).
  */
-let ticketSyncQueue, historicalSyncQueue, analyticsQueue, rosterQueue, activitySyncQueue, partsSyncQueue;
+let ticketSyncQueue, historicalSyncQueue, analyticsQueue, rosterQueue, activitySyncQueue, partsSyncQueue, attentionQueue;
 
 export const initQueues = (connection) => {
   /**
@@ -167,6 +167,26 @@ export const initQueues = (connection) => {
       removeOnFail: { count: 5 },
     },
   });
+
+  /**
+   * attention — Attention Queue sweep (shift-end backlog nudges).
+   *
+   * WHY attempts: 2 (lowest of all queues):
+   * The sweep repeats every 15 minutes anyway, so a failed run is retried
+   * once and then simply superseded by the next tick — aggressive retries
+   * would only double-post Slack messages if the failure happened after a
+   * webhook call. Queue creation itself is idempotent (unique member+date
+   * index), so retries never duplicate queues.
+   */
+  attentionQueue = new Queue("attention", {
+    ...opts,
+    defaultJobOptions: {
+      attempts: 2,
+      backoff: { type: "exponential", delay: 30000 },
+      removeOnComplete: { count: 5 },
+      removeOnFail: { count: 10 },
+    },
+  });
 };
 
 /**
@@ -187,6 +207,7 @@ export const getAnalyticsQueue = () => analyticsQueue;
 export const getRosterQueue = () => rosterQueue;
 export const getActivitySyncQueue = () => activitySyncQueue;
 export const getPartsSyncQueue = () => partsSyncQueue;
+export const getAttentionQueue = () => attentionQueue;
 
 /**
  * getAllQueues — Returns a map of all initialized queues.
@@ -207,5 +228,6 @@ export const getAllQueues = () => {
   if (rosterQueue) map["roster"] = rosterQueue;
   if (activitySyncQueue) map["activity-sync"] = activitySyncQueue;
   if (partsSyncQueue) map["parts-sync"] = partsSyncQueue;
+  if (attentionQueue) map["attention"] = attentionQueue;
   return map;
 };

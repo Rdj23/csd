@@ -105,7 +105,7 @@ if (isHybrid && process.env.NODE_ENV === "production") {
 }
 
 // --- BullMQ Setup ---
-import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue } from "./lib/queues.js";
+import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue, getAttentionQueue } from "./lib/queues.js";
 
 const bullmqConn = getBullMQConnection();
 if (bullmqConn) {
@@ -202,7 +202,7 @@ server.listen(PORT, async () => {
   if (runWorkers && bullmqConn) {
     try {
       // Clean up old repeatable schedules before registering new ones
-      for (const queue of [getTicketSyncQueue(), getHistoricalSyncQueue(), getAnalyticsQueue(), getActivitySyncQueue()]) {
+      for (const queue of [getTicketSyncQueue(), getHistoricalSyncQueue(), getAnalyticsQueue(), getActivitySyncQueue(), getAttentionQueue()]) {
         const repeatables = await queue.getRepeatableJobs();
         for (const job of repeatables) {
           await queue.removeRepeatableByKey(job.key);
@@ -241,6 +241,14 @@ server.listen(PORT, async () => {
       await getTicketSyncQueue().add(
         "reconcile-counts", {},
         { repeat: { pattern: "10 4 * * *" }, jobId: "daily-count-reconcile" },
+      );
+      // Attention Queue sweep — every 15 min it checks whose shift ends within
+      // 30 min (roster API) and builds their queue of aging/silent tickets,
+      // plus processes hourly TL escalations for uncleared queues. Idempotent
+      // per member per shift-date, so the frequency is safe.
+      await getAttentionQueue().add(
+        "sweep", {},
+        { repeat: { pattern: "*/15 * * * *" }, jobId: "attention-sweep" },
       );
       logger.info("Cron jobs registered");
     } catch (e) {

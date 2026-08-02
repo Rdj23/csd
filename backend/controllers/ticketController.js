@@ -549,6 +549,7 @@ export const getIssueDetails = async (req, res) => {
       priority: issue.priority_v2?.label || issue.priority,
       stage: issue.stage?.name,
       isNOC: customFields.ctype__issuetype === "PSN Task",
+      createdDate: issue.created_date || null,
     });
   } catch (e) {
     logger.error({ err: e }, "Issue fetch error");
@@ -646,6 +647,8 @@ export const getBatchDependencies = async (req, res) => {
             jiraKey: customFields.ctype__key,
             priority: work.priority_v2?.label || work.priority,
             stage: work.stage?.name,
+            // Feeds the Attention Queue on-hold rule (linked ISS age ≥7d)
+            createdDate: work.created_date || snapshot?.created_date || null,
           };
         }).filter(Boolean);
 

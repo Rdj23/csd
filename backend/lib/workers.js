@@ -33,6 +33,7 @@ import { precomputeAnalytics } from "../services/analyticsService.js";
 import { syncRoster } from "../services/rosterService.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { runPartsSync } from "../services/partsService.js";
+import { runAttentionSweep } from "../services/attentionService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";
 import { getCurrentQuarterKey } from "../config/constants.js";
@@ -249,6 +250,32 @@ export const registerAllWorkers = (connection) => {
   );
 
   // ─────────────────────────────────────────────────────────────────
+  // WORKER 7: attention
+  // ─────────────────────────────────────────────────────────────────
+  /**
+   * WHAT IT DOES: The Attention Queue sweep — builds per-member shift-end
+   * queues of aging/silent tickets (from the Redis active cache + roster
+   * API), posts them to Slack, and escalates uncleared queues to team leads.
+   *
+   * WHEN IT RUNS: Every 15 minutes (repeatable), plus manual runs from the
+   * admin endpoint (POST /api/attention/run) which can pass
+   * { force: true, member: "Nikita" } to build a queue outside the shift
+   * window for testing.
+   *
+   * WHY IT'S SAFE TO RUN OFTEN: queue creation is idempotent (unique
+   * member+shift_date index) and escalations are rate-limited to one per
+   * hour per queue, so a 15-min cadence never double-posts.
+   */
+  const attentionWorker = new Worker(
+    "attention",
+    async (job) => {
+      logger.info({ data: job.data }, "[attention] Sweep starting");
+      return await runAttentionSweep(job.data || {});
+    },
+    { ...opts, concurrency: 1, lockDuration: 300000 },
+  );
+
+  // ─────────────────────────────────────────────────────────────────
   // EVENT HANDLERS — Logging for all workers
   // ─────────────────────────────────────────────────────────────────
   /**
@@ -261,7 +288,7 @@ export const registerAllWorkers = (connection) => {
    * Without these handlers, failures would be silent — you'd only know
    * something broke when users complain the dashboard is stale.
    */
-  const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, rosterWorker, activitySyncWorker, partsSyncWorker];
+  const allWorkers = [ticketSyncWorker, historicalSyncWorker, analyticsWorker, rosterWorker, activitySyncWorker, partsSyncWorker, attentionWorker];
 
   allWorkers.forEach((w) => {
     w.on("completed", (job) => logger.info({ worker: w.name, jobName: job.name }, "Job completed"));
