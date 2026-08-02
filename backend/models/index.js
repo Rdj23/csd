@@ -598,6 +598,7 @@ export const UserActivityDaily = mongoose.model(
 const AttentionItemSchema = new mongoose.Schema(
   {
     display_id: String,           // TKT-xxx
+    ticket_id: String,            // full DevRev DON id — needed by RemarkPopover's DevRev comment sync
     title: String,
     account: String,
     severity: String,

@@ -206,6 +206,7 @@ export const buildItems = async (tickets, nowMs = Date.now()) => {
 
     const item = {
       display_id: t.display_id,
+      ticket_id: t.id || null, // DON id — RemarkPopover needs it for DevRev comment sync
       title: t.title,
       account: t.account?.display_name || t.account || null,
       severity: t.severity?.name || t.severity || null,
