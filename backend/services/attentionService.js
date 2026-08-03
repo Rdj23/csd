@@ -326,7 +326,9 @@ export const fetchRosterShifts = async () => {
     .map((r) => ({
       email: (r.email || "").toLowerCase(),
       name: canonicalMemberName(r),
-      shift: (r.shift || "").toUpperCase().trim(),
+      // Roster sometimes suffixes shifts with markers ("Shift 4*") — strip
+      // anything after the shift number or the SHIFT_HOURS lookup misses.
+      shift: (r.shift || "").toUpperCase().replace(/[^A-Z0-9 ]+/g, "").trim(),
       slackMention: extractSlackMention(r.slack_id),
     }))
     .filter((r) => r.name); // silently ignore rows we can't map to a GST member
@@ -401,7 +403,7 @@ export const queueMessage = (queue, mention) => {
  *     so demos still work, logged as partial
  *   - everything empty              → always throw, never build
  */
-const activeTicketsByMember = async ({ allowPartial = false } = {}) => {
+const activeTicketsByMember = async ({ allowPartial = false, onlyMembers = null } = {}) => {
   let cached = (await redisGet("tickets:active")) || [];
   if (!cached.length) {
     if (!allowPartial) {
@@ -413,11 +415,14 @@ const activeTicketsByMember = async ({ allowPartial = false } = {}) => {
     }
     logger.warn({ count: cached.length }, "Attention sweep: using PARTIAL ticket cache (forced run during sync)");
   }
+  // onlyMembers: keep just the due members' tickets so the big parsed array
+  // can be GC'd immediately — this process is API + all workers in 512MB.
   const byMember = new Map();
   for (const t of cached) {
     if (isSolvedStatus(t.stage?.name)) continue;
     const owner = resolveOwnerName(t.owned_by?.[0]?.display_name);
     if (!owner) continue;
+    if (onlyMembers && !onlyMembers.has(owner)) continue;
     if (!byMember.has(owner)) byMember.set(owner, []);
     byMember.get(owner).push(t);
   }
@@ -681,8 +686,13 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
     });
   }
 
-  const ticketsByMember = await activeTicketsByMember({ allowPartial: force });
-  const built = [];
+  // Decide who is actually due BEFORE touching the ticket cache. Parsing the
+  // full tickets:active blob is by far the most expensive thing this job does
+  // — this process is the API + every worker in 512MB, and recurring parses
+  // OOM-killed the Render instance on 2026-08-03. 90+% of sweeps have nobody
+  // in a build window and must not load the cache at all (escalations never
+  // need it — they verify per-ticket against live DevRev).
+  const due = [];
   for (const c of candidates) {
     if (member && c.name !== member) continue;
     const inWindow = nowMs >= c.queueAt.getTime() && nowMs <= c.queueAt.getTime() + BUILD_WINDOW_MS;
@@ -698,12 +708,22 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
       const exists = await AttentionQueue.findOne({ member: c.name, shift_date: c.shiftDate }, { _id: 1 }).lean();
       if (exists) continue;
     }
+    due.push(c);
+  }
 
-    try {
-      built.push(await buildQueueForMember(c, ticketsByMember, nowMs));
-    } catch (e) {
-      // Unique-index race between two sweeps is harmless; log everything else.
-      if (e.code !== 11000) logger.error({ err: e, member: c.name }, "Attention queue build failed");
+  const built = [];
+  if (due.length) {
+    const ticketsByMember = await activeTicketsByMember({
+      allowPartial: force,
+      onlyMembers: new Set(due.map((c) => c.name)),
+    });
+    for (const c of due) {
+      try {
+        built.push(await buildQueueForMember(c, ticketsByMember, nowMs));
+      } catch (e) {
+        // Unique-index race between two sweeps is harmless; log everything else.
+        if (e.code !== 11000) logger.error({ err: e, member: c.name }, "Attention queue build failed");
+      }
     }
   }
 
