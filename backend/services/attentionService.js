@@ -55,7 +55,7 @@ import {
 import { bucketForStage } from "./reconcileService.js";
 import { streamActiveFromDevRev, trimTicket } from "./syncService.js";
 import { findGSTMember } from "./slackService.js";
-import { fetchWorkItem } from "./devrevApi.js";
+import { fetchWorkItem, fetchTimelineEntries } from "./devrevApi.js";
 import { AttentionQueue, Remark } from "../models/index.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
@@ -161,48 +161,132 @@ const hasTagIn = (t, tagSet) =>
 const hasReminderTag = (t) => hasTagIn(t, REMINDER_TAGS);
 
 /**
- * Shared pending-bucket verdict for BOTH the build and verify paths.
- * Returns a human-readable reason when the ticket needs attention, else
- * null. Any org-side external reply (agent nudge or the automation catching
- * up) refreshes devu_ts and resets every clock here.
+ * True last outbound EXTERNAL touch from the ticket timeline: agent replies
+ * (dev_user) AND the follow-up automation (service_account / sys_user).
+ * Needed because tnt__last_devu_message_ts only tracks dev_user comments —
+ * the reminder bot posts as service_account and moves NOTHING (proven on
+ * TKT-319891 / TKT-320229 / TKT-319953, 2026-08-04). Costs 1+ API calls per
+ * ticket, so it runs only for reminder-tagged tickets that would otherwise
+ * flag (the ambiguous cases). Returns epoch ms or null.
  */
-const pendingBlockReason = (t, nowMs) => {
-  const la = lastAgentExternalMs(t) ?? ms(t.created_date);
-  const lc = lastCustomerMs(t);
+const ORG_AUTHOR_TYPES = new Set(["dev_user", "service_account", "sys_user"]);
+const lastOutboundExternalMs = async (ticketDon) => {
+  let cursor = null,
+    latest = null,
+    pages = 0;
+  do {
+    const { entries, nextCursor } = await fetchTimelineEntries(ticketDon, { cursor, limit: 100 });
+    for (const e of entries) {
+      if (e.type !== "timeline_comment") continue;
+      if ((e.visibility || "internal") === "internal") continue;
+      if (!ORG_AUTHOR_TYPES.has(e.created_by?.type)) continue;
+      const t = ms(e.created_date);
+      if (t && (!latest || t > latest)) latest = t;
+    }
+    cursor = nextCursor;
+  } while (cursor && ++pages < 10);
+  return latest;
+};
 
-  // Customer spoke last yet the ticket still sits in pending — the stage was
-  // never flipped and nobody replied. Reminder tags belong to a previous
-  // cycle here, so they are ignored.
+/**
+ * Automated follow-up fingerprint, straight off the work object (per Rohan
+ * 2026-08-04, TKT-320148): when the Email Integration Bot was the LAST
+ * modifier, modified_date IS the last follow-up time. Free — no API call.
+ * Works on raw and enriched-trimmed shapes.
+ */
+const EMAIL_BOT_RE = /email integration bot/i;
+const botFollowUpMs = (t) => {
+  const type = t.modified_by?.type || t.modified_by_type;
+  const name = t.modified_by?.display_name || t.modified_by_name;
+  if (type === "service_account" && EMAIL_BOT_RE.test(name || "")) return ms(t.modified_date);
+  return null;
+};
+
+/** A service account touched the ticket recently — bot activity may be
+ *  hiding under it (e.g. a workflow overwrote the email bot's fingerprint,
+ *  TKT-319953), so the timeline must decide. */
+const recentServiceAccountTouch = (t, nowMs) => {
+  const type = t.modified_by?.type || t.modified_by_type;
+  if (type !== "service_account" || !t.modified_date) return false;
+  return businessDaysSince(ms(t.modified_date), nowMs) <= ATTENTION_RULES.PENDING_REMINDER_QUIET_BD;
+};
+
+/**
+ * SYNC pre-verdict for the pending bucket, shared by build and verify.
+ * Returns null (fine) or { reason, timelineCheck }. The cheap exclusion is
+ * Rohan's rule verbatim: last automated follow-up (Email Integration Bot
+ * via modified_by) within 3 business days → not in the alert. timelineCheck
+ * marks the ambiguous flagged cases resolvePendingBlock() must confirm.
+ */
+const pendingPreVerdict = (t, nowMs) => {
+  const base = Math.max(lastAgentExternalMs(t) || 0, botFollowUpMs(t) || 0);
+  const la = base || ms(t.created_date);
+  const lc = lastCustomerMs(t);
+  const tagged = hasReminderTag(t);
+
+  // Customer spoke last (even counting the bot's follow-ups) and the ticket
+  // still sits in pending — we owe them a reply.
   if (lc && la && lc > la) {
     if (nowMs - lc < ATTENTION_RULES.PENDING_CUSTOMER_REPLY_GRACE_MS) return null;
-    return `Customer replied ${daysAgo(lc, nowMs)}d ago and is still waiting on us`;
+    return {
+      reason: `Customer replied ${daysAgo(lc, nowMs)}d ago and is still waiting on us`,
+      timelineCheck: tagged || recentServiceAccountTouch(t, nowMs),
+    };
   }
   if (!la) return null;
 
   const bd = businessDaysSince(la, nowMs);
-  const {
-    PENDING_FIRST_FOLLOWUP_BD,
-    PENDING_REMINDER_QUIET_BD,
-    PENDING_GRACE_BD,
-    PENDING_FINAL_CLOSE_BD,
-  } = ATTENTION_RULES;
+  const { PENDING_FIRST_FOLLOWUP_BD, PENDING_REMINDER_QUIET_BD, PENDING_GRACE_BD } = ATTENTION_RULES;
 
-  if (hasTagIn(t, FINAL_REMINDER_TAGS)) {
-    if (bd < PENDING_FINAL_CLOSE_BD) return null;
-    return `Final reminder sent ${daysAgo(la, nowMs)}d ago with no reply — close the ticket`;
-  }
-  // First/second reminder: a touch within the last 3 BUSINESS days means the
-  // automation is mid-cycle — never alert. Flag from the 4th business day.
-  if (hasTagIn(t, SECOND_REMINDER_TAGS)) {
+  if (tagged) {
+    // Reminder cycle running. Within the quiet window = automation on track.
     if (bd <= PENDING_REMINDER_QUIET_BD) return null;
-    return `Second reminder sent ${daysAgo(la, nowMs)}d ago — final follow-up is overdue, automation may be stuck`;
+    const tier = hasTagIn(t, FINAL_REMINDER_TAGS)
+      ? "Final reminder cycle"
+      : hasTagIn(t, SECOND_REMINDER_TAGS)
+        ? "Second reminder sent"
+        : "First reminder sent";
+    return { reason: `${tier} — no outbound touch in ${daysAgo(la, nowMs)}d, automation may be stuck`, timelineCheck: true };
   }
-  if (hasTagIn(t, FIRST_REMINDER_TAGS)) {
-    if (bd <= PENDING_REMINDER_QUIET_BD) return null;
-    return `First reminder sent ${daysAgo(la, nowMs)}d ago — second follow-up is overdue, automation may be stuck`;
-  }
+
   if (bd < PENDING_FIRST_FOLLOWUP_BD + PENDING_GRACE_BD) return null;
-  return `Pending ${daysAgo(la, nowMs)}d with no follow-up sent — automation never fired, nudge manually`;
+  return {
+    reason: `Pending ${daysAgo(la, nowMs)}d with no follow-up sent — automation never fired, nudge manually`,
+    timelineCheck: recentServiceAccountTouch(t, nowMs),
+  };
+};
+
+/**
+ * ASYNC final verdict: confirms a timelineCheck pre-verdict against the real
+ * timeline. Quiet window: an outbound touch (agent OR bot) within the last
+ * 3 business days = automation on track, no alert (Rohan 2026-08-04). On
+ * timeline API failure we keep the alert (fail-open) — verify clears later.
+ */
+const resolvePendingBlock = async (t, pre, nowMs) => {
+  if (!pre) return null;
+  if (!pre.timelineCheck) return pre.reason;
+
+  let touch = null;
+  try {
+    touch = await lastOutboundExternalMs(t.id);
+  } catch (e) {
+    logger.warn({ err: e.message, ticket: t.display_id }, "Attention: timeline check failed — keeping alert");
+    return pre.reason;
+  }
+
+  const eff = Math.max(touch || 0, botFollowUpMs(t) || 0, lastAgentExternalMs(t) || 0, ms(t.created_date) || 0);
+  if (!eff) return pre.reason;
+  const lc = lastCustomerMs(t);
+  if (lc && lc > eff) {
+    if (nowMs - lc < ATTENTION_RULES.PENDING_CUSTOMER_REPLY_GRACE_MS) return null;
+    return `Customer replied ${daysAgo(lc, nowMs)}d ago and is still waiting on us`;
+  }
+  const bd = businessDaysSince(eff, nowMs);
+  if (bd <= ATTENTION_RULES.PENDING_REMINDER_QUIET_BD) return null; // bot touched recently — on track
+  if (hasTagIn(t, FINAL_REMINDER_TAGS)) {
+    return `Final reminder went out ${daysAgo(eff, nowMs)}d ago with no reply — close the ticket`;
+  }
+  return `Last follow-up went out ${daysAgo(eff, nowMs)}d ago — next reminder is overdue, automation may be stuck`;
 };
 
 // ── Rule engine ──────────────────────────────────────────────────────────
@@ -239,11 +323,18 @@ export const evaluateTicket = (t, nowMs = Date.now()) => {
   if (bucket === "pending") {
     // Awaiting customer — flags only when the follow-up automation is off
     // track (never started / stalled / exhausted) or a customer reply was
-    // left hanging. Healthy auto-reminders refresh devu_ts on their own and
-    // keep the ticket out of the queue. Shared with the verify path.
-    const reason = pendingBlockReason(t, nowMs);
-    if (!reason) return null;
-    return { bucket, rule: "pending-silent", reason, needsIssCheck: false };
+    // left hanging. needsTimelineCheck verdicts are TENTATIVE — the caller
+    // must confirm via resolvePendingBlock(): the reminder bot posts as
+    // service_account and is invisible to the cheap ts fields.
+    const pre = pendingPreVerdict(t, nowMs);
+    if (!pre) return null;
+    return {
+      bucket,
+      rule: "pending-silent",
+      reason: pre.reason,
+      needsIssCheck: false,
+      needsTimelineCheck: !!pre.timelineCheck,
+    };
   }
 
   if (bucket === "onHold") {
@@ -271,6 +362,14 @@ export const buildItems = async (tickets, nowMs = Date.now()) => {
   for (const t of tickets) {
     const verdict = evaluateTicket(t, nowMs);
     if (!verdict) continue;
+
+    // Tentative pending verdicts must survive the timeline confirmation —
+    // a recent bot follow-up (invisible to the cheap fields) drops them here.
+    if (verdict.needsTimelineCheck) {
+      const confirmed = await resolvePendingBlock(t, { reason: verdict.reason, timelineCheck: true }, nowMs);
+      if (!confirmed) continue;
+      verdict.reason = confirmed;
+    }
 
     const item = {
       display_id: t.display_id,
@@ -433,7 +532,15 @@ const activeTicketsByMember = async ({ allowPartial = false, onlyMembers = null 
         if (!owner) continue;
         if (onlyMembers && !onlyMembers.has(owner)) continue;
         if (!byMember.has(owner)) byMember.set(owner, []);
-        byMember.get(owner).push(trimTicket(t));
+        // Enriched trim: modified_by identifies the Email Integration Bot's
+        // follow-up fingerprint (botFollowUpMs) — the plain cache trim
+        // doesn't carry it, and cache-fallback tickets simply skip that
+        // cheap exclusion and rely on the timeline check instead.
+        byMember.get(owner).push({
+          ...trimTicket(t),
+          modified_by_type: t.modified_by?.type || null,
+          modified_by_name: t.modified_by?.display_name || null,
+        });
       }
     });
     return byMember;
@@ -522,13 +629,14 @@ const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
 // happened. Per rule:
 //   open    — org-side external reply landed today, or the ticket left the
 //             open bucket (incl. solved).
-//   pending — the shared pendingBlockReason rule re-run on fresh data: any
-//             org-side external reply (agent nudge or automation catching
-//             up) resets the clock, or the ticket left the bucket.
+//   pending — pendingPreVerdict + resolvePendingBlock re-run on fresh data:
+//             any outbound external touch (agent reply OR bot follow-up,
+//             confirmed via the timeline) resets the clock, or the ticket
+//             left the bucket.
 //   onHold  — org-side external message within the 2-day window, or ticket
 //             left the bucket.
 
-const itemStillBlocked = (item, fresh, queueCreatedMs, nowMs) => {
+const itemStillBlocked = async (item, fresh, queueCreatedMs, nowMs) => {
   const stageName = fresh.stage?.name;
   if (isSolvedStatus(stageName)) return null;
   const bucket = bucketForStage(stageName);
@@ -541,7 +649,7 @@ const itemStillBlocked = (item, fresh, queueCreatedMs, nowMs) => {
     return "Still no external reply to the customer today";
   }
   if (item.bucket === "pending") {
-    return pendingBlockReason(fresh, nowMs);
+    return await resolvePendingBlock(fresh, pendingPreVerdict(fresh, nowMs), nowMs);
   }
   if (item.bucket === "onHold") {
     if (la && nowMs - la < ATTENTION_RULES.ONHOLD_AGENT_SILENCE_DAYS * DAY_MS) return null;
@@ -594,7 +702,7 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
       item.block_reason = "Could not verify against DevRev — try again";
       continue;
     }
-    const blocked = itemStillBlocked(item, fresh, queueCreatedMs, nowMs);
+    const blocked = await itemStillBlocked(item, fresh, queueCreatedMs, nowMs);
     if (blocked) {
       item.block_reason = blocked;
       if (remarkedIds.has(item.display_id)) {
