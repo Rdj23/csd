@@ -2,22 +2,33 @@
  * attentionService.js — Attention Queue: shift-aware backlog nudges.
  *
  * WHAT THIS DOES:
- * 30 minutes before each GST member's shift ends, build them a queue of
- * tickets that need action (aging open / silent pending / stuck on-hold),
- * post it to Slack + push it to their dashboard. Clearing the queue is
- * VERIFIED against live DevRev data — the only way to silence it is to
- * actually action the tickets. Uncleared queues escalate to the team lead
- * 45 minutes before the member's next shift, then hourly until clear.
+ * At a fixed per-shift time near the end of each GST member's shift
+ * (ATTENTION_TIMING), build them a queue of tickets that need action
+ * (aging open / silent pending / stuck on-hold), post it to Slack + push
+ * it to their dashboard. Clearing the queue is VERIFIED against live
+ * DevRev data — the only way to silence it is to actually action the
+ * tickets. Uncleared queues escalate to the team lead at a fixed time
+ * after the member's next shift starts, then hourly until clear.
  *
  * RULES ("response" = EXTERNAL comment; internal notes never count —
  * verified 2026-08-02 against DevRev timeline data, see
  * scripts/verifyResponseTimestamps.js):
  *   open    — created ≥4 days ago AND no org-side external reply today (IST).
- *             Skipped when a first/second-reminder tag is present (the DevRev
- *             reminder automation owns those tickets end-to-end).
- *   pending — no org-side EXTERNAL reply in ≥5 days (tnt__last_devu_message_ts).
- *             OUR silence, not the customer's — a recent nudge resets the
- *             clock. Pure timestamp check, no tag logic (tags are sticky).
+ *             Skipped when a reminder tag is present (the DevRev reminder
+ *             automation owns those tickets end-to-end).
+ *   pending — flags only when the DevRev follow-up automation is OFF TRACK.
+ *             The automation nudges pending tickets on business days only
+ *             (Mon–Fri IST): first follow-up 3 business days after we went
+ *             quiet, then 2 business days between reminders, final reminder
+ *             last. Its posts are EXTERNAL messages, so a healthy cycle
+ *             refreshes tnt__last_devu_message_ts every ≤3 business days on
+ *             its own and never flags here. We flag when the next expected
+ *             touch is a full business day overdue (never started/stalled),
+ *             when the FINAL reminder ran out with no reply (needs a manual
+ *             close), or when the customer replied >1 day ago and the ticket
+ *             still sits in pending. Reminder tags only pick the threshold
+ *             and wording — they never hide a ticket (tags are sticky;
+ *             timestamps stay the truth, team decision 2026-08-02).
  *   onHold  — no org-side external message on the main ticket in the last
  *             2 days. Same "our side went quiet" principle: even with
  *             engineering actively working the linked ISS, the customer
@@ -47,30 +58,53 @@ import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
 
 // ── Tunables ─────────────────────────────────────────────────────────────
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export const ATTENTION_RULES = {
   OPEN_MIN_AGE_DAYS: 4,
-  PENDING_CUSTOMER_SILENCE_DAYS: 5,
   ONHOLD_AGENT_SILENCE_DAYS: 2,
+  // Pending follow-up cadence in BUSINESS days (the DevRev automation only
+  // fires Mon–Fri IST — a follow-up "due" on a weekend legitimately slips
+  // to Monday, and business-day counting keeps that from flagging).
+  PENDING_FIRST_FOLLOWUP_BD: 3, // pending start → first follow-up due
+  PENDING_NEXT_FOLLOWUP_BD: 2,  // gap between subsequent reminders
+  PENDING_GRACE_BD: 1,          // flag once overdue by a full business day
+  PENDING_FINAL_CLOSE_BD: 2,    // after FINAL reminder → needs a manual close
+  PENDING_CUSTOMER_REPLY_GRACE_MS: DAY_MS, // customer spoke last, still pending
 };
 
-const QUEUE_WINDOW_MS = 30 * 60 * 1000;      // build window before shift end
-const ESCALATE_LEAD_MS = 45 * 60 * 1000;     // before next shift start
+// Per-shift schedule (IST decimal hours, agreed with Rohan 2026-08-03):
+// when the shift-end queue posts, and when the first TL escalation fires.
+// Escalation is SAME-day for the overnight SHIFT 4 (queue posts 05:30, the
+// member's next shift starts the same evening) and next-day for the rest.
+// Deliberately explicit per shift — the offsets are not uniform, don't try
+// to derive them from SHIFT_HOURS.
+const ATTENTION_TIMING = {
+  "SHIFT 1": { queueAt: 16.0,  escalateAt: 8.75,  escalateNextDay: true },  // 4:00 PM → 8:45 AM
+  "SHIFT 2": { queueAt: 19.0,  escalateAt: 11.25, escalateNextDay: true },  // 7:00 PM → 11:15 AM
+  "SHIFT 3": { queueAt: 21.25, escalateAt: 14.5,  escalateNextDay: true },  // 9:15 PM → 2:30 PM
+  "SHIFT 4": { queueAt: 5.5,   escalateAt: 23.25, escalateNextDay: false }, // 5:30 AM → 11:15 PM same day
+};
+
+const BUILD_WINDOW_MS = 30 * 60 * 1000;      // late-tick tolerance after queueAt
 const ESCALATE_INTERVAL_MS = 60 * 60 * 1000; // repeat escalation hourly
 
-// Tags the DevRev auto-reminder workflow sets ("First Reminder Sent" /
-// "Second Reminder Sent" in DevRev — compared lowercased). These exempt
-// OPEN tickets only (original spec: the automation nudges + auto-closes
-// them). NOTE these tags are sticky — they survive the conversation
-// resuming — which is why pending/on-hold rules use timestamps only and
-// never consult tags (team decision 2026-08-02).
-const REMINDER_TAGS = new Set([
-  "first-reminder-sent",
-  "second-reminder-sent",
-  "first reminder sent",
-  "second reminder sent",
+// Tags the DevRev auto-reminder workflow sets (compared lowercased). The
+// final tag's exact DevRev name is unconfirmed — match plausible variants.
+// OPEN bucket: any reminder tag exempts the ticket (automation owns it,
+// original spec). PENDING bucket: tags NEVER gate — they only choose the
+// overdue threshold + reason wording, because tags are sticky (they survive
+// the conversation resuming; team decision 2026-08-02). Worst case a stale
+// tag flags one business day early — it can never hide a silent ticket.
+const FIRST_REMINDER_TAGS = new Set(["first-reminder-sent", "first reminder sent"]);
+const SECOND_REMINDER_TAGS = new Set(["second-reminder-sent", "second reminder sent"]);
+const FINAL_REMINDER_TAGS = new Set([
+  "third-reminder-sent", "third reminder sent", "3rd reminder sent",
+  "final-reminder-sent", "final reminder sent",
 ]);
-
-const DAY_MS = 24 * 60 * 60 * 1000;
+const REMINDER_TAGS = new Set([
+  ...FIRST_REMINDER_TAGS, ...SECOND_REMINDER_TAGS, ...FINAL_REMINDER_TAGS,
+]);
 const TICKET_URL = (id) => `https://app.devrev.ai/clevertapsupport/works/${id}`;
 
 // ── IST time helpers ─────────────────────────────────────────────────────
@@ -90,6 +124,28 @@ const istTodayStartMs = () => new Date(`${istYmd()}T00:00:00+05:30`).getTime();
 const ms = (v) => (v ? new Date(v).getTime() : null);
 const daysAgo = (tsMs, nowMs) => Math.floor((nowMs - tsMs) / DAY_MS);
 
+const istWeekday = (tsMs) =>
+  new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short" }).format(new Date(tsMs));
+
+/**
+ * Whole business days (Mon–Fri, IST calendar) elapsed from `fromMs` to
+ * `nowMs`. Fri→Mon = 1: the weekend doesn't count, which is what keeps a
+ * follow-up that legitimately slips over a weekend from flagging.
+ */
+const businessDaysSince = (fromMs, nowMs) => {
+  let count = 0;
+  // Noon-IST anchor so the day-stepping loop can't straddle a midnight edge.
+  let d = new Date(`${istYmd(new Date(fromMs))}T12:00:00+05:30`).getTime();
+  const endYmd = istYmd(new Date(nowMs));
+  while (istYmd(new Date(d)) < endYmd) {
+    d += DAY_MS;
+    const wd = istWeekday(d);
+    if (wd !== "Sat" && wd !== "Sun") count++;
+    if (count > 30) break; // ancient ticket — precision past a month is pointless
+  }
+  return count;
+};
+
 // ── Ticket field accessors ───────────────────────────────────────────────
 const lastAgentExternalMs = (t) => ms(t.custom_fields?.tnt__last_devu_message_ts);
 const lastCustomerMs = (t) => ms(t.custom_fields?.tnt__last_revu_message_ts);
@@ -98,6 +154,49 @@ const hasTagIn = (t, tagSet) =>
     tagSet.has((tag.tag?.name || "").toLowerCase().trim()),
   );
 const hasReminderTag = (t) => hasTagIn(t, REMINDER_TAGS);
+
+/**
+ * Shared pending-bucket verdict for BOTH the build and verify paths.
+ * Returns a human-readable reason when the ticket needs attention, else
+ * null. Any org-side external reply (agent nudge or the automation catching
+ * up) refreshes devu_ts and resets every clock here.
+ */
+const pendingBlockReason = (t, nowMs) => {
+  const la = lastAgentExternalMs(t) ?? ms(t.created_date);
+  const lc = lastCustomerMs(t);
+
+  // Customer spoke last yet the ticket still sits in pending — the stage was
+  // never flipped and nobody replied. Reminder tags belong to a previous
+  // cycle here, so they are ignored.
+  if (lc && la && lc > la) {
+    if (nowMs - lc < ATTENTION_RULES.PENDING_CUSTOMER_REPLY_GRACE_MS) return null;
+    return `Customer replied ${daysAgo(lc, nowMs)}d ago and is still waiting on us`;
+  }
+  if (!la) return null;
+
+  const bd = businessDaysSince(la, nowMs);
+  const {
+    PENDING_FIRST_FOLLOWUP_BD,
+    PENDING_NEXT_FOLLOWUP_BD,
+    PENDING_GRACE_BD,
+    PENDING_FINAL_CLOSE_BD,
+  } = ATTENTION_RULES;
+
+  if (hasTagIn(t, FINAL_REMINDER_TAGS)) {
+    if (bd < PENDING_FINAL_CLOSE_BD) return null;
+    return `Final reminder sent ${daysAgo(la, nowMs)}d ago with no reply — close the ticket`;
+  }
+  if (hasTagIn(t, SECOND_REMINDER_TAGS)) {
+    if (bd < PENDING_NEXT_FOLLOWUP_BD + PENDING_GRACE_BD) return null;
+    return `Second reminder sent ${daysAgo(la, nowMs)}d ago — final follow-up is overdue, automation may be stuck`;
+  }
+  if (hasTagIn(t, FIRST_REMINDER_TAGS)) {
+    if (bd < PENDING_NEXT_FOLLOWUP_BD + PENDING_GRACE_BD) return null;
+    return `First reminder sent ${daysAgo(la, nowMs)}d ago — second follow-up is overdue, automation may be stuck`;
+  }
+  if (bd < PENDING_FIRST_FOLLOWUP_BD + PENDING_GRACE_BD) return null;
+  return `Pending ${daysAgo(la, nowMs)}d with no follow-up sent — automation never fired, nudge manually`;
+};
 
 // ── Rule engine ──────────────────────────────────────────────────────────
 // Pure per-ticket evaluation. Used by BOTH the queue builder and the
@@ -131,19 +230,13 @@ export const evaluateTicket = (t, nowMs = Date.now()) => {
   }
 
   if (bucket === "pending") {
-    // Awaiting customer — triggers only when WE went quiet: no org-side
-    // EXTERNAL reply in 5 days (team decision 2026-08-02). A recent nudge
-    // (agent or workflow bot) resets the clock, so tickets being actively
-    // chased never flag. Pure timestamp check, no tag logic — tags are
-    // sticky and would hide tickets that go silent again.
-    const la = lastAgentExternalMs(t) ?? createdMs;
-    if (!la || nowMs - la < ATTENTION_RULES.PENDING_CUSTOMER_SILENCE_DAYS * DAY_MS) return null;
-    return {
-      bucket,
-      rule: "pending-silent",
-      reason: `No reply sent to the customer in ${daysAgo(la, nowMs)}d — nudge or close`,
-      needsIssCheck: false,
-    };
+    // Awaiting customer — flags only when the follow-up automation is off
+    // track (never started / stalled / exhausted) or a customer reply was
+    // left hanging. Healthy auto-reminders refresh devu_ts on their own and
+    // keep the ticket out of the queue. Shared with the verify path.
+    const reason = pendingBlockReason(t, nowMs);
+    if (!reason) return null;
+    return { bucket, rule: "pending-silent", reason, needsIssCheck: false };
   }
 
   if (bucket === "onHold") {
@@ -332,17 +425,18 @@ const activeTicketsByMember = async ({ allowPartial = false } = {}) => {
 };
 
 /**
- * Next shift start — derived locally, NOT from the roster API (which serves
- * today only). Assumption: tomorrow at the same shift's start time. If the
- * member is actually off tomorrow, the escalation loop still won't page —
- * it re-checks today's roster at fire time and skips members who aren't on
- * a working shift that day.
+ * First-escalation instant for a queue built today, from ATTENTION_TIMING —
+ * derived locally, NOT from the roster API (which serves today only).
+ * Same IST day for the overnight SHIFT 4 (queue posts 05:30 and the
+ * member's next shift starts the same evening — this fixes the old
+ * "tomorrow at shift start" bug that made SHIFT 4 escalations a day late);
+ * next day for the day shifts.
  */
-const nextShiftStart = (shift, fromMs) => {
-  const hours = SHIFT_HOURS[shift];
-  if (!hours || shift === "ON CALL") return null;
-  const tomorrow = new Date(fromMs + DAY_MS);
-  return istInstant(istYmd(tomorrow), hours.start);
+const escalationInstant = (shift, fromMs) => {
+  const t = ATTENTION_TIMING[shift];
+  if (!t) return null; // "MANUAL" test queues get no escalation clock
+  const day = t.escalateNextDay ? new Date(fromMs + DAY_MS) : new Date(fromMs);
+  return istInstant(istYmd(day), t.escalateAt);
 };
 
 const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
@@ -357,7 +451,7 @@ const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
     shift: candidate.shift,
     shift_date: candidate.shiftDate,
     shift_end_at: candidate.endAt,
-    next_shift_start_at: items.length ? nextShiftStart(candidate.shift, nowMs) : null,
+    next_shift_start_at: items.length ? escalationInstant(candidate.shift, nowMs) : null,
     status,
     items,
   });
@@ -386,8 +480,9 @@ const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
 // happened. Per rule:
 //   open    — org-side external reply landed today, or the ticket left the
 //             open bucket (incl. solved).
-//   pending — org-side external nudge AFTER the queue was created, customer
-//             replied within the window, or ticket left the bucket.
+//   pending — the shared pendingBlockReason rule re-run on fresh data: any
+//             org-side external reply (agent nudge or automation catching
+//             up) resets the clock, or the ticket left the bucket.
 //   onHold  — org-side external message within the 2-day window, or ticket
 //             left the bucket.
 
@@ -404,10 +499,7 @@ const itemStillBlocked = (item, fresh, queueCreatedMs, nowMs) => {
     return "Still no external reply to the customer today";
   }
   if (item.bucket === "pending") {
-    // Any org-side external reply within the window clears it — a nudge sent
-    // after the queue was built makes la fresh, so this covers that case.
-    if (la && nowMs - la < ATTENTION_RULES.PENDING_CUSTOMER_SILENCE_DAYS * DAY_MS) return null;
-    return "Still no external reply to the customer in the last 5 days";
+    return pendingBlockReason(fresh, nowMs);
   }
   if (item.bucket === "onHold") {
     if (la && nowMs - la < ATTENTION_RULES.ONHOLD_AGENT_SILENCE_DAYS * DAY_MS) return null;
@@ -489,9 +581,11 @@ const escalationMessage = (queue, tlMention, remaining) => {
 };
 
 const runEscalations = async (rosterRows, nowMs) => {
+  // next_shift_start_at stores the exact first-escalation instant (per-shift
+  // ATTENTION_TIMING) — due the moment it passes, then hourly.
   const due = await AttentionQueue.find({
     status: "pending",
-    next_shift_start_at: { $ne: null, $lte: new Date(nowMs + ESCALATE_LEAD_MS) },
+    next_shift_start_at: { $ne: null, $lte: new Date(nowMs) },
   });
 
   for (const q of due) {
@@ -533,12 +627,13 @@ const runEscalations = async (rosterRows, nowMs) => {
 // ── The sweep (repeatable job entry point) ───────────────────────────────
 
 /**
- * Runs every 15 minutes. Builds queues for members whose shift ends within
- * the next 30 minutes (once per member per shift-date — the unique index
- * makes duplicate builds impossible), then processes escalations.
+ * Runs every 15 minutes. Builds queues for members whose per-shift queue
+ * time (ATTENTION_TIMING) has arrived — with a 30-min late-tick tolerance,
+ * and once per member per shift-date (the unique index makes duplicate
+ * builds impossible) — then processes escalations.
  *
  * @param {Object} opts
- * @param {boolean} opts.force  Build regardless of the 30-min window (testing).
+ * @param {boolean} opts.force  Build regardless of the queue window (testing).
  * @param {string}  opts.member Restrict to one canonical member name (testing).
  */
 export const runAttentionSweep = async ({ force = false, member = null } = {}) => {
@@ -546,18 +641,24 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
   const todayYmd = istYmd();
   const roster = await fetchRosterShifts();
 
-  // Candidate shifts ending today. The roster API serves TODAY only, so the
-  // overnight SHIFT 4 is handled from today's row: a member rostered SHIFT 4
-  // today gets their queue in the 07:00–07:30 IST window (the morning end of
-  // the overnight shift). Known boundary quirk, accepted for v1: on the
-  // FIRST day of a shift-4 block the morning window fires before their first
-  // night; the morning after the LAST day is missed.
+  // Candidate shifts for today, with per-shift queue times from
+  // ATTENTION_TIMING. The roster API serves TODAY only, so the overnight
+  // SHIFT 4 is handled from today's row: a member rostered SHIFT 4 today
+  // gets their queue at 05:30 IST (near the morning end of the overnight
+  // shift). Known boundary quirk, accepted for v1: on the FIRST day of a
+  // shift-4 block the morning queue fires before their first night; the
+  // morning after the LAST day is missed.
   const candidates = [];
   for (const r of roster) {
+    const timing = ATTENTION_TIMING[r.shift];
     const hours = SHIFT_HOURS[r.shift];
-    if (!hours || r.shift === "ON CALL") continue;
-    // For overnight SHIFT 4, hours.end (7.5) already lands on this morning.
-    candidates.push({ ...r, shiftDate: todayYmd, endAt: istInstant(todayYmd, hours.end) });
+    if (!timing || !hours) continue; // ON CALL / off statuses / unknown shifts
+    candidates.push({
+      ...r,
+      shiftDate: todayYmd,
+      queueAt: istInstant(todayYmd, timing.queueAt),
+      endAt: istInstant(todayYmd, hours.end),
+    });
   }
 
   // Force-testing for a member who isn't on a working shift today (demo on a
@@ -575,7 +676,8 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
       shift: row?.shift && SHIFT_HOURS[row.shift] ? row.shift : "MANUAL",
       slackMention: row?.slackMention || findGSTMember(member),
       shiftDate: todayYmd,
-      endAt: new Date(nowMs + QUEUE_WINDOW_MS),
+      queueAt: new Date(nowMs),
+      endAt: new Date(nowMs + BUILD_WINDOW_MS),
     });
   }
 
@@ -583,7 +685,7 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
   const built = [];
   for (const c of candidates) {
     if (member && c.name !== member) continue;
-    const inWindow = nowMs >= c.endAt.getTime() - QUEUE_WINDOW_MS && nowMs <= c.endAt.getTime();
+    const inWindow = nowMs >= c.queueAt.getTime() && nowMs <= c.queueAt.getTime() + BUILD_WINDOW_MS;
     if (!force && !inWindow) continue;
 
     // force + member = REPLACE any existing queue for today, so repeated
@@ -617,4 +719,20 @@ export const getQueueForEmail = async (email) => {
   if (!member) return { member: null, queue: null };
   const queue = await AttentionQueue.findOne({ member }).sort({ created_at: -1 }).lean();
   return { member, queue };
+};
+
+/**
+ * Latest queue per member (any status), in one round-trip — powers the team
+ * panel. Returns entries in the same order as `members`; members with no
+ * queue yet come back with queue: null so the panel can still show them.
+ */
+export const getQueuesForMembers = async (members) => {
+  if (!members?.length) return [];
+  const docs = await AttentionQueue.aggregate([
+    { $match: { member: { $in: members } } },
+    { $sort: { created_at: -1 } },
+    { $group: { _id: "$member", doc: { $first: "$$ROOT" } } },
+  ]);
+  const byMember = new Map(docs.map((d) => [d._id, d.doc]));
+  return members.map((m) => ({ member: m, queue: byMember.get(m) || null }));
 };

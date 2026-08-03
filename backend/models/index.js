@@ -625,7 +625,7 @@ const AttentionQueueSchema = new mongoose.Schema(
     shift: String,                               // "SHIFT 2"
     shift_date: { type: String, index: true },   // IST "YYYY-MM-DD" the shift belongs to
     shift_end_at: Date,
-    next_shift_start_at: Date,                   // null = off next day → no escalation clock
+    next_shift_start_at: Date,                   // first-escalation instant (per-shift ATTENTION_TIMING); null = empty queue / manual test build
     status: { type: String, enum: ["pending", "cleared", "empty"], default: "pending", index: true },
     items: [AttentionItemSchema],
     created_at: { type: Date, default: Date.now },
