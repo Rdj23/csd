@@ -88,8 +88,13 @@ const initials = (name = "?") => {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
 };
 
+// Actionable = still alerting. "partial" (remark-tracked) items are open but
+// deliberately excluded from every alert count — managers see them, nobody
+// gets paged over them.
 const pendingCountOf = (queue) =>
-  queue?.status === "pending" ? (queue.items || []).filter((i) => i.status !== "cleared").length : 0;
+  queue?.status === "pending" ? (queue.items || []).filter((i) => i.status === "pending").length : 0;
+const trackedCountOf = (queue) =>
+  queue?.status === "pending" ? (queue.items || []).filter((i) => i.status === "partial").length : 0;
 
 const AgeChip = ({ label, days }) => {
   if (days === null) return null;
@@ -122,13 +127,16 @@ const Avatar = ({ name, size = "w-9 h-9", ring = false }) => (
 const MemberRow = ({ entry, selected, onSelect, showTeam }) => {
   const { member, isSelf, team, queue } = entry;
   const count = pendingCountOf(queue);
+  const tracked = trackedCountOf(queue);
   const status = !queue
     ? { text: "No queue yet", tone: "text-slate-400 dark:text-slate-600" }
     : queue.status === "empty"
       ? { text: "All clear", tone: "text-emerald-500 dark:text-emerald-400" }
       : queue.status === "cleared"
         ? { text: "Cleared", tone: "text-emerald-500 dark:text-emerald-400" }
-        : { text: `${count} to clear`, tone: "text-amber-600 dark:text-amber-400" };
+        : count > 0
+          ? { text: `${count} to clear${tracked ? ` · ${tracked} tracked` : ""}`, tone: "text-amber-600 dark:text-amber-400" }
+          : { text: `${tracked} tracked`, tone: "text-violet-500 dark:text-violet-400" };
 
   return (
     <button
@@ -180,6 +188,10 @@ const MemberRow = ({ entry, selected, onSelect, showTeam }) => {
         {count > 0 ? (
           <span className="flex h-5 min-w-5 px-1 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10.5px] font-bold tabular-nums">
             {count}
+          </span>
+        ) : tracked > 0 ? (
+          <span className="flex h-5 min-w-5 px-1 items-center justify-center rounded-full bg-violet-500/15 text-violet-500 dark:text-violet-400 text-[10.5px] font-bold tabular-nums">
+            {tracked}
           </span>
         ) : queue ? (
           <CheckCircle2 className="w-4 h-4 text-emerald-500/80" />
@@ -268,15 +280,37 @@ const AttentionBell = () => {
     [members],
   );
 
+  // Supervisor view: rail grouped team-wise (per Rohan 2026-08-03), heaviest
+  // team first, members load-sorted within their team. Teamless → "Others".
+  const teamGroups = useMemo(() => {
+    if (viewer?.scope !== "all") return [];
+    const groups = new Map();
+    for (const m of sortedMembers) {
+      const key = m.team ? `${m.team}'s team` : "Others";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(m);
+    }
+    const load = (arr) => arr.reduce((s, m) => s + pendingCountOf(m.queue), 0);
+    return [...groups.entries()].sort((a, b) => load(b[1]) - load(a[1]));
+  }, [sortedMembers, viewer?.scope]);
+
   const selectedEntry = members.find((m) => m.member === selected) || null;
   const queue = selectedEntry?.queue || null;
   const isSelf = !!selectedEntry?.isSelf;
 
   const items = queue?.items || [];
+  // Open items, alerting first, remark-tracked ("partial") after — within
+  // each group the server's longest-silence-first order is preserved.
   const pendingItems = useMemo(
-    () => (queue?.status === "pending" ? items.filter((i) => i.status !== "cleared") : []),
+    () =>
+      queue?.status === "pending"
+        ? items
+            .filter((i) => i.status !== "cleared")
+            .sort((a, b) => (a.status === "partial" ? 1 : 0) - (b.status === "partial" ? 1 : 0))
+        : [],
     [queue, items],
   );
+  const actionableCount = useMemo(() => pendingItems.filter((i) => i.status === "pending").length, [pendingItems]);
   const clearedItems = useMemo(() => items.filter((i) => i.status === "cleared"), [items]);
   const bucketCounts = useMemo(() => {
     const c = { open: 0, pending: 0, onHold: 0 };
@@ -478,13 +512,18 @@ const AttentionBell = () => {
                   <div className="space-y-2.5">
                     {visibleItems.map((item) => {
                       const meta = BUCKET_META[item.bucket] || BUCKET_META.open;
+                      const isTracked = item.status === "partial";
                       return (
                         <div
                           key={item.display_id}
-                          className="group relative rounded-xl border border-slate-200 dark:border-slate-700/70 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-white dark:hover:bg-slate-800/70 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md hover:shadow-black/5 transition-all overflow-hidden"
+                          className={`group relative rounded-xl border bg-slate-50/70 dark:bg-slate-800/40 hover:bg-white dark:hover:bg-slate-800/70 hover:shadow-md hover:shadow-black/5 transition-all overflow-hidden ${
+                            isTracked
+                              ? "border-violet-300/50 dark:border-violet-700/40 opacity-80"
+                              : "border-slate-200 dark:border-slate-700/70 hover:border-slate-300 dark:hover:border-slate-600"
+                          }`}
                         >
-                          {/* bucket accent bar */}
-                          <div className={`absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b ${meta.bar}`} />
+                          {/* bucket accent bar — violet when remark-tracked */}
+                          <div className={`absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b ${isTracked ? "from-violet-400 to-purple-500" : meta.bar}`} />
 
                           <div className="pl-5 pr-4 py-3.5">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -497,6 +536,14 @@ const AttentionBell = () => {
                                 {item.display_id}
                                 <ExternalLink className="w-3 h-3 opacity-50" />
                               </a>
+                              {isTracked && (
+                                <span
+                                  className="text-[9px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-600 dark:text-violet-300"
+                                  title="Internal remark added after the queue was built — being tracked, no alerts. Clears once the ticket is actioned in DevRev."
+                                >
+                                  Tracked
+                                </span>
+                              )}
                               {item.severity && (
                                 <span className="text-[9.5px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 text-slate-500 dark:text-slate-300">
                                   {item.severity}
@@ -611,8 +658,8 @@ const AttentionBell = () => {
                       <>
                         <ShieldCheck className="w-4 h-4" />
                         {isSelf
-                          ? `Verify & Clear (${pendingItems.length} left)`
-                          : `Verify ${selectedEntry?.member}'s queue (${pendingItems.length} left)`}
+                          ? `Verify & Clear (${actionableCount} to action${pendingItems.length - actionableCount ? `, ${pendingItems.length - actionableCount} tracked` : ""})`
+                          : `Verify ${selectedEntry?.member}'s queue (${actionableCount} to action)`}
                       </>
                     )}
                   </button>
@@ -648,15 +695,34 @@ const AttentionBell = () => {
                           </div>
                         </div>
                       ))
-                    : sortedMembers.map((entry) => (
-                        <MemberRow
-                          key={entry.member}
-                          entry={entry}
-                          selected={entry.member === selected}
-                          onSelect={selectMember}
-                          showTeam={viewer?.scope === "all"}
-                        />
-                      ))}
+                    : viewer?.scope === "all"
+                      ? teamGroups.map(([teamName, entries]) => (
+                          <div key={teamName}>
+                            <div className="hidden md:block px-2.5 pt-3 pb-1">
+                              <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-600">
+                                {teamName}
+                              </span>
+                            </div>
+                            {entries.map((entry) => (
+                              <MemberRow
+                                key={entry.member}
+                                entry={entry}
+                                selected={entry.member === selected}
+                                onSelect={selectMember}
+                                showTeam={false}
+                              />
+                            ))}
+                          </div>
+                        ))
+                      : sortedMembers.map((entry) => (
+                          <MemberRow
+                            key={entry.member}
+                            entry={entry}
+                            selected={entry.member === selected}
+                            onSelect={selectMember}
+                            showTeam={false}
+                          />
+                        ))}
                 </div>
               </div>
             )}

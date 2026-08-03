@@ -27,7 +27,7 @@ import logger from "../config/logger.js";
 
 const SUPERVISOR_EMAILS = (
   process.env.ATTENTION_SUPERVISOR_EMAILS ||
-  "anmol.sawhney@clevertap.com,mashnu@clevertap.com"
+  "anmol.sawhney@clevertap.com,mashnu@clevertap.com,rohan.jadhav@clevertap.com"
 )
   .split(",")
   .map((e) => e.trim().toLowerCase())

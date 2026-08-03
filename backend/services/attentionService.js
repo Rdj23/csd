@@ -34,7 +34,8 @@
  *             engineering actively working the linked ISS, the customer
  *             must hear from us every 2 days.
  *
- * TIMESTAMP SOURCES (from the Redis active cache, no Mongo polling):
+ * TIMESTAMP SOURCES (streamed per-page from DevRev at build time, filtered
+ * to the due members only — the full active cache is never parsed here):
  *   tnt__last_devu_message_ts — last org-side EXTERNAL message (agent reply
  *     or workflow bot post; internal notes do NOT move it).
  *   tnt__last_revu_message_ts — last customer message.
@@ -51,9 +52,10 @@ import {
   isSolvedStatus,
 } from "../config/constants.js";
 import { bucketForStage } from "./reconcileService.js";
+import { streamActiveFromDevRev, trimTicket } from "./syncService.js";
 import { findGSTMember } from "./slackService.js";
 import { fetchWorkItem } from "./devrevApi.js";
-import { AttentionQueue } from "../models/index.js";
+import { AttentionQueue, Remark } from "../models/index.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
 
@@ -282,6 +284,13 @@ export const buildItems = async (tickets, nowMs = Date.now()) => {
 
     items.push(item);
   }
+  // Longest silence first: the ticket whose customer has waited longest for
+  // ANY outbound word from us sits on top (per Rohan 2026-08-03).
+  items.sort((a, b) => {
+    const ka = new Date(a.last_agent_external_ts || a.created_date || 0).getTime();
+    const kb = new Date(b.last_agent_external_ts || b.created_date || 0).getTime();
+    return ka - kb;
+  });
   return items;
 };
 
@@ -391,32 +400,55 @@ export const queueMessage = (queue, mention) => {
 // ── Queue building ───────────────────────────────────────────────────────
 
 /**
- * Members' active tickets from the live Redis cache.
+ * Members' active tickets — live from DevRev (streamed, due-members only),
+ * Redis cache only as an outage fallback.
  *
- * GUARD (bug 2026-08-02, twice): right after a deploy/restart the stable
- * `tickets:active` key can be empty while the startup sync rebuilds it —
- * a sweep in that window would build EMPTY queues ("Superstar!" for someone
- * with 20+ aging tickets) and wedge the member's day. So:
- *   - stable cache empty + cron run  → throw (BullMQ retries in 30s, and
- *     the next 15-min sweep covers the window anyway)
- *   - stable cache empty + force run → fall back to the partial sync keys
- *     so demos still work, logged as partial
- *   - everything empty              → always throw, never build
+ * GUARD (bug 2026-08-02, twice): a sweep with no ticket source would build
+ * EMPTY queues ("Superstar!" for someone with 20+ aging tickets) and wedge
+ * the member's day. So when BOTH DevRev and the cache are unavailable:
+ *   - cron run  → throw (BullMQ retries, and the 30-min build window means
+ *     a later 15-min sweep still covers it)
+ *   - force run → fall back to the partial sync keys so demos still work
+ *   - everything empty → always throw, never build
  */
 const activeTicketsByMember = async ({ allowPartial = false, onlyMembers = null } = {}) => {
+  // PRIMARY PATH: live page-by-page stream from DevRev, keeping ONLY the due
+  // members' tickets (trimmed to the cache shape). The sweep no longer
+  // touches the 20-60MB tickets:active blob at all — we already know who is
+  // due from the roster, so we never need every ticket at once. This also
+  // decouples queue builds from the hourly sync: queue times (16:00, 19:00)
+  // sit exactly on the hour, and a full-blob parse stacked on a running sync
+  // in the same 512MB process is what OOM-killed shift 1/2 builds.
+  try {
+    const byMember = new Map();
+    await streamActiveFromDevRev(async (works) => {
+      for (const t of works) {
+        if (isSolvedStatus(t.stage?.name)) continue;
+        const owner = resolveOwnerName(t.owned_by?.[0]?.display_name);
+        if (!owner) continue;
+        if (onlyMembers && !onlyMembers.has(owner)) continue;
+        if (!byMember.has(owner)) byMember.set(owner, []);
+        byMember.get(owner).push(trimTicket(t));
+      }
+    });
+    return byMember;
+  } catch (e) {
+    logger.warn({ err: e.message }, "Attention sweep: live DevRev stream failed — falling back to Redis cache");
+  }
+
+  // FALLBACK (DevRev unreachable): the old cache path. Parses the full blob,
+  // so it only runs on DevRev outages — rare by construction.
   let cached = (await redisGet("tickets:active")) || [];
   if (!cached.length) {
     if (!allowPartial) {
-      throw new Error("Attention sweep: tickets:active cache empty (sync in progress?) — retry later");
+      throw new Error("Attention sweep: DevRev unreachable and tickets:active cache empty — retry later");
     }
     cached = (await redisGet("tickets:syncing")) || (await redisGet("tickets:active:initial")) || [];
     if (!cached.length) {
-      throw new Error("Attention sweep: no ticket cache available at all — retry later");
+      throw new Error("Attention sweep: no ticket source available at all — retry later");
     }
     logger.warn({ count: cached.length }, "Attention sweep: using PARTIAL ticket cache (forced run during sync)");
   }
-  // onlyMembers: keep just the due members' tickets so the big parsed array
-  // can be GC'd immediately — this process is API + all workers in 512MB.
   const byMember = new Map();
   for (const t of cached) {
     if (isSolvedStatus(t.stage?.name)) continue;
@@ -526,6 +558,24 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
   const nowMs = Date.now();
   const queueCreatedMs = queue.created_at.getTime();
 
+  // Partial-verify: an internal dashboard remark added AFTER the queue was
+  // built means the member is actively tracking the ticket. Such items stop
+  // alerting (Slack / TL escalation) but stay visible for managers — only a
+  // real DevRev action fully clears them (per Rohan 2026-08-03).
+  const openIds = queue.items.filter((i) => i.status !== "cleared").map((i) => i.display_id);
+  let remarkedIds = new Set();
+  if (openIds.length) {
+    try {
+      const remarks = await Remark.find(
+        { ticketId: { $in: openIds }, timestamp: { $gt: queue.created_at } },
+        { ticketId: 1 },
+      ).lean();
+      remarkedIds = new Set(remarks.map((r) => r.ticketId));
+    } catch (e) {
+      logger.warn({ err: e.message }, "Attention verify: remark lookup failed — treating none as tracked");
+    }
+  }
+
   for (const item of queue.items) {
     if (item.status === "cleared") continue;
     let fresh = null;
@@ -542,6 +592,12 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
     const blocked = itemStillBlocked(item, fresh, queueCreatedMs, nowMs);
     if (blocked) {
       item.block_reason = blocked;
+      if (remarkedIds.has(item.display_id)) {
+        if (item.status !== "partial") item.partial_at = new Date();
+        item.status = "partial";
+      } else {
+        item.status = "pending"; // remark gone/expired → back to alerting
+      }
     } else {
       item.status = "cleared";
       item.cleared_at = new Date();
@@ -575,12 +631,14 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
 const escalationMessage = (queue, tlMention, remaining) => {
   const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
   const tl = tlMention ? ` cc ${tlMention}` : "";
+  const tracked = queue.items.filter((i) => i.status === "partial").length;
   return (
     `🚨 Attention queue from ${queue.shift_date} is still open — ${who} has *${remaining} unactioned ticket${remaining === 1 ? "" : "s"}*${tl}\n` +
     queue.items
-      .filter((i) => i.status !== "cleared")
+      .filter((i) => i.status === "pending") // partial = being tracked, no page
       .map((i) => `• <${TICKET_URL(i.display_id)}|${i.display_id}> — ${i.block_reason || i.reason}`)
       .join("\n") +
+    (tracked ? `\n_+${tracked} more being tracked (remark added) — visible on the dashboard._` : "") +
     `\nThis alert repeats hourly until the queue is cleared.`
   );
 };
@@ -607,7 +665,13 @@ const runEscalations = async (rosterRows, nowMs) => {
     const updated = await verifyAndClearQueue(q.member, "escalation");
     if (!updated || updated.status !== "pending") continue;
 
-    const remaining = updated.items.filter((i) => i.status !== "cleared").length;
+    // Only truly-unactioned items page the TL — "partial" (remark-tracked)
+    // tickets are deliberately excluded from alerting.
+    const remaining = updated.items.filter((i) => i.status === "pending").length;
+    if (remaining === 0) {
+      logger.info({ member: q.member }, "Attention escalation skipped — all remaining items are remark-tracked");
+      continue;
+    }
     // TL comes from the TEAMS mapping in constants.js (per team decision —
     // never from the roster API). The roster row / Slack map only resolve
     // the TL's mention id.
@@ -728,6 +792,26 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
   }
 
   await runEscalations(roster, nowMs);
+
+  // Auto-clear: once an hour (the :30-UTC tick — offset from the :00-UTC
+  // hourly sync) re-verify every recent pending queue so a ticket the member
+  // actioned in DevRev disappears within the hour, no Verify click needed.
+  // Per-ticket live lookups only — small queues, no cache, no blob.
+  const utcMinute = new Date(nowMs).getUTCMinutes();
+  if (utcMinute >= 30 && utcMinute < 45) {
+    const openQueues = await AttentionQueue.find(
+      { status: "pending", created_at: { $gte: new Date(nowMs - 2 * DAY_MS) } },
+      { member: 1 },
+    ).lean();
+    for (const q of openQueues) {
+      try {
+        await verifyAndClearQueue(q.member, "auto");
+      } catch (e) {
+        logger.warn({ err: e.message, member: q.member }, "Attention auto-verify failed");
+      }
+    }
+    if (openQueues.length) logger.info({ queues: openQueues.length }, "Attention auto-verify pass done");
+  }
 
   logger.info({ candidates: candidates.length, built: built.length }, "Attention sweep done");
   return { built: built.map((q) => ({ member: q.member, status: q.status, items: q.items.length })) };

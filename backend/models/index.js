@@ -610,8 +610,12 @@ const AttentionItemSchema = new mongoose.Schema(
     last_customer_ts: Date,
     iss_id: String,               // on-hold rule: the linked ISS that anchored the age check
     iss_created_date: Date,
-    status: { type: String, enum: ["pending", "cleared"], default: "pending" },
+    // "partial" = internal remark added after queue build — being tracked by
+    // the member, so it stops alerting (Slack/escalation) but stays visible
+    // in the dashboard for managers. Cleared only by real DevRev action.
+    status: { type: String, enum: ["pending", "partial", "cleared"], default: "pending" },
     cleared_at: Date,
+    partial_at: Date,             // when the tracking remark was first detected
     block_reason: String,         // why the last verify attempt kept it pending
   },
   { _id: false, versionKey: false },

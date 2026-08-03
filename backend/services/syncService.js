@@ -63,7 +63,7 @@ export const classifyResolution = (ticket, closedDate, gstOwner) => {
 };
 
 /** Reduce a raw DevRev ticket to only the fields the frontend renders. */
-const trimTicket = (t) => {
+export const trimTicket = (t) => {
   const cf = t.custom_fields || {};
   return {
     id: t.id,
@@ -181,11 +181,19 @@ const checkCacheSize = (ticketCount, json) => {
 // Verified 2026-08-01: ~2k non-closed tickets org-wide ≈ 20 pages.
 const ACTIVE_STATES = ["open", "in_progress"];
 
-/** Fetch ALL non-closed tickets from DevRev (raw, org-wide, no owner filter). */
-export const fetchAllActiveFromDevRev = async () => {
-  const collected = [];
+/**
+ * Stream ALL non-closed tickets from DevRev one page (≤100 raw tickets) at a
+ * time. `onPage(works)` is awaited per page and the raw page is discarded
+ * right after — callers keep only what they need, so the complete raw set
+ * (untrimmed DevRev objects, several × the cache size when parsed) is never
+ * resident in memory. This matters: the process is API + all workers in
+ * 512MB, and holding the whole raw set was a core OOM driver (2026-08-03).
+ * Returns the total number of tickets streamed.
+ */
+export const streamActiveFromDevRev = async (onPage) => {
   let cursor = null,
-    loop = 0;
+    loop = 0,
+    total = 0;
   do {
     const params = new URLSearchParams({ limit: "100", type: "ticket" });
     for (const s of ACTIVE_STATES) params.append("state", s);
@@ -194,10 +202,25 @@ export const fetchAllActiveFromDevRev = async () => {
       `${DEVREV_API}/works.list?${params.toString()}`,
       { headers: HEADERS, timeout: 60000 },
     );
-    collected.push(...(response.data.works || []));
+    const works = response.data.works || [];
+    total += works.length;
+    await onPage(works);
     cursor = response.data.next_cursor;
     loop++;
   } while (cursor && loop < 200);
+  return total;
+};
+
+/**
+ * Fetch ALL non-closed tickets from DevRev (raw, org-wide, no owner filter).
+ * @deprecated Accumulates every raw page in memory — use streamActiveFromDevRev
+ * in server code. Kept for one-off scripts only.
+ */
+export const fetchAllActiveFromDevRev = async () => {
+  const collected = [];
+  await streamActiveFromDevRev((works) => {
+    collected.push(...works);
+  });
   return collected;
 };
 
@@ -341,24 +364,23 @@ export const fetchAndCacheTickets = async (source = "auto") => {
     const activeIds = new Set();
     const droppedOwners = {};
     try {
-      let rawActive = await fetchAllActiveFromDevRev();
-      const activeTotal = rawActive.length;
-      for (const t of rawActive) {
-        activeIds.add(t.display_id);
-        if (isGSTOwned(t)) {
-          processed.push(trimTicket(t));
-        } else {
-          // Observability for the silent-drop gotcha: if a roster member's
-          // DevRev display_name stops matching their aliases, their tickets
-          // land here instead of vanishing without a trace.
-          const name = t.owned_by?.[0]?.display_name || "(unowned)";
-          droppedOwners[name] = (droppedOwners[name] || 0) + 1;
+      // Streamed page-by-page: each raw page is trimmed immediately and
+      // discarded, so peak memory is one page (~100 raw tickets), not the
+      // whole untrimmed org-wide set.
+      const activeTotal = await streamActiveFromDevRev(async (works) => {
+        for (const t of works) {
+          activeIds.add(t.display_id);
+          if (isGSTOwned(t)) {
+            processed.push(trimTicket(t));
+          } else {
+            // Observability for the silent-drop gotcha: if a roster member's
+            // DevRev display_name stops matching their aliases, their tickets
+            // land here instead of vanishing without a trace.
+            const name = t.owned_by?.[0]?.display_name || "(unowned)";
+            droppedOwners[name] = (droppedOwners[name] || 0) + 1;
+          }
         }
-      }
-      // Drop the raw DevRev objects BEFORE the first cache write below —
-      // otherwise the untrimmed set (several × the trimmed size) is still
-      // retained while saveProgress stringifies the whole processed array.
-      rawActive = null;
+      });
       logger.info(
         { activeTotal, gstActive: processed.length, droppedOwnerCount: Object.keys(droppedOwners).length },
         "Complete active set fetched",
@@ -413,7 +435,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
         }
       }
 
-      if (loop < 3 || loop % 3 === 0) {
+      // Throttled: every incremental save stringifies the ENTIRE processed
+      // array for the tickets:syncing key. Early pages stay frequent for
+      // cold-start UX; after that every 6th page is plenty.
+      if (loop < 3 || loop % 6 === 0) {
         await saveProgress(false);
         logger.info({ count: processed.length, batch: loop + 1 }, "Incrementally cached tickets");
       }

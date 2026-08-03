@@ -1,5 +1,5 @@
 import axios from "axios";
-import { fetchAllActiveFromDevRev } from "./syncService.js";
+import { streamActiveFromDevRev } from "./syncService.js";
 import { redisGet } from "../config/database.js";
 import { resolveOwnerName, GST_MEMBERS, GST_DEVU_MAP } from "../config/constants.js";
 import { getSlackWebhookUrl } from "./slackService.js";
@@ -47,26 +47,28 @@ const tally = (map, owner, bucket, ticketId) => {
  * Returns a full report; optionally alerts Slack and dispatches a heal sync.
  */
 export const reconcileActiveCounts = async ({ autoHeal = true, notifySlack = true } = {}) => {
-  // 1. DevRev truth — complete non-closed set, no date window.
-  const rawActive = await fetchAllActiveFromDevRev();
-
+  // 1. DevRev truth — complete non-closed set, no date window. Streamed
+  // page-by-page and tallied immediately: only the counts are kept, never
+  // the raw ticket objects (memory discipline on the 512MB instance).
   const devrev = {};
   const unresolvedOwners = {};
-  for (const t of rawActive) {
-    const owner = resolveOwnerName(t.owned_by?.[0]?.display_name);
-    if (!owner) {
-      const name = t.owned_by?.[0]?.display_name || "(unowned)";
-      if (!unresolvedOwners[name]) unresolvedOwners[name] = { count: 0, devuId: null };
-      unresolvedOwners[name].count++;
-      // Owner id is a DON like don:identity:…:devu/550 — keep the DEVU form
-      // so a renamed roster member (same devu id, new display name) is a
-      // DEFINITE alias gap rather than a first-name guess.
-      const devuNum = t.owned_by?.[0]?.id?.match(/devu\/(\d+)/)?.[1];
-      if (devuNum) unresolvedOwners[name].devuId = `DEVU-${devuNum}`;
-      continue;
+  await streamActiveFromDevRev(async (works) => {
+    for (const t of works) {
+      const owner = resolveOwnerName(t.owned_by?.[0]?.display_name);
+      if (!owner) {
+        const name = t.owned_by?.[0]?.display_name || "(unowned)";
+        if (!unresolvedOwners[name]) unresolvedOwners[name] = { count: 0, devuId: null };
+        unresolvedOwners[name].count++;
+        // Owner id is a DON like don:identity:…:devu/550 — keep the DEVU form
+        // so a renamed roster member (same devu id, new display name) is a
+        // DEFINITE alias gap rather than a first-name guess.
+        const devuNum = t.owned_by?.[0]?.id?.match(/devu\/(\d+)/)?.[1];
+        if (devuNum) unresolvedOwners[name].devuId = `DEVU-${devuNum}`;
+        continue;
+      }
+      tally(devrev, owner, bucketForStage(t.stage?.name), t.display_id);
     }
-    tally(devrev, owner, bucketForStage(t.stage?.name), t.display_id);
-  }
+  });
 
   // 2. Dashboard side — what the live cache would show for the same question.
   const cached = (await redisGet("tickets:active")) || [];
