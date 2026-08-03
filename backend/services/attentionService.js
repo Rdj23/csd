@@ -18,17 +18,18 @@
  *             automation owns those tickets end-to-end).
  *   pending — flags only when the DevRev follow-up automation is OFF TRACK.
  *             The automation nudges pending tickets on business days only
- *             (Mon–Fri IST): first follow-up 3 business days after we went
- *             quiet, then 2 business days between reminders, final reminder
- *             last. Its posts are EXTERNAL messages, so a healthy cycle
- *             refreshes tnt__last_devu_message_ts every ≤3 business days on
- *             its own and never flags here. We flag when the next expected
- *             touch is a full business day overdue (never started/stalled),
- *             when the FINAL reminder ran out with no reply (needs a manual
- *             close), or when the customer replied >1 day ago and the ticket
- *             still sits in pending. Reminder tags only pick the threshold
- *             and wording — they never hide a ticket (tags are sticky;
- *             timestamps stay the truth, team decision 2026-08-02).
+ *             (Mon–Fri IST). Its posts are EXTERNAL messages, so they
+ *             refresh tnt__last_devu_message_ts. Rules (Rohan 2026-08-04):
+ *               · first/second reminder tag + last touch within 3 BUSINESS
+ *                 days → on track, never shown; flag from the 4th.
+ *               · no reminder tag → flag after 4 business days of silence
+ *                 (first follow-up was due at 3, +1 grace).
+ *               · final reminder tag → flag after 2 business days ("close
+ *                 the ticket" — nothing more is coming).
+ *               · customer replied >1 day ago, still pending → flag.
+ *             Reminder tags only pick the threshold and wording — they
+ *             never hide a ticket (tags are sticky; timestamps stay the
+ *             truth, team decision 2026-08-02).
  *   onHold  — no org-side external message on the main ticket in the last
  *             2 days. Same "our side went quiet" principle: even with
  *             engineering actively working the linked ISS, the customer
@@ -68,8 +69,10 @@ export const ATTENTION_RULES = {
   // Pending follow-up cadence in BUSINESS days (the DevRev automation only
   // fires Mon–Fri IST — a follow-up "due" on a weekend legitimately slips
   // to Monday, and business-day counting keeps that from flagging).
+  // Rohan 2026-08-04: a first/second reminder within the LAST 3 BUSINESS
+  // DAYS = automation on track, never alert; flag from the 4th.
   PENDING_FIRST_FOLLOWUP_BD: 3, // pending start → first follow-up due
-  PENDING_NEXT_FOLLOWUP_BD: 2,  // gap between subsequent reminders
+  PENDING_REMINDER_QUIET_BD: 3, // reminder tag + last touch ≤3bd = on track
   PENDING_GRACE_BD: 1,          // flag once overdue by a full business day
   PENDING_FINAL_CLOSE_BD: 2,    // after FINAL reminder → needs a manual close
   PENDING_CUSTOMER_REPLY_GRACE_MS: DAY_MS, // customer spoke last, still pending
@@ -179,7 +182,7 @@ const pendingBlockReason = (t, nowMs) => {
   const bd = businessDaysSince(la, nowMs);
   const {
     PENDING_FIRST_FOLLOWUP_BD,
-    PENDING_NEXT_FOLLOWUP_BD,
+    PENDING_REMINDER_QUIET_BD,
     PENDING_GRACE_BD,
     PENDING_FINAL_CLOSE_BD,
   } = ATTENTION_RULES;
@@ -188,12 +191,14 @@ const pendingBlockReason = (t, nowMs) => {
     if (bd < PENDING_FINAL_CLOSE_BD) return null;
     return `Final reminder sent ${daysAgo(la, nowMs)}d ago with no reply — close the ticket`;
   }
+  // First/second reminder: a touch within the last 3 BUSINESS days means the
+  // automation is mid-cycle — never alert. Flag from the 4th business day.
   if (hasTagIn(t, SECOND_REMINDER_TAGS)) {
-    if (bd < PENDING_NEXT_FOLLOWUP_BD + PENDING_GRACE_BD) return null;
+    if (bd <= PENDING_REMINDER_QUIET_BD) return null;
     return `Second reminder sent ${daysAgo(la, nowMs)}d ago — final follow-up is overdue, automation may be stuck`;
   }
   if (hasTagIn(t, FIRST_REMINDER_TAGS)) {
-    if (bd < PENDING_NEXT_FOLLOWUP_BD + PENDING_GRACE_BD) return null;
+    if (bd <= PENDING_REMINDER_QUIET_BD) return null;
     return `First reminder sent ${daysAgo(la, nowMs)}d ago — second follow-up is overdue, automation may be stuck`;
   }
   if (bd < PENDING_FIRST_FOLLOWUP_BD + PENDING_GRACE_BD) return null;
@@ -605,13 +610,20 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
     }
   }
 
-  const remaining = queue.items.filter((i) => i.status !== "cleared").length;
-  if (remaining === 0) {
+  // Clear rule (Rohan 2026-08-04): the queue is CLEAR when nothing actionable
+  // is left in open/pending/onHold. "Tracked" (remark-tracked) items don't
+  // block the clear — they stay visible on the dashboard's Tracked tab.
+  const remaining = queue.items.filter((i) => i.status === "pending").length;
+  if (remaining === 0 && queue.status === "pending") {
     queue.status = "cleared";
     queue.cleared_at = new Date();
+    const trackedCount = queue.items.filter((i) => i.status === "partial").length;
+    const clearedCount = queue.items.filter((i) => i.status === "cleared").length;
     const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
     await postSlack(
-      `✅ ${who} cleared their attention queue — *${queue.items.length} ticket${queue.items.length === 1 ? "" : "s"}* actioned. 👏`,
+      `✅ ${who} cleared their attention queue — *${clearedCount} ticket${clearedCount === 1 ? "" : "s"}* actioned` +
+        (trackedCount ? ` (+${trackedCount} being tracked via remarks)` : "") +
+        `. 👏`,
     );
   }
   await queue.save();
@@ -666,12 +678,9 @@ const runEscalations = async (rosterRows, nowMs) => {
     if (!updated || updated.status !== "pending") continue;
 
     // Only truly-unactioned items page the TL — "partial" (remark-tracked)
-    // tickets are deliberately excluded from alerting.
+    // tickets never alert, and an all-tracked queue auto-clears in verify.
     const remaining = updated.items.filter((i) => i.status === "pending").length;
-    if (remaining === 0) {
-      logger.info({ member: q.member }, "Attention escalation skipped — all remaining items are remark-tracked");
-      continue;
-    }
+    if (remaining === 0) continue;
     // TL comes from the TEAMS mapping in constants.js (per team decision —
     // never from the roster API). The roster row / Slack map only resolve
     // the TL's mention id.

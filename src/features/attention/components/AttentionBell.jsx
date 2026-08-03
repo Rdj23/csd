@@ -94,7 +94,7 @@ const initials = (name = "?") => {
 const pendingCountOf = (queue) =>
   queue?.status === "pending" ? (queue.items || []).filter((i) => i.status === "pending").length : 0;
 const trackedCountOf = (queue) =>
-  queue?.status === "pending" ? (queue.items || []).filter((i) => i.status === "partial").length : 0;
+  queue && queue.status !== "empty" ? (queue.items || []).filter((i) => i.status === "partial").length : 0;
 
 const AgeChip = ({ label, days }) => {
   if (days === null) return null;
@@ -133,7 +133,7 @@ const MemberRow = ({ entry, selected, onSelect, showTeam }) => {
     : queue.status === "empty"
       ? { text: "All clear", tone: "text-emerald-500 dark:text-emerald-400" }
       : queue.status === "cleared"
-        ? { text: "Cleared", tone: "text-emerald-500 dark:text-emerald-400" }
+        ? { text: `Cleared${tracked ? ` · ${tracked} tracked` : ""}`, tone: "text-emerald-500 dark:text-emerald-400" }
         : count > 0
           ? { text: `${count} to clear${tracked ? ` · ${tracked} tracked` : ""}`, tone: "text-amber-600 dark:text-amber-400" }
           : { text: `${tracked} tracked`, tone: "text-violet-500 dark:text-violet-400" };
@@ -299,18 +299,18 @@ const AttentionBell = () => {
   const isSelf = !!selectedEntry?.isSelf;
 
   const items = queue?.items || [];
-  // Open items, alerting first, remark-tracked ("partial") after — within
-  // each group the server's longest-silence-first order is preserved.
+  // Actionable = open/pending/onHold tickets still alerting. Tracked =
+  // remark-tracked ("partial") — own tab, visible even after the queue
+  // clears. Server order (longest silence first) is preserved in both.
   const pendingItems = useMemo(
-    () =>
-      queue?.status === "pending"
-        ? items
-            .filter((i) => i.status !== "cleared")
-            .sort((a, b) => (a.status === "partial" ? 1 : 0) - (b.status === "partial" ? 1 : 0))
-        : [],
+    () => (queue?.status === "pending" ? items.filter((i) => i.status === "pending") : []),
     [queue, items],
   );
-  const actionableCount = useMemo(() => pendingItems.filter((i) => i.status === "pending").length, [pendingItems]);
+  const trackedItems = useMemo(
+    () => (queue && queue.status !== "empty" ? items.filter((i) => i.status === "partial") : []),
+    [queue, items],
+  );
+  const actionableCount = pendingItems.length;
   const clearedItems = useMemo(() => items.filter((i) => i.status === "cleared"), [items]);
   const bucketCounts = useMemo(() => {
     const c = { open: 0, pending: 0, onHold: 0 };
@@ -318,8 +318,16 @@ const AttentionBell = () => {
     return c;
   }, [pendingItems]);
 
-  const visibleItems = activeBucket === "all" ? pendingItems : pendingItems.filter((i) => i.bucket === activeBucket);
-  const progress = items.length ? Math.round((clearedItems.length / items.length) * 100) : 0;
+  const visibleItems =
+    activeBucket === "tracked"
+      ? trackedItems
+      : activeBucket === "all"
+        ? pendingItems
+        : pendingItems.filter((i) => i.bucket === activeBucket);
+  // Progress over the actionable universe only — tracked items don't block
+  // a 100% clear (they don't block the queue clearing either).
+  const actionableTotal = items.length - trackedItems.length;
+  const progress = actionableTotal ? Math.round((clearedItems.length / actionableTotal) * 100) : 0;
 
   const verify = useCallback(async () => {
     if (!selected) return;
@@ -425,9 +433,9 @@ const AttentionBell = () => {
                   </div>
                 )}
 
-                {/* Bucket tabs */}
-                {pendingItems.length > 0 && (
-                  <div className="mt-4 flex items-center gap-1.5">
+                {/* Bucket tabs — Open / Pending / On Hold / Tracked */}
+                {(pendingItems.length > 0 || trackedItems.length > 0) && (
+                  <div className="mt-4 flex items-center gap-1.5 flex-wrap">
                     <button
                       onClick={() => setActiveBucket("all")}
                       className={`px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-all ${
@@ -454,6 +462,20 @@ const AttentionBell = () => {
                         <span className="tabular-nums opacity-70">{bucketCounts[b]}</span>
                       </button>
                     ))}
+                    <button
+                      onClick={() => setActiveBucket("tracked")}
+                      disabled={!trackedItems.length}
+                      title="Internal remark added after the queue was built — being tracked, no alerts"
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-all disabled:opacity-30 ${
+                        activeBucket === "tracked"
+                          ? "bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/40"
+                          : "border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+                      Tracked
+                      <span className="tabular-nums opacity-70">{trackedItems.length}</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -658,7 +680,7 @@ const AttentionBell = () => {
                       <>
                         <ShieldCheck className="w-4 h-4" />
                         {isSelf
-                          ? `Verify & Clear (${actionableCount} to action${pendingItems.length - actionableCount ? `, ${pendingItems.length - actionableCount} tracked` : ""})`
+                          ? `Verify & Clear (${actionableCount} to action${trackedItems.length ? `, ${trackedItems.length} tracked` : ""})`
                           : `Verify ${selectedEntry?.member}'s queue (${actionableCount} to action)`}
                       </>
                     )}
