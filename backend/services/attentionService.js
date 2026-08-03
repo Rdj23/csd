@@ -835,14 +835,18 @@ export const getQueueForEmail = async (email) => {
 };
 
 /**
- * Latest queue per member (any status), in one round-trip — powers the team
- * panel. Returns entries in the same order as `members`; members with no
- * queue yet come back with queue: null so the panel can still show them.
+ * TODAY's queue per member (IST), in one round-trip — powers the team panel.
+ * Scoped to today's shift_date on purpose: showing a member's stale queue
+ * from a previous day read as "All clear" for someone who is simply off /
+ * unbuilt today (Nikita bug, 2026-08-04). Members with no queue today come
+ * back with queue: null → the panel shows "No queue yet". Uncleared older
+ * queues still escalate via Slack, and their tickets re-flag into the next
+ * build anyway (rules are timestamp-based).
  */
 export const getQueuesForMembers = async (members) => {
   if (!members?.length) return [];
   const docs = await AttentionQueue.aggregate([
-    { $match: { member: { $in: members } } },
+    { $match: { member: { $in: members }, shift_date: istYmd() } },
     { $sort: { created_at: -1 } },
     { $group: { _id: "$member", doc: { $first: "$$ROOT" } } },
   ]);
