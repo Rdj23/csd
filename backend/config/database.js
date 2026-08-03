@@ -86,15 +86,38 @@ export const redisHGet = async (key, field) => {
 export const redisHSetBatch = async (key, entries, ttl = 1800) => {
   if (!isRedisReady()) return false;
   try {
-    const pipeline = redis.pipeline();
-    for (const [field, value] of entries) {
-      pipeline.hset(key, field, JSON.stringify(value));
+    // Chunked pipelines: one pipeline holding every stringified ticket
+    // buffered ~a full cache blob in process memory at once — a real
+    // problem on the 512MB API+worker instance. Each chunk's strings are
+    // GC-able as soon as its exec() resolves.
+    const CHUNK = 200;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const pipeline = redis.pipeline();
+      for (const [field, value] of entries.slice(i, i + CHUNK)) {
+        pipeline.hset(key, field, JSON.stringify(value));
+      }
+      if (i + CHUNK >= entries.length) pipeline.expire(key, ttl);
+      await pipeline.exec();
     }
-    pipeline.expire(key, ttl);
-    await pipeline.exec();
     return true;
   } catch (e) {
     logger.error({ err: e, key }, "Redis HSET batch error");
+    return false;
+  }
+};
+
+/**
+ * Set a key from an ALREADY-stringified JSON payload. Use when the caller
+ * needs the JSON string anyway (size checks) — avoids redisSet's second
+ * full JSON.stringify of a multi-MB object.
+ */
+export const redisSetRaw = async (key, json, ttl = 1800) => {
+  if (!isRedisReady()) return false;
+  try {
+    await redis.setex(key, ttl, json);
+    return true;
+  } catch (e) {
+    logger.error({ err: e, key }, "Redis SET (raw) error");
     return false;
   }
 };

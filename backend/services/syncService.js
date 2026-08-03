@@ -1,7 +1,7 @@
 import axios from "axios";
 import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
-import { redisGet, redisSet, redisDelete, redisHSetBatch, CACHE_TTL } from "../config/database.js";
+import { redisGet, redisSet, redisSetRaw, redisDelete, redisHSetBatch, CACHE_TTL } from "../config/database.js";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { fetchTicketLinks, fetchWorkItem, dependencyCounterpart, classifyLinkedWorkTeam } from "./devrevApi.js";
@@ -148,12 +148,15 @@ const VALKEY_CAP_MB = 25;
 const CACHE_WARN_PCT = 0.7;
 const CACHE_ALERT_PCT = 0.9;
 
-const checkCacheSize = (processed) => {
-  const bytes = Buffer.byteLength(JSON.stringify(processed));
+// Takes the pre-stringified payload so the caller can reuse the SAME string
+// for the Redis write — stringifying a multi-MB array twice was part of the
+// hourly memory spike that OOM-killed the 512MB instance (2026-08-03).
+const checkCacheSize = (ticketCount, json) => {
+  const bytes = Buffer.byteLength(json);
   const mb = bytes / (1024 * 1024);
   const pctOfCap = mb / VALKEY_CAP_MB;
   const meta = {
-    ticketCount: processed.length,
+    ticketCount,
     sizeMB: Number(mb.toFixed(2)),
     capMB: VALKEY_CAP_MB,
     pctOfCap: Number((pctOfCap * 100).toFixed(1)),
@@ -294,11 +297,18 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       if (!processed.length) return processed;
 
       if (isComplete) {
-        checkCacheSize(processed);
-        await redisSet("tickets:active", processed, CACHE_TTL.TICKETS);
+        // Stringify ONCE — reused for the size check and the Redis write,
+        // then released before the hash write so at most one extra copy of
+        // the blob is alive at any moment.
+        let json = JSON.stringify(processed);
+        checkCacheSize(processed.length, json);
+        await redisSetRaw("tickets:active", json, CACHE_TTL.TICKETS);
+        json = null;
         // Populate per-ticket Hash for O(1) lookups by display_id.
         // Used by activityService.getTicketOwner / getAccountCohort to avoid
         // parsing the entire ~20MB ticket array for a single ticket lookup.
+        // Written in chunked pipelines (see redisHSetBatch) so the whole
+        // blob is never re-buffered in memory.
         const hashEntries = processed.map((t) => [t.display_id, t]);
         await redisHSetBatch("tickets:active:hash", hashEntries, CACHE_TTL.TICKETS);
         await redisDelete("tickets:syncing");
@@ -331,7 +341,8 @@ export const fetchAndCacheTickets = async (source = "auto") => {
     const activeIds = new Set();
     const droppedOwners = {};
     try {
-      const rawActive = await fetchAllActiveFromDevRev();
+      let rawActive = await fetchAllActiveFromDevRev();
+      const activeTotal = rawActive.length;
       for (const t of rawActive) {
         activeIds.add(t.display_id);
         if (isGSTOwned(t)) {
@@ -344,8 +355,12 @@ export const fetchAndCacheTickets = async (source = "auto") => {
           droppedOwners[name] = (droppedOwners[name] || 0) + 1;
         }
       }
+      // Drop the raw DevRev objects BEFORE the first cache write below —
+      // otherwise the untrimmed set (several × the trimmed size) is still
+      // retained while saveProgress stringifies the whole processed array.
+      rawActive = null;
       logger.info(
-        { activeTotal: rawActive.length, gstActive: processed.length, droppedOwnerCount: Object.keys(droppedOwners).length },
+        { activeTotal, gstActive: processed.length, droppedOwnerCount: Object.keys(droppedOwners).length },
         "Complete active set fetched",
       );
       if (Object.keys(droppedOwners).length > 0) {
