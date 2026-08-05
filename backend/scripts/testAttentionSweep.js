@@ -14,7 +14,7 @@ import { resolveOwnerName, isSolvedStatus } from "../config/constants.js";
 import {
   evaluateTicket,
   buildItems,
-  queueMessage,
+  shiftEndMessage,
   postSlack,
 } from "../services/attentionService.js";
 
@@ -64,9 +64,9 @@ const main = async () => {
   console.log(`\n${items.length} item(s) in ${memberArg}'s queue.`);
 
   if (doPost) {
-    const text = items.length
-      ? queueMessage({ member: memberArg, items }, null)
-      : `🌟 Superstar — no tickets in the attention queue today, *${memberArg}*! Enjoy the end of your shift.`;
+    // shiftEndMessage handles all three variants (congrats / tracked-only /
+    // actionable) off item statuses — fresh buildItems output is all "pending".
+    const text = shiftEndMessage({ member: memberArg, items }, null);
     const sent = await postSlack(text);
     console.log(sent ? "Posted preview to the attention Slack channel." : "Slack post failed/skipped (check ATTENTION_SLACK_WEBHOOK_URL).");
   }

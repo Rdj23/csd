@@ -2,13 +2,19 @@
  * attentionService.js — Attention Queue: shift-aware backlog nudges.
  *
  * WHAT THIS DOES:
- * At a fixed per-shift time near the end of each GST member's shift
- * (ATTENTION_TIMING), build them a queue of tickets that need action
- * (aging open / silent pending / stuck on-hold), post it to Slack + push
- * it to their dashboard. Clearing the queue is VERIFIED against live
- * DevRev data — the only way to silence it is to actually action the
- * tickets. Uncleared queues escalate to the team lead at a fixed time
- * after the member's next shift starts, then hourly until clear.
+ * ~45 min before each GST member's shift ends (ATTENTION_TIMING.queueAt),
+ * build them a queue of tickets that need action (aging open / silent
+ * pending / stuck on-hold) and push it to the dashboard — replacing the
+ * previous day's queue, which stays visible until then so there is ALWAYS
+ * a list to work from. ~15 min before shift end (slackAt) a Slack summary
+ * posts from whatever the queue looks like at that moment. Clearing the
+ * queue is VERIFIED against live DevRev data — the only way to silence it
+ * is to actually action the tickets. "Tracked" (remarked) items are a
+ * one-day snooze: the remark only counts on the queue's own IST day, so a
+ * still-blocked ticket lands back in its bucket at the next build (we
+ * don't want people to track-and-forget). Uncleared queues escalate to
+ * the team lead at a fixed time after the member's next shift starts,
+ * then hourly until clear.
  *
  * RULES ("response" = EXTERNAL comment; internal notes never count —
  * verified 2026-08-02 against DevRev timeline data, see
@@ -78,17 +84,22 @@ export const ATTENTION_RULES = {
   PENDING_CUSTOMER_REPLY_GRACE_MS: DAY_MS, // customer spoke last, still pending
 };
 
-// Per-shift schedule (IST decimal hours, agreed with Rohan 2026-08-03):
-// when the shift-end queue posts, and when the first TL escalation fires.
-// Escalation is SAME-day for the overnight SHIFT 4 (queue posts 05:30, the
-// member's next shift starts the same evening) and next-day for the rest.
+// Per-shift schedule (IST decimal hours, agreed with Rohan 2026-08-05):
+// queueAt   — when the day's queue BUILDS and replaces the previous one on
+//             the dashboard (~45 min before shift end). Dashboard-only: no
+//             Slack at build time.
+// slackAt   — when the shift-end Slack summary posts (~15 min before shift
+//             end), from whatever the queue looks like at that moment.
+// escalateAt — first TL escalation. SAME-day for the overnight SHIFT 4
+//             (queue posts in the morning, the member's next shift starts
+//             the same evening) and next-day for the rest.
 // Deliberately explicit per shift — the offsets are not uniform, don't try
-// to derive them from SHIFT_HOURS.
+// to derive them from SHIFT_HOURS. All instants land on */15 cron ticks.
 const ATTENTION_TIMING = {
-  "SHIFT 1": { queueAt: 16.0,  escalateAt: 8.75,  escalateNextDay: true },  // 4:00 PM → 8:45 AM
-  "SHIFT 2": { queueAt: 19.0,  escalateAt: 11.25, escalateNextDay: true },  // 7:00 PM → 11:15 AM
-  "SHIFT 3": { queueAt: 21.25, escalateAt: 14.5,  escalateNextDay: true },  // 9:15 PM → 2:30 PM
-  "SHIFT 4": { queueAt: 5.5,   escalateAt: 23.25, escalateNextDay: false }, // 5:30 AM → 11:15 PM same day
+  "SHIFT 1": { queueAt: 15.75, slackAt: 16.25, escalateAt: 8.75,  escalateNextDay: true },  // 3:45 PM / 4:15 PM → 8:45 AM
+  "SHIFT 2": { queueAt: 18.75, slackAt: 19.25, escalateAt: 11.25, escalateNextDay: true },  // 6:45 PM / 7:15 PM → 11:15 AM
+  "SHIFT 3": { queueAt: 21.25, slackAt: 21.75, escalateAt: 14.5,  escalateNextDay: true },  // 9:15 PM / 9:45 PM → 2:30 PM
+  "SHIFT 4": { queueAt: 6.0,   slackAt: 6.75,  escalateAt: 23.25, escalateNextDay: false }, // 6:00 AM / 6:45 AM → 11:15 PM same day
 };
 
 const BUILD_WINDOW_MS = 30 * 60 * 1000;      // late-tick tolerance after queueAt
@@ -476,18 +487,52 @@ export const postSlack = async (text) => {
 };
 
 const BUCKET_LABELS = { open: "🟠 Open", pending: "🟡 Pending", onHold: "🔵 On Hold" };
+const BUCKET_WORDS = { open: "open", pending: "pending", onHold: "on hold" };
 
 // Slack shows at most this many tickets per bucket — the full queue lives on
 // the dashboard. Keeps day-one messages readable while the backlog is large.
 const SLACK_MAX_PER_BUCKET = 10;
 
-export const queueMessage = (queue, mention) => {
+/**
+ * Shift-end Slack summary (posts at ATTENTION_TIMING.slackAt, ~15 min before
+ * shift end — separate from the build). Three variants (Rohan 2026-08-05):
+ *   nothing at all        → congratulations
+ *   only tracked items    → "great, but N being tracked — action them tomorrow"
+ *   actionable items left → "you have X open, Y pending, Z on hold — update those"
+ * Counts come from live item statuses, so tickets actioned (or remark-tracked)
+ * between build and shift end drop out of the headline automatically.
+ */
+export const shiftEndMessage = (queue, mention) => {
   const who = mention || `*${queue.member}*`;
+  const actionable = queue.items.filter((i) => i.status === "pending");
+  const tracked = queue.items.filter((i) => i.status === "partial");
+
+  if (!actionable.length && !tracked.length) {
+    return `🎉 Congratulations ${who} — no tickets to be worked on! Enjoy the end of your shift.`;
+  }
+
+  if (!actionable.length) {
+    const lines = [
+      `👏 Great ${who} — nothing needs action right now, but *${tracked.length} ticket${tracked.length === 1 ? " is" : "s are"} being tracked*. Make sure to action them tomorrow when you start your shift:`,
+    ];
+    for (const i of tracked.slice(0, SLACK_MAX_PER_BUCKET)) {
+      lines.push(`• <${TICKET_URL(i.display_id)}|${i.display_id}> ${i.title ? `_${i.title.slice(0, 70)}_` : ""}`);
+    }
+    if (tracked.length > SLACK_MAX_PER_BUCKET) {
+      lines.push(`  …and ${tracked.length - SLACK_MAX_PER_BUCKET} more on the dashboard`);
+    }
+    return lines.join("\n");
+  }
+
+  const counts = ["open", "pending", "onHold"]
+    .map((b) => ({ b, n: actionable.filter((i) => i.bucket === b).length }))
+    .filter((c) => c.n)
+    .map((c) => `*${c.n} ${BUCKET_WORDS[c.b]}*`);
   const lines = [
-    `⏰ ${who} — *${queue.items.length} ticket${queue.items.length === 1 ? "" : "s"}* need attention before your shift ends`,
+    `⏰ Hey ${who} — you have ${counts.join(", ")} case${actionable.length === 1 ? "" : "s"} to work on. Please update those before your shift ends.`,
   ];
   for (const bucket of ["open", "pending", "onHold"]) {
-    const rows = queue.items.filter((i) => i.bucket === bucket);
+    const rows = actionable.filter((i) => i.bucket === bucket);
     if (!rows.length) continue;
     lines.push(`\n${BUCKET_LABELS[bucket]} (${rows.length})`);
     for (const i of rows.slice(0, SLACK_MAX_PER_BUCKET)) {
@@ -496,6 +541,9 @@ export const queueMessage = (queue, mention) => {
     if (rows.length > SLACK_MAX_PER_BUCKET) {
       lines.push(`  …and ${rows.length - SLACK_MAX_PER_BUCKET} more on the dashboard`);
     }
+  }
+  if (tracked.length) {
+    lines.push(`\n_+${tracked.length} more being tracked (remark added) — action them tomorrow._`);
   }
   lines.push(`\nAction them, then hit *Verify & Clear* on the dashboard ✅`);
   return lines.join("\n");
@@ -588,9 +636,47 @@ const escalationInstant = (shift, fromMs) => {
   return istInstant(istYmd(day), t.escalateAt);
 };
 
+/**
+ * Tickets the member marked "tracked" for a given queue day: display_ids with
+ * a dashboard remark added ON the queue's IST calendar day (>= day start).
+ * The day anchor — not the queue's created_at — is the whole trick:
+ *   - remarks added any time during TODAY's shift count, even though the
+ *     queue itself only builds ~45 min before shift end;
+ *   - yesterday's remarks DON'T count for today's queue, so a still-blocked
+ *     ticket lands back in open/pending/onHold at the next build. Tracking
+ *     is a one-day snooze, never a permanent hiding place (Rohan 2026-08-05).
+ * Known boundary: SHIFT 4 remarks made before midnight (first ~1.5h of the
+ * overnight shift) don't count for the morning queue — accepted for v1.
+ */
+const trackedRemarkIds = async (displayIds, shiftDate) => {
+  if (!displayIds.length) return new Set();
+  try {
+    const dayStart = new Date(`${shiftDate}T00:00:00+05:30`);
+    const remarks = await Remark.find(
+      { ticketId: { $in: displayIds }, timestamp: { $gte: dayStart } },
+      { ticketId: 1 },
+    ).lean();
+    return new Set(remarks.map((r) => r.ticketId));
+  } catch (e) {
+    logger.warn({ err: e.message }, "Attention: remark lookup failed — treating none as tracked");
+    return new Set();
+  }
+};
+
 const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
   const tickets = ticketsByMember.get(candidate.name) || [];
   const items = await buildItems(tickets, nowMs);
+
+  // Seed tracked state from remarks made earlier today — the member already
+  // looked at these on the (always-visible) previous queue; don't re-alert.
+  const remarked = await trackedRemarkIds(items.map((i) => i.display_id), candidate.shiftDate);
+  for (const item of items) {
+    if (remarked.has(item.display_id)) {
+      item.status = "partial";
+      item.partial_at = new Date(nowMs);
+    }
+  }
+  const actionable = items.filter((i) => i.status === "pending").length;
   const status = items.length ? "pending" : "empty";
 
   const queue = await AttentionQueue.create({
@@ -600,27 +686,28 @@ const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
     shift: candidate.shift,
     shift_date: candidate.shiftDate,
     shift_end_at: candidate.endAt,
-    next_shift_start_at: items.length ? escalationInstant(candidate.shift, nowMs) : null,
+    // Only truly-actionable items set the TL escalation clock — an
+    // all-tracked queue never pages (tracked items re-flag tomorrow anyway).
+    next_shift_start_at: actionable ? escalationInstant(candidate.shift, nowMs) : null,
     status,
     items,
+    shift_alert_at: candidate.slackAt || null,
   });
 
-  const mention = useMentions() ? candidate.slackMention : null;
-  if (status === "empty") {
-    await postSlack(`🌟 Superstar — no tickets in the attention queue today, ${mention || `*${candidate.name}*`}! Enjoy the end of your shift.`);
-  } else {
-    await postSlack(queueMessage(queue, mention));
-  }
-
+  // Build = dashboard update ONLY. The Slack summary posts separately at
+  // shift_alert_at (~15 min before shift end), from live item statuses.
   await publishSocketEvent("ATTENTION_QUEUE", {
     email: candidate.email,
     member: candidate.name,
     status,
-    count: items.length,
+    count: actionable,
     shiftDate: candidate.shiftDate,
   });
 
-  logger.info({ member: candidate.name, items: items.length, status }, "Attention queue built");
+  logger.info(
+    { member: candidate.name, items: items.length, tracked: items.length - actionable, status },
+    "Attention queue built",
+  );
   return queue;
 };
 
@@ -671,23 +758,14 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
   const nowMs = Date.now();
   const queueCreatedMs = queue.created_at.getTime();
 
-  // Partial-verify: an internal dashboard remark added AFTER the queue was
-  // built means the member is actively tracking the ticket. Such items stop
-  // alerting (Slack / TL escalation) but stay visible for managers — only a
-  // real DevRev action fully clears them (per Rohan 2026-08-03).
+  // Partial-verify: a dashboard remark added on the queue's IST day means the
+  // member is actively tracking the ticket. Such items stop alerting (Slack /
+  // TL escalation) but stay visible for managers — only a real DevRev action
+  // fully clears them. Day-anchored (not created_at-anchored) so remarks made
+  // earlier in the shift count, and yesterday's remarks never carry over —
+  // tracked tickets re-flag at the next build (Rohan 2026-08-05).
   const openIds = queue.items.filter((i) => i.status !== "cleared").map((i) => i.display_id);
-  let remarkedIds = new Set();
-  if (openIds.length) {
-    try {
-      const remarks = await Remark.find(
-        { ticketId: { $in: openIds }, timestamp: { $gt: queue.created_at } },
-        { ticketId: 1 },
-      ).lean();
-      remarkedIds = new Set(remarks.map((r) => r.ticketId));
-    } catch (e) {
-      logger.warn({ err: e.message }, "Attention verify: remark lookup failed — treating none as tracked");
-    }
-  }
+  const remarkedIds = await trackedRemarkIds(openIds, queue.shift_date);
 
   for (const item of queue.items) {
     if (item.status === "cleared") continue;
@@ -727,12 +805,20 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
     queue.cleared_at = new Date();
     const trackedCount = queue.items.filter((i) => i.status === "partial").length;
     const clearedCount = queue.items.filter((i) => i.status === "cleared").length;
-    const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
-    await postSlack(
-      `✅ ${who} cleared their attention queue — *${clearedCount} ticket${clearedCount === 1 ? "" : "s"}* actioned` +
-        (trackedCount ? ` (+${trackedCount} being tracked via remarks)` : "") +
-        `. 👏`,
-    );
+    // No congrats while the shift-end Slack summary is still ahead — it will
+    // tell the same story minutes later; double-posting is just noise. Same
+    // for an all-tracked queue auto-clearing (0 actioned): the tracked items
+    // were already announced, there is nothing to congratulate.
+    const alertStillAhead =
+      queue.shift_alert_at && !queue.shift_alert_sent_at && queue.shift_alert_at.getTime() > nowMs;
+    if (!alertStillAhead && clearedCount > 0) {
+      const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
+      await postSlack(
+        `✅ ${who} cleared their attention queue — *${clearedCount} ticket${clearedCount === 1 ? "" : "s"}* actioned` +
+          (trackedCount ? ` (+${trackedCount} being tracked via remarks)` : "") +
+          `. 👏`,
+      );
+    }
   }
   await queue.save();
 
@@ -744,6 +830,43 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
     trigger,
   });
   return queue;
+};
+
+// ── Shift-end Slack summary ──────────────────────────────────────────────
+
+// Post at most this long after the scheduled slackAt. Past it (service was
+// down through the whole window) the shift is over — a "before your shift
+// ends" ping would land mid-night; the queue still escalates tomorrow.
+const ALERT_LATE_TOLERANCE_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Post the shift-end Slack summary for every queue whose slackAt has passed
+ * and hasn't been messaged yet. Runs every sweep tick; `shift_alert_sent_at`
+ * makes it once-per-queue. Message reflects live item statuses, so anything
+ * actioned or remark-tracked between build (T-45) and now has dropped out.
+ */
+const runShiftEndAlerts = async (nowMs) => {
+  const due = await AttentionQueue.find({
+    shift_alert_at: { $ne: null, $lte: new Date(nowMs) },
+    shift_alert_sent_at: null,
+  });
+  for (const q of due) {
+    try {
+      if (nowMs - q.shift_alert_at.getTime() > ALERT_LATE_TOLERANCE_MS) {
+        q.shift_alert_sent_at = new Date(nowMs);
+        await q.save();
+        logger.warn({ member: q.member, shiftDate: q.shift_date }, "Attention shift-end alert skipped — window long past");
+        continue;
+      }
+      const mention = useMentions() ? q.slack_id : null;
+      await postSlack(shiftEndMessage(q, mention));
+      q.shift_alert_sent_at = new Date(nowMs);
+      await q.save();
+      logger.info({ member: q.member, shiftDate: q.shift_date }, "Attention shift-end alert sent");
+    } catch (e) {
+      logger.error({ err: e, member: q.member }, "Attention shift-end alert failed");
+    }
+  }
 };
 
 // ── Escalation ───────────────────────────────────────────────────────────
@@ -771,7 +894,19 @@ const runEscalations = async (rosterRows, nowMs) => {
     next_shift_start_at: { $ne: null, $lte: new Date(nowMs) },
   });
 
+  // One escalation cycle per MEMBER, driven by their newest pending queue.
+  // verifyAndClearQueue + the counter writes below only ever touch the
+  // latest queue, so iterating an older still-pending doc for the same
+  // member would re-fire off its stale last_alert_at every sweep tick
+  // (15-min spam instead of hourly). Older queues' tickets re-flag into the
+  // newest build anyway — nothing is lost by skipping the old docs.
+  const newestByMember = new Map();
   for (const q of due) {
+    const prev = newestByMember.get(q.member);
+    if (!prev || q.created_at > prev.created_at) newestByMember.set(q.member, q);
+  }
+
+  for (const q of newestByMember.values()) {
     const last = q.escalation?.last_alert_at?.getTime() || 0;
     if (nowMs - last < ESCALATE_INTERVAL_MS) continue;
 
@@ -816,7 +951,8 @@ const runEscalations = async (rosterRows, nowMs) => {
  * Runs every 15 minutes. Builds queues for members whose per-shift queue
  * time (ATTENTION_TIMING) has arrived — with a 30-min late-tick tolerance,
  * and once per member per shift-date (the unique index makes duplicate
- * builds impossible) — then processes escalations.
+ * builds impossible) — then posts due shift-end Slack summaries, then
+ * processes escalations.
  *
  * @param {Object} opts
  * @param {boolean} opts.force  Build regardless of the queue window (testing).
@@ -830,7 +966,7 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
   // Candidate shifts for today, with per-shift queue times from
   // ATTENTION_TIMING. The roster API serves TODAY only, so the overnight
   // SHIFT 4 is handled from today's row: a member rostered SHIFT 4 today
-  // gets their queue at 05:30 IST (near the morning end of the overnight
+  // gets their queue at 06:00 IST (near the morning end of the overnight
   // shift). Known boundary quirk, accepted for v1: on the FIRST day of a
   // shift-4 block the morning queue fires before their first night; the
   // morning after the LAST day is missed.
@@ -843,6 +979,7 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
       ...r,
       shiftDate: todayYmd,
       queueAt: istInstant(todayYmd, timing.queueAt),
+      slackAt: istInstant(todayYmd, timing.slackAt),
       endAt: istInstant(todayYmd, hours.end),
     });
   }
@@ -863,6 +1000,7 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
       slackMention: row?.slackMention || findGSTMember(member),
       shiftDate: todayYmd,
       queueAt: new Date(nowMs),
+      slackAt: new Date(nowMs), // test builds: Slack summary posts in the same sweep
       endAt: new Date(nowMs + BUILD_WINDOW_MS),
     });
   }
@@ -908,6 +1046,7 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
     }
   }
 
+  await runShiftEndAlerts(nowMs);
   await runEscalations(roster, nowMs);
 
   // Auto-clear: once an hour (the :30-UTC tick — offset from the :00-UTC
@@ -943,19 +1082,25 @@ export const getQueueForEmail = async (email) => {
 };
 
 /**
- * TODAY's queue per member (IST), in one round-trip — powers the team panel.
- * Scoped to today's shift_date on purpose: showing a member's stale queue
- * from a previous day read as "All clear" for someone who is simply off /
- * unbuilt today (Nikita bug, 2026-08-04). Members with no queue today come
- * back with queue: null → the panel shows "No queue yet". Uncleared older
- * queues still escalate via Slack, and their tickets re-flag into the next
- * build anyway (rules are timestamp-based).
+ * LATEST queue per member, in one round-trip — powers the team panel.
+ * Deliberately NOT today-scoped (changed 2026-08-05, was istYmd()-only):
+ * queues build ~45 min before shift END, so for most of the day a member's
+ * newest queue is yesterday's — and Rohan wants a list on screen ALL the
+ * time to work from, replaced in place when the new build lands. The old
+ * today-scoping made every shift-1/2/3 member read "No queue yet" until
+ * late in their shift (only the 06:00-built SHIFT 4 queues showed).
+ * The 7-day lookback keeps long-leave members from surfacing an ancient
+ * queue as if it were current (the Nikita-bug concern) — the card shows
+ * the queue's shift_date either way.
  */
+const RAIL_LOOKBACK_DAYS = 7;
 export const getQueuesForMembers = async (members) => {
   if (!members?.length) return [];
+  const cutoffYmd = istYmd(new Date(Date.now() - RAIL_LOOKBACK_DAYS * DAY_MS));
   const docs = await AttentionQueue.aggregate([
-    { $match: { member: { $in: members }, shift_date: istYmd() } },
-    { $sort: { created_at: -1 } },
+    // shift_date is "YYYY-MM-DD" — lexicographic $gte is date order.
+    { $match: { member: { $in: members }, shift_date: { $gte: cutoffYmd } } },
+    { $sort: { shift_date: -1, created_at: -1 } },
     { $group: { _id: "$member", doc: { $first: "$$ROOT" } } },
   ]);
   const byMember = new Map(docs.map((d) => [d._id, d.doc]));

@@ -1,21 +1,25 @@
 # Attention Queue — Manager & Team Guide
 
-*Last updated: 4 Aug 2026*
+*Last updated: 5 Aug 2026*
 
-The Attention Queue is the dashboard's shift-end nudge system. Near the end of every GST member's shift, it builds them a personal list of tickets that need action, posts it to Slack, and shows it under the 🔔 bell in the dashboard header. The queue can only be silenced by **actually actioning the tickets** — clearing is verified against live DevRev data, never against a checkbox.
+The Attention Queue is the dashboard's shift-end nudge system. Every GST member always has a personal list of tickets that need action under the 🔔 bell in the dashboard header — the list stays visible all day and is **replaced with a fresh build ~45 minutes before their shift ends**. A Slack summary follows ~15 minutes before shift end. The queue can only be silenced by **actually actioning the tickets** — clearing is verified against live DevRev data, never against a checkbox.
 
 ---
 
-## 1. When queues are built and escalated
+## 1. When queues are built, alerted, and escalated
 
-| Shift | Hours (IST) | Queue posted | TL escalation if uncleared |
-|-------|-------------|--------------|----------------------------|
-| Shift 1 | 7:30 AM – 4:30 PM | **4:00 PM** | 8:45 AM next day |
-| Shift 2 | 10:30 AM – 7:30 PM | **7:00 PM** | 11:15 AM next day |
-| Shift 3 | 1:30 PM – 10:30 PM | **9:15 PM** | 2:30 PM next day |
-| Shift 4 | 10:30 PM – 7:30 AM | **5:30 AM** | 11:15 PM same day |
+| Shift | Hours (IST) | Queue refreshed on dashboard | Slack summary | TL escalation if uncleared |
+|-------|-------------|------------------------------|---------------|----------------------------|
+| Shift 1 | 7:30 AM – 4:30 PM | **3:45 PM** | **4:15 PM** | 8:45 AM next day |
+| Shift 2 | 10:30 AM – 7:30 PM | **6:45 PM** | **7:15 PM** | 11:15 AM next day |
+| Shift 3 | 1:30 PM – 10:30 PM | **9:15 PM** | **9:45 PM** | 2:30 PM next day |
+| Shift 4 | 10:30 PM – 7:30 AM | **6:00 AM** | **6:45 AM** | 11:15 PM same day |
 
-- One queue per member per day. Members on Week Off / EL / holiday (per the roster) are skipped automatically.
+- One queue per member per day. Members on Week Off / EL / holiday (per the roster) are skipped automatically — their **previous queue stays on the dashboard** until the next build.
+- The build is dashboard-only. The **Slack summary** posts separately and reflects the queue at that moment:
+  - nothing to work on → 🎉 *congratulations*
+  - only tracked tickets → 👏 *"…but N tickets are being tracked — action them tomorrow"*
+  - actionable tickets → ⏰ *"you have X open, Y pending, Z on hold — please update those"* with ticket links
 - Escalations tag the member **and their team lead** in Slack and repeat **hourly** until the queue is clear.
 - Every hour, the system also **auto-verifies** all open queues — a ticket actioned in DevRev disappears from the queue within the hour, without anyone pressing a button.
 
@@ -45,11 +49,12 @@ A pending ticket is flagged **only when that automation is off track**:
 Flagged when the customer hasn't heard from us in **2+ days** — even if engineering is actively working the linked issue, the customer must get an update every 2 days.
 
 ### 🟣 Tracked (partially verified)
-If a GST member adds an **internal remark on the dashboard** to a queued ticket *after* the queue was built, the ticket becomes **Tracked**:
+If a GST member adds an **internal remark on the dashboard** to a queued ticket **on the queue's day**, the ticket becomes **Tracked**:
 
 - It stops alerting — no Slack escalation, not counted in "tickets to clear".
 - It stays visible under the queue's **Tracked** tab so managers can review what's parked and why.
 - Only a **real DevRev action** (reply, stage change, solve) fully clears it. A remark alone never makes a ticket disappear.
+- **Tracking is a one-day snooze.** The remark only counts for that day's queue — if the ticket still breaks a rule at the next build, it lands back in Open / Pending / On Hold. Nobody can park a ticket in Tracked and forget it.
 
 ### Ordering
 Tickets are listed by **longest customer silence first** — a customer waiting 9 days appears above one waiting 4.
@@ -81,7 +86,7 @@ The side panel stacks profiles by workload — heaviest queue on top. Click any 
 Because the reminder went out within the last 3 business days: the automation is doing its job. It will appear only if the next reminder fails to arrive on schedule.
 
 **Q: Can someone hide a ticket by adding a remark?**
-They can move it to Tracked (no alerts), but it never disappears — managers see the Tracked tab, and the ticket only truly clears with real DevRev action. Remarks also expire after 30 days.
+Only for the day. A remark moves the ticket to Tracked (no alerts), but it never disappears — managers see the Tracked tab, the ticket only truly clears with real DevRev action, and if it still breaks a rule the next day it returns to its bucket in the fresh queue.
 
 **Q: The member is on leave and their queue is still escalating.**
 Deliberate: escalations are personal pings in a private channel, and teammates can action the tickets. The hourly auto-verify clears the queue as soon as the work is done, whoever does it.

@@ -582,18 +582,21 @@ export const UserActivityDaily = mongoose.model(
 // ═══════════════════════════════════════════════════════════════════════
 /**
  * WHY THIS EXISTS:
- * One document per member per shift-date, created ~30 min before their shift
+ * One document per member per shift-date, created ~45 min before their shift
  * ends by the attention sweep (attentionService.js). Holds the snapshot of
  * tickets that matched the attention rules at build time, plus the clearing/
  * escalation state machine. Ticket STATUS always comes from Redis/DevRev —
  * this collection only persists the queue itself (it must survive restarts
- * and next-day escalation checks).
+ * and next-day escalation checks). The dashboard always shows the member's
+ * LATEST queue (yesterday's until today's build replaces it).
  *
  * LIFECYCLE:
+ *   build (shift end −45 min, dashboard only, no Slack)
+ *   → shift end −15 min … shift-end Slack summary (congrats / "N tracked" /
+ *                         "X open, Y pending, Z on hold — update those")
  *   pending → (member actions tickets, Verify & Clear re-checks DevRev)
- *           → cleared                       … Slack congrats
- *   pending → next shift start −45 min      … Slack escalation to TL, hourly
- *   empty   → nothing matched at build time … Slack "superstar" message
+ *           → cleared … Slack congrats (skipped if the summary is still ahead)
+ *   pending → per-shift escalation instant … Slack escalation to TL, hourly
  */
 const AttentionItemSchema = new mongoose.Schema(
   {
@@ -629,7 +632,12 @@ const AttentionQueueSchema = new mongoose.Schema(
     shift: String,                               // "SHIFT 2"
     shift_date: { type: String, index: true },   // IST "YYYY-MM-DD" the shift belongs to
     shift_end_at: Date,
-    next_shift_start_at: Date,                   // first-escalation instant (per-shift ATTENTION_TIMING); null = empty queue / manual test build
+    // Shift-end Slack summary (~15 min before shift end, ATTENTION_TIMING
+    // .slackAt) — decoupled from the build (~45 min before). sent_at makes
+    // the post once-per-queue across sweep ticks.
+    shift_alert_at: Date,
+    shift_alert_sent_at: Date,
+    next_shift_start_at: Date,                   // first-escalation instant (per-shift ATTENTION_TIMING); null = no actionable items / manual test build
     status: { type: String, enum: ["pending", "cleared", "empty"], default: "pending", index: true },
     items: [AttentionItemSchema],
     created_at: { type: Date, default: Date.now },

@@ -465,7 +465,7 @@ const AttentionBell = () => {
                     <button
                       onClick={() => setActiveBucket("tracked")}
                       disabled={!trackedItems.length}
-                      title="Internal remark added after the queue was built — being tracked, no alerts"
+                      title="Internal remark added today — being tracked, no alerts. Still-blocked tickets return to their bucket in tomorrow's queue."
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-all disabled:opacity-30 ${
                         activeBucket === "tracked"
                           ? "bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/40"
@@ -489,8 +489,8 @@ const AttentionBell = () => {
                     <p className="text-sm font-medium text-slate-600 dark:text-slate-300 mt-4">No queue yet</p>
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5 leading-relaxed max-w-xs">
                       {isSelf
-                        ? "Your attention queue appears here near the end of your shift, with any tickets that need action."
-                        : `${selectedEntry?.member || "This member"}'s queue appears here near the end of their shift.`}
+                        ? "Your attention queue appears here after its first build (~45 min before shift end) and then stays visible all day, refreshing each shift."
+                        : `${selectedEntry?.member || "This member"}'s queue appears here after their first build and then stays visible day-to-day.`}
                     </p>
                   </div>
                 )}
