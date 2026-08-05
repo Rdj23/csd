@@ -53,7 +53,6 @@ import { redisGet } from "../config/database.js";
 import {
   resolveOwnerName,
   EMAIL_TO_NAME_MAP,
-  TEAM_MAPPING,
   GST_MEMBERS,
   SHIFT_HOURS,
   isSolvedStatus,
@@ -458,9 +457,18 @@ export const fetchRosterShifts = async () => {
     .filter((r) => r.name); // silently ignore rows we can't map to a GST member
 };
 
-// ── Slack ────────────────────────────────────────────────────────────────
-// Posts to the dedicated attention webhook (test channel for the pilot).
-// Deliberately NOT the NOC/reconcile webhook — different audience.
+// ── Slack (via n8n) ──────────────────────────────────────────────────────
+// ALL attention alerts route through one n8n webhook (Rohan 2026-08-05):
+// n8n posts with a real Slack bot, which is what gives us THREADS — the
+// next-day "no action" alert must reply under the shift-end summary, and
+// incoming webhooks can't do that (no thread_ts, no ts back). n8n also owns
+// the channel choice, so switching test → production channel is an n8n edit,
+// zero backend changes. Contract (see docs/ATTENTION_N8N_SETUP.md):
+//   POST ATTENTION_N8N_WEBHOOK_URL
+//     { kind, text, thread_ts }   kind: shift_end_summary | no_action_followup | queue_cleared
+//   ← { ts: "<slack message ts>" }   (the summary's ts anchors the thread)
+// Fallback: plain incoming webhook (ATTENTION_SLACK_WEBHOOK_URL) — posts
+// fine but can't thread and returns no ts.
 
 const attentionWebhook = () => process.env.ATTENTION_SLACK_WEBHOOK_URL;
 
@@ -486,66 +494,90 @@ export const postSlack = async (text) => {
   }
 };
 
+/**
+ * The single exit point for every attention alert. Sends through n8n when
+ * ATTENTION_N8N_WEBHOOK_URL is set; otherwise the plain incoming webhook.
+ * @returns {{ok: boolean, ts: string|null}} ts = Slack message ts from n8n
+ *   (null on the webhook fallback — thread replies then post to the channel).
+ */
+export const postAlert = async ({ kind, text, threadTs = null }) => {
+  const n8n = process.env.ATTENTION_N8N_WEBHOOK_URL;
+  if (n8n) {
+    try {
+      const res = await axios.post(
+        n8n,
+        { kind, text, thread_ts: threadTs || null },
+        { timeout: 20000 },
+      );
+      return { ok: true, ts: res.data?.ts || res.data?.message_ts || null };
+    } catch (e) {
+      logger.error({ err: e.message, kind }, "Attention n8n post failed — falling back to incoming webhook");
+    }
+  }
+  return { ok: await postSlack(text), ts: null };
+};
+
 const BUCKET_LABELS = { open: "🟠 Open", pending: "🟡 Pending", onHold: "🔵 On Hold" };
 const BUCKET_WORDS = { open: "open", pending: "pending", onHold: "on hold" };
 
-// Slack shows at most this many tickets per bucket — the full queue lives on
-// the dashboard. Keeps day-one messages readable while the backlog is large.
-const SLACK_MAX_PER_BUCKET = 10;
-
 /**
- * Shift-end Slack summary (posts at ATTENTION_TIMING.slackAt, ~15 min before
- * shift end — separate from the build). Three variants (Rohan 2026-08-05):
+ * One bullet of the shift-end summary. Counts only, NO ticket metadata —
+ * the full list lives on the dashboard (Rohan 2026-08-05). Variants:
  *   nothing at all        → congratulations
- *   only tracked items    → "great, but N being tracked — action them tomorrow"
+ *   only tracked items    → "N being tracked — action them tomorrow"
  *   actionable items left → "you have X open, Y pending, Z on hold — update those"
- * Counts come from live item statuses, so tickets actioned (or remark-tracked)
- * between build and shift end drop out of the headline automatically.
  */
-export const shiftEndMessage = (queue, mention) => {
-  const who = mention || `*${queue.member}*`;
-  const actionable = queue.items.filter((i) => i.status === "pending");
-  const tracked = queue.items.filter((i) => i.status === "partial");
+export const memberSummaryLine = (queue, mention = null) => {
+  const who = mention || (useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`);
+  const items = queue.items || [];
+  const actionable = items.filter((i) => i.status === "pending");
+  const tracked = items.filter((i) => i.status === "partial").length;
 
-  if (!actionable.length && !tracked.length) {
-    return `🎉 Congratulations ${who} — no tickets to be worked on! Enjoy the end of your shift.`;
+  if (!actionable.length && !tracked) {
+    return `• 🎉 ${who} — congratulations, no tickets to be worked on!`;
   }
-
   if (!actionable.length) {
-    const lines = [
-      `👏 Great ${who} — nothing needs action right now, but *${tracked.length} ticket${tracked.length === 1 ? " is" : "s are"} being tracked*. Make sure to action them tomorrow when you start your shift:`,
-    ];
-    for (const i of tracked.slice(0, SLACK_MAX_PER_BUCKET)) {
-      lines.push(`• <${TICKET_URL(i.display_id)}|${i.display_id}> ${i.title ? `_${i.title.slice(0, 70)}_` : ""}`);
-    }
-    if (tracked.length > SLACK_MAX_PER_BUCKET) {
-      lines.push(`  …and ${tracked.length - SLACK_MAX_PER_BUCKET} more on the dashboard`);
-    }
-    return lines.join("\n");
+    return `• 👏 ${who} — nothing to action, but *${tracked} ticket${tracked === 1 ? " is" : "s are"} being tracked* — make sure to action them tomorrow when you start your shift.`;
   }
-
   const counts = ["open", "pending", "onHold"]
     .map((b) => ({ b, n: actionable.filter((i) => i.bucket === b).length }))
     .filter((c) => c.n)
     .map((c) => `*${c.n} ${BUCKET_WORDS[c.b]}*`);
-  const lines = [
-    `⏰ Hey ${who} — you have ${counts.join(", ")} case${actionable.length === 1 ? "" : "s"} to work on. Please update those before your shift ends.`,
-  ];
+  return (
+    `• ⏰ Hey ${who} — you have ${counts.join(", ")} case${actionable.length === 1 ? "" : "s"} to work on. Please update those.` +
+    (tracked ? ` _(+${tracked} tracked)_` : "")
+  );
+};
+
+/**
+ * The batched shift-end message: one Slack post per shift trigger, one line
+ * per member ("if 4 users, a 4-point list"). Its Slack ts anchors the thread
+ * the next-day "no action" alerts reply into.
+ */
+export const shiftEndSummaryMessage = (queues) => {
+  const [q] = queues;
+  return [
+    `📋 *Shift-end check — ${q.shift}${q.shift_date ? ` · ${q.shift_date}` : ""}*`,
+    ...queues.map((queue) => memberSummaryLine(queue)),
+  ].join("\n");
+};
+
+/**
+ * Next-day "no action" thread reply: bare clickable ticket IDs, stage-wise,
+ * nothing else. Includes TRACKED items — a remark snoozes same-day alerts,
+ * but a ticket still violating its rule the next morning gets listed anyway
+ * (Rohan 2026-08-03/05).
+ */
+export const noActionMessage = (queue) => {
+  const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
+  const rows = queue.items.filter((i) => i.status === "pending" || i.status === "partial");
+  const lines = [`🚨 ${who} — *no action* on below tickets:`];
   for (const bucket of ["open", "pending", "onHold"]) {
-    const rows = actionable.filter((i) => i.bucket === bucket);
-    if (!rows.length) continue;
-    lines.push(`\n${BUCKET_LABELS[bucket]} (${rows.length})`);
-    for (const i of rows.slice(0, SLACK_MAX_PER_BUCKET)) {
-      lines.push(`• <${TICKET_URL(i.display_id)}|${i.display_id}> ${i.title ? `_${i.title.slice(0, 70)}_` : ""} — ${i.reason}`);
-    }
-    if (rows.length > SLACK_MAX_PER_BUCKET) {
-      lines.push(`  …and ${rows.length - SLACK_MAX_PER_BUCKET} more on the dashboard`);
-    }
+    const ids = rows
+      .filter((i) => i.bucket === bucket)
+      .map((i) => `<${TICKET_URL(i.display_id)}|${i.display_id}>`);
+    if (ids.length) lines.push(`${BUCKET_LABELS[bucket]}: ${ids.join(", ")}`);
   }
-  if (tracked.length) {
-    lines.push(`\n_+${tracked.length} more being tracked (remark added) — action them tomorrow._`);
-  }
-  lines.push(`\nAction them, then hit *Verify & Clear* on the dashboard ✅`);
   return lines.join("\n");
 };
 
@@ -805,19 +837,22 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
     queue.cleared_at = new Date();
     const trackedCount = queue.items.filter((i) => i.status === "partial").length;
     const clearedCount = queue.items.filter((i) => i.status === "cleared").length;
-    // No congrats while the shift-end Slack summary is still ahead — it will
-    // tell the same story minutes later; double-posting is just noise. Same
-    // for an all-tracked queue auto-clearing (0 actioned): the tracked items
-    // were already announced, there is nothing to congratulate.
+    // "Queue clear — superb!" goes to the CHANNEL whenever a queue clears,
+    // any time of day (Rohan 2026-08-05). Two suppressions against noise:
+    // while the shift-end summary is still ahead (it tells the same story
+    // minutes later), and an all-tracked auto-clear (0 actioned — nothing
+    // to congratulate; the tracked items were already announced).
     const alertStillAhead =
       queue.shift_alert_at && !queue.shift_alert_sent_at && queue.shift_alert_at.getTime() > nowMs;
     if (!alertStillAhead && clearedCount > 0) {
       const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
-      await postSlack(
-        `✅ ${who} cleared their attention queue — *${clearedCount} ticket${clearedCount === 1 ? "" : "s"}* actioned` +
+      await postAlert({
+        kind: "queue_cleared",
+        text:
+          `✅ Superb ${who} — attention queue cleared! *${clearedCount} ticket${clearedCount === 1 ? "" : "s"}* actioned` +
           (trackedCount ? ` (+${trackedCount} being tracked via remarks)` : "") +
           `. 👏`,
-      );
+      });
     }
   }
   await queue.save();
@@ -841,8 +876,11 @@ const ALERT_LATE_TOLERANCE_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Post the shift-end Slack summary for every queue whose slackAt has passed
- * and hasn't been messaged yet. Runs every sweep tick; `shift_alert_sent_at`
- * makes it once-per-queue. Message reflects live item statuses, so anything
+ * and hasn't been messaged yet — ONE batched message per shift, one line per
+ * member. Runs every sweep tick; `shift_alert_sent_at` makes it once-per-
+ * queue. The returned Slack ts is stored on every queue in the batch as
+ * `slack_thread_ts`, so each member's next-day "no action" alert can reply
+ * in this exact thread. Counts reflect live item statuses, so anything
  * actioned or remark-tracked between build (T-45) and now has dropped out.
  */
 const runShiftEndAlerts = async (nowMs) => {
@@ -850,43 +888,55 @@ const runShiftEndAlerts = async (nowMs) => {
     shift_alert_at: { $ne: null, $lte: new Date(nowMs) },
     shift_alert_sent_at: null,
   });
+  if (!due.length) return;
+
+  // Group by shift (+date, defensive) — everyone on the same trigger shares
+  // one message. A late-recovered old window is skipped, not posted stale.
+  const groups = new Map();
   for (const q of due) {
-    try {
-      if (nowMs - q.shift_alert_at.getTime() > ALERT_LATE_TOLERANCE_MS) {
-        q.shift_alert_sent_at = new Date(nowMs);
-        await q.save();
-        logger.warn({ member: q.member, shiftDate: q.shift_date }, "Attention shift-end alert skipped — window long past");
-        continue;
-      }
-      const mention = useMentions() ? q.slack_id : null;
-      await postSlack(shiftEndMessage(q, mention));
+    if (nowMs - q.shift_alert_at.getTime() > ALERT_LATE_TOLERANCE_MS) {
       q.shift_alert_sent_at = new Date(nowMs);
       await q.save();
-      logger.info({ member: q.member, shiftDate: q.shift_date }, "Attention shift-end alert sent");
+      logger.warn({ member: q.member, shiftDate: q.shift_date }, "Attention shift-end alert skipped — window long past");
+      continue;
+    }
+    const key = `${q.shift}|${q.shift_date}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(q);
+  }
+
+  for (const queues of groups.values()) {
+    try {
+      const { ok, ts } = await postAlert({
+        kind: "shift_end_summary",
+        text: shiftEndSummaryMessage(queues),
+      });
+      if (!ok) continue; // post failed — next sweep tick retries the whole group
+      for (const q of queues) {
+        q.shift_alert_sent_at = new Date(nowMs);
+        q.slack_thread_ts = ts;
+        await q.save();
+      }
+      logger.info(
+        { shift: queues[0].shift, members: queues.length, threaded: !!ts },
+        "Attention shift-end summary sent",
+      );
     } catch (e) {
-      logger.error({ err: e, member: q.member }, "Attention shift-end alert failed");
+      logger.error({ err: e, shift: queues[0]?.shift }, "Attention shift-end alert failed");
     }
   }
 };
 
-// ── Escalation ───────────────────────────────────────────────────────────
+// ── Escalation (next-day "no action" thread reply) ──────────────────────
+// Reworked 2026-08-05 (Rohan): at the per-shift escalation instant (e.g.
+// 8:45 AM for shift 1 — ~45 min into the member's next shift) re-verify the
+// queue against live DevRev; whatever still violates its rule gets posted as
+// a minimal "no action" list — bare clickable ticket IDs, stage-wise,
+// TRACKED included — as a REPLY IN THE SAME SLACK THREAD as that queue's
+// shift-end summary. No TL cc, no reasons (the old verbose TL page). Still
+// repeats hourly until the queue clears.
 
-const escalationMessage = (queue, tlMention, remaining) => {
-  const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
-  const tl = tlMention ? ` cc ${tlMention}` : "";
-  const tracked = queue.items.filter((i) => i.status === "partial").length;
-  return (
-    `🚨 Attention queue from ${queue.shift_date} is still open — ${who} has *${remaining} unactioned ticket${remaining === 1 ? "" : "s"}*${tl}\n` +
-    queue.items
-      .filter((i) => i.status === "pending") // partial = being tracked, no page
-      .map((i) => `• <${TICKET_URL(i.display_id)}|${i.display_id}> — ${i.block_reason || i.reason}`)
-      .join("\n") +
-    (tracked ? `\n_+${tracked} more being tracked (remark added) — visible on the dashboard._` : "") +
-    `\nThis alert repeats hourly until the queue is cleared.`
-  );
-};
-
-const runEscalations = async (rosterRows, nowMs) => {
+const runEscalations = async (nowMs) => {
   // next_shift_start_at stores the exact first-escalation instant (per-shift
   // ATTENTION_TIMING) — due the moment it passes, then hourly.
   const due = await AttentionQueue.find({
@@ -915,33 +965,33 @@ const runEscalations = async (rosterRows, nowMs) => {
     // on the member's day off — teammates can action the tickets, and the
     // auto-verify below clears the queue on the next cycle once they do.
 
-    // Auto-verify first — never page a TL over work that was actually done
-    // but not clicked through.
+    // Auto-verify first — never alert over work that was actually done but
+    // not clicked through. This also refreshes which items still violate
+    // their rule ("tickets that still satisfy the condition").
     const updated = await verifyAndClearQueue(q.member, "escalation");
     if (!updated || updated.status !== "pending") continue;
 
-    // Only truly-unactioned items page the TL — "partial" (remark-tracked)
-    // tickets never alert, and an all-tracked queue auto-clears in verify.
+    // Actionable items decide WHETHER the alert fires (an all-tracked queue
+    // auto-clears in verify and never reaches here) — but the list itself
+    // includes tracked items too: still-violating is still-violating.
     const remaining = updated.items.filter((i) => i.status === "pending").length;
     if (remaining === 0) continue;
-    // TL comes from the TEAMS mapping in constants.js (per team decision —
-    // never from the roster API). The roster row / Slack map only resolve
-    // the TL's mention id.
-    const leadName = TEAM_MAPPING[q.member]?.team || null;
-    const tlRow = leadName ? rosterRows.find((r) => r.name === leadName) : null;
-    const tlMention = !leadName
-      ? null
-      : useMentions()
-        ? tlRow?.slackMention || findGSTMember(leadName) || `*${leadName}* (TL)`
-        : `*${leadName}* (TL)`;
 
-    await postSlack(escalationMessage(updated, tlMention, remaining));
+    const { ok } = await postAlert({
+      kind: "no_action_followup",
+      text: noActionMessage(updated),
+      threadTs: updated.slack_thread_ts || null, // no ts (webhook fallback) → plain channel post
+    });
+    if (!ok) continue; // don't burn the hourly slot on a failed post
     updated.escalation = {
       alert_count: (updated.escalation?.alert_count || 0) + 1,
       last_alert_at: new Date(nowMs),
     };
     await updated.save();
-    logger.info({ member: q.member, remaining, alertCount: updated.escalation.alert_count }, "Attention escalation sent");
+    logger.info(
+      { member: q.member, remaining, threaded: !!updated.slack_thread_ts, alertCount: updated.escalation.alert_count },
+      "Attention no-action alert sent",
+    );
   }
 };
 
@@ -1047,7 +1097,7 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
   }
 
   await runShiftEndAlerts(nowMs);
-  await runEscalations(roster, nowMs);
+  await runEscalations(nowMs);
 
   // Auto-clear: once an hour (the :30-UTC tick — offset from the :00-UTC
   // hourly sync) re-verify every recent pending queue so a ticket the member

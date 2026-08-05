@@ -1,4 +1,5 @@
 import axios from "axios";
+import { createHash } from "crypto";
 import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisSetRaw, redisDelete, redisHSetBatch, CACHE_TTL } from "../config/database.js";
@@ -325,7 +326,13 @@ export const fetchAndCacheTickets = async (source = "auto") => {
         // the blob is alive at any moment.
         let json = JSON.stringify(processed);
         checkCacheSize(processed.length, json);
+        // Content hash doubles as the HTTP ETag for GET /api/tickets —
+        // clients send it back via If-None-Match and get a 304 (no multi-MB
+        // body) when a sync produced an identical payload. Stored with the
+        // same TTL so the pair expires together.
+        const etag = `"${createHash("sha1").update(json).digest("hex")}"`;
         await redisSetRaw("tickets:active", json, CACHE_TTL.TICKETS);
+        await redisSetRaw("tickets:active:etag", etag, CACHE_TTL.TICKETS);
         json = null;
         // Populate per-ticket Hash for O(1) lookups by display_id.
         // Used by activityService.getTicketOwner / getAccountCohort to avoid

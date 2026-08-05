@@ -140,6 +140,9 @@ export const corsMiddleware = cors({
   origin: ALLOWED_ORIGINS,
   credentials: true,
   maxAge: 86400,
+  // Let cross-origin JS read the ETag so the frontend can send it back as
+  // If-None-Match and receive 304s instead of the multi-MB tickets payload.
+  exposedHeaders: ["ETag"],
 });
 
 // ─────────────────────────────────────────────────────────────────

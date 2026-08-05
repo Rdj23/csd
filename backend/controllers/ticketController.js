@@ -451,8 +451,21 @@ export const getActiveTickets = async (req, res) => {
     // Hot path — pipe the raw JSON string from Redis without parsing.
     // "tickets:active" holds ~3,000 full DevRev ticket objects (~20-60 MB).
     // JSON.parse() on this would spike the heap for every concurrent request.
-    const rawStable = await redisGetRaw("tickets:active");
+    const [rawStable, storedEtag] = await Promise.all([
+      redisGetRaw("tickets:active"),
+      redisGetRaw("tickets:active:etag"),
+    ]);
     if (rawStable && rawStable.length > 5) {
+      if (storedEtag) {
+        res.setHeader("ETag", storedEtag);
+        // Compare ignoring the W/ weak prefix — intermediaries (CDN/proxy)
+        // may weaken a strong ETag when they re-compress the response.
+        const clientEtag = (req.headers["if-none-match"] || "").replace(/^W\//, "");
+        if (clientEtag && clientEtag === storedEtag.replace(/^W\//, "")) {
+          logger.info("Serving stable tickets (304 not modified)");
+          return res.status(304).end();
+        }
+      }
       logger.info("Serving stable tickets (raw)");
       res.setHeader("Content-Type", "application/json");
       return res.end(`{"success":true,"isPartial":false,"isSyncing":false,"tickets":${rawStable}}`);

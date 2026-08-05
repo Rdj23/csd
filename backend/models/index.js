@@ -637,6 +637,10 @@ const AttentionQueueSchema = new mongoose.Schema(
     // the post once-per-queue across sweep ticks.
     shift_alert_at: Date,
     shift_alert_sent_at: Date,
+    // Slack ts of the batched shift-end summary this queue was announced in
+    // (returned by the n8n Slack bot) — the next-day "no action" alert
+    // replies into this thread. Null on the incoming-webhook fallback.
+    slack_thread_ts: String,
     next_shift_start_at: Date,                   // first-escalation instant (per-shift ATTENTION_TIMING); null = no actionable items / manual test build
     status: { type: String, enum: ["pending", "cleared", "empty"], default: "pending", index: true },
     items: [AttentionItemSchema],

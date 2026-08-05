@@ -28,6 +28,19 @@ const _authFetch = async (url, options = {}, _retries = 0) => {
   return response;
 };
 
+// ── Bandwidth guards (module-level, intentionally NOT persisted) ──
+// ETag of the last full /api/tickets payload. Sent back as If-None-Match so
+// the server can answer 304 (empty body) when nothing changed — the payload
+// is multi-MB, so skipped re-downloads are the single biggest egress saving.
+let _ticketsEtag = null;
+// Set when a sync lands while the tab is hidden. Instead of downloading the
+// full payload for a tab nobody is looking at (wall monitors, overnight
+// tabs), we mark the data stale and fetch once when the tab becomes visible.
+let _staleWhileHidden = false;
+let _visibilityListenerAttached = false;
+const _isTabHidden = () =>
+  typeof document !== "undefined" && document.visibilityState === "hidden";
+
 export const useTicketStore = create(
   persist(
     (set, get) => ({
@@ -63,7 +76,9 @@ export const useTicketStore = create(
 
         // Progress updates during background sync
         // Only updates the progress indicator — does NOT trigger a fetch on every tick.
-        // Fetches only when new chunks land (count increased) so tickets accumulate.
+        // Chunk fetches are cold-start only: a client that already has tickets
+        // waits for the "complete" signal instead of re-downloading the
+        // growing payload on every chunk (each pull is multi-MB).
         newSocket.on("SYNC_PROGRESS", (progressData) => {
           const prev = get();
           set({ syncProgress: progressData.progress });
@@ -71,18 +86,38 @@ export const useTicketStore = create(
           if (progressData.status === "complete") {
             // Sync finished — authoritative fetch for the promoted stable data
             set({ isPartialData: false, syncProgress: 100 });
-            get().fetchTickets();
-          } else if (progressData.count > (prev.tickets?.length || 0)) {
-            // New chunk saved — fetch to merge the larger dataset
+            if (_isTabHidden()) {
+              _staleWhileHidden = true;
+            } else {
+              get().fetchTickets();
+            }
+          } else if ((prev.tickets?.length || 0) === 0 && progressData.count > 0) {
+            // Cold start — we have nothing yet, so accumulate chunks as they land
             set({ isPartialData: true });
             get().fetchTickets();
           }
         });
 
-        // Final signal after sync completion (webhook / manual / cron)
+        // Final signal after sync completion (webhook / manual / cron).
+        // Hidden tabs defer the download until they're visible again.
         newSocket.on("DATA_UPDATED", () => {
-          get().fetchTickets();
+          if (_isTabHidden()) {
+            _staleWhileHidden = true;
+          } else {
+            get().fetchTickets();
+          }
         });
+
+        // One fetch on return-to-visible if syncs happened while hidden
+        if (typeof document !== "undefined" && !_visibilityListenerAttached) {
+          _visibilityListenerAttached = true;
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible" && _staleWhileHidden) {
+              _staleWhileHidden = false;
+              get().fetchTickets();
+            }
+          });
+        }
 
         // Legacy compat
         newSocket.on("REFRESH_TICKETS", (updatedTickets) => {
@@ -204,7 +239,27 @@ export const useTicketStore = create(
 
         try {
           const API_URL = getApiUrl();
-          const response = await _authFetch(`${API_URL}/api/tickets`);
+          // Only revalidate with If-None-Match when we actually hold data a
+          // 304 could reuse — after logout/reload tickets are empty and we
+          // need the full 200 body.
+          const headers = {};
+          if (_ticketsEtag && get().tickets.length > 0) {
+            headers["If-None-Match"] = _ticketsEtag;
+          }
+          const response = await _authFetch(`${API_URL}/api/tickets`, { headers });
+
+          if (response.status === 304) {
+            // Payload unchanged since our last download — keep what we have
+            set({
+              lastSync: new Date(),
+              isLoading: false,
+              isPartialData: false,
+              syncProgress: 100,
+            });
+            return;
+          }
+
+          _ticketsEtag = response.headers.get("ETag");
           const data = await response.json();
 
           const incoming = data.tickets || [];
