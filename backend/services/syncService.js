@@ -1,5 +1,7 @@
 import axios from "axios";
 import { createHash } from "crypto";
+import { gzip } from "zlib";
+import { promisify } from "util";
 import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
 import { redisGet, redisSet, redisSetRaw, redisDelete, redisHSetBatch, CACHE_TTL } from "../config/database.js";
@@ -10,6 +12,13 @@ import { createPartContext, resolveWorkPartFields } from "./partsService.js";
 import { sendSlackAlerts, findGSTMember } from "./slackService.js";
 import { publishSocketEvent } from "../lib/pubsub.js";
 import logger from "../config/logger.js";
+
+const gzipAsync = promisify(gzip);
+
+// Max changed+removed tickets to ship as a socket delta. Above this the
+// broadcast would rival a compressed full download, so clients full-fetch
+// instead. Typical webhook sync touches 1-10 tickets.
+const DELTA_MAX_TICKETS = Number(process.env.DELTA_MAX_TICKETS) || 100;
 
 // BullMQ handles concurrency (concurrency: 1) so no in-process mutex needed.
 // getSyncState kept for API server to check if a sync job is active via queue inspection.
@@ -76,8 +85,17 @@ export const trimTicket = (t) => {
     priority: t.priority,
     severity: t.severity,
     account: t.account?.display_name || t.account,
-    stage: t.stage,
-    owned_by: t.owned_by,
+    // Sub-objects reduced to exactly the fields consumers read (frontend:
+    // stage.name, owned_by display_id/display_name, tag.tag.name; backend:
+    // owned_by id/email for reconcile + attention). Full DevRev sub-objects
+    // roughly double the cache blob and every client download.
+    stage: t.stage ? { name: t.stage.name } : t.stage,
+    owned_by: (t.owned_by || []).map((u) => ({
+      id: u.id,
+      display_id: u.display_id,
+      display_name: u.display_name,
+      email: u.email,
+    })),
     created_date: t.created_date,
     modified_date: t.modified_date,
     custom_fields: {
@@ -103,7 +121,7 @@ export const trimTicket = (t) => {
       tnt__support_engineer_handled: cf.tnt__support_engineer_handled === true,
       tnt__agent_response_count: cf.tnt__agent_response_count || 0,
     },
-    tags: t.tags,
+    tags: (t.tags || []).map((tag) => ({ tag: { name: tag.tag?.name } })),
     sentiment: t.sentiment,
     isZendesk: t.tags?.some((tag) => tag.tag?.name === "Zendesk import"),
     actual_close_date: t.actual_close_date,
@@ -320,6 +338,8 @@ export const fetchAndCacheTickets = async (source = "auto") => {
     const saveProgress = async (isComplete) => {
       if (!processed.length) return processed;
 
+      let delta = null;
+      let currentEtag = null;
       if (isComplete) {
         // Stringify ONCE — reused for the size check and the Redis write,
         // then released before the hash write so at most one extra copy of
@@ -331,9 +351,61 @@ export const fetchAndCacheTickets = async (source = "auto") => {
         // body) when a sync produced an identical payload. Stored with the
         // same TTL so the pair expires together.
         const etag = `"${createHash("sha1").update(json).digest("hex")}"`;
+
+        // ── Delta detection ──
+        // Per-ticket signatures (~55 bytes each) let DATA_UPDATED tell every
+        // connected browser exactly which tickets changed, instead of each one
+        // re-downloading the full multi-MB snapshot after every sync. The
+        // socket patch is the steady-state path; full downloads happen only on
+        // cold start or when a client's etag chain breaks.
+        const newSigs = {};
+        const byDisplayId = new Map();
+        for (const t of processed) {
+          newSigs[t.display_id] = createHash("sha1").update(JSON.stringify(t)).digest("hex");
+          byDisplayId.set(t.display_id, t);
+        }
+        const [prevEtag, prevSigsRaw] = await Promise.all([
+          redisGetRaw("tickets:active:etag"),
+          redisGetRaw("tickets:active:sig"),
+        ]);
+        if (prevEtag && prevSigsRaw && prevEtag !== etag) {
+          try {
+            const prevSigs = JSON.parse(prevSigsRaw);
+            const changed = [];
+            for (const [id, sig] of Object.entries(newSigs)) {
+              if (prevSigs[id] !== sig) changed.push(byDisplayId.get(id));
+            }
+            const removed = Object.keys(prevSigs).filter((id) => !(id in newSigs));
+            // Only ship deltas that are genuinely small — a huge diff (cache
+            // rebuild, backfill) is cheaper as one compressed full download.
+            if (changed.length + removed.length <= DELTA_MAX_TICKETS) {
+              delta = { fromEtag: prevEtag, changed, removed };
+            }
+          } catch {
+            // Corrupt sig map — clients fall back to a full refresh.
+          }
+        }
+
         await redisSetRaw("tickets:active", json, CACHE_TTL.TICKETS);
-        await redisSetRaw("tickets:active:etag", etag, CACHE_TTL.TICKETS);
+
+        // ── Pre-compressed envelope ──
+        // GET /api/tickets streams these exact bytes with Content-Encoding:
+        // gzip — compressing once per sync instead of once per request keeps
+        // the API event loop free at 50 concurrent users AND caps egress at
+        // the best compression level (9) instead of the middleware default.
+        let envelope = `{"success":true,"isPartial":false,"isSyncing":false,"tickets":${json}}`;
         json = null;
+        const gzBase64 = (await gzipAsync(Buffer.from(envelope), { level: 9 })).toString("base64");
+        envelope = null;
+        logger.info(
+          { gzMB: Number((gzBase64.length / 1048576).toFixed(2)), deltaSize: delta ? delta.changed.length + delta.removed.length : null },
+          "tickets:active compressed snapshot written",
+        );
+        await redisSetRaw("tickets:active:gz", gzBase64, CACHE_TTL.TICKETS);
+        await redisSetRaw("tickets:active:sig", JSON.stringify(newSigs), CACHE_TTL.TICKETS);
+        // Etag LAST: a client must never cache a new etag against an old body.
+        await redisSetRaw("tickets:active:etag", etag, CACHE_TTL.TICKETS);
+        currentEtag = etag;
         // Populate per-ticket Hash for O(1) lookups by display_id.
         // Used by activityService.getTicketOwner / getAccountCohort to avoid
         // parsing the entire ~20MB ticket array for a single ticket lookup.
@@ -352,6 +424,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
         count: processed.length,
         progress: isComplete ? 100 : Math.min(90, 10 + Math.floor((loop / 100) * 80)),
         status: isComplete ? "complete" : "loading",
+        // Presence of etag tells clients the follow-up DATA_UPDATED event
+        // owns the refresh decision — prevents the old double-fetch (one on
+        // "complete", one on DATA_UPDATED) that doubled egress per sync.
+        ...(currentEtag ? { etag: currentEtag } : {}),
       });
 
       if (isComplete) {
@@ -359,6 +435,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
           type: "tickets",
           count: processed.length,
           timestamp: new Date().toISOString(),
+          // Etag chain: clients holding fromEtag apply the small patch in
+          // place; anyone else (cold start, missed events) does a full fetch.
+          ...(currentEtag ? { toEtag: currentEtag } : {}),
+          ...(delta ? { fromEtag: delta.fromEtag, changed: delta.changed, removed: delta.removed } : {}),
         });
       }
 

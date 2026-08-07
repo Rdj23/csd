@@ -245,7 +245,9 @@ const AttentionBell = () => {
   useEffect(() => {
     if (!currentUser?.email) return;
     refresh();
-    const t = setInterval(refresh, 5 * 60 * 1000);
+    // 15 min is only the fallback — the ATTENTION_QUEUE(_UPDATED) socket
+    // events below push real-time refreshes, so a tight poll adds nothing.
+    const t = setInterval(refresh, 15 * 60 * 1000);
     return () => clearInterval(t);
   }, [currentUser?.email, refresh]);
 

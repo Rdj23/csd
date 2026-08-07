@@ -311,10 +311,11 @@ const App = () => {
     }
   };
 
-  // Refresh backup every 5 minutes
+  // Refresh backup every 30 minutes — backup assignments change at most a few
+  // times a day, so a tight poll only burned bandwidth (50 users × 288 req/day).
   useEffect(() => {
     fetchBackup();
-    const interval = setInterval(fetchBackup, 5 * 60 * 1000);
+    const interval = setInterval(fetchBackup, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, [currentUser?.name]);
 

@@ -448,25 +448,46 @@ export const getTicketsByDate = async (req, res) => {
 
 export const getActiveTickets = async (req, res) => {
   try {
-    // Hot path — pipe the raw JSON string from Redis without parsing.
-    // "tickets:active" holds ~3,000 full DevRev ticket objects (~20-60 MB).
-    // JSON.parse() on this would spike the heap for every concurrent request.
-    const [rawStable, storedEtag] = await Promise.all([
-      redisGetRaw("tickets:active"),
-      redisGetRaw("tickets:active:etag"),
-    ]);
-    if (rawStable && rawStable.length > 5) {
-      if (storedEtag) {
+    // Hot path, cheapest check first: the etag alone answers a 304 without
+    // pulling any multi-MB blob out of Valkey. The ETag header is attached
+    // ONLY to the 304 and to stable bodies below — never to the partial /
+    // cold-start responses, or clients would revalidate partial data as full.
+    const storedEtag = await redisGetRaw("tickets:active:etag");
+    if (storedEtag) {
+      // Compare ignoring the W/ weak prefix — intermediaries (CDN/proxy)
+      // may weaken a strong ETag when they re-compress the response.
+      const clientEtag = (req.headers["if-none-match"] || "").replace(/^W\//, "");
+      if (clientEtag && clientEtag === storedEtag.replace(/^W\//, "")) {
+        logger.info("Serving stable tickets (304 not modified)");
         res.setHeader("ETag", storedEtag);
-        // Compare ignoring the W/ weak prefix — intermediaries (CDN/proxy)
-        // may weaken a strong ETag when they re-compress the response.
-        const clientEtag = (req.headers["if-none-match"] || "").replace(/^W\//, "");
-        if (clientEtag && clientEtag === storedEtag.replace(/^W\//, "")) {
-          logger.info("Serving stable tickets (304 not modified)");
-          return res.status(304).end();
-        }
+        return res.status(304).end();
       }
+    }
+
+    // Pre-compressed envelope (gzipped once at sync time). Serving these
+    // bytes verbatim skips both the 10-20MB Valkey read and the per-request
+    // gzip that used to burn 100-200ms of event-loop CPU per download.
+    // The compression middleware sees Content-Encoding already set and skips.
+    const acceptsGzip = /\bgzip\b/.test(req.headers["accept-encoding"] || "");
+    if (acceptsGzip) {
+      const gzBase64 = await redisGetRaw("tickets:active:gz");
+      if (gzBase64 && gzBase64.length > 5) {
+        logger.info("Serving stable tickets (precompressed gzip)");
+        if (storedEtag) res.setHeader("ETag", storedEtag);
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Encoding", "gzip");
+        res.setHeader("Vary", "Accept-Encoding");
+        return res.end(Buffer.from(gzBase64, "base64"));
+      }
+    }
+
+    // Fallback — raw JSON string piped without parsing (client without gzip
+    // support, or the :gz key not written yet by an older sync).
+    // JSON.parse() on this would spike the heap for every concurrent request.
+    const rawStable = await redisGetRaw("tickets:active");
+    if (rawStable && rawStable.length > 5) {
       logger.info("Serving stable tickets (raw)");
+      if (storedEtag) res.setHeader("ETag", storedEtag);
       res.setHeader("Content-Type", "application/json");
       return res.end(`{"success":true,"isPartial":false,"isSyncing":false,"tickets":${rawStable}}`);
     }

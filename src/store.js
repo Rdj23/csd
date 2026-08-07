@@ -41,6 +41,25 @@ let _visibilityListenerAttached = false;
 const _isTabHidden = () =>
   typeof document !== "undefined" && document.visibilityState === "hidden";
 
+// Coalesce full-payload downloads: even when a refresh is warranted, never
+// pull the multi-MB snapshot more than once per window per tab. Multiple
+// triggers inside the window collapse into ONE trailing fetch.
+let _lastFullFetchAt = 0;
+let _refreshTimer = null;
+const FULL_FETCH_MIN_INTERVAL_MS = 45000;
+const _requestTicketsRefresh = (get) => {
+  const wait = _lastFullFetchAt + FULL_FETCH_MIN_INTERVAL_MS - Date.now();
+  if (wait <= 0) {
+    get().fetchTickets();
+    return;
+  }
+  if (_refreshTimer) return; // trailing refresh already scheduled
+  _refreshTimer = setTimeout(() => {
+    _refreshTimer = null;
+    get().fetchTickets();
+  }, wait);
+};
+
 export const useTicketStore = create(
   persist(
     (set, get) => ({
@@ -84,8 +103,12 @@ export const useTicketStore = create(
           set({ syncProgress: progressData.progress });
 
           if (progressData.status === "complete") {
-            // Sync finished — authoritative fetch for the promoted stable data
             set({ isPartialData: false, syncProgress: 100 });
+            // New backends attach the etag: the DATA_UPDATED event that
+            // follows carries the delta/etag chain and owns the refresh
+            // decision — fetching here too would double every download.
+            if (progressData.etag) return;
+            // Legacy backend (no etag): authoritative fetch as before
             if (_isTabHidden()) {
               _staleWhileHidden = true;
             } else {
@@ -99,12 +122,32 @@ export const useTicketStore = create(
         });
 
         // Final signal after sync completion (webhook / manual / cron).
-        // Hidden tabs defer the download until they're visible again.
-        newSocket.on("DATA_UPDATED", () => {
+        // Steady state: the payload carries the few changed/removed tickets
+        // and we patch in place (a few KB) instead of re-downloading the
+        // multi-MB snapshot. Full fetches only on cold start or a broken
+        // etag chain — and those are coalesced + deferred for hidden tabs.
+        newSocket.on("DATA_UPDATED", (payload) => {
+          // Already holding this exact version — nothing to download.
+          if (payload?.toEtag && payload.toEtag === _ticketsEtag) {
+            set({ lastSync: new Date() });
+            return;
+          }
+          // In-place patch: only valid if it chains off exactly the version
+          // we hold. Applied even when hidden — it's cheap and keeps the tab
+          // current, avoiding the full fetch on return-to-visible.
+          if (
+            payload?.fromEtag &&
+            Array.isArray(payload.changed) &&
+            payload.fromEtag === _ticketsEtag &&
+            get().tickets.length > 0
+          ) {
+            get().applyTicketsDelta(payload);
+            return;
+          }
           if (_isTabHidden()) {
             _staleWhileHidden = true;
           } else {
-            get().fetchTickets();
+            _requestTicketsRefresh(get);
           }
         });
 
@@ -114,7 +157,7 @@ export const useTicketStore = create(
           document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "visible" && _staleWhileHidden) {
               _staleWhileHidden = false;
-              get().fetchTickets();
+              _requestTicketsRefresh(get);
             }
           });
         }
@@ -226,6 +269,31 @@ export const useTicketStore = create(
       _lastFetchTime: 0,
       _coldStartTimer: null,
 
+      // Apply a socket-delivered delta in place of a full download.
+      // `changed` holds complete trimmed ticket objects (updates + new
+      // tickets), `removed` holds display_ids that left the active set.
+      // The etag advances to `toEtag` so the next 304 revalidation and the
+      // next delta both chain off the patched state.
+      applyTicketsDelta: (payload) => {
+        const removed = new Set(payload.removed || []);
+        const changedById = new Map((payload.changed || []).map((t) => [t.display_id, t]));
+        const next = [];
+        for (const t of get().tickets) {
+          if (removed.has(t.display_id)) continue;
+          const updated = changedById.get(t.display_id);
+          if (updated) {
+            next.push(updated);
+            changedById.delete(t.display_id);
+          } else {
+            next.push(t);
+          }
+        }
+        // Anything left in the map is a newly created/assigned ticket
+        for (const t of changedById.values()) next.push(t);
+        _ticketsEtag = payload.toEtag || null;
+        set({ tickets: next, lastSync: new Date(), isPartialData: false, syncProgress: 100 });
+      },
+
       fetchTickets: async () => {
         const now = Date.now();
         const prev = get();
@@ -260,6 +328,7 @@ export const useTicketStore = create(
           }
 
           _ticketsEtag = response.headers.get("ETag");
+          _lastFullFetchAt = Date.now(); // full body downloaded — start the coalescing window
           const data = await response.json();
 
           const incoming = data.tickets || [];

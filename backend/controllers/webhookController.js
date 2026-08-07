@@ -32,6 +32,19 @@ import logger from "../config/logger.js";
  */
 let debounceTimer = null;
 
+/**
+ * WEBHOOK_SYNC_DELAY_MS — the batch window for webhook-triggered syncs.
+ *
+ * WHY 30s (was 5s): every completed sync broadcasts to ALL connected browsers,
+ * and any data change makes each visible client download the update. During
+ * busy hours DevRev fires webhooks near-continuously, so a 5s window meant a
+ * sync (and a fleet-wide refresh) every few seconds — the main driver of the
+ * Render bandwidth blowout. 30s caps this at 2 syncs/minute worst case; the
+ * dashboard tolerates 30s of staleness invisibly (the hourly cron remains the
+ * safety net).
+ */
+const WEBHOOK_SYNC_DELAY_MS = Number(process.env.WEBHOOK_SYNC_DELAY_MS) || 30000;
+
 export const handleDevRevWebhook = (req, res) => {
   const event = req.body;
 
@@ -93,12 +106,12 @@ export const handleDevRevWebhook = (req, res) => {
          */
         jobId: "webhook-sync",
         /**
-         * delay: 5000 — Wait 5 seconds before the job becomes "ready".
+         * delay — Wait for the batch window before the job becomes "ready".
          * During this window, if more webhooks arrive, they'll try to add
          * a job with the same ID — BullMQ will silently ignore them.
-         * After 5s, the single job runs and fetches ALL latest data.
+         * After the window, the single job runs and fetches ALL latest data.
          */
-        delay: 5000,
+        delay: WEBHOOK_SYNC_DELAY_MS,
         /**
          * removeOnComplete/removeOnFail: true — CRITICAL with a fixed jobId.
          * BullMQ dedupes against jobs in ANY state, including completed/failed
@@ -235,5 +248,5 @@ function directDebouncedSync() {
     fetchAndCacheTickets("webhook").catch((e) =>
       logger.error({ err: e }, "Direct webhook sync failed"),
     );
-  }, 5000);
+  }, WEBHOOK_SYNC_DELAY_MS);
 }
