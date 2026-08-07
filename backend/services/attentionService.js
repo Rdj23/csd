@@ -12,9 +12,9 @@
  * is to actually action the tickets. "Tracked" (remarked) items are a
  * one-day snooze: the remark only counts on the queue's own IST day, so a
  * still-blocked ticket lands back in its bucket at the next build (we
- * don't want people to track-and-forget). Uncleared queues escalate to
- * the team lead at a fixed time after the member's next shift starts,
- * then hourly until clear.
+ * don't want people to track-and-forget). Uncleared queues get exactly ONE
+ * "no action" follow-up at a fixed time after the member's next shift
+ * starts — no hourly repeats (Rohan 2026-08-08: repeats read as spam).
  *
  * RULES ("response" = EXTERNAL comment; internal notes never count —
  * verified 2026-08-02 against DevRev timeline data, see
@@ -102,7 +102,6 @@ const ATTENTION_TIMING = {
 };
 
 const BUILD_WINDOW_MS = 30 * 60 * 1000;      // late-tick tolerance after queueAt
-const ESCALATE_INTERVAL_MS = 60 * 60 * 1000; // repeat escalation hourly
 
 // Tags the DevRev auto-reminder workflow sets (compared lowercased). The
 // final tag's exact DevRev name is unconfirmed — match plausible variants.
@@ -846,13 +845,14 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
       queue.shift_alert_at && !queue.shift_alert_sent_at && queue.shift_alert_at.getTime() > nowMs;
     if (!alertStillAhead && clearedCount > 0) {
       const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
-      await postAlert({
-        kind: "queue_cleared",
-        text:
-          `✅ Superb ${who} — attention queue cleared! *${clearedCount} ticket${clearedCount === 1 ? "" : "s"}* actioned` +
-          (trackedCount ? ` (+${trackedCount} being tracked via remarks)` : "") +
-          `. 👏`,
-      });
+      // Copy per Rohan 2026-08-08: tracked items get the "+n being tracked"
+      // note; a fully-actioned queue (nothing tracked) gets the plain
+      // "awesome job today" congratulations instead.
+      const tickets = `*${clearedCount} ticket${clearedCount === 1 ? "" : "s"}* actioned`;
+      const text = trackedCount
+        ? `✅ Superb ${who} — attention queue cleared! ${tickets} (+${trackedCount} being tracked via remarks). 👏`
+        : `✅ Superb ${who} — attention queue cleared! ${tickets} — you did an awesome job today. 👏`;
+      await postAlert({ kind: "queue_cleared", text });
     }
   }
   await queue.save();
@@ -933,37 +933,50 @@ const runShiftEndAlerts = async (nowMs) => {
 // queue against live DevRev; whatever still violates its rule gets posted as
 // a minimal "no action" list — bare clickable ticket IDs, stage-wise,
 // TRACKED included — as a REPLY IN THE SAME SLACK THREAD as that queue's
-// shift-end summary. No TL cc, no reasons (the old verbose TL page). Still
-// repeats hourly until the queue clears.
+// shift-end summary. No TL cc, no reasons (the old verbose TL page).
+// ONE-SHOT (Rohan 2026-08-08): fires exactly once per queue — hourly repeats
+// read as spam. A successful post nulls next_shift_start_at, permanently
+// removing the queue from the due-query; a FAILED post keeps the clock so
+// the next 15-min sweep retries until one post lands.
 
 const runEscalations = async (nowMs) => {
-  // next_shift_start_at stores the exact first-escalation instant (per-shift
-  // ATTENTION_TIMING) — due the moment it passes, then hourly.
+  // next_shift_start_at stores the exact escalation instant (per-shift
+  // ATTENTION_TIMING) — due the moment it passes, nulled after the one post.
   const due = await AttentionQueue.find({
     status: "pending",
     next_shift_start_at: { $ne: null, $lte: new Date(nowMs) },
   });
 
-  // One escalation cycle per MEMBER, driven by their newest pending queue.
-  // verifyAndClearQueue + the counter writes below only ever touch the
-  // latest queue, so iterating an older still-pending doc for the same
-  // member would re-fire off its stale last_alert_at every sweep tick
-  // (15-min spam instead of hourly). Older queues' tickets re-flag into the
-  // newest build anyway — nothing is lost by skipping the old docs.
+  // One escalation per MEMBER, driven by their newest pending queue.
+  // Older still-pending docs for the same member get their clock nulled —
+  // their tickets re-flag into the newest build anyway, and without the
+  // null they'd match the due-query on every sweep forever.
   const newestByMember = new Map();
   for (const q of due) {
     const prev = newestByMember.get(q.member);
     if (!prev || q.created_at > prev.created_at) newestByMember.set(q.member, q);
   }
+  const superseded = due.filter((q) => newestByMember.get(q.member) !== q);
+  if (superseded.length) {
+    await AttentionQueue.updateMany(
+      { _id: { $in: superseded.map((q) => q._id) } },
+      { $set: { next_shift_start_at: null } },
+    );
+  }
 
   for (const q of newestByMember.values()) {
-    const last = q.escalation?.last_alert_at?.getTime() || 0;
-    if (nowMs - last < ESCALATE_INTERVAL_MS) continue;
+    // ONE-SHOT: a queue that already got its follow-up (e.g. under the old
+    // hourly behaviour, before its clock was nulled) never fires again.
+    if (q.escalation?.alert_count > 0) {
+      q.next_shift_start_at = null;
+      await q.save();
+      continue;
+    }
 
     // Deliberately NO leave-skip here (team decision 2026-08-02): the channel
-    // is private and pings are personal, so an open queue keeps alerting even
-    // on the member's day off — teammates can action the tickets, and the
-    // auto-verify below clears the queue on the next cycle once they do.
+    // is private and pings are personal, so an open queue still gets its one
+    // follow-up on the member's day off — teammates can action the tickets,
+    // and the auto-verify below silences it once they do.
 
     // Auto-verify first — never alert over work that was actually done but
     // not clicked through. This also refreshes which items still violate
@@ -982,15 +995,17 @@ const runEscalations = async (nowMs) => {
       text: noActionMessage(updated),
       threadTs: updated.slack_thread_ts || null, // no ts (webhook fallback) → plain channel post
     });
-    if (!ok) continue; // don't burn the hourly slot on a failed post
+    if (!ok) continue; // failed post keeps the clock — next 15-min sweep retries
     updated.escalation = {
       alert_count: (updated.escalation?.alert_count || 0) + 1,
       last_alert_at: new Date(nowMs),
     };
+    // The one follow-up has been sent — retire this queue's escalation clock.
+    updated.next_shift_start_at = null;
     await updated.save();
     logger.info(
-      { member: q.member, remaining, threaded: !!updated.slack_thread_ts, alertCount: updated.escalation.alert_count },
-      "Attention no-action alert sent",
+      { member: q.member, remaining, threaded: !!updated.slack_thread_ts },
+      "Attention no-action alert sent (one-shot)",
     );
   }
 };

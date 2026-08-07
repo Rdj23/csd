@@ -244,8 +244,9 @@ server.listen(PORT, async () => {
       );
       // Attention Queue sweep — every 15 min it checks whose shift ends within
       // 30 min (roster API) and builds their queue of aging/silent tickets,
-      // plus processes hourly TL escalations for uncleared queues. Idempotent
-      // per member per shift-date, so the frequency is safe.
+      // plus fires the ONE-SHOT "no action" follow-up for uncleared queues
+      // (no hourly repeats — one follow-up per queue, then silence).
+      // Idempotent per member per shift-date, so the frequency is safe.
       await getAttentionQueue().add(
         "sweep", {},
         { repeat: { pattern: "*/15 * * * *" }, jobId: "attention-sweep" },
