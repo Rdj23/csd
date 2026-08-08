@@ -471,12 +471,17 @@ export const fetchRosterShifts = async () => {
 
 const attentionWebhook = () => process.env.ATTENTION_SLACK_WEBHOOK_URL;
 
-// Mentions only make sense once this runs in the OFFICIAL workspace (the
-// roster's slack_ids don't resolve in the test workspace — they render as
-// blank). Until then messages use plain bold names. Flip by setting
-// ATTENTION_SLACK_MENTIONS=true; slack_id is stored on every queue doc, so
-// nothing else needs to change.
-const useMentions = () => process.env.ATTENTION_SLACK_MENTIONS === "true";
+// Mentions are ON by default (official workspace, Rohan 2026-08-08). Set
+// ATTENTION_SLACK_MENTIONS=false only in a test workspace, where the
+// roster's slack_ids don't resolve and would render as blank.
+const useMentions = () => process.env.ATTENTION_SLACK_MENTIONS !== "false";
+
+// Who a message addresses: the roster slack_id stored on the queue doc at
+// build time, else the GST_SLACK_MEMBER_IDS constants map (covers queues
+// built before the roster carried a slack_id), else the plain bold name —
+// an alert must never go out addressed to nobody.
+const memberMention = (queue) =>
+  (useMentions() && (queue.slack_id || findGSTMember(queue.member))) || `*${queue.member}*`;
 
 export const postSlack = async (text) => {
   const url = attentionWebhook();
@@ -516,7 +521,7 @@ export const postAlert = async ({ kind, text, threadTs = null }) => {
   return { ok: await postSlack(text), ts: null };
 };
 
-const BUCKET_LABELS = { open: "🟠 Open", pending: "🟡 Pending", onHold: "🔵 On Hold" };
+const BUCKET_LABELS = { open: "Open", pending: "Pending", onHold: "On Hold" };
 const BUCKET_WORDS = { open: "open", pending: "pending", onHold: "on hold" };
 
 /**
@@ -527,7 +532,7 @@ const BUCKET_WORDS = { open: "open", pending: "pending", onHold: "on hold" };
  *   actionable items left → "you have X open, Y pending, Z on hold — update those"
  */
 export const memberSummaryLine = (queue, mention = null) => {
-  const who = mention || (useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`);
+  const who = mention || memberMention(queue);
   const items = queue.items || [];
   const actionable = items.filter((i) => i.status === "pending");
   const tracked = items.filter((i) => i.status === "partial").length;
@@ -568,14 +573,14 @@ export const shiftEndSummaryMessage = (queues) => {
  * (Rohan 2026-08-03/05).
  */
 export const noActionMessage = (queue) => {
-  const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
+  const who = memberMention(queue);
   const rows = queue.items.filter((i) => i.status === "pending" || i.status === "partial");
-  const lines = [`🚨 ${who} — *no action* on below tickets:`];
+  const lines = [`${who} — *no action* on the tickets below, please update them:`];
   for (const bucket of ["open", "pending", "onHold"]) {
     const ids = rows
       .filter((i) => i.bucket === bucket)
       .map((i) => `<${TICKET_URL(i.display_id)}|${i.display_id}>`);
-    if (ids.length) lines.push(`${BUCKET_LABELS[bucket]}: ${ids.join(", ")}`);
+    if (ids.length) lines.push(`•  *${BUCKET_LABELS[bucket]} (${ids.length}):*  ${ids.join(", ")}`);
   }
   return lines.join("\n");
 };
@@ -844,7 +849,7 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
     const alertStillAhead =
       queue.shift_alert_at && !queue.shift_alert_sent_at && queue.shift_alert_at.getTime() > nowMs;
     if (!alertStillAhead && clearedCount > 0) {
-      const who = useMentions() && queue.slack_id ? queue.slack_id : `*${queue.member}*`;
+      const who = memberMention(queue);
       // Copy per Rohan 2026-08-08: tracked items get the "+n being tracked"
       // note; a fully-actioned queue (nothing tracked) gets the plain
       // "awesome job today" congratulations instead.
