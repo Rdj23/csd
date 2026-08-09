@@ -16,6 +16,15 @@
  * "no action" follow-up at a fixed time after the member's next shift
  * starts — no hourly repeats (Rohan 2026-08-08: repeats read as spam).
  *
+ * SLACK IS MON–FRI ONLY (Rohan 2026-08-09, after Musaveer got a Sunday
+ * follow-up for his Saturday queue): weekend shifts are assigned ad hoc and
+ * rarely match the weekday roster, so any Slack timed off shift data is
+ * wrong on Sat/Sun. Queues still BUILD every day (the dashboard always has
+ * a list to work from) — but summaries, follow-ups and congrats only post
+ * on business days. A follow-up that lands on a weekend slides to Monday at
+ * the same shift time, and posts to the member whether or not they are
+ * working that day (no leave-skip — teammates can action the tickets).
+ *
  * RULES ("response" = EXTERNAL comment; internal notes never count —
  * verified 2026-08-02 against DevRev timeline data, see
  * scripts/verifyResponseTimestamps.js):
@@ -140,6 +149,12 @@ const daysAgo = (tsMs, nowMs) => Math.floor((nowMs - tsMs) / DAY_MS);
 
 const istWeekday = (tsMs) =>
   new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short" }).format(new Date(tsMs));
+
+/** Sat/Sun on the IST calendar — the days no attention Slack may post. */
+const isWeekendIst = (tsMs) => {
+  const wd = istWeekday(tsMs);
+  return wd === "Sat" || wd === "Sun";
+};
 
 /**
  * Whole business days (Mon–Fri, IST calendar) elapsed from `fromMs` to
@@ -687,7 +702,11 @@ const activeTicketsByMember = async ({ allowPartial = false, onlyMembers = null 
 const escalationInstant = (shift, fromMs) => {
   const t = ATTENTION_TIMING[shift];
   if (!t) return null; // "MANUAL" test queues get no escalation clock
-  const day = t.escalateNextDay ? new Date(fromMs + DAY_MS) : new Date(fromMs);
+  let day = t.escalateNextDay ? new Date(fromMs + DAY_MS) : new Date(fromMs);
+  // Slack is Mon–Fri only (Rohan 2026-08-09): a follow-up landing on Sat/Sun
+  // slides to Monday at the same shift time — weekend shifts are ad hoc, so
+  // "next shift start" derived from the weekday roster is wrong there anyway.
+  while (isWeekendIst(day.getTime())) day = new Date(day.getTime() + DAY_MS);
   return istInstant(istYmd(day), t.escalateAt);
 };
 
@@ -939,7 +958,9 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
     // to congratulate; the tracked items were already announced).
     const alertStillAhead =
       queue.shift_alert_at && !queue.shift_alert_sent_at && queue.shift_alert_at.getTime() > nowMs;
-    if (!alertStillAhead && clearedCount > 0) {
+    // Third suppression: Slack is Mon–Fri only (Rohan 2026-08-09) — a queue
+    // cleared on a weekend still clears everywhere, just without the post.
+    if (!alertStillAhead && clearedCount > 0 && !isWeekendIst(nowMs)) {
       const who = memberMention(queue);
       // Copy per Rohan 2026-08-08: tracked items get the "+n being tracked"
       // note; a fully-actioned queue (nothing tracked) gets the plain
@@ -985,6 +1006,19 @@ const runShiftEndAlerts = async (nowMs) => {
     shift_alert_sent_at: null,
   });
   if (!due.length) return;
+
+  // Slack is Mon–Fri only (Rohan 2026-08-09): weekend queues still build for
+  // the dashboard, but their shift-end summary is suppressed outright — not
+  // deferred, because "before your shift ends" posted on Monday is stale.
+  // Marking sent keeps them out of the due-query for the rest of the weekend.
+  if (isWeekendIst(nowMs)) {
+    for (const q of due) {
+      q.shift_alert_sent_at = new Date(nowMs);
+      await q.save();
+    }
+    logger.info({ queues: due.length }, "Attention shift-end summaries suppressed — weekend");
+    return;
+  }
 
   // Group by shift (+date, defensive) — everyone on the same trigger shares
   // one message. A late-recovered old window is skipped, not posted stale.
@@ -1042,6 +1076,24 @@ const runEscalations = async (nowMs) => {
     status: "pending",
     next_shift_start_at: { $ne: null, $lte: new Date(nowMs) },
   });
+
+  // Slack is Mon–Fri only (Rohan 2026-08-09). escalationInstant() never
+  // schedules onto a weekend anymore, but a clock stamped before that fix —
+  // or one that drifted here via retries — must be SLID, not just skipped:
+  // a past-due instant left in place would fire at the first sweep after
+  // Sunday midnight. Reschedule to the next business day at the queue's own
+  // shift escalation time (e.g. Monday 8:45 AM for a SHIFT 1 queue).
+  if (isWeekendIst(nowMs)) {
+    for (const q of due) {
+      const t = ATTENTION_TIMING[q.shift];
+      let day = new Date(nowMs + DAY_MS);
+      while (isWeekendIst(day.getTime())) day = new Date(day.getTime() + DAY_MS);
+      q.next_shift_start_at = t ? istInstant(istYmd(day), t.escalateAt) : null;
+      await q.save();
+    }
+    if (due.length) logger.info({ queues: due.length }, "Attention escalations slid past weekend");
+    return;
+  }
 
   // One escalation per MEMBER, driven by their newest pending queue.
   // Older still-pending docs for the same member get their clock nulled —
