@@ -4,18 +4,34 @@ import React, {
   useState,
   useRef,
   useCallback,
+  lazy,
+  Suspense,
 } from "react";
 import { loginUser, trackEvent } from "./utils/clevertap";
 import { authFetch } from "./utils/authFetch";
 import { fetchAllSolvedTickets } from "./api/ticketApi";
 import ErrorBoundary from "./components/ErrorBoundary";
 import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
-import AllTicketsView from "./features/tickets/components/Allticketsview";
-
-import GamificationView from "./features/gamification/components/GamificationView";
-import ActivityDashboard from "./features/activity/components/ActivityDashboard";
-import AgentModal from "./features/agent/components/AgentModal";
 import AttentionBell from "./features/attention/components/AttentionBell";
+
+// ── Route-level code splitting ───────────────────────────────────────────
+// Everything below renders for exactly ONE tab, but static imports pulled all
+// of it into the single entry chunk (1.55MB / 450KB gzip), so every user paid
+// for every tab on first paint — on a Render Free instance with a ~1 min cold
+// start, that lands on top of an already slow first byte.
+//
+// The two dependencies that dominate are only reachable from these tabs:
+//   recharts      → Analytics, Parts, All Tickets
+//   framer-motion → Parts only (a single file, features/parts/TicketDrilldown)
+// Splitting them out means the default Tickets board no longer ships either.
+//
+// The Tickets board itself (GroupedTicketList / TicketList) stays STATIC — it
+// is the landing tab, so lazying it would just add a spinner to the critical
+// path for zero benefit.
+const AllTicketsView = lazy(() => import("./features/tickets/components/Allticketsview"));
+const GamificationView = lazy(() => import("./features/gamification/components/GamificationView"));
+const ActivityDashboard = lazy(() => import("./features/activity/components/ActivityDashboard"));
+const AgentModal = lazy(() => import("./features/agent/components/AgentModal"));
 
 import {
   Users,
@@ -68,13 +84,16 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import { Analytics } from "@vercel/analytics/react";
 
 import TicketList from "./features/tickets/components/TicketList";
-import AnalyticsDashboard from "./features/analytics/components/AnalyticsDashboard";
-import PartsView from "./features/parts/components/PartsView";
+// Lazy — see the code-splitting note at the top of this file. These two carry
+// recharts (both) and framer-motion (Parts), the heaviest deps in the app.
+const AnalyticsDashboard = lazy(() => import("./features/analytics/components/AnalyticsDashboard"));
+const PartsView = lazy(() => import("./features/parts/components/PartsView"));
 import SmartDatePicker from "./components/common/SmartDateRangePicker";
 import MultiSelectFilter from "./components/common/MultiSelectFilter";
 import LoginScreen from "./features/auth/components/LoginScreen";
 import { useTicketStore } from "./store";
-import ProfileStatsModal from "./features/remarks/components/ProfileStatsModal";
+// Lazy — only mounts once a user clicks into a profile.
+const ProfileStatsModal = lazy(() => import("./features/remarks/components/ProfileStatsModal"));
 import TicketSkeleton from "./components/ui/TicketSkeleton";
 import {
   TEAM_GROUPS,
@@ -88,6 +107,25 @@ import {
 } from "./utils";
 import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
 import { EMAIL_TO_NAME_MAP, DEPENDENCY_TEAMS, depTeamBadgeClass, getTicketDepInfo } from "./utils";
+/**
+ * Suspense fallback for lazily-loaded tabs.
+ *
+ * Deliberately quiet: the chunk usually resolves in well under a second on a
+ * warm connection, and a heavy skeleton that flashes for 200ms reads as jank.
+ * Sized to the content area so switching tabs doesn't collapse the layout.
+ */
+const TabFallback = () => (
+  <div className="flex items-center justify-center h-64 text-slate-400">
+    <div className="h-6 w-6 rounded-full border-2 border-slate-300 border-t-transparent animate-spin dark:border-slate-700 dark:border-t-transparent" />
+  </div>
+);
+
+// Default lookback for the All Tickets Solved bucket when the user hasn't
+// picked a date range. The live cache is active-only (backend, 2026-08-09), so
+// solved rows are always a Mongo query — this just bounds the default one.
+// 30 days keeps the payload small; the date picker widens it on demand.
+const ALL_SOLVED_DEFAULT_DAYS = 30;
+
 const EMPTY_FILTERS = {
   teams: [],
   owners: [],
@@ -182,6 +220,14 @@ const App = () => {
   const [googleClientId, setGoogleClientId] = useState(null);
   const [activeTab, setActiveTab] = useState(tabFromPath);
   const [showAgentModal, setShowAgentModal] = useState(false);
+  // AgentModal is lazy, but it does `if (!open) return null` AFTER its hooks —
+  // so it must stay MOUNTED once opened or the conversation is lost on close.
+  // This latch gives us both: nothing is downloaded until the first open, and
+  // from then on the component stays mounted exactly as before.
+  const [agentEverOpened, setAgentEverOpened] = useState(false);
+  useEffect(() => {
+    if (showAgentModal) setAgentEverOpened(true);
+  }, [showAgentModal]);
 
   // Keep the browser URL in sync with the active tab so each tab is
   // directly linkable (e.g. https://supportintel.clevertap.com/parts).
@@ -1086,14 +1132,23 @@ const App = () => {
   useEffect(() => {
     if (activeTab !== "alltickets") return;
     const { start, end } = allSolvedRange || {};
-    if (!start || !end) {
-      setAllSolvedTickets([]);
-      return;
-    }
+
+    // As of 2026-08-09 the live cache is ACTIVE-ONLY (the phase-2 solved scan
+    // was removed from the backend sync). Solved tickets exist in exactly one
+    // place now: Mongo, via this endpoint. So an empty range can no longer
+    // mean "skip the fetch and read solved out of the cache" — there is
+    // nothing there to read, and the tab would render zero solved tickets.
+    // With no explicit range we fall back to a recent default window; the user
+    // widens it with the date picker, which then queries Mongo for any period.
+    const hasExplicit = !!(start && end);
+    const effEnd = hasExplicit ? end : format(new Date(), "yyyy-MM-dd");
+    const effStart = hasExplicit
+      ? start
+      : format(new Date(Date.now() - ALL_SOLVED_DEFAULT_DAYS * 86400000), "yyyy-MM-dd");
 
     let cancelled = false;
     setAllSolvedLoading(true);
-    fetchAllSolvedTickets(authFetch, { start, end })
+    fetchAllSolvedTickets(authFetch, { start: effStart, end: effEnd })
       .then((data) => {
         if (!cancelled) setAllSolvedTickets(data?.tickets || []);
       })
@@ -1114,26 +1169,23 @@ const App = () => {
     if (activeTab !== "alltickets") return [];
 
     const allTicketsFilters = tabFilters.alltickets || EMPTY_FILTERS;
-    const hasRange = !!(
-      allTicketsFilters.dateRange?.start && allTicketsFilters.dateRange?.end
-    );
 
-    // When a range is set, solved tickets come from Mongo (full history). Drop
-    // solved tickets from the active cache so they aren't double-counted, then
-    // splice in the Mongo-sourced set. Live buckets (open/pending/on-hold) keep
-    // coming from the active cache, filtered by created_date below.
+    // Solved tickets ALWAYS come from Mongo now — the live cache is
+    // active-only, so the two sources can no longer overlap. The filter below
+    // is kept as a cheap guard: a stale cache written before the 2026-08-09
+    // backend change (5-min TTL, but a client can hold an older payload) could
+    // still carry solved rows, and double-counting them against the Mongo set
+    // would inflate every count on this tab.
     const isSolvedStage = (name) => {
       const s = (name || "").toLowerCase();
       return (
         s.includes("solved") || s.includes("closed") || s.includes("resolved")
       );
     };
-    const sourceTickets = hasRange
-      ? [
-          ...tickets.filter((t) => !isSolvedStage(t.stage?.name)),
-          ...allSolvedTickets,
-        ]
-      : tickets;
+    const sourceTickets = [
+      ...tickets.filter((t) => !isSolvedStage(t.stage?.name)),
+      ...allSolvedTickets,
+    ];
 
     return sourceTickets
       .map((t) => {
@@ -2565,6 +2617,10 @@ const App = () => {
 
             {/* SCROLLABLE CONTENT */}
             <div className="flex-1 overflow-y-auto pr-1 pt-2 pb-10 no-scrollbar">
+              {/* One boundary for the whole tab chain: exactly one branch is
+                  ever mounted, so a single Suspense covers every lazy tab
+                  without wrapping each ErrorBoundary individually. */}
+              <Suspense fallback={<TabFallback />}>
               {activeTab === "parts" ? (
                 <ErrorBoundary level="section">
                   <PartsView
@@ -2659,6 +2715,7 @@ const App = () => {
                   )}
                 </>
               )}
+              </Suspense>
             </div>
           </div>
         </div>
@@ -2727,17 +2784,24 @@ const App = () => {
           );
 
           return (
-            <ProfileStatsModal
-              user={selectedUserProfile}
-              tickets={activeForUser}
-              solvedTickets={solvedForUser}
-              onClose={() => setSelectedUserProfile(null)}
-            />
+            <Suspense fallback={null}>
+              <ProfileStatsModal
+                user={selectedUserProfile}
+                tickets={activeForUser}
+                solvedTickets={solvedForUser}
+                onClose={() => setSelectedUserProfile(null)}
+              />
+            </Suspense>
           );
         })()}
 
-      {/* AI Agent Modal */}
-      <AgentModal open={showAgentModal} onClose={() => setShowAgentModal(false)} />
+      {/* AI Agent Modal — null fallback: it renders nothing while closed
+          anyway, so a spinner here would appear over the dashboard. */}
+      {agentEverOpened && (
+        <Suspense fallback={null}>
+          <AgentModal open={showAgentModal} onClose={() => setShowAgentModal(false)} />
+        </Suspense>
+      )}
     </div>
   );
 };

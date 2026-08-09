@@ -49,7 +49,7 @@
  */
 
 import axios from "axios";
-import { redisGet } from "../config/database.js";
+import { redisGet, redisSet } from "../config/database.js";
 import {
   resolveOwnerName,
   EMAIL_TO_NAME_MAP,
@@ -432,19 +432,32 @@ const canonicalMemberName = (row) =>
  * in constants.js.
  * Returns [] when unavailable.
  */
+// The sweep runs every 15 min (96×/day) but only ~12 of those ticks fall in a
+// real shift instant; the rest establish "nobody is due" and exit. Each one
+// still made a live HTTP call to the roster API. Shift assignments change at
+// most daily, so a short cache turns 96 outbound calls into ~6 without
+// touching any timing logic. Kept deliberately short so a same-day roster
+// correction still lands within one sweep interval.
+const ROSTER_CACHE_KEY = "attention:roster:shifts";
+const ROSTER_CACHE_TTL_S = 600;
+
 export const fetchRosterShifts = async () => {
   const base = process.env.ROSTER_API_URL;
   if (!base) {
     logger.warn("ROSTER_API_URL not set — attention sweep has no shift data");
     return [];
   }
+
+  const cached = await redisGet(ROSTER_CACHE_KEY);
+  if (cached) return cached;
+
   const headers = {};
   if (process.env.ROSTER_API_TOKEN) headers.Authorization = `Bearer ${process.env.ROSTER_API_TOKEN}`;
   if (process.env.ROSTER_API_KEY) headers["x-api-key"] = process.env.ROSTER_API_KEY;
 
   const res = await axios.get(base, { headers, timeout: 20000 });
   const rows = res.data?.data || res.data || [];
-  return rows
+  const shifts = rows
     .map((r) => ({
       email: (r.email || "").toLowerCase(),
       name: canonicalMemberName(r),
@@ -454,6 +467,12 @@ export const fetchRosterShifts = async () => {
       slackMention: extractSlackMention(r.slack_id),
     }))
     .filter((r) => r.name); // silently ignore rows we can't map to a GST member
+
+  // Cache only a non-empty result: an empty roster (API blip, auth failure)
+  // would otherwise pin "nobody is on shift" for 10 minutes and silently skip
+  // a real queue-build window.
+  if (shifts.length) await redisSet(ROSTER_CACHE_KEY, shifts, ROSTER_CACHE_TTL_S);
+  return shifts;
 };
 
 // ── Slack (via n8n) ──────────────────────────────────────────────────────
@@ -699,6 +718,54 @@ const trackedRemarkIds = async (displayIds, shiftDate) => {
   }
 };
 
+/**
+ * Did a GST engineer leave an INTERNAL comment on this ticket in DevRev during
+ * the queue's IST day?
+ *
+ * WHY THIS EXISTS ALONGSIDE trackedRemarkIds():
+ * trackedRemarkIds only sees the `Remark` collection — notes typed into OUR
+ * dashboard. But an engineer who opens the ticket in DevRev and adds an
+ * internal note there has done exactly the same thing: recorded that they are
+ * on it. Before this, that work was invisible to the queue and the member kept
+ * getting alerted for a ticket they had demonstrably picked up. Same day-anchor
+ * as trackedRemarkIds, so the two sources behave identically: today's notes
+ * count, yesterday's never carry over.
+ *
+ * VISIBILITY IS THE POINT: only `internal` comments mark TRACKING. An external
+ * reply is a real customer action and clears the item outright via
+ * itemStillBlocked — routing it here would downgrade a full clear to "tracked".
+ *
+ * Bounded to TIMELINE_PAGE_CAP pages and short-circuits on the first match, so
+ * a long-running ticket can't turn one verify into an unbounded crawl. Failures
+ * return false: the item stays pending, which is the safe direction (an extra
+ * nudge beats silently dropping a real one).
+ */
+const TIMELINE_PAGE_CAP = 5;
+
+const hasDevRevInternalNote = async (ticketDonId, shiftDate) => {
+  if (!ticketDonId) return false;
+  const dayStartMs = new Date(`${shiftDate}T00:00:00+05:30`).getTime();
+  let cursor = null;
+  let pages = 0;
+  try {
+    do {
+      const { entries, nextCursor } = await fetchTimelineEntries(ticketDonId, { cursor, limit: 100 });
+      for (const e of entries) {
+        if (e.type !== "timeline_comment") continue;
+        if (e.visibility !== "internal") continue;
+        if (e.created_by?.type !== "dev_user") continue;
+        if (new Date(e.created_date).getTime() >= dayStartMs) return true;
+      }
+      cursor = nextCursor;
+      pages++;
+    } while (cursor && pages < TIMELINE_PAGE_CAP);
+  } catch (e) {
+    logger.warn({ err: e.message, ticket: ticketDonId }, "Attention: DevRev internal-note check failed");
+    return false;
+  }
+  return false;
+};
+
 const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
   const tickets = ticketsByMember.get(candidate.name) || [];
   const items = await buildItems(tickets, nowMs);
@@ -759,9 +826,24 @@ const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
 //   onHold  — org-side external message within the 2-day window, or ticket
 //             left the bucket.
 
-const itemStillBlocked = async (item, fresh, queueCreatedMs, nowMs) => {
+const itemStillBlocked = async (item, fresh, queueCreatedMs, nowMs, queueMember = null) => {
   const stageName = fresh.stage?.name;
   if (isSolvedStatus(stageName)) return null;
+
+  // REASSIGNED — the ticket is no longer this member's responsibility, so it
+  // must leave their queue even though its stage never changed. Without this,
+  // handing a ticket over left the original owner being nudged (and escalated
+  // to their TL) for work that is now someone else's. Compared on the resolved
+  // canonical name so a DevRev display_name variant isn't read as a handover.
+  //
+  // Only acts on a CONFIDENT read: an unresolvable owner (alias gap, unowned)
+  // yields null from resolveOwnerName, and treating that as "reassigned" would
+  // silently empty queues whenever the roster aliases drift.
+  if (queueMember) {
+    const freshOwner = resolveOwnerName(fresh.owned_by?.[0]?.display_name);
+    if (freshOwner && freshOwner !== queueMember) return null;
+  }
+
   const bucket = bucketForStage(stageName);
   if (bucket !== item.bucket) return null; // moved on — whatever they did worked
   const la = lastAgentExternalMs(fresh);
@@ -816,10 +898,19 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
       item.block_reason = "Could not verify against DevRev — try again";
       continue;
     }
-    const blocked = await itemStillBlocked(item, fresh, queueCreatedMs, nowMs);
+    const blocked = await itemStillBlocked(item, fresh, queueCreatedMs, nowMs, queue.member);
     if (blocked) {
       item.block_reason = blocked;
-      if (remarkedIds.has(item.display_id)) {
+      // Two independent signals that the member is tracking this ticket:
+      // a note in OUR dashboard, or an internal comment they left in DevRev.
+      // The DevRev lookup is a per-ticket API call, so it runs ONLY when the
+      // cheap Mongo-backed remark check came up empty and the item would
+      // otherwise alert — on a healthy queue that is zero extra calls.
+      let tracked = remarkedIds.has(item.display_id);
+      if (!tracked) {
+        tracked = await hasDevRevInternalNote(item.ticket_id || fresh.id, queue.shift_date);
+      }
+      if (tracked) {
         if (item.status !== "partial") item.partial_at = new Date();
         item.status = "partial";
       } else {

@@ -26,7 +26,8 @@
  *   → worker marks job complete → publishes event via PubSub (if needed)
  */
 
-import { Worker } from "bullmq";
+import { Worker, UnrecoverableError } from "bullmq";
+import { admitHeavyJob } from "./memoryGuard.js";
 import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/syncService.js";
 import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { precomputeAnalytics } from "../services/analyticsService.js";
@@ -37,6 +38,52 @@ import { runAttentionSweep } from "../services/attentionService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";
 import { getCurrentQuarterKey } from "../config/constants.js";
+
+/**
+ * Error names that mean "the code is wrong", not "the world was uncooperative".
+ * A retry cannot fix any of these — the same input hits the same broken line.
+ */
+const CODE_DEFECT_ERRORS = new Set(["ReferenceError", "TypeError", "SyntaxError", "RangeError"]);
+
+const isCodeDefect = (err) => {
+  if (!err || !CODE_DEFECT_ERRORS.has(err.name)) return false;
+  // Network stacks muddy the signal: undici surfaces connection failures as a
+  // TypeError carrying a `cause`, and HTTP clients attach `code`/`response`.
+  // Those are operational and SHOULD be retried — only bare defects qualify.
+  if (err.cause || err.code || err.response) return false;
+  return true;
+};
+
+/**
+ * Wrap a job processor so a code defect fails ONCE instead of `attempts` times.
+ *
+ * WHY THIS MATTERS MORE THAN IT LOOKS:
+ * On 2026-08-08 a missing import threw a ReferenceError at the very END of the
+ * active-ticket sync — after the full ~8k-ticket DevRev crawl, before the cache
+ * write. BullMQ dutifully retried it. `attempts: 3` therefore meant three full
+ * crawls per trigger, each holding ~100MB at peak, for an error that could
+ * never succeed. Multiply by two queues and the repeat schedule and the
+ * instance ran out of memory.
+ *
+ * UnrecoverableError tells BullMQ to skip the remaining attempts and fail the
+ * job immediately. Transient failures (DevRev 5xx, Mongo timeouts, Redis
+ * blips) are untouched and still get their full retry budget — which is the
+ * only thing retries were ever good for.
+ */
+const guardProcessor = (workerName, processor) => async (job) => {
+  try {
+    return await processor(job);
+  } catch (err) {
+    if (isCodeDefect(err)) {
+      logger.fatal(
+        { worker: workerName, jobName: job?.name, err },
+        "Code defect in job — failing permanently without retry (fix the code, then redeploy)",
+      );
+      throw new UnrecoverableError(`${err.name}: ${err.message}`);
+    }
+    throw err;
+  }
+};
 
 export const registerAllWorkers = (connection) => {
   /**
@@ -69,18 +116,35 @@ export const registerAllWorkers = (connection) => {
    */
   const ticketSyncWorker = new Worker(
     "ticket-sync",
-    async (job) => {
+    guardProcessor("ticket-sync", async (job) => {
       // "reconcile-counts" — daily per-member DevRev-vs-dashboard count check.
       // Shares this queue (concurrency 1) so it never races a running sync,
       // and any heal job it dispatches simply runs next in line.
       if (job.name === "reconcile-counts") {
+        if (!admitHeavyJob("ticket-sync:reconcile-counts")) return;
         logger.info("[ticket-sync] Reconciling active counts vs DevRev");
         return await reconcileActiveCounts();
       }
+      if (!admitHeavyJob("ticket-sync")) return;
       logger.info({ source: job.data.source }, "[ticket-sync] Processing");
       await fetchAndCacheTickets(job.data.source);
-    },
-    { ...opts, concurrency: 1, lockDuration: 300000 },
+    }),
+    /**
+     * maxStalledCount: 0 — do NOT re-dispatch a job whose lock lapsed.
+     *
+     * A "stalled" job usually isn't dead, just event-loop-blocked (this sync
+     * does a synchronous multi-MB JSON.stringify, 8k SHA-1 hashes and a
+     * level-9 gzip, any of which can starve BullMQ's lock-renewal timer).
+     * The default of 1 makes BullMQ hand the job to another worker while the
+     * original is still running — two concurrent 100MB syncs, which is how
+     * 2026-08-08 escalated. The Redis single-flight lock in syncService now
+     * makes such a duplicate harmless, and this makes it not happen at all.
+     *
+     * Safe here specifically because this job is frequent and self-healing:
+     * webhooks and the hourly cron re-trigger it within the hour. The daily
+     * jobs keep the default, where a dropped run would mean a real data gap.
+     */
+    { ...opts, concurrency: 1, lockDuration: 300000, maxStalledCount: 0 },
   );
 
   // ─────────────────────────────────────────────────────────────────
@@ -111,7 +175,8 @@ export const registerAllWorkers = (connection) => {
    */
   const historicalSyncWorker = new Worker(
     "historical-sync",
-    async (job) => {
+    guardProcessor("historical-sync", async (job) => {
+      if (!admitHeavyJob("historical-sync")) return;
       logger.info({ jobName: job.name }, "[historical-sync] Processing");
       if (job.name === "full-sync") {
         await syncHistoricalToDB(true);
@@ -119,7 +184,7 @@ export const registerAllWorkers = (connection) => {
         await syncHistoricalToDB(false);
       }
       if (global.gc) global.gc();
-    },
+    }),
     { ...opts, concurrency: 1, lockDuration: 600000 },
   );
 
@@ -143,11 +208,12 @@ export const registerAllWorkers = (connection) => {
    */
   const analyticsWorker = new Worker(
     "analytics",
-    async (job) => {
+    guardProcessor("analytics", async (job) => {
+      if (!admitHeavyJob("analytics")) return;
       logger.info({ quarter: job.data.quarter }, "[analytics] Processing");
       await precomputeAnalytics(job.data.quarter);
       if (global.gc) global.gc();
-    },
+    }),
     { ...opts, concurrency: 1, lockDuration: 300000 },
   );
 
@@ -171,11 +237,11 @@ export const registerAllWorkers = (connection) => {
    */
   const rosterWorker = new Worker(
     "roster",
-    async () => {
+    guardProcessor("roster", async () => {
       logger.info("[roster] Syncing roster from Google Sheets");
       await syncRoster();
       await publishRosterUpdated();
-    },
+    }),
     { ...opts, concurrency: 1, lockDuration: 120000 },
   );
 
@@ -208,7 +274,8 @@ export const registerAllWorkers = (connection) => {
    */
   const activitySyncWorker = new Worker(
     "activity-sync",
-    async (job) => {
+    guardProcessor("activity-sync", async (job) => {
+      if (!admitHeavyJob("activity-sync")) return;
       logger.info({ jobName: job.name, data: job.data }, "[activity-sync] Processing");
       if (job.name === "backfill") {
         await syncActivityBatch({ fullBackfill: true, quarter: job.data.quarter || getCurrentQuarterKey() });
@@ -218,7 +285,7 @@ export const registerAllWorkers = (connection) => {
         await syncActivityBatch({ since: job.data.since });
       }
       if (global.gc) global.gc();
-    },
+    }),
     { ...opts, concurrency: 1, lockDuration: 600000 },
   );
 
@@ -240,12 +307,13 @@ export const registerAllWorkers = (connection) => {
    */
   const partsSyncWorker = new Worker(
     "parts-sync",
-    async (job) => {
+    guardProcessor("parts-sync", async (job) => {
+      if (!admitHeavyJob("parts-sync")) return;
       logger.info({ data: job.data }, "[parts-sync] Processing");
       const result = await runPartsSync({ maxTickets: job.data?.maxTickets ?? null });
       if (global.gc) global.gc();
       return result;
-    },
+    }),
     { ...opts, concurrency: 1, lockDuration: 600000 },
   );
 
@@ -268,10 +336,10 @@ export const registerAllWorkers = (connection) => {
    */
   const attentionWorker = new Worker(
     "attention",
-    async (job) => {
+    guardProcessor("attention", async (job) => {
       logger.info({ data: job.data }, "[attention] Sweep starting");
       return await runAttentionSweep(job.data || {});
-    },
+    }),
     { ...opts, concurrency: 1, lockDuration: 300000 },
   );
 

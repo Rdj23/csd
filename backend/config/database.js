@@ -9,6 +9,22 @@ export const CACHE_TTL = {
   TICKETS: 300, // 5 minutes
   LEADERBOARD: 1800, // 30 minutes
   DRILLDOWN: 300, // 5 minutes
+
+  // Live active-ticket cache (tickets:active + :gz + :sig + :etag + :hash).
+  //
+  // MUST comfortably exceed the sync cron interval. At the old 300s these keys
+  // expired ~5 min after every sync and only stayed warm because webhook
+  // traffic happened to rewrite them — so any quiet spell (nights, weekends,
+  // a missed webhook) left the cache absent, which is what drove the
+  // "tickets:active missing — repopulating" path in activityService and the
+  // cold-start fetch in ticketController.
+  //
+  // With the cron at 4h a 5-min TTL would mean the cache is genuinely gone for
+  // most of every interval. 6h gives a full cycle of margin: a sync always
+  // lands before expiry, so the cache is continuously warm and webhooks only
+  // make it fresher. Affordable now that it holds active tickets only (~1MB,
+  // down from 9.23MB) against the 25MB Valkey cap.
+  ACTIVE_TICKETS: 6 * 3600, // 6 hours
 };
 
 let redis = null;
@@ -43,6 +59,54 @@ export const redisGetRaw = async (key) => {
   }
 };
 
+/**
+ * Batch GET + JSON.parse for many keys in ONE round trip (MGET).
+ * Returns a Map of key → parsed value, containing ONLY the keys that hit.
+ *
+ * Doing this as N sequential redisGet() calls would be N round trips; on a
+ * batch of 50 ticket ids that is the difference between ~1ms and ~50ms of
+ * pure latency before any work starts.
+ */
+export const redisMGet = async (keys) => {
+  const out = new Map();
+  if (!isRedisReady() || !keys.length) return out;
+  try {
+    const values = await redis.mget(keys);
+    keys.forEach((key, i) => {
+      const raw = values[i];
+      if (raw == null) return;
+      try {
+        out.set(key, JSON.parse(raw));
+      } catch {
+        // Corrupt entry — treat as a miss so the caller recomputes it.
+      }
+    });
+  } catch (e) {
+    logger.error({ err: e, count: keys.length }, "Redis MGET error");
+  }
+  return out;
+};
+
+/**
+ * Batch SETEX via a pipeline. `entries` = [[key, value, ttlSeconds], ...].
+ * Values are JSON-serialized. Best-effort: a cache write failure must never
+ * fail the request that produced the data.
+ */
+export const redisMSet = async (entries, defaultTtl = 1800) => {
+  if (!isRedisReady() || !entries.length) return false;
+  try {
+    const pipeline = redis.pipeline();
+    for (const [key, value, ttl] of entries) {
+      pipeline.setex(key, ttl || defaultTtl, JSON.stringify(value));
+    }
+    await pipeline.exec();
+    return true;
+  } catch (e) {
+    logger.error({ err: e, count: entries.length }, "Redis MSET error");
+    return false;
+  }
+};
+
 export const redisSet = async (key, data, ttl = 1800) => {
   if (!isRedisReady()) return false;
   try {
@@ -72,6 +136,30 @@ export const redisHGet = async (key, field) => {
     logger.error({ err: e, key, field }, "Redis HGET error");
     return null;
   }
+};
+
+/**
+ * Batch HGET (HMGET) — many fields of ONE hash in a single round trip.
+ * Returns a Map of field → parsed value, containing only the fields that hit.
+ */
+export const redisHMGet = async (key, fields) => {
+  const out = new Map();
+  if (!isRedisReady() || !fields.length) return out;
+  try {
+    const values = await redis.hmget(key, ...fields);
+    fields.forEach((field, i) => {
+      const raw = values[i];
+      if (raw == null) return;
+      try {
+        out.set(field, JSON.parse(raw));
+      } catch {
+        // Corrupt field — treat as a miss.
+      }
+    });
+  } catch (e) {
+    logger.error({ err: e, key, count: fields.length }, "Redis HMGET error");
+  }
+  return out;
 };
 
 /**
@@ -266,26 +354,60 @@ export const initRedis = async () => {
 // --- REDIS URL EXPORT (for BullMQ and Pub/Sub connections) ---
 export const getRedisUrl = () => process.env.REDIS_URL || null;
 
-/**
- * Parse REDIS_URL into a BullMQ-compatible connection object.
- * BullMQ requires maxRetriesPerRequest: null.
- */
+// ── Shared BullMQ connection ─────────────────────────────────────────────
+// This function used to return a plain CONFIG OBJECT. BullMQ treats that as
+// "make your own connection", so every Queue and every Worker opened its own:
+//
+//   1 app + 2 pubsub + 7 queues + 7 workers × 2  =  ~24 connections
+//
+// Render's free Key Value tier allows 50. At 24 for one process, a split
+// api + worker topology needed ~47/50 and was effectively blocked — which is
+// why everything runs hybrid on a single instance today.
+//
+// Passing a shared IORedis INSTANCE instead makes BullMQ reuse it for all
+// non-blocking commands. Queues stop opening connections entirely; Workers
+// still call .duplicate() for their blocking BRPOPLPUSH connection, which is
+// required and correct. New math:
+//
+//   1 app + 2 pubsub + 1 shared + 7 worker-blocking  =  ~11 connections
+//
+// BullMQ marks an injected instance as `shared` and will NOT quit it on
+// Worker.close()/Queue.close(), so lifecycle stays owned by closeBullMQConnection()
+// below. Note this is deliberately SEPARATE from the main `redis` client: the
+// app client uses maxRetriesPerRequest: 3, and BullMQ requires null.
+let bullmqRedis = null;
+
 export const getBullMQConnection = () => {
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) return null;
+  if (bullmqRedis) return bullmqRedis;
   try {
-    const parsed = new URL(redisUrl);
-    return {
-      host: parsed.hostname,
-      port: parseInt(parsed.port) || 6379,
-      password: parsed.password || undefined,
-      username: parsed.username || "default",
-      tls: parsed.protocol === "rediss:" ? {} : undefined,
-      maxRetriesPerRequest: null, // Required by BullMQ
-    };
-  } catch {
+    bullmqRedis = new Redis(redisUrl, {
+      maxRetriesPerRequest: null, // Required by BullMQ — must never be a number
+      enableReadyCheck: false, // BullMQ manages readiness itself
+      connectTimeout: 10000,
+      retryStrategy: (times) => Math.min(times * 2000, 30000),
+    });
+    bullmqRedis.on("error", (err) => {
+      if (!err.message.includes("ECONNRESET")) logger.error({ err }, "BullMQ Redis error");
+    });
+    bullmqRedis.on("ready", () => logger.info("BullMQ Redis connection ready (shared across all queues)"));
+    return bullmqRedis;
+  } catch (err) {
+    logger.error({ err }, "BullMQ Redis init failed");
     return null;
   }
+};
+
+/** Close the shared BullMQ connection. Call AFTER all workers/queues close. */
+export const closeBullMQConnection = async () => {
+  if (!bullmqRedis) return;
+  try {
+    await bullmqRedis.quit();
+  } catch {
+    bullmqRedis.disconnect();
+  }
+  bullmqRedis = null;
 };
 
 // --- MONGODB CONNECTION ---

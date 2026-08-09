@@ -1,5 +1,5 @@
 import { AnalyticsTicket } from "../models/index.js";
-import { redisGet, redisGetRaw, redisSet, CACHE_TTL } from "../config/database.js";
+import { redisGet, redisGetRaw, redisSet, redisMGet, redisMSet, redisHMGet, CACHE_TTL } from "../config/database.js";
 import { fetchTicketLinks, fetchWorkItem, fetchWorkItems, dependencyCounterpart, classifyLinkedWorkTeam } from "../services/devrevApi.js";
 import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
 import { getTicketSyncQueue } from "../lib/queues.js";
@@ -591,14 +591,88 @@ export const getIssueDetails = async (req, res) => {
   }
 };
 
+// ── Dependency cache ─────────────────────────────────────────────────────
+// This endpoint was, by a wide margin, the heaviest thing running on Render —
+// and it had no cache at all. Every call issued a live DevRev links.list per
+// ticket, plus works.get enrichment for each linked item.
+//
+// The client side made that expensive: the dashboard holds ~814 active
+// tickets, treats a dependency entry as stale after 1h, and batches 50 ids per
+// request. So each open dashboard fired ~17 requests covering ~814 live
+// links.list calls every hour — and because nothing was shared server-side,
+// 60 users meant 60× that for identical data.
+//
+// Caching per TICKET (not per batch) is the important detail: batches are
+// arbitrary client-side slices, so a batch-level key would almost never be
+// reused, while ticket-level entries are shared across every user and every
+// differently-sliced batch.
+//
+// INVALIDATION IS BY modified_date, NOT BY A TIMER.
+// Linking a NOC task / ISS to a ticket mutates the TICKET — DevRev bumps its
+// modified_date and fires a webhook, which re-syncs it into tickets:active(:hash).
+// So the ticket's own modified_date is an exact change signal for "might this
+// ticket's dependencies differ now?", and we already have it cached per ticket.
+// A plain TTL would ignore that signal and re-fetch every ticket on a fixed
+// clock, which is precisely the waste that made this endpoint the heaviest
+// thing on the box.
+//
+// Entries therefore store the modified_date they were computed against; a
+// mismatch is a miss. Steady state (nothing changed) costs ZERO DevRev calls.
+//
+// DEP_CACHE_TTL is only a BACKSTOP, not the invalidation mechanism. It covers
+// the one case modified_date can't see: the LINKED ISS changing owner/stage/
+// team without the ticket itself being touched. Those fields are displayed and
+// filtered on, so they can't drift indefinitely — 6h bounds it while still
+// collapsing virtually all traffic.
+const DEP_CACHE_TTL = 6 * 3600;
+const depCacheKey = (ticketId) => `dep:v2:${ticketId}`;
+
 export const getBatchDependencies = async (req, res) => {
   try {
     const { ticketIds } = req.body;
     const results = {};
     const BATCH_SIZE = 5;
 
-    for (let i = 0; i < ticketIds.length; i += BATCH_SIZE) {
-      const batch = ticketIds.slice(i, i + BATCH_SIZE);
+    // Current modified_date per ticket, straight from the per-ticket hash the
+    // sync/webhook already maintain. One HMGET, no DevRev involvement. Ids
+    // arrive numeric (the client strips "TKT-"), the hash is keyed by display_id.
+    const mtimes = await redisHMGet(
+      "tickets:active:hash",
+      ticketIds.map((id) => `TKT-${id}`),
+    );
+
+    const cached = await redisMGet(ticketIds.map(depCacheKey));
+    const toFetch = [];
+    let staleHits = 0;
+    for (const id of ticketIds) {
+      const hit = cached.get(depCacheKey(id));
+      const currentMtime = mtimes.get(`TKT-${id}`)?.modified_date ?? null;
+      // Unknown current mtime (ticket not in the hash — solved, or a cold
+      // cache) means we cannot prove the entry is current. Trust the entry
+      // anyway: the backstop TTL still bounds it, and refetching every ticket
+      // whenever the hash is cold would reproduce the original stampede.
+      if (hit && (currentMtime === null || hit._mtime === currentMtime)) {
+        const { _mtime, ...data } = hit;
+        results[id] = data;
+        continue;
+      }
+      if (hit) staleHits++;
+      toFetch.push(id);
+    }
+    if (toFetch.length) {
+      logger.info(
+        {
+          requested: ticketIds.length,
+          cacheHits: ticketIds.length - toFetch.length,
+          staleByMtime: staleHits,
+          fetching: toFetch.length,
+        },
+        "Dependencies batch",
+      );
+    }
+
+    for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+      const batch = toFetch.slice(i, i + BATCH_SIZE);
 
       // Step 1: Fetch all links for this batch of tickets in parallel
       const batchLinks = await Promise.all(
@@ -698,6 +772,23 @@ export const getBatchDependencies = async (req, res) => {
           primary: sorted.find((i) => i.isNOC) || sorted[0],
         };
       }
+    }
+
+    // Persist only what we just computed, and only when it's trustworthy.
+    // Entries carrying `error` came from a failed links.list — caching those
+    // would pin a transient DevRev blip as "no dependencies" for a full hour
+    // across every user. They stay uncached so the next request retries.
+    if (toFetch.length) {
+      const writes = toFetch
+        .filter((id) => results[id] && !results[id].error)
+        .map((id) => [
+          depCacheKey(id),
+          // Stamp the modified_date this was computed against — that stamp is
+          // what the next request compares to decide hit vs. stale.
+          { ...results[id], _mtime: mtimes.get(`TKT-${id}`)?.modified_date ?? null },
+          DEP_CACHE_TTL,
+        ]);
+      await redisMSet(writes);
     }
 
     ok(res, results);

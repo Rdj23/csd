@@ -1,6 +1,6 @@
 import { fetchWorkItem, fetchTimelineEntries } from "./devrevApi.js";
 import { fetchAndCacheTickets } from "./syncService.js";
-import { redisGet, redisHGet } from "../config/database.js";
+import { redisGet, redisHGet, redisLock } from "../config/database.js";
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata, ActivitySyncedTicket } from "../models/index.js";
 import {
   GST_NAME_MAP, GST_MEMBERS, GST_DEVU_MAP,
@@ -20,6 +20,14 @@ const CONCURRENCY = 3;
 
 // Delay between each concurrent batch (ms) — keeps DevRev API happy
 const BATCH_DELAY_MS = 500;
+
+// Rate limit for the tickets:active self-heal below. Deliberately longer than
+// the "frequent" job's 10-min cadence so at most every OTHER run can trigger a
+// full ticket crawl — and shorter than that job's 15-min lookback window, so
+// the one skipped run's comments are still picked up by the next one. No data
+// loss, half the crawl rate, and a hard ceiling if the sync is broken.
+const REPOPULATE_COOLDOWN_KEY = "cooldown:activity:repopulate-active";
+const REPOPULATE_COOLDOWN_S = 900;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -448,12 +456,28 @@ export const syncActivityBatch = async (opts = {}) => {
     //    another job having run recently.
     let active = await redisGet("tickets:active");
     if (!active) {
-      logger.warn("tickets:active missing — repopulating before activity sync");
-      try {
-        await fetchAndCacheTickets("activity-sync");
-        active = await redisGet("tickets:active");
-      } catch (e) {
-        logger.error({ err: e.message }, "Failed to repopulate tickets:active for activity sync");
+      // WHY THE COOLDOWN: this self-heal assumes a missing cache is a TTL
+      // expiry that one sync will fix. If the sync is instead broken — as on
+      // 2026-08-08, when a ReferenceError killed it after the crawl but before
+      // the cache write — the cache stays missing, so this branch re-fires on
+      // EVERY run and each attempt burns a full ~8k-ticket DevRev crawl. That
+      // unbounded retry loop was the engine of the OOM.
+      //
+      // A no-unlock NX key (same pattern as the activityController read-sync
+      // gate) caps repopulate attempts at one per REPOPULATE_COOLDOWN_S. A
+      // genuine TTL expiry still heals on the next tick; a broken sync now
+      // degrades to a logged gap instead of a runaway loop.
+      const cooldownOk = await redisLock(REPOPULATE_COOLDOWN_KEY, REPOPULATE_COOLDOWN_S);
+      if (!cooldownOk) {
+        logger.warn("tickets:active missing but repopulate is on cooldown — skipping active tickets this run");
+      } else {
+        logger.warn("tickets:active missing — repopulating before activity sync");
+        try {
+          await fetchAndCacheTickets("activity-sync");
+          active = await redisGet("tickets:active");
+        } catch (e) {
+          logger.error({ err: e.message }, "Failed to repopulate tickets:active for activity sync");
+        }
       }
     }
     for (const t of (active || [])) {

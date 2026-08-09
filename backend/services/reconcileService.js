@@ -52,7 +52,14 @@ export const reconcileActiveCounts = async ({ autoHeal = true, notifySlack = tru
   // the raw ticket objects (memory discipline on the 512MB instance).
   const devrev = {};
   const unresolvedOwners = {};
+  // Tallied during the stream. The pre-streaming version of this function kept
+  // every ticket in a `rawActive` array and reported `rawActive.length`; when
+  // it was rewritten to stream, the array went away but two `rawActive.length`
+  // reads survived — a ReferenceError that would kill this job on its first
+  // real run. Caught by no-undef after backend lint was fixed (2026-08-09).
+  let devrevActiveTotal = 0;
   await streamActiveFromDevRev(async (works) => {
+    devrevActiveTotal += works.length;
     for (const t of works) {
       const owner = resolveOwnerName(t.owned_by?.[0]?.display_name);
       if (!owner) {
@@ -121,7 +128,7 @@ export const reconcileActiveCounts = async ({ autoHeal = true, notifySlack = tru
 
   const report = {
     checkedAt: new Date().toISOString(),
-    devrevActiveTotal: rawActive.length,
+    devrevActiveTotal,
     cacheTicketCount: cached.length,
     perMember: Object.fromEntries(
       [...members].sort().map((m) => {
@@ -139,7 +146,7 @@ export const reconcileActiveCounts = async ({ autoHeal = true, notifySlack = tru
   };
 
   if (mismatches.length === 0 && possibleAliasGaps.length === 0) {
-    logger.info({ devrevActiveTotal: rawActive.length }, "Count reconciliation clean — dashboard matches DevRev for all GST members");
+    logger.info({ devrevActiveTotal }, "Count reconciliation clean — dashboard matches DevRev for all GST members");
     return report;
   }
 

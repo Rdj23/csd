@@ -2,15 +2,22 @@
 import "./config/env.js";
 
 import process from "process";
-import { connectMongoDB, initRedis, getBullMQConnection } from "./config/database.js";
+import { connectMongoDB, initRedis, getBullMQConnection, closeBullMQConnection } from "./config/database.js";
 import { initPublisher } from "./lib/pubsub.js";
 import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue, getAttentionQueue } from "./lib/queues.js";
 import { registerAllWorkers } from "./lib/workers.js";
+import { startMemoryGuard } from "./lib/memoryGuard.js";
 import logger from "./config/logger.js";
 import { getCurrentQuarterKey } from "./config/constants.js";
 
 const start = async () => {
   logger.info("Starting Worker Process");
+
+  // Start before anything else can allocate: this process runs every heavy
+  // job, so it is the one that gets OOM-killed. The guard both logs the
+  // approach to the limit and lets heavy jobs decline to start (see
+  // admitHeavyJob in lib/workers.js).
+  startMemoryGuard();
 
   // 1. Connect to databases
   await connectMongoDB();
@@ -35,10 +42,13 @@ const start = async () => {
 
   // 6. Register repeatable/cron jobs
   // Historical sync: midnight IST (18:30 UTC)
+  // Every 4h, not daily — this is now the only writer of solved tickets into
+  // Mongo, and Mongo is the only solved source the dashboard reads. See the
+  // full rationale in server.js; patterns MUST match across both files.
   await getHistoricalSyncQueue().add(
     "delta-sync",
     {},
-    { repeat: { pattern: "30 18 * * *" }, jobId: "daily-historical-sync" },
+    { repeat: { pattern: "20 */4 * * *" }, jobId: "daily-historical-sync" },
   );
 
   // Analytics precompute: 1AM IST (19:30 UTC) — uses current quarter dynamically
@@ -67,9 +77,11 @@ const start = async () => {
   // there). Registered here too because in split deployments this file is the
   // only cron scheduler; without it, live states/dependencies rely solely on
   // webhooks and go stale whenever one is missed.
+  // Every 4h, not hourly — see the rationale in server.js. Patterns MUST stay
+  // identical across both files or the two topologies drift apart.
   await getTicketSyncQueue().add(
     "sync-active", { source: "cron" },
-    { repeat: { pattern: "0 * * * *" }, jobId: "hourly-active-sync" },
+    { repeat: { pattern: "0 */4 * * *" }, jobId: "hourly-active-sync" },
   );
 
   // Daily count reconciliation — per-GST-member open/pending/on-hold counts
@@ -112,6 +124,11 @@ const start = async () => {
     logger.info("Worker shutting down...");
     await Promise.all(workers.map((w) => w.close()));
     logger.info("All workers closed");
+    // AFTER the workers: they share one injected ioredis instance for
+    // non-blocking commands, and BullMQ deliberately does not quit an injected
+    // connection (queue-base marks it `shared`). Closing it earlier would pull
+    // the socket out from under a worker still finishing its current job.
+    await closeBullMQConnection();
     process.exit(0);
   };
 

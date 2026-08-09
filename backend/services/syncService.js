@@ -2,9 +2,8 @@ import axios from "axios";
 import { createHash } from "crypto";
 import { gzip } from "zlib";
 import { promisify } from "util";
-import { parseISO, format } from "date-fns";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
-import { redisGet, redisSet, redisSetRaw, redisDelete, redisHSetBatch, CACHE_TTL } from "../config/database.js";
+import { redisGet, redisGetRaw, redisSet, redisSetRaw, redisDelete, redisHSetBatch, redisLock, redisUnlock, CACHE_TTL } from "../config/database.js";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { fetchTicketLinks, fetchWorkItem, dependencyCounterpart, classifyLinkedWorkTeam } from "./devrevApi.js";
@@ -20,7 +19,14 @@ const gzipAsync = promisify(gzip);
 // instead. Typical webhook sync touches 1-10 tickets.
 const DELTA_MAX_TICKETS = Number(process.env.DELTA_MAX_TICKETS) || 100;
 
-// BullMQ handles concurrency (concurrency: 1) so no in-process mutex needed.
+// NOTE: an earlier version of this comment claimed "BullMQ handles concurrency
+// (concurrency: 1) so no mutex is needed." That was wrong, and it is why the
+// guard below had to be added after the 2026-08-08 OOM. concurrency: 1 is
+// per-Worker — it serialises jobs WITHIN one queue and says nothing about the
+// three other entry points into fetchAndCacheTickets (activity-sync's
+// self-heal, the API process's cold-start/manual/startup paths, and BullMQ
+// re-dispatching a stalled job). See ACTIVE_SYNC_LOCK_KEY below.
+//
 // getSyncState kept for API server to check if a sync job is active via queue inspection.
 export const getSyncState = () => ({ isSyncing: false, syncQueued: false });
 
@@ -29,7 +35,10 @@ export const getSyncState = () => ({ isSyncing: false, syncQueued: false });
 // Single source of truth for what constitutes a "relevant" ticket and which
 // fields the frontend needs — change once, applied everywhere.
 
-const SOLVED_CUTOFF_DATE = new Date("2026-01-01");
+// SOLVED_CUTOFF_DATE removed 2026-08-09 along with the phase-2 solved scan.
+// The live cache no longer carries solved tickets at all, so there is nothing
+// left to cut off — solved history lives in Mongo (analyticstickets), keyed on
+// closed_date with no retention window.
 
 // ── Agent (AI) rollout date ──
 // Tickets closed on/after this date may be handled by the AI agent. Before this
@@ -140,17 +149,17 @@ const isActiveStage = (stage) =>
   stage.includes("pending") ||
   stage.includes("open");
 
-/** Check if a ticket should be included in the dashboard cache. */
-const isRelevantTicket = (t) => {
-  const stage = t.stage?.name?.toLowerCase() || "";
-  if (isActiveStage(stage)) return true;
-  const isSolved = stage.includes("solved") || stage.includes("closed") || stage.includes("resolved");
-  if (isSolved) {
-    const createdDate = t.created_date ? parseISO(t.created_date) : null;
-    return createdDate && createdDate >= SOLVED_CUTOFF_DATE;
-  }
-  return false;
-};
+/**
+ * Check if a ticket belongs in the live dashboard cache.
+ *
+ * ACTIVE ONLY as of 2026-08-09. This used to also admit solved tickets created
+ * since SOLVED_CUTOFF_DATE, to match the phase-2 stream scan. With that scan
+ * removed and solved data served from Mongo, admitting them here would make
+ * the cold-start fast path (quickFetchTickets) briefly show solved tickets
+ * that the very next full sync then strips out — a visible flicker and a
+ * disagreement between two views of the same cache.
+ */
+const isRelevantTicket = (t) => isActiveStage(t.stage?.name?.toLowerCase() || "");
 
 // Require a resolved GST owner before caching to Redis. Unassigned tickets
 // (including agent-resolved ones with finalOwner="Unassigned") are excluded
@@ -324,16 +333,56 @@ export const quickFetchTickets = async () => {
   return collected.filter(isRelevantTicket).filter(isGSTOwned).map(trimTicket);
 };
 
+// ── Single-flight guard for the active-ticket sync ───────────────────────
+// A full active sync holds ~8k trimmed tickets, a multi-MB JSON string, a
+// per-ticket signature map and a gzip buffer — roughly 100MB of headroom on a
+// 384MB heap. ONE is affordable; two overlapping runs are not.
+//
+// concurrency:1 does NOT give us this. It is per-Worker, and three independent
+// paths call fetchAndCacheTickets:
+//   - the ticket-sync worker (webhook + hourly cron)
+//   - the activity-sync worker's tickets:active self-heal
+//   - the API process (startup warm, cold-start /api/tickets, manual refresh)
+// plus BullMQ re-dispatching a job whose lock lapsed because a blocked event
+// loop starved the renewal timer. On 2026-08-08 all of these stacked up and
+// OOM-killed the instance.
+//
+// The Redis lock makes the sync single-flight across every caller AND every
+// process (API + worker dyno), so memory stays O(1) in the number of callers.
+// TTL > the ~90s a full crawl takes, but short enough that a hard crash
+// self-heals within a couple of minutes instead of wedging the sync forever.
+const ACTIVE_SYNC_LOCK_KEY = "lock:tickets:active:sync";
+const ACTIVE_SYNC_LOCK_TTL = 300;
+
+/**
+ * Public entry point — serialises callers, then delegates to the real sync.
+ *
+ * Returns `null` when a sync was already in flight. Callers must treat that as
+ * "someone else is handling it", NOT as "zero tickets". Every caller either
+ * re-reads tickets:active afterwards or ignores the return value entirely.
+ */
 export const fetchAndCacheTickets = async (source = "auto") => {
+  const lockToken = await redisLock(ACTIVE_SYNC_LOCK_KEY, ACTIVE_SYNC_LOCK_TTL);
+  if (!lockToken) {
+    logger.warn({ source }, "Active ticket sync already in flight — skipping duplicate run");
+    return null;
+  }
+  try {
+    return await runActiveTicketSync(source);
+  } finally {
+    await redisUnlock(ACTIVE_SYNC_LOCK_KEY, lockToken);
+  }
+};
+
+const runActiveTicketSync = async (source) => {
   logger.info({ source }, "Syncing Active Tickets");
 
   try {
     // Store only trimmed/processed tickets — raw API responses are discarded
     // immediately to keep memory usage bounded.
-    // Uses shared trimTicket/isRelevantTicket/isGSTOwned extracted above.
-    let processed = [],
-      cursor = null,
-      loop = 0;
+    // `cursor`/`loop` are gone with the phase-2 stream scan: the active fetch
+    // paginates inside streamActiveFromDevRev and reports one partial save.
+    let processed = [];
 
     const saveProgress = async (isComplete) => {
       if (!processed.length) return processed;
@@ -386,7 +435,7 @@ export const fetchAndCacheTickets = async (source = "auto") => {
           }
         }
 
-        await redisSetRaw("tickets:active", json, CACHE_TTL.TICKETS);
+        await redisSetRaw("tickets:active", json, CACHE_TTL.ACTIVE_TICKETS);
 
         // ── Pre-compressed envelope ──
         // GET /api/tickets streams these exact bytes with Content-Encoding:
@@ -401,10 +450,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
           { gzMB: Number((gzBase64.length / 1048576).toFixed(2)), deltaSize: delta ? delta.changed.length + delta.removed.length : null },
           "tickets:active compressed snapshot written",
         );
-        await redisSetRaw("tickets:active:gz", gzBase64, CACHE_TTL.TICKETS);
-        await redisSetRaw("tickets:active:sig", JSON.stringify(newSigs), CACHE_TTL.TICKETS);
+        await redisSetRaw("tickets:active:gz", gzBase64, CACHE_TTL.ACTIVE_TICKETS);
+        await redisSetRaw("tickets:active:sig", JSON.stringify(newSigs), CACHE_TTL.ACTIVE_TICKETS);
         // Etag LAST: a client must never cache a new etag against an old body.
-        await redisSetRaw("tickets:active:etag", etag, CACHE_TTL.TICKETS);
+        await redisSetRaw("tickets:active:etag", etag, CACHE_TTL.ACTIVE_TICKETS);
         currentEtag = etag;
         // Populate per-ticket Hash for O(1) lookups by display_id.
         // Used by activityService.getTicketOwner / getAccountCohort to avoid
@@ -412,7 +461,7 @@ export const fetchAndCacheTickets = async (source = "auto") => {
         // Written in chunked pipelines (see redisHSetBatch) so the whole
         // blob is never re-buffered in memory.
         const hashEntries = processed.map((t) => [t.display_id, t]);
-        await redisHSetBatch("tickets:active:hash", hashEntries, CACHE_TTL.TICKETS);
+        await redisHSetBatch("tickets:active:hash", hashEntries, CACHE_TTL.ACTIVE_TICKETS);
         await redisDelete("tickets:syncing");
         await redisDelete("tickets:active:initial");
       } else {
@@ -422,7 +471,10 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       await publishSocketEvent("SYNC_PROGRESS", {
         type: "tickets",
         count: processed.length,
-        progress: isComplete ? 100 : Math.min(90, 10 + Math.floor((loop / 100) * 80)),
+        // Was derived from the phase-2 page counter. With only the active
+        // fetch left there is exactly one partial save — the moment the
+        // complete active set has landed — so report a flat 80%.
+        progress: isComplete ? 100 : 80,
         status: isComplete ? "complete" : "loading",
         // Presence of etag tells clients the follow-up DATA_UPDATED event
         // owns the refresh decision — prevents the old double-fetch (one on
@@ -487,69 +539,41 @@ export const fetchAndCacheTickets = async (source = "auto") => {
       await removeReopenedFromMongo([...activeIds]);
     }
 
-    // ── Phase 2: recently-solved scan (newest-first stream) ──
-    // The active cache also carries solved tickets created on/after
-    // SOLVED_CUTOFF_DATE (live-stats / Resolved-By classification read them).
-    // works.list streams newest-first by created_date, so once a page's last
-    // ticket predates the cutoff no further page can contain a relevant
-    // solved ticket and we stop. Active tickets are already covered by
-    // phase 1 — dedupe via activeIds.
-    do {
-      let response;
-      try {
-        response = await fetchWithRetry(
-          `${DEVREV_API}/works.list?limit=50&type=ticket${
-            cursor ? `&cursor=${cursor}` : ""
-          }`,
-          { headers: HEADERS, timeout: 60000 },
-        );
-      } catch (batchErr) {
-        logger.warn({ batch: loop, err: batchErr, collectedCount: processed.length }, "Batch failed, saving collected tickets");
-        if (processed.length > 0) {
-          await saveProgress(true);
-          logger.info({ count: processed.length }, "Partial sync saved despite error");
-        }
-        break;
-      }
-
-      const newWorks = response.data.works || [];
-      if (!newWorks.length) break;
-
-      // Filter and trim immediately — raw API objects are GC'd after this loop
-      for (const t of newWorks) {
-        if (!activeIds.has(t.display_id) && isRelevantTicket(t) && isGSTOwned(t)) {
-          processed.push(trimTicket(t));
-        }
-      }
-
-      // Throttled: every incremental save stringifies the ENTIRE processed
-      // array for the tickets:syncing key. Early pages stay frequent for
-      // cold-start UX; after that every 6th page is plenty.
-      if (loop < 3 || loop % 6 === 0) {
-        await saveProgress(false);
-        logger.info({ count: processed.length, batch: loop + 1 }, "Incrementally cached tickets");
-      }
-
-      const lastDate = parseISO(newWorks[newWorks.length - 1].created_date);
-      if (lastDate < SOLVED_CUTOFF_DATE) {
-        logger.info({ batch: loop + 1 }, "Early exit: stream is past the solved cutoff date");
-        break;
-      }
-
-      cursor = response.data.next_cursor;
-      loop++;
-    } while (cursor && loop < 200);
+    // ── Phase 2 (recently-solved stream scan) — REMOVED 2026-08-09 ──
+    //
+    // What it did: walked works.list newest-first, up to 200 pages × 50, and
+    // kept every GST-owned SOLVED ticket created since 2026-01-01, appending
+    // them to the same cache blob as the active set.
+    //
+    // Why it existed: it dates to the very first commit, when Redis was the
+    // ONLY store — there was no analyticstickets collection and no
+    // /api/tickets/all-solved, so the cache had to carry solved tickets for
+    // the dashboard to show them at all.
+    //
+    // Why it had to go:
+    //  - Mongo superseded it. getAllSolvedForRange (added much later, to fix
+    //    "Q1 shows zeros") is the real solved store, keyed on closed_date with
+    //    no retention limit. Two sources of truth, one of them worse.
+    //  - It never honoured its own cutoff. The loop capped at 200 pages and
+    //    the logs show batch:199 EVERY run — it exited on the page cap, not
+    //    the date. So the cache held "the most recent ~10k org tickets", an
+    //    arbitrary line that moved every sync. Jan-1 coverage was never real.
+    //  - It was ~200 of the sync's ~220 DevRev calls and essentially all of
+    //    its ~60s runtime, to produce 7,515 of the 8,329 cached tickets —
+    //    which the All Tickets view then explicitly discards in favour of the
+    //    Mongo rows whenever a date range is set.
+    //
+    // The cache is now exactly what it says on the tin: the complete set of
+    // active (open / pending / on-hold) GST tickets. Solved data is served
+    // from Mongo. Freshness of the solved store is owned by the delta
+    // historical sync, which is the purpose-built writer for it and now runs
+    // every 4h instead of daily.
 
     if (processed.length > 0) {
       await saveProgress(true);
 
-      const solvedCount = processed.filter((t) => {
-        const stage = t.stage?.name?.toLowerCase() || "";
-        return stage.includes("solved") || stage.includes("closed");
-      }).length;
-
       if (global.gc) global.gc();
-      logger.info({ total: processed.length, active: processed.length - solvedCount, recentlySolved: solvedCount }, "Tickets cached");
+      logger.info({ total: processed.length }, "Active tickets cached");
 
       // NOTE: Parts View no longer maintains a live active-ticket snapshot — it reads
       // cold data (solved tickets in analyticstickets) only. Part tagging for those

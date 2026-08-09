@@ -123,6 +123,7 @@ if (bullmqConn) {
 
 // --- Worker processors + Pub/Sub ---
 import { registerAllWorkers } from "./lib/workers.js";
+import { startMemoryGuard } from "./lib/memoryGuard.js";
 import { initPublisher, initSubscriber } from "./lib/pubsub.js";
 import { fetchAndCacheTickets } from "./services/syncService.js";
 import { loadRosterFromRedis } from "./services/rosterService.js";
@@ -130,6 +131,13 @@ import { AnalyticsTicket } from "./models/index.js";
 
 let workerInstances = [];
 const redisUrl = getRedisUrl();
+
+// Runs in BOTH topologies, not just the hybrid one. Even a pure-API process
+// does full ticket syncs — the startup warm below, the cold-start path in
+// ticketController, and the manual refresh endpoint all call
+// fetchAndCacheTickets directly — so it has the same OOM exposure the worker
+// does and needs the same visibility.
+startMemoryGuard();
 
 if (runWorkers && bullmqConn && redisUrl) {
   initPublisher(redisUrl);
@@ -210,9 +218,19 @@ server.listen(PORT, async () => {
         }
       }
 
+      // FREQUENCY (2026-08-09): was daily. Now that the live cache is
+      // active-only, this delta sync is the ONLY writer of solved tickets into
+      // Mongo — and Mongo is the only place the dashboard reads solved data
+      // from. Daily would mean "solved today" lags up to 24h.
+      //
+      // Affordable because delta mode is genuinely incremental: it walks
+      // newest-first and stops after KNOWN_THRESHOLD (5) consecutive batches
+      // in which every solved ticket already exists in Mongo — ~5-10 pages in
+      // steady state, versus the 200 pages the removed phase-2 scan burned.
+      // Offset to :20 so it never starts in the same minute as the active sync.
       await getHistoricalSyncQueue().add(
         "delta-sync", {},
-        { repeat: { pattern: "0 4 * * *" }, jobId: "daily-historical-sync" },  // 04:00 UTC = 9:30 AM IST (during keep-alive window)
+        { repeat: { pattern: "20 */4 * * *" }, jobId: "daily-historical-sync" },
       );
       await getAnalyticsQueue().add(
         "precompute", { quarter: getCurrentQuarterKey() },
@@ -230,9 +248,14 @@ server.listen(PORT, async () => {
       // Webhooks are the primary trigger, but if DevRev drops one (or the dedupe
       // job is stuck) ticket states/dependency assignees would go stale forever.
       // This guarantees the live board is never more than ~1h behind.
+      // FREQUENCY (2026-08-09): was hourly. A full sync is ~220 DevRev calls
+      // and ~60s of work, and 90% of that is the phase-2 solved scan — paid
+      // 24×/day purely as insurance against a dropped webhook. Webhooks remain
+      // the real-time path, and the 9:40 IST reconcile catches any drift with
+      // an auto-heal resync, so 6×/day is ample cover at a quarter the cost.
       await getTicketSyncQueue().add(
         "sync-active", { source: "cron" },
-        { repeat: { pattern: "0 * * * *" }, jobId: "hourly-active-sync" },
+        { repeat: { pattern: "0 */4 * * *" }, jobId: "hourly-active-sync" },
       );
       // Daily count reconciliation — per-GST-member open/pending/on-hold counts
       // from DevRev (state-filtered, no date window) vs the dashboard cache.
