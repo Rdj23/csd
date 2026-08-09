@@ -124,6 +124,7 @@ if (bullmqConn) {
 // --- Worker processors + Pub/Sub ---
 import { registerAllWorkers } from "./lib/workers.js";
 import { startMemoryGuard } from "./lib/memoryGuard.js";
+import { startEgressMeter } from "./lib/egressMeter.js";
 import { initPublisher, initSubscriber } from "./lib/pubsub.js";
 import { fetchAndCacheTickets } from "./services/syncService.js";
 import { loadRosterFromRedis } from "./services/rosterService.js";
@@ -138,6 +139,9 @@ const redisUrl = getRedisUrl();
 // fetchAndCacheTickets directly — so it has the same OOM exposure the worker
 // does and needs the same visibility.
 startMemoryGuard();
+// Outbound-bandwidth meter. Bandwidth is metered at $0.15/GB on Hobby, so the
+// service-initiated number needs to be visible daily, not at month-end.
+startEgressMeter();
 
 if (runWorkers && bullmqConn && redisUrl) {
   initPublisher(redisUrl);

@@ -7,6 +7,7 @@ import { initPublisher } from "./lib/pubsub.js";
 import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue, getAttentionQueue } from "./lib/queues.js";
 import { registerAllWorkers } from "./lib/workers.js";
 import { startMemoryGuard } from "./lib/memoryGuard.js";
+import { startEgressMeter } from "./lib/egressMeter.js";
 import logger from "./config/logger.js";
 import { getCurrentQuarterKey } from "./config/constants.js";
 
@@ -18,6 +19,10 @@ const start = async () => {
   // approach to the limit and lets heavy jobs decline to start (see
   // admitHeavyJob in lib/workers.js).
   startMemoryGuard();
+  // Register before any sync job can fire — the worker makes the overwhelming
+  // majority of outbound calls, so metering it is the whole point.
+  // Flushes degrade gracefully until initRedis() below completes.
+  startEgressMeter();
 
   // 1. Connect to databases
   await connectMongoDB();

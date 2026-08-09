@@ -7,7 +7,9 @@ import {
   NAME_TO_ROSTER_MAP,
   EMAIL_TO_NAME_MAP,
   isGamificationExcluded,
+  istWeekStart,
 } from "../config/constants.js";
+import { redisGet, redisSet, CACHE_TTL } from "../config/database.js";
 import { getDaysWorked, isInRoster } from "../services/rosterService.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
@@ -241,6 +243,76 @@ export const getMyStats = async (req, res) => {
     });
   } catch (e) {
     logger.error({ err: e }, "My Stats error");
+    serverError(res, e.message);
+  }
+};
+
+/**
+ * getMyWeekStats — the "This Week" header chip (solved + positive CSAT).
+ *
+ * WHY THIS ENDPOINT EXISTS:
+ * The chip used to be derived client-side from the /api/tickets payload.
+ * That payload is the Redis "tickets:active" cache, which is ACTIVE-ONLY —
+ * solved tickets were removed from it, so every closed-ticket metric on the
+ * chip silently pinned to 0 while `open` kept working. Same split All
+ * Tickets already handles: solved comes from Mongo, live buckets from Redis.
+ *
+ * WHY NOT REUSE getMyStats:
+ * getMyStats runs buildScoredBoard — the full leaderboard for every roster
+ * member, with percentile scoring — just to pluck one row. That's far too
+ * much work for a header chip that mounts on every analytics tab visit.
+ * This is a single indexed read per metric instead.
+ *
+ * The definitions deliberately mirror buildScoredBoard so the chip can never
+ * disagree with the leaderboard: `solved` excludes NOC, CSAT includes it.
+ */
+export const getMyWeekStats = async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    const userName = EMAIL_TO_NAME_MAP[email.toLowerCase()];
+    if (!userName) {
+      return fail(res, 403, "Unauthorized: Not a GST user");
+    }
+
+    // Monday 00:00 IST → now. IST because every other closed_date window in
+    // the dashboard buckets by IST days; a UTC week would shift the Monday
+    // boundary 5.5h and move tickets between weeks.
+    const start = istWeekStart();
+    const end = new Date();
+
+    // Week start is in the key, so the cache rolls over on its own each
+    // Monday and can never serve last week's numbers.
+    const cacheKey = `myweek:ist:${start.toISOString().slice(0, 10)}:${userName}`;
+    const cached = await redisGet(cacheKey);
+    if (cached) return ok(res, cached);
+
+    const baseMatch = { closed_date: { $gte: start, $lte: end }, owner: userName };
+
+    const [solved, csatAgg] = await Promise.all([
+      // Served straight off { owner: 1, closed_date: 1, region: 1 }.
+      AnalyticsTicket.countDocuments({ ...baseMatch, is_noc: { $ne: true } }),
+      // CSAT/DSAT always includes NOC tickets — same rule as buildScoredBoard.
+      AnalyticsTicket.aggregate([
+        { $match: baseMatch },
+        { $group: { _id: null, ...csatFields() } },
+      ]),
+    ]);
+
+    const csat = csatAgg[0] || {};
+    const payload = {
+      owner: userName,
+      weekStart: start.toISOString(),
+      weekEnd: end.toISOString(),
+      solved,
+      positiveCSAT: csat.positiveCSAT || 0,
+      negativeCSAT: csat.negativeCSAT || 0,
+    };
+
+    await redisSet(cacheKey, payload, CACHE_TTL.TICKETS);
+    ok(res, payload);
+  } catch (e) {
+    logger.error({ err: e }, "My Week Stats error");
     serverError(res, e.message);
   }
 };

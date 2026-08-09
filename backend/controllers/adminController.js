@@ -3,7 +3,8 @@ import axios from "axios";
 import { AnalyticsTicket, ApiKey } from "../models/index.js";
 import { DEVREV_API, HEADERS } from "../services/devrevApi.js";
 import { sendSlackAlerts, findGSTMember, getSlackWebhookUrl } from "../services/slackService.js";
-import { resolveOwnerName, GST_SLACK_MEMBER_IDS, BACKFILL_CUTOFF } from "../config/constants.js";
+import { resolveOwnerName, GST_SLACK_MEMBER_IDS, BACKFILL_CUTOFF, istTodayYmd } from "../config/constants.js";
+import { getEgressForDay } from "../lib/egressMeter.js";
 import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 import { syncHistoricalToDB } from "../services/syncService.js";
 import { reconcileActiveCounts } from "../services/reconcileService.js";
@@ -32,6 +33,40 @@ export const syncNow = async (req, res) => {
     const count = await AnalyticsTicket.countDocuments();
     ok(res, { message: `Sync completed directly. ${count} tickets in DB.` });
   } catch (e) {
+    serverError(res, e.message);
+  }
+};
+
+/**
+ * GET /api/admin/egress — outbound bandwidth per IST day, per upstream host.
+ *
+ * This is the "did bandwidth regress?" check. Render only shows a cumulative
+ * workspace total, which can't tell you WHICH upstream grew or WHEN — the
+ * 2026-08-09 spike (phase-2 solved scan, ~7.3 GB) was invisible until billing.
+ * Per-host daily buckets make a regression obvious within a day.
+ */
+export const getEgress = async (req, res) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 10);
+    const results = [];
+    for (let i = 0; i < days; i++) {
+      // Walk back i IST days. Date.UTC normalises month/year rollover.
+      const [y, m, d] = istTodayYmd().split("-").map(Number);
+      const day = new Date(Date.UTC(y, m - 1, d - i));
+      const ymd = `${day.getUTCFullYear()}-${String(day.getUTCMonth() + 1).padStart(2, "0")}-${String(day.getUTCDate()).padStart(2, "0")}`;
+      const entry = await getEgressForDay(ymd);
+      if (entry) results.push(entry);
+    }
+    const totalMB = results.reduce((a, r) => a + r.totalMB, 0);
+    ok(res, {
+      days: results,
+      totalMB: Number(totalMB.toFixed(2)),
+      // At $0.15/GB this is the actual money the window represents.
+      estimatedCostUSD: Number(((totalMB / 1024) * 0.15).toFixed(3)),
+      note: "Outbound only (service-initiated). Excludes HTTP responses served to browsers.",
+    });
+  } catch (e) {
+    logger.error({ err: e }, "Egress read error");
     serverError(res, e.message);
   }
 };

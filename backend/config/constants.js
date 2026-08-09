@@ -320,6 +320,41 @@ export const istDayEnd = (ymd) => new Date(`${ymd}T23:59:59.999${IST_OFFSET}`);
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
+/**
+ * IST_SHIFT_MS — shift a UTC instant into IST wall-clock so the UTC getters
+ * read out IST calendar parts. Safe as a fixed offset: India has no DST.
+ */
+const IST_SHIFT_MS = 5.5 * 60 * 60 * 1000;
+
+/** Today's IST calendar date as "YYYY-MM-DD". */
+export const istTodayYmd = () => {
+  const shifted = new Date(Date.now() + IST_SHIFT_MS);
+  return `${shifted.getUTCFullYear()}-${pad2(shifted.getUTCMonth() + 1)}-${pad2(shifted.getUTCDate())}`;
+};
+
+/**
+ * Monday 00:00 IST of the week containing `ymd` (defaults to today IST).
+ *
+ * WHY Monday: the dashboard's week starts Monday everywhere else
+ * (`startOfWeek(now, { weekStartsOn: 1 })` on the frontend), so the
+ * server-side week window must agree or the "This Week" chip disagrees
+ * with every other weekly number.
+ *
+ * WHY the Date.UTC round-trip: we need the weekday of the IST *calendar*
+ * date. Calling getUTCDay() on an IST-midnight Date would report the
+ * previous day, because IST midnight is 18:30 UTC the day before.
+ * Date.UTC also normalises month/year rollover for us (e.g. Mar 1 → Feb 27).
+ */
+export const istWeekStart = (ymd = istTodayYmd()) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun … 6=Sat
+  const daysBackToMonday = dow === 0 ? 6 : dow - 1;
+  const monday = new Date(Date.UTC(y, m - 1, d - daysBackToMonday));
+  return istDayStart(
+    `${monday.getUTCFullYear()}-${pad2(monday.getUTCMonth() + 1)}-${pad2(monday.getUTCDate())}`,
+  );
+};
+
 /** istDayStart/istDayEnd from numeric year/month(0-based)/day. */
 const istDate = (year, month, day, end = false) => {
   const ymd = `${year}-${pad2(month + 1)}-${pad2(day)}`;

@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   syncNow,
   getSyncStatus,
+  getEgress,
   backfill,
   getJobStatus,
   reconcileCounts,
@@ -24,6 +25,9 @@ const router = Router();
 
 router.post("/admin/sync-now", requireAdmin, syncNow);
 router.get("/admin/sync-status", requireAdmin, getSyncStatus);
+// Outbound bandwidth for the last N IST days, per upstream host.
+// ?days=7 (default 7, max 10 — the meter keeps 10 days of history).
+router.get("/admin/egress", requireAdmin, getEgress);
 router.post("/admin/backfill", requireAdmin, backfill);
 router.get("/admin/job-status/:jobId", requireAdmin, validate(jobStatusSchema), getJobStatus);
 router.get("/admin/verify-gst-names", requireAdmin, verifyGSTNames);

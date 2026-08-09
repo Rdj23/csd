@@ -10,6 +10,7 @@ import React, {
 import { loginUser, trackEvent } from "./utils/clevertap";
 import { authFetch } from "./utils/authFetch";
 import { fetchAllSolvedTickets } from "./api/ticketApi";
+import { fetchMyWeekStats } from "./api/gamificationApi";
 import ErrorBoundary from "./components/ErrorBoundary";
 import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
 import AttentionBell from "./features/attention/components/AttentionBell";
@@ -77,8 +78,6 @@ import {
   isWithinInterval,
   startOfDay,
   endOfDay,
-  startOfWeek,
-  endOfWeek,
 } from "date-fns";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { Analytics } from "@vercel/analytics/react";
@@ -402,30 +401,46 @@ const App = () => {
       (t) => t.stage?.name === "Waiting on Assignee",
     ).length;
 
-    const now = new Date();
-    const solved = myTickets.filter(
-      (t) =>
-        t.actual_close_date &&
-        isWithinInterval(parseISO(t.actual_close_date), {
-          start: startOfWeek(now, { weekStartsOn: 1 }),
-          end: endOfWeek(now, { weekStartsOn: 1 }),
-        }),
-    ).length;
-
-    const goodCsat = myTickets.filter((t) => {
-      const rating = Number(t.custom_fields?.tnt__csatrating);
-      if (rating !== 2) return false;
-
-      if (!t.actual_close_date) return false;
-
-      return isWithinInterval(parseISO(t.actual_close_date), {
-        start: startOfWeek(now, { weekStartsOn: 1 }),
-        end: endOfWeek(now, { weekStartsOn: 1 }),
-      });
-    }).length;
-
-    return { open, solved, csat: goodCsat };
+    // NOTE: `solved` and CSAT are deliberately NOT computed here.
+    // `tickets` is the /api/tickets payload — the active-only Redis cache —
+    // so it contains no closed tickets at all. Any "closed this week" filter
+    // over it returns 0 by construction, which is exactly how this chip ended
+    // up reading 0 / N / 0. Those two come from Mongo via `myWeekStats`.
+    return { open, matchedName };
   }, [tickets, currentUser]);
+
+  // Solved + CSAT for the current IST week, read from Mongo. Only fetched for
+  // roster members (myStats is null otherwise) and only while the chip is
+  // actually on screen, i.e. the analytics tab.
+  const [myWeekStats, setMyWeekStats] = useState(null);
+
+  // Pulled out of myStats so the effect depends on a stable string rather than
+  // the memo object, which is rebuilt on every `tickets` refresh.
+  const myRosterName = myStats?.matchedName ?? null;
+
+  useEffect(() => {
+    if (activeTab !== "analytics" || !myRosterName || !currentUser?.email) return;
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await fetchMyWeekStats(currentUser.email);
+        if (!cancelled) setMyWeekStats(data);
+      } catch {
+        // Non-critical header chip — leave the last known values in place
+        // rather than blanking the widget on a transient failure.
+      }
+    };
+
+    load();
+    // The backend caches for 5 min, so anything tighter than this just burns
+    // requests on a Render Free instance for a number that barely moves.
+    const interval = setInterval(load, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeTab, myRosterName, currentUser?.email]);
 
   // ✅ Vistas State
   const [selectedViewId, setSelectedViewId] = useState(null);
@@ -2531,9 +2546,12 @@ const App = () => {
                     </span>
                     <div className="h-6 w-px bg-slate-300 dark:bg-slate-700" />
                     {[
-                      { label: "CSAT", value: myStats.csat },
+                      // CSAT/Solved come from Mongo (myWeekStats); Open comes
+                      // from the live active cache, which is the fresher source
+                      // for it and needs no round trip.
+                      { label: "CSAT", value: myWeekStats?.positiveCSAT ?? "—" },
                       { label: "Open", value: myStats.open },
-                      { label: "Solved", value: myStats.solved },
+                      { label: "Solved", value: myWeekStats?.solved ?? "—" },
                     ].map((item) => (
                       <div key={item.label} className="text-center">
                         <div className="text-xl font-semibold">
