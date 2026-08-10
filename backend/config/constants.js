@@ -44,18 +44,18 @@ const TEAMS = [
     { name: "Neha",     devuId: "DEVU-1072", email: "neha.yadav@clevertap.com",      designation: "L1", aliases: ["Neha Yadav"] },
     { name: "Vaibhav",  devuId: "DEVU-1122", email: "vaibhav.agarwal@clevertap.com", designation: "L1", aliases: ["Vaibhav Agarwal"] },
   ]},
-  { lead: "Aditya", slackChannel: "", members: [
+  { lead: "Aditya", slackChannel: "C0AKKES4P4Y", members: [
     { name: "Aditya",  devuId: "DEVU-5",    email: "aditya.mishra@clevertap.com",   designation: "L2", aliases: ["Aditya Mishra"] },
     { name: "Rishabh", devuId: "DEVU-2611", email: "rishabh.j@clevertap.com",       designation: "L1", aliases: ["Rishabh J", "rishabh.j"] },
     { name: "Nikita",  devuId: "DEVU-4",    email: "nikita.narwani@clevertap.com",  designation: "L1", aliases: ["nikita-narwani"] },
     { name: "Shreyas", devuId: "DEVU-1110", email: "shreyas.naikwadi@clevertap.com", designation: "L1", aliases: ["Shreyas Naikwadi"] },
   ]},
-  { lead: "Debashish", slackChannel: "", members: [
+  { lead: "Debashish", slackChannel: "C0A5GKFTGQ3", members: [
     { name: "Debashish", devuId: "DEVU-1102", email: "debashish@clevertap.com",       designation: "L2", aliases: ["Debashish Muni"] },
     { name: "Adarsh",    devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com",    designation: "L2", aliases: [] },
     { name: "Tamanna",   devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L2", aliases: ["Tamanna Khan"] },
   ]},
-  { lead: "Adish", slackChannel: "", members: [
+  { lead: "Adish", slackChannel: "G095LHDHLJJ", members: [
     { name: "Adish", devuId: "DEVU-1121", email: "adish@clevertap.com", designation: "L2", aliases: [] },
   ]},
 ];
