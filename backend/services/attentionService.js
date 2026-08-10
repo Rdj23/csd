@@ -65,6 +65,7 @@ import {
   GST_MEMBERS,
   SHIFT_HOURS,
   isSolvedStatus,
+  getTeamSlackChannel,
 } from "../config/constants.js";
 import { bucketForStage } from "./reconcileService.js";
 import { streamActiveFromDevRev, trimTicket } from "./syncService.js";
@@ -494,14 +495,17 @@ export const fetchRosterShifts = async () => {
 // ALL attention alerts route through one n8n webhook (Rohan 2026-08-05):
 // n8n posts with a real Slack bot, which is what gives us THREADS — the
 // next-day "no action" alert must reply under the shift-end summary, and
-// incoming webhooks can't do that (no thread_ts, no ts back). n8n also owns
-// the channel choice, so switching test → production channel is an n8n edit,
-// zero backend changes. Contract (see docs/ATTENTION_N8N_SETUP.md):
+// incoming webhooks can't do that (no thread_ts, no ts back).
+// TEAM CHANNELS (Rohan 2026-08-10): alerts post to each member's TEAM
+// channel — the backend resolves it from TEAMS[].slackChannel in constants.js
+// and sends it as `channel`; the n8n Slack node just uses that field.
+// No channel (teamless member, or slackChannel left "") → the alert is
+// SKIPPED, not sent anywhere. Contract (see docs/ATTENTION_N8N_SETUP.md):
 //   POST ATTENTION_N8N_WEBHOOK_URL
-//     { kind, text, thread_ts }   kind: shift_end_summary | no_action_followup | queue_cleared
+//     { kind, text, channel, thread_ts }   kind: shift_end_summary | no_action_followup | queue_cleared
 //   ← { ts: "<slack message ts>" }   (the summary's ts anchors the thread)
 // Fallback: plain incoming webhook (ATTENTION_SLACK_WEBHOOK_URL) — posts
-// fine but can't thread and returns no ts.
+// fine but to its own fixed channel only, can't thread, returns no ts.
 
 const attentionWebhook = () => process.env.ATTENTION_SLACK_WEBHOOK_URL;
 
@@ -535,16 +539,23 @@ export const postSlack = async (text) => {
 /**
  * The single exit point for every attention alert. Sends through n8n when
  * ATTENTION_N8N_WEBHOOK_URL is set; otherwise the plain incoming webhook.
+ * `channel` is the member's team channel (TEAMS[].slackChannel) — callers
+ * must resolve it and skip the alert entirely when it's null; postAlert
+ * itself refuses to guess and drops the post with a warn instead.
  * @returns {{ok: boolean, ts: string|null}} ts = Slack message ts from n8n
  *   (null on the webhook fallback — thread replies then post to the channel).
  */
-export const postAlert = async ({ kind, text, threadTs = null }) => {
+export const postAlert = async ({ kind, text, channel = null, threadTs = null }) => {
+  if (!channel) {
+    logger.warn({ kind }, "Attention alert dropped — no team channel resolved");
+    return { ok: false, ts: null };
+  }
   const n8n = process.env.ATTENTION_N8N_WEBHOOK_URL;
   if (n8n) {
     try {
       const res = await axios.post(
         n8n,
-        { kind, text, thread_ts: threadTs || null },
+        { kind, text, channel, thread_ts: threadTs || null },
         { timeout: 20000 },
       );
       return { ok: true, ts: res.data?.ts || res.data?.message_ts || null };
@@ -960,7 +971,10 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
       queue.shift_alert_at && !queue.shift_alert_sent_at && queue.shift_alert_at.getTime() > nowMs;
     // Third suppression: Slack is Mon–Fri only (Rohan 2026-08-09) — a queue
     // cleared on a weekend still clears everywhere, just without the post.
-    if (!alertStillAhead && clearedCount > 0 && !isWeekendIst(nowMs)) {
+    // Fourth: no team channel (teamless member / slackChannel unset) — the
+    // queue still clears everywhere, just no Slack (Rohan 2026-08-10).
+    const channel = getTeamSlackChannel(queue.member);
+    if (!alertStillAhead && clearedCount > 0 && !isWeekendIst(nowMs) && channel) {
       const who = memberMention(queue);
       // Copy per Rohan 2026-08-08: tracked items get the "+n being tracked"
       // note; a fully-actioned queue (nothing tracked) gets the plain
@@ -969,7 +983,7 @@ export const verifyAndClearQueue = async (memberName, trigger = "user") => {
       const text = trackedCount
         ? `✅ Superb ${who} — attention queue cleared! ${tickets} (+${trackedCount} being tracked via remarks). 👏`
         : `✅ Superb ${who} — attention queue cleared! ${tickets} — you did an awesome job today. 👏`;
-      await postAlert({ kind: "queue_cleared", text });
+      await postAlert({ kind: "queue_cleared", text, channel });
     }
   }
   await queue.save();
@@ -1020,8 +1034,11 @@ const runShiftEndAlerts = async (nowMs) => {
     return;
   }
 
-  // Group by shift (+date, defensive) — everyone on the same trigger shares
-  // one message. A late-recovered old window is skipped, not posted stale.
+  // Group by shift (+date, defensive) AND team channel — each team gets its
+  // own message in its own channel (Rohan 2026-08-10). A member with no team
+  // channel (teamless, or slackChannel unset) is retired like the weekend
+  // path — marked sent, never posted — instead of retrying every sweep.
+  // A late-recovered old window is skipped, not posted stale.
   const groups = new Map();
   for (const q of due) {
     if (nowMs - q.shift_alert_at.getTime() > ALERT_LATE_TOLERANCE_MS) {
@@ -1030,16 +1047,24 @@ const runShiftEndAlerts = async (nowMs) => {
       logger.warn({ member: q.member, shiftDate: q.shift_date }, "Attention shift-end alert skipped — window long past");
       continue;
     }
-    const key = `${q.shift}|${q.shift_date}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(q);
+    const channel = getTeamSlackChannel(q.member);
+    if (!channel) {
+      q.shift_alert_sent_at = new Date(nowMs);
+      await q.save();
+      logger.info({ member: q.member, shiftDate: q.shift_date }, "Attention shift-end alert skipped — member has no team channel");
+      continue;
+    }
+    const key = `${q.shift}|${q.shift_date}|${channel}`;
+    if (!groups.has(key)) groups.set(key, { channel, queues: [] });
+    groups.get(key).queues.push(q);
   }
 
-  for (const queues of groups.values()) {
+  for (const { channel, queues } of groups.values()) {
     try {
       const { ok, ts } = await postAlert({
         kind: "shift_end_summary",
         text: shiftEndSummaryMessage(queues),
+        channel,
       });
       if (!ok) continue; // post failed — next sweep tick retries the whole group
       for (const q of queues) {
@@ -1048,7 +1073,7 @@ const runShiftEndAlerts = async (nowMs) => {
         await q.save();
       }
       logger.info(
-        { shift: queues[0].shift, members: queues.length, threaded: !!ts },
+        { shift: queues[0].shift, channel, members: queues.length, threaded: !!ts },
         "Attention shift-end summary sent",
       );
     } catch (e) {
@@ -1138,9 +1163,21 @@ const runEscalations = async (nowMs) => {
     const remaining = updated.items.filter((i) => i.status === "pending").length;
     if (remaining === 0) continue;
 
+    // No team channel (teamless member / slackChannel unset) → retire the
+    // clock for good; without the null, "failed post keeps the clock" would
+    // retry this un-sendable alert every sweep forever (Rohan 2026-08-10).
+    const channel = getTeamSlackChannel(updated.member);
+    if (!channel) {
+      updated.next_shift_start_at = null;
+      await updated.save();
+      logger.info({ member: updated.member }, "Attention no-action alert skipped — member has no team channel");
+      continue;
+    }
+
     const { ok } = await postAlert({
       kind: "no_action_followup",
       text: noActionMessage(updated),
+      channel,
       threadTs: updated.slack_thread_ts || null, // no ts (webhook fallback) → plain channel post
     });
     if (!ok) continue; // failed post keeps the clock — next 15-min sweep retries

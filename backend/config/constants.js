@@ -21,36 +21,41 @@ export const isSolvedStatus = (stage) =>
 // `aliases` = alternative display names DevRev might use for this person.
 // These feed into GST_NAME_MAP so resolveOwnerName() can normalize them.
 // `rosterName` = name as it appears in the Google Sheets roster (if different).
+//
+// `slackChannel` = the team's Slack channel for Attention Queue alerts.
+// Use the channel ID (C0…, rename-proof) or "#name" — whatever the n8n Slack
+// node is set to accept. Empty string = alerts for this team are SKIPPED
+// (logged, never posted). The n8n bot must be /invite'd to every channel.
 // ═══════════════════════════════════════════════════════════════════════
 const TEAMS = [
-  { lead: "Rohan", members: [
+  { lead: "Rohan", slackChannel: "C0AKN0B26DP", members: [
     { name: "Rohan",      devuId: "DEVU-1111", email: "rohan.jadhav@clevertap.com",    designation: "L2", aliases: ["Rohan Jadhav"] },
     { name: "Anurag",     devuId: "DEVU-550",  email: "anurag.ghatge@clevertap.com",   designation: "L1", aliases: ["Anurag Ghatge"] },
     { name: "Shreya",     devuId: "DEVU-1115", email: "shreya.khale@clevertap.com",    designation: "L1", aliases: ["Shreya Khale"] },
     { name: "Shubhankar", devuId: "DEVU-1087", email: "shubhankar@clevertap.com",      designation: "L1", aliases: [] },
   ]},
-  { lead: "Shweta", members: [
+  { lead: "Shweta", slackChannel: "C0AJYTHAQQ2", members: [
     { name: "Shweta",    devuId: "DEVU-1113", email: "shweta.more@clevertap.com",     designation: "L2", aliases: ["Shweta.M"] },
     { name: "Archie",    devuId: "DEVU-1114", email: "archie@clevertap.com",          designation: "L1", aliases: ["Archie Bajaj"] },
     { name: "Musaveer",  devuId: "DEVU-736",  email: "musaveer@clevertap.com",        designation: "L1", aliases: ["Musaveer Manekia"] },
   ]},
-  { lead: "Harsh", members: [
+  { lead: "Harsh", slackChannel: "C0AL793M5UY", members: [
     { name: "Harsh",    devuId: "DEVU-1098", email: "harsh.singh@clevertap.com",     designation: "L2", aliases: ["Harsh Singh"] },
     { name: "Neha",     devuId: "DEVU-1072", email: "neha.yadav@clevertap.com",      designation: "L1", aliases: ["Neha Yadav"] },
     { name: "Vaibhav",  devuId: "DEVU-1122", email: "vaibhav.agarwal@clevertap.com", designation: "L1", aliases: ["Vaibhav Agarwal"] },
   ]},
-  { lead: "Aditya", members: [
+  { lead: "Aditya", slackChannel: "", members: [
     { name: "Aditya",  devuId: "DEVU-5",    email: "aditya.mishra@clevertap.com",   designation: "L2", aliases: ["Aditya Mishra"] },
     { name: "Rishabh", devuId: "DEVU-2611", email: "rishabh.j@clevertap.com",       designation: "L1", aliases: ["Rishabh J", "rishabh.j"] },
     { name: "Nikita",  devuId: "DEVU-4",    email: "nikita.narwani@clevertap.com",  designation: "L1", aliases: ["nikita-narwani"] },
     { name: "Shreyas", devuId: "DEVU-1110", email: "shreyas.naikwadi@clevertap.com", designation: "L1", aliases: ["Shreyas Naikwadi"] },
   ]},
-  { lead: "Debashish", members: [
+  { lead: "Debashish", slackChannel: "", members: [
     { name: "Debashish", devuId: "DEVU-1102", email: "debashish@clevertap.com",       designation: "L2", aliases: ["Debashish Muni"] },
     { name: "Adarsh",    devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com",    designation: "L2", aliases: [] },
     { name: "Tamanna",   devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L2", aliases: ["Tamanna Khan"] },
   ]},
-  { lead: "Adish", members: [
+  { lead: "Adish", slackChannel: "", members: [
     { name: "Adish", devuId: "DEVU-1121", email: "adish@clevertap.com", designation: "L2", aliases: [] },
   ]},
 ];
@@ -136,6 +141,9 @@ export const DESIGNATION_MAP = {};
 export const NAME_TO_ROSTER_MAP = {};
 /** TEAM_MAPPING: { memberName: { team, members[] } } — for backup lookups */
 export const TEAM_MAPPING = {};
+/** MEMBER_SLACK_CHANNEL_MAP: { memberName: team slackChannel } — teamless members
+ *  and teams with an empty slackChannel have NO entry (their alerts are skipped) */
+export const MEMBER_SLACK_CHANNEL_MAP = {};
 
 for (const team of TEAMS) {
   const memberNames = team.members.map((m) => m.name);
@@ -151,8 +159,16 @@ for (const team of TEAMS) {
     // TEAM_MAPPING: every member (and rosterName variant) → team info
     TEAM_MAPPING[m.name] = teamInfo;
     if (m.rosterName) TEAM_MAPPING[m.rosterName] = teamInfo;
+    if (team.slackChannel) {
+      MEMBER_SLACK_CHANNEL_MAP[m.name] = team.slackChannel;
+      if (m.rosterName) MEMBER_SLACK_CHANNEL_MAP[m.rosterName] = team.slackChannel;
+    }
   }
 }
+
+/** Team Slack channel for a member — null for teamless members or unset channels. */
+export const getTeamSlackChannel = (memberName) =>
+  MEMBER_SLACK_CHANNEL_MAP[memberName] || null;
 
 // Teamless members get a designation (drives their L1/L2 gamification bucket)
 // but no team info — GAMIFICATION_TEAM_MAP intentionally omits them, so the

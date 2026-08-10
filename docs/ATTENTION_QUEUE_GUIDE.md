@@ -16,13 +16,13 @@ The Attention Queue is the dashboard's shift-end nudge system. Every GST member 
 | Shift 4 | 10:30 PM – 7:30 AM | **6:00 AM** | **6:45 AM** | 11:15 PM same day |
 
 - One queue per member per day. Members on Week Off / EL / holiday (per the roster) are skipped automatically — their **previous queue stays on the dashboard** until the next build.
-- The build is dashboard-only. The **Slack summary** is **one batched message per shift** — one line per member, counts only, no ticket links (the tickets live on the dashboard):
+- The build is dashboard-only. The **Slack summary** is **one batched message per shift per team, posted in that team's own channel** (since 10 Aug 2026) — one line per member, counts only, no ticket links (the tickets live on the dashboard):
   - nothing to work on → 🎉 *congratulations, no tickets to be worked on!*
   - only tracked tickets → 👏 *"nothing to action, but N being tracked — action them tomorrow"*
   - actionable tickets → ⏰ *"Hey {name} — you have X open, Y pending, Z on hold — please update those"*
 - The **"no action" follow-up** posts as a **reply in that same Slack thread** at the shift's next-day trigger (then hourly until clear): just clickable ticket IDs, stage-wise — **tracked tickets included** if they still break a rule. The system auto-verifies against DevRev first, so actioned work never gets flagged.
-- Clearing the queue at any point posts a **"Superb — queue cleared!"** message to the channel.
-- All alerts are delivered through **n8n** (see `docs/ATTENTION_N8N_SETUP.md`) — the test↔production channel switch happens in n8n, not in the backend.
+- Clearing the queue at any point posts a **"Superb — queue cleared!"** message to the member's team channel.
+- All alerts are delivered through **n8n** (see `docs/ATTENTION_N8N_SETUP.md`). Each alert goes to the member's **team channel**, mapped via `slackChannel` on the `TEAMS` array in `backend/config/constants.js` — team changes are a constants-only edit, n8n never changes. Members with **no team** (TEAMLESS_MEMBERS) or an unset `slackChannel` get **no Slack alerts** — their queues still build for the dashboard.
 - Every hour, the system also **auto-verifies** all open queues — a ticket actioned in DevRev disappears from the queue within the hour, without anyone pressing a button.
 
 ## 2. What lands in a queue — the rules

@@ -10,7 +10,7 @@
  */
 import "../config/env.js";
 import { fetchAllActiveFromDevRev } from "../services/syncService.js";
-import { resolveOwnerName, isSolvedStatus } from "../config/constants.js";
+import { resolveOwnerName, isSolvedStatus, getTeamSlackChannel } from "../config/constants.js";
 import {
   evaluateTicket,
   buildItems,
@@ -66,9 +66,14 @@ const main = async () => {
   if (doPost) {
     // shiftEndSummaryMessage handles all variants (congrats / tracked-only /
     // actionable) off item statuses — fresh buildItems output is all "pending".
+    const channel = getTeamSlackChannel(memberArg);
+    if (!channel) {
+      console.log(`${memberArg} has no team Slack channel (teamless, or TEAMS slackChannel unset in constants.js) — nothing posted.`);
+      return;
+    }
     const text = shiftEndSummaryMessage([{ member: memberArg, shift: "MANUAL TEST", shift_date: null, items }]);
-    const { ok } = await postAlert({ kind: "shift_end_summary", text });
-    console.log(ok ? "Posted preview to the attention Slack channel." : "Slack post failed/skipped (check ATTENTION_N8N_WEBHOOK_URL / ATTENTION_SLACK_WEBHOOK_URL).");
+    const { ok } = await postAlert({ kind: "shift_end_summary", text, channel });
+    console.log(ok ? `Posted preview to ${channel}.` : "Slack post failed/skipped (check ATTENTION_N8N_WEBHOOK_URL / ATTENTION_SLACK_WEBHOOK_URL).");
   }
 };
 
