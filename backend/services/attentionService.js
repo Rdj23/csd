@@ -9,8 +9,9 @@
  * a list to work from. ~15 min before shift end (slackAt) a Slack summary
  * posts from whatever the queue looks like at that moment. Clearing the
  * queue is VERIFIED against live DevRev data — the only way to silence it
- * is to actually action the tickets. "Tracked" (remarked) items are a
- * one-day snooze: the remark only counts on the queue's own IST day, so a
+ * is to actually action the tickets. "Tracked" items are a one-day snooze,
+ * earned by EITHER a dashboard remark OR an internal DevRev note left on
+ * the queue's own IST day (both mean "I picked this up") — so a
  * still-blocked ticket lands back in its bucket at the next build (we
  * don't want people to track-and-forget). Uncleared queues get exactly ONE
  * "no action" follow-up at a fixed time after the member's next shift
@@ -193,24 +194,32 @@ const hasReminderTag = (t) => hasTagIn(t, REMINDER_TAGS);
  * TKT-319891 / TKT-320229 / TKT-319953, 2026-08-04). Costs 1+ API calls per
  * ticket, so it runs only for reminder-tagged tickets that would otherwise
  * flag (the ambiguous cases). Returns epoch ms or null.
+ *
+ * Walks BACKWARDS (mode:"before") so the newest comments come first — the
+ * old forward walk paged from the ticket's creation and its 10-page cap cut
+ * off exactly the recent end where the answer lives (timeline pagination is
+ * over ALL event types, discussions arrive sparse; probed 2026-08-11).
+ * Scanning a page newest→oldest, the first org external comment IS the
+ * latest — return immediately.
  */
+const TIMELINE_PAGE_CAP = 10;
 const ORG_AUTHOR_TYPES = new Set(["dev_user", "service_account", "sys_user"]);
 const lastOutboundExternalMs = async (ticketDon) => {
   let cursor = null,
-    latest = null,
     pages = 0;
   do {
-    const { entries, nextCursor } = await fetchTimelineEntries(ticketDon, { cursor, limit: 100 });
-    for (const e of entries) {
+    const { entries, nextCursor } = await fetchTimelineEntries(ticketDon, { cursor, limit: 100, mode: "before" });
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
       if (e.type !== "timeline_comment") continue;
       if ((e.visibility || "internal") === "internal") continue;
       if (!ORG_AUTHOR_TYPES.has(e.created_by?.type)) continue;
       const t = ms(e.created_date);
-      if (t && (!latest || t > latest)) latest = t;
+      if (t) return t;
     }
     cursor = nextCursor;
-  } while (cursor && ++pages < 10);
-  return latest;
+  } while (cursor && ++pages < TIMELINE_PAGE_CAP);
+  return null;
 };
 
 /**
@@ -765,27 +774,40 @@ const trackedRemarkIds = async (displayIds, shiftDate) => {
  * reply is a real customer action and clears the item outright via
  * itemStillBlocked — routing it here would downgrade a full clear to "tracked".
  *
- * Bounded to TIMELINE_PAGE_CAP pages and short-circuits on the first match, so
- * a long-running ticket can't turn one verify into an unbounded crawl. Failures
- * return false: the item stays pending, which is the safe direction (an extra
- * nudge beats silently dropping a real one).
+ * WALKS BACKWARDS (mode:"before", newest page first) and stops as soon as a
+ * page's newest comment predates the queue day — the note it hunts for was
+ * made TODAY, i.e. at the very END of the timeline. The original forward
+ * walk from the ticket's creation with a 5-page cap missed exactly that end
+ * on any ticket with a busy timeline (pagination covers ALL event types;
+ * TKT-319993 needed 15 forward pages for 53 comments — why "I commented and
+ * clicked Verify but it stayed pending" only hit SOME tickets, Rohan
+ * 2026-08-11). Typically 1 page now. Failures return false: the item stays
+ * pending, which is the safe direction (an extra nudge beats silently
+ * dropping a real one).
  */
-const TIMELINE_PAGE_CAP = 5;
-
-const hasDevRevInternalNote = async (ticketDonId, shiftDate) => {
+export const hasDevRevInternalNote = async (ticketDonId, shiftDate) => {
   if (!ticketDonId) return false;
   const dayStartMs = new Date(`${shiftDate}T00:00:00+05:30`).getTime();
   let cursor = null;
   let pages = 0;
   try {
     do {
-      const { entries, nextCursor } = await fetchTimelineEntries(ticketDonId, { cursor, limit: 100 });
+      const { entries, nextCursor } = await fetchTimelineEntries(ticketDonId, { cursor, limit: 100, mode: "before" });
+      let newestMs = null;
       for (const e of entries) {
         if (e.type !== "timeline_comment") continue;
-        if (e.visibility !== "internal") continue;
+        const t = new Date(e.created_date).getTime();
+        if (!newestMs || t > newestMs) newestMs = t;
+        if (t < dayStartMs) continue;
+        // Missing visibility = internal — DevRev omits the default (same
+        // convention as lastOutboundExternalMs / verifyResponseTimestamps).
+        if ((e.visibility || "internal") !== "internal") continue;
         if (e.created_by?.type !== "dev_user") continue;
-        if (new Date(e.created_date).getTime() >= dayStartMs) return true;
+        return true;
       }
+      // Everything on this page predates the queue day; earlier pages are
+      // older still. (Empty pages can't prove that — keep walking.)
+      if (newestMs && newestMs < dayStartMs) return false;
       cursor = nextCursor;
       pages++;
     } while (cursor && pages < TIMELINE_PAGE_CAP);
@@ -802,9 +824,17 @@ const buildQueueForMember = async (candidate, ticketsByMember, nowMs) => {
 
   // Seed tracked state from remarks made earlier today — the member already
   // looked at these on the (always-visible) previous queue; don't re-alert.
+  // Same courtesy for internal notes left in DevRev today (checked only when
+  // the cheap remark lookup misses — backwards timeline walk, ~1 API call):
+  // the note proves the member picked the ticket up, and waiting on a Verify
+  // click or the hourly auto-verify would let the shift-end Slack summary
+  // alert over work already acknowledged.
   const remarked = await trackedRemarkIds(items.map((i) => i.display_id), candidate.shiftDate);
   for (const item of items) {
-    if (remarked.has(item.display_id)) {
+    const tracked =
+      remarked.has(item.display_id) ||
+      (await hasDevRevInternalNote(item.ticket_id, candidate.shiftDate));
+    if (tracked) {
       item.status = "partial";
       item.partial_at = new Date(nowMs);
     }

@@ -50,43 +50,66 @@ const TicketList = ({
     setCurrentPage(1);
   }, [tickets]);
 
-  const sortedTickets = [...tickets].sort((a, b) => {
-    if (sortConfig.key === "days")
-      return sortConfig.direction === "asc" ? a.days - b.days : b.days - a.days;
-    if (sortConfig.key === "rwt") {
-      const valA = a.rwt || 0;
-      const valB = b.rwt || 0;
-      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
-    }
-    if (sortConfig.key === "itr") {
-      const valA = a.iterations || 0;
-      const valB = b.iterations || 0;
-      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
-    }
-    if (sortConfig.key === "ct_updated") {
-      const valA = new Date(a.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
-      const valB = new Date(b.custom_fields?.tnt__last_devu_message_ts || 0).getTime();
-      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
-    }
-    if (sortConfig.key === "cust_updated") {
-      const valA = new Date(a.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
-      const valB = new Date(b.custom_fields?.tnt__last_revu_message_ts || 0).getTime();
-      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
-    }
-    if (sortConfig.key === "sentiment") {
-      const sentimentOrder = { delighted: 5, happy: 4, neutral: 3, frustrated: 2, unhappy: 1 };
-      const valA = sentimentOrder[a.sentimentLabel?.toLowerCase()] || 0;
-      const valB = sentimentOrder[b.sentimentLabel?.toLowerCase()] || 0;
-      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
-    }
+  // One extractor per sortable column. String values compare A→Z and sort
+  // ascending on first click; numeric values sort descending first. Missing
+  // values ("-" cells) always sink to the bottom in either direction.
+  const sentimentOrder = { delighted: 5, happy: 4, neutral: 3, frustrated: 2, unhappy: 1 };
+  const depOf = (t) => dependencies[t.display_id?.replace("TKT-", "")];
+  const sortValueOf = {
+    ticket: (t) => parseInt(t.display_id?.replace(/\D/g, ""), 10) || 0,
+    region: (t) => t.region || "",
+    cohort: (t) => (t.cohort ? t.cohort.replace(/\s*Accounts?\s*$/i, "") : "c4s"),
+    owner: (t) => FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "Unassigned",
+    csm: (t) => (t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : ""),
+    tam: (t) => (t.tam && t.tam !== "Unknown" ? t.tam : ""),
+    team: (t) => depOf(t)?.primary?.team || "",
+    assignee: (t) => depOf(t)?.primary?.owner || "",
+    stage: (t) => STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "",
+    status: (t) => t.uiStatus || "",
+    days: (t) => t.days,
+    rwt: (t) => t.rwt || 0,
+    itr: (t) => t.iterations || 0,
+    ct_updated: (t) => new Date(t.custom_fields?.tnt__last_devu_message_ts || 0).getTime(),
+    cust_updated: (t) => new Date(t.custom_fields?.tnt__last_revu_message_ts || 0).getTime(),
+    sentiment: (t) => sentimentOrder[t.sentimentLabel?.toLowerCase()] || 0,
+  };
+  const TEXT_KEYS = new Set(["region", "cohort", "owner", "csm", "tam", "team", "assignee", "stage", "status"]);
 
-    return b.priority - a.priority || a.days - b.days;
+  const sortedTickets = [...tickets].sort((a, b) => {
+    const value = sortValueOf[sortConfig.key];
+    if (!value) return b.priority - a.priority || a.days - b.days;
+    const valA = value(a);
+    const valB = value(b);
+    if (typeof valA === "string") {
+      if (!valA || !valB) return !valA && !valB ? 0 : !valA ? 1 : -1;
+      const cmp = valA.localeCompare(valB);
+      return sortConfig.direction === "asc" ? cmp : -cmp;
+    }
+    return sortConfig.direction === "asc" ? valA - valB : valB - valA;
   });
   const handleSort = (key) =>
-    setSortConfig((c) => ({
-      key,
-      direction: c.key === key && c.direction === "desc" ? "asc" : "desc",
-    }));
+    setSortConfig((c) => {
+      if (c.key === key)
+        return { key, direction: c.direction === "desc" ? "asc" : "desc" };
+      return { key, direction: TEXT_KEYS.has(key) ? "asc" : "desc" };
+    });
+
+  // Header styling for the new sortable columns — same look as the existing
+  // ones. Sticky headers need an OPAQUE active bg or rows show through.
+  const sortHint = (key) =>
+    sortConfig.key === key
+      ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
+      : "hover:text-slate-600 dark:hover:text-slate-300";
+  const stickySortHint = (key) =>
+    sortConfig.key === key
+      ? "bg-indigo-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+      : "bg-slate-50 dark:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300";
+  const SortLabel = ({ label, sortKey, center }) => (
+    <div className={`flex items-center gap-1 ${center ? "justify-center" : ""}`}>
+      {label}{" "}
+      <ArrowUpDown className={`w-2.5 h-2.5 flex-shrink-0 ${sortConfig.key === sortKey ? "opacity-100" : "opacity-50"}`} />
+    </div>
+  );
 
   const totalPages = Math.ceil(sortedTickets.length / ITEMS_PER_PAGE);
   const paginatedTickets = sortedTickets.slice(
@@ -181,12 +204,21 @@ const TicketList = ({
             <thead className="bg-gradient-to-b from-slate-50 to-slate-40 dark:from-slate-800/80 dark:to-slate-800/50 border-b border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 text-[10px] uppercase tracking-widest font-semibold sticky top-0 z-10">
               <tr>
                 {/* 1. Ticket (Sticky Left) */}
-                <th className="px-4 py-3 w-[320px] align-middle sticky left-0 z-30 bg-slate-50 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/60 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
-                  Ticket
+                <th
+                  className={`px-4 py-3 w-[320px] align-middle sticky left-0 z-30 border-r border-slate-200 dark:border-slate-700/60 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)] cursor-pointer select-none transition-colors duration-200 ${stickySortHint("ticket")}`}
+                  onClick={() => handleSort("ticket")}
+                >
+                  <SortLabel label="Ticket" sortKey="ticket" />
                 </th>
-                <th className="px-3 py-3 w-[100px] align-middle">Region</th>
-                <th className="px-3 py-3 w-[110px] align-middle">Cohort</th>
-                <th className="px-3 py-3 w-[150px] align-middle">Owner</th>
+                <th className={`px-3 py-3 w-[100px] align-middle cursor-pointer select-none transition-colors duration-200 ${sortHint("region")}`} onClick={() => handleSort("region")}>
+                  <SortLabel label="Region" sortKey="region" />
+                </th>
+                <th className={`px-3 py-3 w-[110px] align-middle cursor-pointer select-none transition-colors duration-200 ${sortHint("cohort")}`} onClick={() => handleSort("cohort")}>
+                  <SortLabel label="Cohort" sortKey="cohort" />
+                </th>
+                <th className={`px-3 py-3 w-[150px] align-middle cursor-pointer select-none transition-colors duration-200 ${sortHint("owner")}`} onClick={() => handleSort("owner")}>
+                  <SortLabel label="Owner" sortKey="owner" />
+                </th>
                 <th className={`px-3 py-3 w-[90px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
                   sortConfig.key === "sentiment"
                     ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
@@ -196,11 +228,21 @@ const TicketList = ({
                     Sentiment <ArrowUpDown className={`w-2.5 h-2.5 ${sortConfig.key === "sentiment" ? "opacity-100" : "opacity-50"}`} />
                   </div>
                 </th>
-                <th className="px-3 py-3 w-[130px] align-middle">CSM</th>
-                <th className="px-3 py-3 w-[130px] align-middle">TAM</th>
-                <th className="px-3 py-3 text-center w-[120px]">Team</th>
-                <th className="px-3 py-3 text-center w-[140px]">Assignee</th>
-                <th className="px-4 py-3 w-[120px] align-middle">Stage</th>
+                <th className={`px-3 py-3 w-[130px] align-middle cursor-pointer select-none transition-colors duration-200 ${sortHint("csm")}`} onClick={() => handleSort("csm")}>
+                  <SortLabel label="CSM" sortKey="csm" />
+                </th>
+                <th className={`px-3 py-3 w-[130px] align-middle cursor-pointer select-none transition-colors duration-200 ${sortHint("tam")}`} onClick={() => handleSort("tam")}>
+                  <SortLabel label="TAM" sortKey="tam" />
+                </th>
+                <th className={`px-3 py-3 text-center w-[120px] cursor-pointer select-none transition-colors duration-200 ${sortHint("team")}`} onClick={() => handleSort("team")}>
+                  <SortLabel label="Team" sortKey="team" center />
+                </th>
+                <th className={`px-3 py-3 text-center w-[140px] cursor-pointer select-none transition-colors duration-200 ${sortHint("assignee")}`} onClick={() => handleSort("assignee")}>
+                  <SortLabel label="Assignee" sortKey="assignee" center />
+                </th>
+                <th className={`px-4 py-3 w-[120px] align-middle cursor-pointer select-none transition-colors duration-200 ${sortHint("stage")}`} onClick={() => handleSort("stage")}>
+                  <SortLabel label="Stage" sortKey="stage" />
+                </th>
                 <th className={`px-4 py-3 w-[100px] align-middle text-center cursor-pointer select-none transition-colors duration-200 ${
                   sortConfig.key === "rwt"
                     ? "text-slate-700 dark:text-slate-200 bg-indigo-50/30 dark:bg-indigo-900/20"
@@ -263,8 +305,11 @@ const TicketList = ({
                 </th>
 
                 {/* Status (Sticky Right 4) */}
-                <th className="px-2 py-3 w-[185px] min-w-[185px] align-middle sticky right-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
-                  Status
+                <th
+                  className={`px-2 py-3 w-[185px] min-w-[185px] align-middle sticky right-0 z-20 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)] cursor-pointer select-none transition-colors duration-200 ${stickySortHint("status")}`}
+                  onClick={() => handleSort("status")}
+                >
+                  <SortLabel label="Status" sortKey="status" />
                 </th>
               </tr>
             </thead>

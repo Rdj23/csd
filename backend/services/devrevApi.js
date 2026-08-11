@@ -153,10 +153,19 @@ export const fetchWorkItems = async (ids) => {
  * Fetch timeline entries (comments/events) for a work item.
  * Used by activityService for syncing comment data.
  * Returns { entries: Array, nextCursor: string|null }.
+ *
+ * `mode: "before"` walks the timeline BACKWARDS: no cursor = the newest
+ * page, then keep passing next_cursor to move toward the oldest. Entries
+ * stay ascending WITHIN each page either way. Pagination runs over the RAW
+ * timeline (every event type) and the discussions filter applies per page —
+ * so pages can be sparse or empty while next_cursor keeps going (a busy
+ * ticket took 15 forward pages for 53 comments, probed 2026-08-11). Recent
+ * comments are therefore only reachable cheaply via mode:"before".
  */
-export const fetchTimelineEntries = async (objectId, { cursor, limit = 50 } = {}) => {
+export const fetchTimelineEntries = async (objectId, { cursor, limit = 50, mode } = {}) => {
   const body = { object: objectId, collections: ["discussions"], limit };
   if (cursor) body.cursor = cursor;
+  if (mode) body.mode = mode;
 
   const res = await axios.post(
     `${DEVREV_API}/timeline-entries.list`,

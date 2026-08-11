@@ -609,32 +609,28 @@ const DrillDownModal = ({
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  // Sort tickets
+  // Sort tickets. String columns compare A→Z ("-" cells always sink to the
+  // bottom in either direction); numeric/date columns compare numerically.
   const sortedTickets = useMemo(() => {
     const sorted = [...filteredTickets];
+    const depOf = (t) => dependencies[t.display_id?.replace("TKT-", "")];
 
     sorted.sort((a, b) => {
       let aVal, bVal;
 
       switch (sortConfig.key) {
-        // ✅ NEW: Sort by Created Date
         case "created":
           aVal = new Date(a.created_date || 0).getTime();
           bVal = new Date(b.created_date || 0).getTime();
           break;
-
-        // ✅ NEW: Sort by Closed Date
         case "closed":
           aVal = new Date(a.actual_close_date || 0).getTime();
           bVal = new Date(b.actual_close_date || 0).getTime();
           break;
-
-        // ✅ FIXED: Sort by Calculated Age
         case "days":
           aVal = calculateAge(a);
           bVal = calculateAge(b);
           break;
-
         case "rwt":
           aVal = a.rwt || 0;
           bVal = b.rwt || 0;
@@ -647,22 +643,65 @@ const DrillDownModal = ({
           aVal = a.iterations || 0;
           bVal = b.iterations || 0;
           break;
+        case "ticket":
+          aVal = parseInt(a.display_id?.replace(/\D/g, ""), 10) || 0;
+          bVal = parseInt(b.display_id?.replace(/\D/g, ""), 10) || 0;
+          break;
+        case "account":
+          aVal = a.accountName || "";
+          bVal = b.accountName || "";
+          break;
+        case "region":
+          aVal = a.region || "";
+          bVal = b.region || "";
+          break;
+        case "csm":
+          aVal = a.csm && a.csm !== "Unknown" ? a.csm.split("@")[0] : "";
+          bVal = b.csm && b.csm !== "Unknown" ? b.csm.split("@")[0] : "";
+          break;
+        case "tam":
+          aVal = a.tam && a.tam !== "Unknown" ? a.tam : "";
+          bVal = b.tam && b.tam !== "Unknown" ? b.tam : "";
+          break;
+        case "assignee":
+          aVal = FLAT_TEAM_MAP[a.owned_by?.[0]?.display_id] || a.owned_by?.[0]?.display_name || "Unassigned";
+          bVal = FLAT_TEAM_MAP[b.owned_by?.[0]?.display_id] || b.owned_by?.[0]?.display_name || "Unassigned";
+          break;
+        case "depteam":
+          aVal = depOf(a)?.primary?.team || "";
+          bVal = depOf(b)?.primary?.team || "";
+          break;
+        case "depassignee":
+          aVal = depOf(a)?.primary?.owner || "";
+          bVal = depOf(b)?.primary?.owner || "";
+          break;
+        case "stage":
+          aVal = STAGE_MAP[a.stage?.name]?.label || a.stage?.name || "";
+          bVal = STAGE_MAP[b.stage?.name]?.label || b.stage?.name || "";
+          break;
         default:
           return 0;
       }
 
+      if (typeof aVal === "string") {
+        if (!aVal || !bVal) return !aVal && !bVal ? 0 : !aVal ? 1 : -1;
+        const cmp = aVal.localeCompare(bVal);
+        return sortConfig.direction === "asc" ? cmp : -cmp;
+      }
       return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
     });
 
     return sorted;
-  }, [filteredTickets, sortConfig]);
+  }, [filteredTickets, sortConfig, dependencies]);
 
-  // Handle sort click
+  // Handle sort click — text columns start A→Z, metrics start highest-first
+  const TEXT_SORT_KEYS = new Set(["account", "region", "csm", "tam", "assignee", "depteam", "depassignee", "stage"]);
   const handleSort = (key) => {
-    setSortConfig((prev) => ({
-      key,
-      direction: prev.key === key && prev.direction === "desc" ? "asc" : "desc",
-    }));
+    setSortConfig((prev) => {
+      if (prev.key === key)
+        return { key, direction: prev.direction === "desc" ? "asc" : "desc" };
+      return { key, direction: TEXT_SORT_KEYS.has(key) ? "asc" : "desc" };
+    });
     setCurrentPage(1);
   };
  
@@ -967,17 +1006,61 @@ const DrillDownModal = ({
           <table className="w-full text-sm min-w-[1400px]">
             <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0">
               <tr className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <th className="py-3 px-4 text-left font-semibold">
+                <th
+                  className="py-3 px-4 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("ticket")}
+                >
                   ID / Title
+                  <SortIndicator column="ticket" />
                 </th>
-                <th className="py-3 px-3 text-left font-semibold">Account</th>
-                <th className="py-3 px-3 text-left font-semibold">Region</th>
-                <th className="py-3 px-3 text-left font-semibold">CSM</th>
-                <th className="py-3 px-3 text-left font-semibold">TAM</th>
-                <th className="py-3 px-3 text-left font-semibold">Assignee</th>
-                <th className="py-3 px-3 text-left font-semibold">Dep Team</th>
-                <th className="py-3 px-3 text-left font-semibold">
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("account")}
+                >
+                  Account
+                  <SortIndicator column="account" />
+                </th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("region")}
+                >
+                  Region
+                  <SortIndicator column="region" />
+                </th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("csm")}
+                >
+                  CSM
+                  <SortIndicator column="csm" />
+                </th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("tam")}
+                >
+                  TAM
+                  <SortIndicator column="tam" />
+                </th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("assignee")}
+                >
+                  Assignee
+                  <SortIndicator column="assignee" />
+                </th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("depteam")}
+                >
+                  Dep Team
+                  <SortIndicator column="depteam" />
+                </th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("depassignee")}
+                >
                   Dep Assignee
+                  <SortIndicator column="depassignee" />
                 </th>
                 {/* ✅ UPDATED: Sortable Headers */}
                 <th
@@ -995,7 +1078,13 @@ const DrillDownModal = ({
                   Closed
                   <SortIndicator column="closed" />
                 </th>
-                <th className="py-3 px-3 text-left font-semibold">Stage</th>
+                <th
+                  className="py-3 px-3 text-left font-semibold cursor-pointer hover:text-indigo-600 select-none"
+                  onClick={() => handleSort("stage")}
+                >
+                  Stage
+                  <SortIndicator column="stage" />
+                </th>
                 <th
                   className="py-3 px-3 text-right font-semibold cursor-pointer hover:text-indigo-600 select-none"
                   onClick={() => handleSort("days")}
