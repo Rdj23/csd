@@ -435,8 +435,9 @@ export const buildItems = async (tickets, nowMs = Date.now()) => {
 // ── Roster API client ────────────────────────────────────────────────────
 // Reads shift assignments from the GST Hub roster API. Only four fields are
 // consumed: email, engineer_name, shift, slack_id. `shift` doubles as an
-// off-status ("Week Off", "EL"…) — anything not in SHIFT_HOURS is treated as
-// "not working" and skipped, which gives leave-awareness for free.
+// off-status ("Week Off", "EL"…) — but since 2026-08-12 an invalid/off shift
+// no longer skips the member: the sweep falls back to their last known shift
+// (queues build for EVERYONE, every day; the roster only picks the timing).
 
 const extractSlackMention = (raw) => {
   const m = String(raw || "").match(/([UW][A-Z0-9]{6,})/);
@@ -1262,6 +1263,43 @@ export const runAttentionSweep = async ({ force = false, member = null } = {}) =
       slackAt: istInstant(todayYmd, timing.slackAt),
       endAt: istInstant(todayYmd, hours.end),
     });
+  }
+
+  // EVERY member, EVERY day (Rohan 2026-08-12): the roster used to be the
+  // gate — a missing/invalid/off-status row silently dropped the member with
+  // no trace (Musaveer built nothing 08-09→08-11 while working; "Data
+  // Missing" sheet flakiness has done this before). The roster now only picks
+  // the TIMING; membership comes from constants. Members without a valid
+  // rostered shift fall back to their most recent queue's shift, else SHIFT 2
+  // (mid-day default) — a late message beats a silent skip.
+  const rostered = new Set(candidates.map((c) => c.name));
+  const unrostered = [...GST_MEMBERS].filter((m) => !rostered.has(m));
+  if (unrostered.length) {
+    const recent = await AttentionQueue.aggregate([
+      { $match: { member: { $in: unrostered }, shift: { $in: Object.keys(ATTENTION_TIMING) } } },
+      { $sort: { shift_date: -1 } },
+      { $group: { _id: "$member", shift: { $first: "$shift" } } },
+    ]);
+    const lastShift = new Map(recent.map((r) => [r._id, r.shift]));
+    for (const name of unrostered) {
+      const shift = lastShift.get(name) || "SHIFT 2";
+      const timing = ATTENTION_TIMING[shift];
+      const hours = SHIFT_HOURS[shift];
+      const row = roster.find((r) => r.name === name);
+      candidates.push({
+        name,
+        email:
+          row?.email ||
+          Object.keys(EMAIL_TO_NAME_MAP).find((e) => EMAIL_TO_NAME_MAP[e] === name) ||
+          null,
+        shift,
+        slackMention: row?.slackMention || findGSTMember(name),
+        shiftDate: todayYmd,
+        queueAt: istInstant(todayYmd, timing.queueAt),
+        slackAt: istInstant(todayYmd, timing.slackAt),
+        endAt: istInstant(todayYmd, hours.end),
+      });
+    }
   }
 
   // Force-testing for a member who isn't on a working shift today (demo on a
