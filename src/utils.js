@@ -21,6 +21,7 @@ export const TEAM_REGION_MAP = {
 export const TEAMLESS_MEMBERS = {
   "DEVU-3225": "Zeel",
   "DEVU-3226": "Soham",
+  "DEVU-3261": "Viraj",
 };
 
 export const FLAT_TEAM_MAP = {
@@ -50,6 +51,7 @@ export const EMAIL_TO_NAME_MAP = {
   "adish@clevertap.com": "Adish",
   "zeel@clevertap.com": "Zeel",
   "soham@clevertap.com": "Soham",
+  "viraj.walavalkar@clevertap.com": "Viraj",
 };
 
 export const calculateResolutionTime = (createdISO, closedISO) => {

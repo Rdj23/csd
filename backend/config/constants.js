@@ -69,9 +69,13 @@ const TEAMS = [
 //
 // aliases = the exact DevRev owner display_name(s), so tickets owned by them
 // resolve to the canonical name (their DevRev names are lowercase).
+//
+// `slackChannel` (optional) = Attention Queue channel for this teamless member.
+// Unset = alerts for them are skipped, same as an empty team slackChannel.
 const TEAMLESS_MEMBERS = [
-  { name: "Zeel",  devuId: "DEVU-3225", email: "zeel@clevertap.com",  designation: "L1", aliases: ["zeel"] },
-  { name: "Soham", devuId: "DEVU-3226", email: "soham@clevertap.com", designation: "L1", aliases: ["soham"] },
+  { name: "Zeel",   devuId: "DEVU-3225", email: "zeel@clevertap.com",   designation: "L1", aliases: ["zeel"], slackChannel: "C0B9VURBMQ8" },
+  { name: "Soham",  devuId: "DEVU-3226", email: "soham@clevertap.com",  designation: "L1", aliases: ["soham"], slackChannel: "C0B9VURBMQ8" },
+  { name: "Viraj",  devuId: "DEVU-3261", email: "viraj.walavalkar@clevertap.com", designation: "L1", aliases: ["viraj.walavalkar"], slackChannel: "C0B9VURBMQ8" },
 ];
 
 // ── AUTO-DERIVED MAPS (computed once at module load) ─────────────────
@@ -141,8 +145,9 @@ export const DESIGNATION_MAP = {};
 export const NAME_TO_ROSTER_MAP = {};
 /** TEAM_MAPPING: { memberName: { team, members[] } } — for backup lookups */
 export const TEAM_MAPPING = {};
-/** MEMBER_SLACK_CHANNEL_MAP: { memberName: team slackChannel } — teamless members
- *  and teams with an empty slackChannel have NO entry (their alerts are skipped) */
+/** MEMBER_SLACK_CHANNEL_MAP: { memberName: slackChannel } — from TEAMS[].slackChannel
+ *  or, for teamless members, their own m.slackChannel. No entry (alerts skipped)
+ *  when a team's slackChannel is empty or a teamless member has none set. */
 export const MEMBER_SLACK_CHANNEL_MAP = {};
 
 for (const team of TEAMS) {
@@ -166,7 +171,7 @@ for (const team of TEAMS) {
   }
 }
 
-/** Team Slack channel for a member — null for teamless members or unset channels. */
+/** Slack channel for a member (team or teamless) — null if none is configured. */
 export const getTeamSlackChannel = (memberName) =>
   MEMBER_SLACK_CHANNEL_MAP[memberName] || null;
 
@@ -175,6 +180,7 @@ export const getTeamSlackChannel = (memberName) =>
 // leaderboard reports their team as the default "Unknown".
 for (const m of TEAMLESS_MEMBERS) {
   DESIGNATION_MAP[m.name] = m.designation;
+  if (m.slackChannel) MEMBER_SLACK_CHANNEL_MAP[m.name] = m.slackChannel;
 }
 
 // --- SLACK ALERT CONFIGURATION ---
