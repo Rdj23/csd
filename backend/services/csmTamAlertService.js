@@ -42,6 +42,7 @@ import {
   classifyLinkedWorkTeam,
 } from "./devrevApi.js";
 import { bucketForStage } from "./reconcileService.js";
+import { findGSTMember } from "./slackService.js";
 import { istTodayYmd } from "../config/constants.js";
 import logger from "../config/logger.js";
 
@@ -342,7 +343,14 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
       title: t.title,
       bucket: bucketForStage(t.stage?.name),
       stageName: t.stage?.name || "Unknown stage",
-      assignee: t.owned_by?.[0]?.display_name || "Unassigned",
+      // GST assignees render as a Slack tag (GST_SLACK_MEMBER_IDS values are
+      // pre-wrapped "<@U…>" strings; findGSTMember also matches first names).
+      // No directory hit → plain display name. Dependency owners stay untagged
+      // on purpose (Rohan 2026-08-13).
+      assignee: (() => {
+        const name = t.owned_by?.[0]?.display_name || "Unassigned";
+        return findGSTMember(name) || name;
+      })(),
       ageDays: Math.floor((Date.now() - Date.parse(t.created_date)) / 86400000),
       url: TICKET_URL(t.display_id),
       deps: [], // filled by enrichDependencies for tickets that will be DM'd
