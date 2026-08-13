@@ -591,15 +591,17 @@ export const revokeApiKey = async (req, res) => {
  *   { testEmail: "me@..." }       → send every DM to this address instead
  *   { only: "Avinash Kalani" }    → scope to one recipient (email or name);
  *                                   composes with dryRun/testEmail
+ *   { force: true }               → bypass the per-day dedup marker (re-send
+ *                                   to someone already messaged today)
  *   {}                            → real run (per-day dedup still applies)
  */
 export const runCsmTamAlerts = async (req, res) => {
   try {
-    const { dryRun = false, testEmail = null, only = null } = req.body || {};
+    const { dryRun = false, testEmail = null, only = null, force = false } = req.body || {};
     if (testEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
       return badRequest(res, "testEmail must be a valid email address");
     }
-    const result = await runCsmTamAlertSweep({ dryRun: !!dryRun, testEmail, only });
+    const result = await runCsmTamAlertSweep({ dryRun: !!dryRun, testEmail, only, force: !!force });
     ok(res, result);
   } catch (e) {
     logger.error({ err: e }, "CSM/TAM alert run error");

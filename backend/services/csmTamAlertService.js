@@ -295,9 +295,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {string}  opts.only      scope the run to ONE recipient, matched by
  *                                 email or display name (e.g. "Avinash Kalani").
  *                                 Composes with dryRun/testEmail for previews.
+ * @param {boolean} opts.force     ignore the per-day dedup marker (manual
+ *                                 re-sends while testing; the cron never sets
+ *                                 this). The marker is still written after a
+ *                                 successful send.
  * @returns run report — counts, unresolved TAM names, skipped tickets.
  */
-export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, only = null } = {}) => {
+export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, only = null, force = false } = {}) => {
   const tickets = (await redisGet("tickets:active")) || [];
   if (!tickets.length) {
     throw new Error("CSM/TAM alert sweep: tickets:active cache empty — retry after a live sync");
@@ -413,7 +417,7 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
       continue;
     }
 
-    if (await redisGet(sentMarkerKey(email))) {
+    if (!force && (await redisGet(sentMarkerKey(email)))) {
       alreadySentToday++;
       continue;
     }
