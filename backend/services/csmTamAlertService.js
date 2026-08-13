@@ -258,7 +258,7 @@ const renderMessage = (accounts) => {
             return `${d.team} — ${d.owner} (${id})`;
           })
           .join(", ");
-        lines.push(`    ↳ Waiting on: ${depStr}${e.deps.length > 3 ? ` +${e.deps.length - 3} more` : ""}`);
+        lines.push(`    ↳ Team involved: ${depStr}${e.deps.length > 3 ? ` +${e.deps.length - 3} more` : ""}`);
       }
     }
     if (entries.length > shown.length) lines.push(`_…and ${entries.length - shown.length} more on this account_`);
