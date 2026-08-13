@@ -247,7 +247,15 @@ const renderMessage = (accounts) => {
       if (e.deps?.length) {
         const depStr = e.deps
           .slice(0, 3)
-          .map((d) => `${d.team} — ${d.owner} (${d.issueId})`)
+          // Real work items (ISS/TKT/TASK) get a clickable works link; custom
+          // objects (e.g. TAM tasks) keep a plain id — their display_ids don't
+          // resolve as /works/ URLs.
+          .map((d) => {
+            const id = /^(ISS|TKT|TASK)-/i.test(d.issueId || "")
+              ? `<${TICKET_URL(d.issueId)}|${d.issueId}>`
+              : d.issueId;
+            return `${d.team} — ${d.owner} (${id})`;
+          })
           .join(", ");
         lines.push(`    ↳ Waiting on: ${depStr}${e.deps.length > 3 ? ` +${e.deps.length - 3} more` : ""}`);
       }
