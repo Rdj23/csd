@@ -50,10 +50,11 @@ const isSolvedStage = (stageName) => {
 
 const normName = (name) => (name || "").toLowerCase().trim().replace(/\s+/g, " ");
 
-const firstName = (name) => {
-  const n = (name || "").trim();
-  return n ? n.split(/\s+/)[0] : "there";
-};
+// {SLACK_MENTION} in rendered messages is replaced by n8n with a real <@U…>
+// mention AFTER its users.lookupByEmail step — the backend never knows Slack
+// IDs. Keep the n8n Send DM expression in sync (docs/CSM_TAM_ALERTS_N8N_SETUP.md
+// §2) or the literal token will show in the DM.
+const MENTION_TOKEN = "{SLACK_MENTION}";
 
 // ── DevRev dev-user directory (TAM name → email) ─────────────────────────
 // tnt__tam is a display name; dev-users.list is the only reliable name→email
@@ -116,9 +117,9 @@ const bucketSummary = (entries) => {
 
 const truncate = (s, n) => ((s || "").length > n ? `${s.slice(0, n - 1)}…` : s || "");
 
-const renderMessage = (greetName, accounts) => {
+const renderMessage = (accounts) => {
   const lines = [
-    `Hey ${firstName(greetName)} 👋 — the following accounts have *open / pending / on-hold tickets older than ${STALE_DAYS} days*:`,
+    `Hey ${MENTION_TOKEN} 👋 — the following accounts have *open / pending / on-hold tickets older than ${STALE_DAYS} days*:`,
     "",
   ];
   const sorted = [...accounts.entries()].sort((a, b) => b[1].length - a[1].length);
@@ -250,7 +251,7 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
   let sent = 0;
   let alreadySentToday = 0;
   for (const [email, r] of recipients) {
-    const text = renderMessage(r.name || dir.byEmail[email] || email.split("@")[0], r.accounts);
+    const text = renderMessage(r.accounts);
     messages.push({ email, name: r.name, accountCount: r.accounts.size, text });
     if (dryRun) continue;
 

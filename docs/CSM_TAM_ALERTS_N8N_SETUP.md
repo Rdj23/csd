@@ -26,7 +26,7 @@ The backend POSTs JSON to `CSM_TAM_N8N_WEBHOOK_URL` (set it in the root `.env`) 
 }
 ```
 
-- `text` is fully formatted by the backend (bold, `<url|TKT-xxx>` links). n8n is a dumb pipe.
+- `text` is fully formatted by the backend (bold, `<url|TKT-xxx>` links) — except one token: the literal `{SLACK_MENTION}`, which n8n must replace with `<@` + the looked-up user ID + `>` so the greeting renders as a real @-mention. The Send DM expression in §2 does this.
 - `email` is the ONLY routing field — look the user up by it and DM them. Never post to a channel.
 - Respond `200` on success (any body). **Respond non-2xx if the email isn't found in the workspace** — the backend then logs the failure and, because no sent-marker is written, retries that person on the next run instead of silently losing them.
 
@@ -101,7 +101,7 @@ Idempotency lives in the backend: a Redis marker per recipient per IST day (`csm
         "bodyParameters": {
           "parameters": [
             { "name": "channel", "value": "={{ $json.user.id }}" },
-            { "name": "text", "value": "={{ $('Webhook').item.json.body.text }}" }
+            { "name": "text", "value": "={{ $('Webhook').item.json.body.text.replace('{SLACK_MENTION}', '<@' + $json.user.id + '>') }}" }
           ]
         },
         "options": {}
@@ -190,7 +190,7 @@ Idempotency lives in the backend: a Redis marker per recipient per IST day (`csm
 |---|---|
 | **Webhook** | POST, path `csm-tam-alerts`, Respond = *Using 'Respond to Webhook' node* |
 | **Lookup User by Email** | GET `https://slack.com/api/users.lookupByEmail`, query `email` = `{{ $json.body.email }}`, Authorization header |
-| **Send DM** | POST `https://slack.com/api/chat.postMessage`, JSON body: `channel` = `{{ $json.user.id }}`, `text` = `{{ $('Webhook').item.json.body.text }}` — the text MUST be referenced by webhook node name; plain `$json` here is the lookup output |
+| **Send DM** | POST `https://slack.com/api/chat.postMessage`, JSON body: `channel` = `{{ $json.user.id }}`, `text` = `{{ $('Webhook').item.json.body.text.replace('{SLACK_MENTION}', '<@' + $json.user.id + '>') }}` — reference the webhook by its EXACT canvas node name (plain `$json` here is the lookup output); the `.replace` turns the backend's `{SLACK_MENTION}` token into a real @-mention |
 | **Slack OK?** (IF) | `{{ $json.ok }}` is true. Catches `users_not_found` too: a failed lookup leaves `user.id` empty so the send fails with `channel_not_found` → false branch |
 | **Respond OK** | 200, `{ "ok": true }` |
 | **Respond Error** | **500**, `{ ok: false, error: $json.error }` — backend logs it in `sendFailures`, writes no sent-marker, retries next run |
