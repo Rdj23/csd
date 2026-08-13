@@ -60,7 +60,7 @@ const firstName = (name) => {
 // source (3.3k users ≈ 34 paginated calls). Cached 24h so the daily cron pays
 // the crawl once and manual test runs reuse it. ~200KB JSON — negligible next
 // to the multi-MB tickets:active blob under the same Valkey cap.
-const DEV_USER_DIR_KEY = "csmtam:devusers";
+const DEV_USER_DIR_KEY = "csmtam:devusers:v2"; // v2: ambiguous-name scrub added
 const DEV_USER_DIR_TTL = 24 * 3600;
 const DEV_USER_PAGE_CAP = 60; // 6k users — far above the ~3.3k directory; a cap hit is logged
 
@@ -70,6 +70,7 @@ const loadDevUserDirectory = async () => {
 
   const byName = {}; // normalized display/full name → email
   const byEmail = {}; // email → display name (greeting for CSMs whose tnt__csm is a don: id)
+  const ambiguous = new Set(); // names shared by 2+ different people — never resolved, only reported
   let cursor = null;
   let pages = 0;
   do {
@@ -81,7 +82,9 @@ const loadDevUserDirectory = async () => {
       const email = u.email.toLowerCase();
       for (const name of [u.display_name, u.full_name]) {
         const key = normName(name);
-        if (key && !byName[key]) byName[key] = email;
+        if (!key) continue;
+        if (byName[key] && byName[key] !== email) ambiguous.add(key);
+        else byName[key] = email;
       }
       if (!byEmail[email]) byEmail[email] = u.full_name || u.display_name || "";
     }
@@ -89,6 +92,11 @@ const loadDevUserDirectory = async () => {
     pages++;
   } while (cursor && pages < DEV_USER_PAGE_CAP);
   if (cursor) logger.error({ pages }, "dev-user directory page cap hit — TAM resolution may be incomplete");
+
+  // A shared name must never DM "whichever user was crawled first" — drop it
+  // so the TAM surfaces in unresolvedTams for a human to disambiguate.
+  for (const key of ambiguous) delete byName[key];
+  if (ambiguous.size) logger.warn({ names: [...ambiguous] }, "dev-user names shared by multiple people — excluded from TAM resolution");
 
   const dir = { byName, byEmail };
   await redisSet(DEV_USER_DIR_KEY, dir, DEV_USER_DIR_TTL);
@@ -211,11 +219,13 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
       noCsmEmail++;
     }
 
-    const tamName = (cf.tnt__tam || "").trim();
-    if (tamName) {
-      const tamEmail = dir.byName[normName(tamName)];
-      if (tamEmail) addRecipient(tamEmail, tamName, account, entry);
-      else unresolvedTams.add(tamName);
+    const tamRaw = (cf.tnt__tam || "").trim();
+    if (tamRaw) {
+      // tnt__tam usually holds a display name, but some tickets carry an email
+      // directly (seen live 2026-08-13: "jose@clevertap.com") — use it as-is.
+      const tamEmail = tamRaw.includes("@") ? tamRaw.toLowerCase() : dir.byName[normName(tamRaw)];
+      if (tamEmail) addRecipient(tamEmail, dir.byEmail[tamEmail] || (tamRaw.includes("@") ? "" : tamRaw), account, entry);
+      else unresolvedTams.add(tamRaw);
     }
   }
 
@@ -236,6 +246,7 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
   }
 
   const messages = [];
+  const sendFailures = []; // surfaced in the report — "sent: 0" must never need a log dive
   let sent = 0;
   let alreadySentToday = 0;
   for (const [email, r] of recipients) {
@@ -250,6 +261,7 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
         if (await postDm({ email: testEmail, name: r.name, text: header + text })) sent++;
       } catch (e) {
         logger.error({ err: e.message, intendedFor: email }, "CSM/TAM test DM failed");
+        sendFailures.push({ email: testEmail, intendedFor: email, error: e.message });
       }
       await sleep(300);
       continue;
@@ -266,6 +278,7 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
       }
     } catch (e) {
       logger.error({ err: e.message, email }, "CSM/TAM DM failed — will retry next run (no sent-marker)");
+      sendFailures.push({ email, error: e.message });
     }
     await sleep(300); // stay well under Slack's ~1 msg/sec posting limit
   }
@@ -274,10 +287,13 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
     dryRun,
     testEmail,
     only,
+    // false + sent:0 = the env var is missing on this deployment, nothing else
+    webhookConfigured: !!process.env.CSM_TAM_N8N_WEBHOOK_URL,
     activeTickets: tickets.length,
     staleTickets: stale.length,
     recipients: recipients.size,
     sent,
+    sendFailures,
     alreadySentToday,
     ticketsWithoutCsmEmail: noCsmEmail,
     unresolvedTams: [...unresolvedTams],

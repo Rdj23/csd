@@ -32,29 +32,168 @@ The backend POSTs JSON to `CSM_TAM_N8N_WEBHOOK_URL` (set it in the root `.env`) 
 
 Idempotency lives in the backend: a Redis marker per recipient per IST day (`csmtam:sent:<yyyy-mm-dd>:<email>`, 48 h TTL) means a retried job never double-DMs. n8n needs no dedup logic.
 
-## 2. n8n workflow (4 nodes)
+## 2. n8n workflow — import this as-is
 
-**Webhook → HTTP Request (lookupByEmail) → Slack (send DM) → Respond to Webhook**
+**Webhook → Lookup User by Email → Send DM → Slack OK? → Respond OK / Respond Error**
 
-1. **Webhook**
-   - Method: `POST`, Path: `csm-tam-alerts`
-   - Respond: **Using 'Respond to Webhook' node**
-   - The production URL of this node goes into `CSM_TAM_N8N_WEBHOOK_URL`.
+⚠️ Slack's Web API returns **HTTP 200 even on failure** (`{"ok": false, "error": "…"}` in the body). The IF node ("Slack OK?") converts that into a non-2xx response — without it the backend would mark failed DMs as sent and write the dedup marker.
 
-2. **HTTP Request** — [users.lookupByEmail](https://docs.slack.dev/reference/methods/users.lookupByEmail)
-   - Method: `GET`, URL: `https://slack.com/api/users.lookupByEmail`
-   - Query parameter: `email` = `={{ $json.body.email }}`
-   - Auth: the Slack bot token (Header `Authorization: Bearer xoxb-…`). Reusing the attention bot is fine — just add the scope below.
-   - The response is `{ "ok": true, "user": { "id": "U0…" } }`. If `ok` is false (`users_not_found`), fail the workflow so the Respond node (or n8n's error path) returns non-2xx.
+### Import steps
 
-3. **Slack** (same bot credential)
-   - Resource: Message · Operation: Send
-   - Send to: **User** (or Channel in expression mode) = `={{ $node["HTTP Request"].json.user.id }}`
-     — posting to a user ID opens/reuses the DM automatically.
-   - Text: `={{ $json.body.text }}`, mrkdwn enabled (default).
+1. In n8n: **Workflows → Add workflow**, then press **Ctrl/Cmd+V** on the empty canvas (or menu ⋯ → *Import from Clipboard*) with the JSON below copied.
+2. In **both** HTTP nodes, replace `xoxb-REPLACE-WITH-BOT-TOKEN` in the Authorization header with the real bot token (scopes: `users:read.email`, `users:read`, `chat:write`, `im:write` — reinstall the Slack app after adding scopes).
+3. Test: click **Listen for test event** on the Webhook node, then run the "pipe test" curl from §3 against the **test** URL — the DM should arrive.
+4. Toggle the workflow **Active**, copy the Webhook node's **Production URL** (`/webhook/…`, not `/webhook-test/…`) into `CSM_TAM_N8N_WEBHOOK_URL` on Render.
 
-4. **Respond to Webhook**
-   - Respond with: JSON, body `={{ { "ok": true } }}`
+```json
+{
+  "name": "CSM TAM Stale Ticket DMs",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "csm-tam-alerts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://slack.com/api/users.lookupByEmail",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "email", "value": "={{ $json.body.email }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer xoxb-REPLACE-WITH-BOT-TOKEN" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Lookup User by Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer xoxb-REPLACE-WITH-BOT-TOKEN" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "channel", "value": "={{ $json.user.id }}" },
+            { "name": "text", "value": "={{ $('Webhook').item.json.body.text }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Send DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Slack OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"ok\": true }",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [880, -110]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"ok\": false, \"error\": $json.error } }}",
+        "options": { "responseCode": 500 }
+      },
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [880, 110]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Lookup User by Email", "type": "main", "index": 0 }]]
+    },
+    "Lookup User by Email": {
+      "main": [[{ "node": "Send DM", "type": "main", "index": 0 }]]
+    },
+    "Send DM": {
+      "main": [[{ "node": "Slack OK?", "type": "main", "index": 0 }]]
+    },
+    "Slack OK?": {
+      "main": [
+        [{ "node": "Respond OK", "type": "main", "index": 0 }],
+        [{ "node": "Respond Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" }
+}
+```
+
+### Node reference (if you'd rather build or fix by hand)
+
+| Node | What matters |
+|---|---|
+| **Webhook** | POST, path `csm-tam-alerts`, Respond = *Using 'Respond to Webhook' node* |
+| **Lookup User by Email** | GET `https://slack.com/api/users.lookupByEmail`, query `email` = `{{ $json.body.email }}`, Authorization header |
+| **Send DM** | POST `https://slack.com/api/chat.postMessage`, JSON body: `channel` = `{{ $json.user.id }}`, `text` = `{{ $('Webhook').item.json.body.text }}` — the text MUST be referenced by webhook node name; plain `$json` here is the lookup output |
+| **Slack OK?** (IF) | `{{ $json.ok }}` is true. Catches `users_not_found` too: a failed lookup leaves `user.id` empty so the send fails with `channel_not_found` → false branch |
+| **Respond OK** | 200, `{ "ok": true }` |
+| **Respond Error** | **500**, `{ ok: false, error: $json.error }` — backend logs it in `sendFailures`, writes no sent-marker, retries next run |
 
 ### Bot scopes
 
@@ -69,7 +208,15 @@ After adding scopes, **reinstall the app** to the workspace.
 
 ## 3. Testing (nothing sends without you triggering it)
 
-The 11 AM cron only fires the real run. To test, hit the admin endpoint yourself:
+**Pipe test (n8n only, no backend)** — with the Webhook node in *Listen for test event*, POST a sample to the **test** URL; the DM should hit your Slack in ~1s:
+
+```bash
+curl -X POST '<n8n TEST webhook URL>' \
+  -H 'Content-Type: application/json' \
+  -d '{"kind":"csm_tam_stale_dm","email":"rohan.jadhav@clevertap.com","name":"Rohan","text":"*Test* — CSM/TAM DM pipe works ✅"}'
+```
+
+**Full-path tests** — the 11 AM cron only fires the real run. To test, hit the admin endpoint yourself:
 
 ```bash
 # 1. Dry run — renders every message, sends NOTHING, returns them as JSON
