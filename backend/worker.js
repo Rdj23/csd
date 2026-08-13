@@ -104,6 +104,13 @@ const start = async () => {
     { repeat: { pattern: "*/15 * * * *" }, jobId: "attention-sweep" },
   );
 
+  // CSM/TAM stale-ticket DMs — mirrors server.js (see comment there).
+  // Mon–Fri 11:00 IST; per-recipient per-day dedup makes retries safe.
+  await getAttentionQueue().add(
+    "csm-tam-alerts", {},
+    { repeat: { pattern: "30 5 * * 1-5" }, jobId: "csm-tam-alerts-daily" },  // 05:30 UTC = 11:00 AM IST
+  );
+
   // NOTE: Parts View part-tagging is NOT a separate cron — it now happens inline inside
   // the historical sync (each ticket is tagged with its product/part as it's written to
   // Mongo) and inside the active-ticket sync. The parts-sync queue/worker is kept only

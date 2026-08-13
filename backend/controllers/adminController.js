@@ -8,6 +8,7 @@ import { getEgressForDay } from "../lib/egressMeter.js";
 import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 import { syncHistoricalToDB } from "../services/syncService.js";
 import { reconcileActiveCounts } from "../services/reconcileService.js";
+import { runCsmTamAlertSweep } from "../services/csmTamAlertService.js";
 import { hashApiKey, VALID_SCOPES } from "../middleware/auth.js";
 import { ok, accepted, fail, badRequest, notFound, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
@@ -573,6 +574,35 @@ export const revokeApiKey = async (req, res) => {
     });
   } catch (e) {
     logger.error({ err: e }, "Revoke API key error");
+    serverError(res, e.message);
+  }
+};
+
+/**
+ * POST /api/admin/csm-tam-alerts — manual trigger for the CSM/TAM
+ * stale-ticket DM sweep (the Mon–Fri 11:00 IST cron runs the same function).
+ *
+ * Runs INLINE (not via the queue) on purpose: this endpoint exists so Rohan
+ * can test the feature himself, and testing needs the rendered messages and
+ * counts back in the response, synchronously.
+ *
+ * Body:
+ *   { dryRun: true }              → render everything, send nothing, return messages
+ *   { testEmail: "me@..." }       → send every DM to this address instead
+ *   { only: "Avinash Kalani" }    → scope to one recipient (email or name);
+ *                                   composes with dryRun/testEmail
+ *   {}                            → real run (per-day dedup still applies)
+ */
+export const runCsmTamAlerts = async (req, res) => {
+  try {
+    const { dryRun = false, testEmail = null, only = null } = req.body || {};
+    if (testEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
+      return badRequest(res, "testEmail must be a valid email address");
+    }
+    const result = await runCsmTamAlertSweep({ dryRun: !!dryRun, testEmail, only });
+    ok(res, result);
+  } catch (e) {
+    logger.error({ err: e }, "CSM/TAM alert run error");
     serverError(res, e.message);
   }
 };

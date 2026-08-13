@@ -35,6 +35,7 @@ import { syncRoster } from "../services/rosterService.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { runPartsSync } from "../services/partsService.js";
 import { runAttentionSweep } from "../services/attentionService.js";
+import { runCsmTamAlertSweep } from "../services/csmTamAlertService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";
 import { getCurrentQuarterKey } from "../config/constants.js";
@@ -337,6 +338,14 @@ export const registerAllWorkers = (connection) => {
   const attentionWorker = new Worker(
     "attention",
     guardProcessor("attention", async (job) => {
+      // "csm-tam-alerts" — daily (Mon–Fri 11:00 IST) stale-ticket DMs to each
+      // account's CSM/TAM (see csmTamAlertService.js). Shares this queue so a
+      // new Queue+Worker pair doesn't add Redis connections — the free-tier
+      // Valkey allows 50 and the hybrid topology already holds ~24.
+      if (job.name === "csm-tam-alerts") {
+        logger.info({ data: job.data }, "[attention] CSM/TAM stale-ticket sweep starting");
+        return await runCsmTamAlertSweep(job.data || {});
+      }
       logger.info({ data: job.data }, "[attention] Sweep starting");
       return await runAttentionSweep(job.data || {});
     }),

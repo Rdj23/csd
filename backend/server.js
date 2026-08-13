@@ -278,6 +278,14 @@ server.listen(PORT, async () => {
         "sweep", {},
         { repeat: { pattern: "*/15 * * * *" }, jobId: "attention-sweep" },
       );
+      // CSM/TAM stale-ticket DMs — one DM per CSM/TAM listing their accounts'
+      // open/pending/on-hold tickets older than 15 days (csmTamAlertService.js).
+      // Mon–Fri only, matching the attention-alert weekday policy. Safe to
+      // retry: a per-recipient per-IST-day Redis marker prevents double DMs.
+      await getAttentionQueue().add(
+        "csm-tam-alerts", {},
+        { repeat: { pattern: "30 5 * * 1-5" }, jobId: "csm-tam-alerts-daily" },  // 05:30 UTC = 11:00 AM IST
+      );
       logger.info("Cron jobs registered");
     } catch (e) {
       logger.warn({ err: e }, "Failed to register cron jobs (Redis down?)");

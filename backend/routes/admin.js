@@ -15,6 +15,7 @@ import {
   createApiKey,
   listApiKeys,
   revokeApiKey,
+  runCsmTamAlerts,
 } from "../controllers/adminController.js";
 import { triggerActivitySync, resyncActivity, rebuildDailyRollups } from "../controllers/activityController.js";
 import { requireAdmin } from "../middleware/auth.js";
@@ -40,6 +41,8 @@ router.post("/admin/cleanup-old-tickets", requireAdmin, cleanupOldTickets);
 router.post("/admin/activity-sync", requireAdmin, triggerActivitySync);
 router.post("/admin/activity-resync", requireAdmin, resyncActivity);
 router.post("/admin/activity-rebuild-dailies", requireAdmin, rebuildDailyRollups);
+// CSM/TAM stale-ticket DM sweep — body { dryRun?, testEmail? } (see adminController)
+router.post("/admin/csm-tam-alerts", requireAdmin, runCsmTamAlerts);
 
 // API Key Management
 router.post("/admin/api-keys", requireAdmin, createApiKey);
