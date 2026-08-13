@@ -31,8 +31,16 @@
  */
 
 import axios from "axios";
-import { redisGet, redisSet } from "../config/database.js";
-import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
+import { redisGet, redisSet, redisMGet, redisMSet } from "../config/database.js";
+import {
+  DEVREV_API,
+  HEADERS,
+  fetchWithRetry,
+  fetchTicketLinks,
+  fetchWorkItems,
+  dependencyCounterpart,
+  classifyLinkedWorkTeam,
+} from "./devrevApi.js";
 import { bucketForStage } from "./reconcileService.js";
 import { istTodayYmd } from "../config/constants.js";
 import logger from "../config/logger.js";
@@ -105,6 +113,113 @@ const loadDevUserDirectory = async () => {
   return dir;
 };
 
+// ── Dependency enrichment ─────────────────────────────────────────────────
+// "Waiting on: <team> — <assignee>" lines come from DevRev links, which the
+// active cache doesn't carry. This reuses the DASHBOARD's per-ticket dep cache
+// (dep:v2:<numericId>, written by getBatchDependencies in ticketController —
+// same key, same entry shape, same mtime stamp) so the sweep and the dashboard
+// warm each other. Misses resolve live exactly like the controller does:
+// links.list per ticket + one batched works fetch per group of 5.
+const DEP_CACHE_TTL = 6 * 3600; // keep in sync with ticketController
+const depCacheKey = (numericId) => `dep:v2:${numericId}`;
+const DEP_BATCH = 5;
+
+const enrichDependencies = async (entries) => {
+  const byNumeric = new Map(); // numericId → entry (entries are shared refs across recipients)
+  for (const e of entries) {
+    const numeric = (e.display_id || "").replace(/^TKT-/i, "");
+    if (numeric) byNumeric.set(numeric, e);
+  }
+  const ids = [...byNumeric.keys()];
+  if (!ids.length) return;
+
+  const apply = (numeric, dep) => {
+    byNumeric.get(numeric).deps = (dep?.issues || []).map((i) => ({
+      team: i.team,
+      owner: i.owner,
+      issueId: i.issueId,
+    }));
+  };
+
+  const cached = await redisMGet(ids.map(depCacheKey));
+  const toFetch = [];
+  for (const numeric of ids) {
+    const hit = cached.get(depCacheKey(numeric));
+    const mtime = byNumeric.get(numeric)._mtime;
+    // Same validity rule as the controller: a known-changed ticket is a miss.
+    if (hit && (mtime == null || hit._mtime === mtime)) apply(numeric, hit);
+    else toFetch.push(numeric);
+  }
+  logger.info({ tickets: ids.length, cacheHits: ids.length - toFetch.length, fetching: toFetch.length }, "CSM/TAM sweep: dependency lookup");
+
+  for (let i = 0; i < toFetch.length; i += DEP_BATCH) {
+    const batch = toFetch.slice(i, i + DEP_BATCH);
+    const linkResults = await Promise.all(
+      batch.map(async (numeric) => {
+        try {
+          const links = await fetchTicketLinks(numeric);
+          const seen = new Set();
+          const deps = [];
+          for (const link of links) {
+            const cp = dependencyCounterpart(link, numeric);
+            if (!cp || seen.has(cp.display_id)) continue;
+            seen.add(cp.display_id);
+            deps.push(cp);
+          }
+          return { numeric, deps };
+        } catch (e) {
+          logger.warn({ err: e.message, ticket: numeric }, "dep links fetch failed — DM omits dependency info");
+          return { numeric, deps: null }; // null = show nothing AND don't cache
+        }
+      }),
+    );
+
+    // Custom objects (e.g. TAM tasks) aren't works — enrich only real work items,
+    // the rest render from the links.list snapshot (mirrors the controller).
+    const enrichIds = [...new Set(
+      linkResults.flatMap((r) => (r.deps || []).map((d) => d.display_id)).filter((id) => /^(ISS|TKT|TASK)-/i.test(id)),
+    )];
+    let workMap = new Map();
+    if (enrichIds.length) {
+      try {
+        workMap = await fetchWorkItems(enrichIds);
+      } catch (e) {
+        logger.warn({ err: e.message, count: enrichIds.length }, "dep works batch fetch failed — using link snapshots");
+      }
+    }
+
+    const writes = [];
+    for (const { numeric, deps } of linkResults) {
+      if (deps === null) {
+        apply(numeric, { issues: [] });
+        continue;
+      }
+      const issues = deps.map((snapshot) => {
+        const work = workMap.get(snapshot.display_id) || snapshot;
+        const cf = work.custom_fields || {};
+        return {
+          issueId: snapshot.display_id,
+          title: work.title,
+          owner: work.owned_by?.[0]?.display_name || "Unassigned",
+          team: classifyLinkedWorkTeam(work, snapshot),
+          isNOC: cf.ctype__issuetype === "PSN Task",
+          jiraKey: cf.ctype__key,
+          priority: work.priority_v2?.label || work.priority,
+          stage: work.stage?.name,
+          createdDate: work.created_date || snapshot?.created_date || null,
+        };
+      });
+      const sorted = [...issues].sort((a, b) => (a.isNOC && !b.isNOC ? -1 : !a.isNOC && b.isNOC ? 1 : 0));
+      const data = issues.length
+        ? { hasDependency: true, issues: sorted, primary: sorted.find((x) => x.isNOC) || sorted[0] }
+        : { hasDependency: false, issues: [] };
+      apply(numeric, data);
+      writes.push([depCacheKey(numeric), { ...data, _mtime: byNumeric.get(numeric)._mtime ?? null }, DEP_CACHE_TTL]);
+    }
+    if (writes.length) await redisMSet(writes);
+  }
+};
+
 // ── Message rendering ─────────────────────────────────────────────────────
 const bucketSummary = (entries) => {
   const counts = { open: 0, pending: 0, onHold: 0 };
@@ -127,7 +242,15 @@ const renderMessage = (accounts) => {
     lines.push(`*${account}* — ${bucketSummary(entries)}`);
     const shown = [...entries].sort((a, b) => b.ageDays - a.ageDays).slice(0, MAX_TICKETS_PER_ACCOUNT);
     for (const e of shown) {
-      lines.push(`• <${e.url}|${e.display_id}> — ${BUCKET_LABELS[e.bucket]}, ${e.ageDays}d — ${truncate(e.title, 70)}`);
+      lines.push(`• <${e.url}|${e.display_id}> — ${truncate(e.title, 70)}`);
+      lines.push(`    ↳ ${e.stageName} · ${e.ageDays}d · Assignee: ${e.assignee}`);
+      if (e.deps?.length) {
+        const depStr = e.deps
+          .slice(0, 3)
+          .map((d) => `${d.team} — ${d.owner} (${d.issueId})`)
+          .join(", ");
+        lines.push(`    ↳ Waiting on: ${depStr}${e.deps.length > 3 ? ` +${e.deps.length - 3} more` : ""}`);
+      }
     }
     if (entries.length > shown.length) lines.push(`_…and ${entries.length - shown.length} more on this account_`);
     lines.push("");
@@ -206,8 +329,12 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
       display_id: t.display_id,
       title: t.title,
       bucket: bucketForStage(t.stage?.name),
+      stageName: t.stage?.name || "Unknown stage",
+      assignee: t.owned_by?.[0]?.display_name || "Unassigned",
       ageDays: Math.floor((Date.now() - Date.parse(t.created_date)) / 86400000),
       url: TICKET_URL(t.display_id),
+      deps: [], // filled by enrichDependencies for tickets that will be DM'd
+      _mtime: t.modified_date || null, // dep-cache validity stamp
     };
 
     const csmEmail = (cf.tnt__csm_email_id || "").trim().toLowerCase();
@@ -245,6 +372,16 @@ export const runCsmTamAlertSweep = async ({ dryRun = false, testEmail = null, on
       logger.warn({ only }, "CSM/TAM sweep: `only` matched no recipient with stale tickets");
     }
   }
+
+  // Dependency info only for tickets that will actually be DM'd (i.e. after
+  // the `only` filter — a one-person test never crawls 200 tickets' links).
+  // Entries are shared object refs between a ticket's CSM and TAM lists, so
+  // deduping by display_id enriches every recipient's copy at once.
+  const uniqueEntries = new Map();
+  for (const r of recipients.values())
+    for (const list of r.accounts.values())
+      for (const e of list) uniqueEntries.set(e.display_id, e);
+  await enrichDependencies([...uniqueEntries.values()]);
 
   const messages = [];
   const sendFailures = []; // surfaced in the report — "sent: 0" must never need a log dive
