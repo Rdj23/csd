@@ -100,7 +100,7 @@ if (!API_KEY_HMAC_SECRET && process.env.NODE_ENV !== "test") {
  * Bull Board. Storing this in the DB means a DB breach could escalate privileges.
  * Env var is simpler and more secure for a small team.
  */
-export const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "rohan.jadhav@clevertap.com")
+export const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "rohan.jadhav@clevertap.com","anmol.sawhney@clevertap.com","mashnu@clevertap.com")
   .split(",")
   .map((e) => e.trim());
 
