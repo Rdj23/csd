@@ -89,14 +89,6 @@ const start = async () => {
     { repeat: { pattern: "0 */4 * * *" }, jobId: "hourly-active-sync" },
   );
 
-  // Daily count reconciliation — per-GST-member open/pending/on-hold counts
-  // from DevRev vs the dashboard cache; Slack alert + auto-heal on mismatch.
-  // Mirrors server.js so split deployments get the same check. 9:40 AM IST.
-  await getTicketSyncQueue().add(
-    "reconcile-counts", {},
-    { repeat: { pattern: "10 4 * * *" }, jobId: "daily-count-reconcile" },
-  );
-
   // Attention Queue sweep — mirrors server.js (see comment there). Every 15
   // min: builds shift-end queues + processes TL escalations. Idempotent.
   await getAttentionQueue().add(

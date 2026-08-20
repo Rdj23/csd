@@ -261,14 +261,6 @@ server.listen(PORT, async () => {
         "sync-active", { source: "cron" },
         { repeat: { pattern: "0 */4 * * *" }, jobId: "hourly-active-sync" },
       );
-      // Daily count reconciliation — per-GST-member open/pending/on-hold counts
-      // from DevRev (state-filtered, no date window) vs the dashboard cache.
-      // Mismatches → Slack alert + auto-heal resync. 10 min after the hourly
-      // sync so it verifies a fresh cache. 04:10 UTC = 9:40 AM IST.
-      await getTicketSyncQueue().add(
-        "reconcile-counts", {},
-        { repeat: { pattern: "10 4 * * *" }, jobId: "daily-count-reconcile" },
-      );
       // Attention Queue sweep — every 15 min it checks whose shift ends within
       // 30 min (roster API) and builds their queue of aging/silent tickets,
       // plus fires the ONE-SHOT "no action" follow-up for uncleared queues
