@@ -1,0 +1,17 @@
+{
+  "name": "dashboard-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing the support-dashboard API to Claude",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "dashboard-mcp": "./server.js"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^17.2.3"
+  }
+}

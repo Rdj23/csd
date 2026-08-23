@@ -1,0 +1,52 @@
+import { Router } from "express";
+import {
+  syncNow,
+  getSyncStatus,
+  getEgress,
+  backfill,
+  getJobStatus,
+  reconcileCounts,
+  verifyGSTNames,
+  getPendingAlerts,
+  sendPendingAlerts,
+  testSlack,
+  syncSingleTicket,
+  cleanupOldTickets,
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+  runCsmTamAlerts,
+} from "../controllers/adminController.js";
+import { triggerActivitySync, resyncActivity, rebuildDailyRollups } from "../controllers/activityController.js";
+import { requireAdmin } from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
+import { jobStatusSchema, syncTicketSchema } from "../validations/adminSchemas.js";
+
+const router = Router();
+
+router.post("/admin/sync-now", requireAdmin, syncNow);
+router.get("/admin/sync-status", requireAdmin, getSyncStatus);
+// Outbound bandwidth for the last N IST days, per upstream host.
+// ?days=7 (default 7, max 10 — the meter keeps 10 days of history).
+router.get("/admin/egress", requireAdmin, getEgress);
+router.post("/admin/backfill", requireAdmin, backfill);
+router.get("/admin/job-status/:jobId", requireAdmin, validate(jobStatusSchema), getJobStatus);
+router.get("/admin/verify-gst-names", requireAdmin, verifyGSTNames);
+router.get("/admin/reconcile-counts", requireAdmin, reconcileCounts);
+router.get("/admin/pending-alerts", requireAdmin, getPendingAlerts);
+router.post("/admin/send-pending-alerts", requireAdmin, sendPendingAlerts);
+router.post("/admin/test-slack", requireAdmin, testSlack);
+router.post("/admin/sync-ticket", requireAdmin, validate(syncTicketSchema), syncSingleTicket);
+router.post("/admin/cleanup-old-tickets", requireAdmin, cleanupOldTickets);
+router.post("/admin/activity-sync", requireAdmin, triggerActivitySync);
+router.post("/admin/activity-resync", requireAdmin, resyncActivity);
+router.post("/admin/activity-rebuild-dailies", requireAdmin, rebuildDailyRollups);
+// CSM/TAM stale-ticket DM sweep — body { dryRun?, testEmail? } (see adminController)
+router.post("/admin/csm-tam-alerts", requireAdmin, runCsmTamAlerts);
+
+// API Key Management
+router.post("/admin/api-keys", requireAdmin, createApiKey);
+router.get("/admin/api-keys", requireAdmin, listApiKeys);
+router.delete("/admin/api-keys/:id", requireAdmin, revokeApiKey);
+
+export default router;
