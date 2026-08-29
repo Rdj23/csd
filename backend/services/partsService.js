@@ -28,7 +28,7 @@ import {
   fetchWorkItem as devrevFetchWorkItem,
 } from "./devrevApi.js";
 import { AnalyticsTicket, Part, SyncMetadata } from "../models/index.js";
-import { redisGet, redisSet, redisDelete } from "../config/database.js";
+import { redisDelete, redisGet, redisSet } from "../lib/cache.js";
 import { SOLVED_STATUSES, getQuarterDateRange, getCurrentQuarterKey } from "../config/constants.js";
 import logger from "../config/logger.js";
 

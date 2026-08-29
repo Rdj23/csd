@@ -12,7 +12,7 @@
  */
 import "../config/env.js";
 import process from "process";
-import { connectMongoDB } from "../config/database.js";
+import { connectMongoDB } from "../config/mongo.js";
 import {
   fetchTicketLinks,
   fetchWorkItem,

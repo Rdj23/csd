@@ -59,7 +59,7 @@
  */
 
 import axios from "axios";
-import { redisGet, redisSet } from "../config/database.js";
+import { redisGet, redisSet } from "../lib/cache.js";
 import {
   resolveOwnerName,
   EMAIL_TO_NAME_MAP,

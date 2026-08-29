@@ -1,6 +1,6 @@
 import { fetchWorkItem, fetchTimelineEntries } from "./devrevApi.js";
 import { fetchAndCacheTickets } from "./syncService.js";
-import { redisGet, redisHGet, redisLock } from "../config/database.js";
+import { redisGet, redisHGet, redisLock } from "../lib/cache.js";
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata, ActivitySyncedTicket } from "../models/index.js";
 import {
   GST_NAME_MAP, GST_MEMBERS, GST_DEVU_MAP,

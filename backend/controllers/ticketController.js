@@ -1,5 +1,5 @@
 import { AnalyticsTicket } from "../models/index.js";
-import { redisGet, redisGetRaw, redisSet, redisMGet, redisMSet, redisHMGet, CACHE_TTL } from "../config/database.js";
+import { CACHE_TTL, redisGet, redisGetRaw, redisHMGet, redisMGet, redisMSet, redisSet } from "../lib/cache.js";
 import { fetchTicketLinks, fetchWorkItem, fetchWorkItems, dependencyCounterpart, classifyLinkedWorkTeam } from "../services/devrevApi.js";
 import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
 import { getTicketSyncQueue } from "../lib/queues.js";

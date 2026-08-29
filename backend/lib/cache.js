@@ -1,7 +1,22 @@
+/**
+ * Cache API — the redis* helpers application code actually calls.
+ *
+ * WHY THIS IS NOT config/redis.js: that module owns the CLIENT (connect,
+ * readiness, shutdown). This one owns the CACHE CONTRACT — key TTLs, the
+ * get/set/batch/hash/lock helpers, and the invalidation patterns. Changing a
+ * TTL or adding a helper should never mean touching connection code.
+ *
+ * EVERY HELPER IS BEST-EFFORT. Each one guards on isRedisReady() and swallows
+ * its own errors, returning a miss-shaped fallback (null / empty Map / false).
+ * A cache failure must never fail the request that produced the data.
+ *
+ * The client is bound per-call via getRedis() rather than held at module
+ * scope, so this file never caches a stale or pre-connection client.
+ */
+
 import crypto from "crypto";
-import mongoose from "mongoose";
-import Redis from "ioredis";
-import logger from "./logger.js";
+import logger from "../config/logger.js";
+import { getRedis, isRedisReady } from "../config/redis.js";
 
 // --- REDIS CACHE HELPERS ---
 export const CACHE_TTL = {
@@ -27,14 +42,9 @@ export const CACHE_TTL = {
   ACTIVE_TICKETS: 6 * 3600, // 6 hours
 };
 
-let redis = null;
-
-export const getRedis = () => redis;
-
-export const isRedisReady = () => redis && redis.status === "ready";
-
 export const redisGet = async (key) => {
   if (!isRedisReady()) return null;
+  const redis = getRedis();
   try {
     const data = await redis.get(key);
     return data ? JSON.parse(data) : null;
@@ -51,6 +61,7 @@ export const redisGet = async (key) => {
  */
 export const redisGetRaw = async (key) => {
   if (!isRedisReady()) return null;
+  const redis = getRedis();
   try {
     return await redis.get(key);
   } catch (e) {
@@ -70,6 +81,7 @@ export const redisGetRaw = async (key) => {
 export const redisMGet = async (keys) => {
   const out = new Map();
   if (!isRedisReady() || !keys.length) return out;
+  const redis = getRedis();
   try {
     const values = await redis.mget(keys);
     keys.forEach((key, i) => {
@@ -94,6 +106,7 @@ export const redisMGet = async (keys) => {
  */
 export const redisMSet = async (entries, defaultTtl = 1800) => {
   if (!isRedisReady() || !entries.length) return false;
+  const redis = getRedis();
   try {
     const pipeline = redis.pipeline();
     for (const [key, value, ttl] of entries) {
@@ -109,6 +122,7 @@ export const redisMSet = async (entries, defaultTtl = 1800) => {
 
 export const redisSet = async (key, data, ttl = 1800) => {
   if (!isRedisReady()) return false;
+  const redis = getRedis();
   try {
     await redis.setex(key, ttl, JSON.stringify(data));
     return true;
@@ -129,6 +143,7 @@ export const redisSet = async (key, data, ttl = 1800) => {
  */
 export const redisHGet = async (key, field) => {
   if (!isRedisReady()) return null;
+  const redis = getRedis();
   try {
     const data = await redis.hget(key, field);
     return data ? JSON.parse(data) : null;
@@ -145,6 +160,7 @@ export const redisHGet = async (key, field) => {
 export const redisHMGet = async (key, fields) => {
   const out = new Map();
   if (!isRedisReady() || !fields.length) return out;
+  const redis = getRedis();
   try {
     const values = await redis.hmget(key, ...fields);
     fields.forEach((field, i) => {
@@ -173,6 +189,7 @@ export const redisHMGet = async (key, fields) => {
  */
 export const redisHSetBatch = async (key, entries, ttl = 1800) => {
   if (!isRedisReady()) return false;
+  const redis = getRedis();
   try {
     // Chunked pipelines: one pipeline holding every stringified ticket
     // buffered ~a full cache blob in process memory at once — a real
@@ -201,6 +218,7 @@ export const redisHSetBatch = async (key, entries, ttl = 1800) => {
  */
 export const redisSetRaw = async (key, json, ttl = 1800) => {
   if (!isRedisReady()) return false;
+  const redis = getRedis();
   try {
     await redis.setex(key, ttl, json);
     return true;
@@ -223,6 +241,7 @@ export const redisSetRaw = async (key, json, ttl = 1800) => {
  */
 export const redisLock = async (key, ttlSeconds = 30) => {
   if (!isRedisReady()) return "no-redis";
+  const redis = getRedis();
   try {
     const token = crypto.randomUUID();
     const result = await redis.set(key, token, "EX", ttlSeconds, "NX");
@@ -251,6 +270,7 @@ const UNLOCK_LUA = `
 
 export const redisUnlock = async (key, token) => {
   if (!isRedisReady() || !token || token === "no-redis") return;
+  const redis = getRedis();
   try {
     await redis.eval(UNLOCK_LUA, 1, key, token);
   } catch (e) {
@@ -260,6 +280,7 @@ export const redisUnlock = async (key, token) => {
 
 export const redisDelete = async (pattern) => {
   if (!isRedisReady()) return;
+  const redis = getRedis();
   try {
     // Use SCAN instead of KEYS to avoid blocking Redis under load.
     // KEYS iterates ALL keys in one blocking call — with 100 users and thousands
@@ -280,165 +301,5 @@ export const redisDelete = async (pattern) => {
     }
   } catch (e) {
     logger.error({ err: e, pattern }, "Redis DEL error");
-  }
-};
-
-// --- REDIS CONNECTION ---
-export const initRedis = async () => {
-  const REDIS_URL = process.env.REDIS_URL;
-
-  // Skip Redis if no URL provided (local dev without Redis)
-  if (!REDIS_URL) {
-    logger.warn("No REDIS_URL - running without Redis cache");
-    return;
-  }
-
-  try {
-    redis = new Redis(REDIS_URL, {
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      connectTimeout: 10000,
-      lazyConnect: true,
-      // Reconnect with backoff, but give up after 30 retries (~6 min) to prevent
-      // hanging requests from accumulating in memory when Redis is truly down.
-      retryStrategy(times) {
-        if (times > 30) {
-          logger.error({ attempt: times }, "Redis reconnect giving up after 30 retries");
-          return null; // Stop retrying — operations will fail gracefully
-        }
-        const delay = Math.min(times * 2000, 30000);
-        if (times % 10 === 0) {
-          logger.info({ attempt: times, nextRetryMs: delay }, "Redis reconnecting");
-        }
-        return delay;
-      },
-      reconnectOnError(err) {
-        // Reconnect on connection reset errors
-        const targetErrors = ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT"];
-        return targetErrors.some((e) => err.message.includes(e));
-      },
-    });
-
-    redis.on("connect", () => logger.info("Redis connected"));
-    redis.on("ready", async () => {
-      logger.info("Redis ready");
-      // Set eviction policy so Redis drops old cache keys instead of refusing all writes (OOM)
-      try {
-        await redis.config("SET", "maxmemory-policy", "allkeys-lru");
-        logger.info("Redis maxmemory-policy set to allkeys-lru");
-      } catch {
-        // Managed Redis (like Render) may not allow CONFIG SET — that's fine
-        logger.info("Could not set maxmemory-policy (managed Redis)");
-      }
-    });
-    redis.on("close", () => logger.warn("Redis connection closed — will reconnect"));
-    redis.on("error", (err) => {
-      // Only log non-repetitive errors (suppress flood during reconnection)
-      if (!err.message.includes("ECONNRESET")) {
-        logger.error({ err }, "Redis error");
-      }
-    });
-
-    // Connect in background - don't block server startup
-    redis.connect().catch((err) => {
-      logger.error({ err }, "Redis init failed");
-      logger.warn("Will keep retrying via retryStrategy");
-    });
-  } catch (err) {
-    logger.error({ err }, "Redis init failed");
-    logger.warn("Continuing without Redis cache");
-    redis = null;
-  }
-};
-
-// --- REDIS URL EXPORT (for BullMQ and Pub/Sub connections) ---
-export const getRedisUrl = () => process.env.REDIS_URL || null;
-
-// ── Shared BullMQ connection ─────────────────────────────────────────────
-// This function used to return a plain CONFIG OBJECT. BullMQ treats that as
-// "make your own connection", so every Queue and every Worker opened its own:
-//
-//   1 app + 2 pubsub + 7 queues + 7 workers × 2  =  ~24 connections
-//
-// Render's free Key Value tier allows 50. At 24 for one process, a split
-// api + worker topology needed ~47/50 and was effectively blocked — which is
-// why everything runs hybrid on a single instance today.
-//
-// Passing a shared IORedis INSTANCE instead makes BullMQ reuse it for all
-// non-blocking commands. Queues stop opening connections entirely; Workers
-// still call .duplicate() for their blocking BRPOPLPUSH connection, which is
-// required and correct. New math:
-//
-//   1 app + 2 pubsub + 1 shared + 7 worker-blocking  =  ~11 connections
-//
-// BullMQ marks an injected instance as `shared` and will NOT quit it on
-// Worker.close()/Queue.close(), so lifecycle stays owned by closeBullMQConnection()
-// below. Note this is deliberately SEPARATE from the main `redis` client: the
-// app client uses maxRetriesPerRequest: 3, and BullMQ requires null.
-let bullmqRedis = null;
-
-export const getBullMQConnection = () => {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) return null;
-  if (bullmqRedis) return bullmqRedis;
-  try {
-    bullmqRedis = new Redis(redisUrl, {
-      maxRetriesPerRequest: null, // Required by BullMQ — must never be a number
-      enableReadyCheck: false, // BullMQ manages readiness itself
-      connectTimeout: 10000,
-      retryStrategy: (times) => Math.min(times * 2000, 30000),
-    });
-    bullmqRedis.on("error", (err) => {
-      if (!err.message.includes("ECONNRESET")) logger.error({ err }, "BullMQ Redis error");
-    });
-    bullmqRedis.on("ready", () => logger.info("BullMQ Redis connection ready (shared across all queues)"));
-    return bullmqRedis;
-  } catch (err) {
-    logger.error({ err }, "BullMQ Redis init failed");
-    return null;
-  }
-};
-
-/** Close the shared BullMQ connection. Call AFTER all workers/queues close. */
-export const closeBullMQConnection = async () => {
-  if (!bullmqRedis) return;
-  try {
-    await bullmqRedis.quit();
-  } catch {
-    bullmqRedis.disconnect();
-  }
-  bullmqRedis = null;
-};
-
-// --- MONGODB CONNECTION ---
-const MAX_RETRIES = 5;
-const BASE_DELAY_MS = 1000;
-
-export const connectMongoDB = async () => {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      await mongoose.connect(process.env.MONGO_URI, {
-        serverSelectionTimeoutMS: 10000,
-        connectTimeoutMS: 10000,
-        socketTimeoutMS: 30000,
-        retryWrites: true,
-        maxPoolSize: 50,      // 70 concurrent users need ~50 connections (was 20 — caused queuing)
-        minPoolSize: 10,      // Keep 10 warm connections ready for instant use
-        maxIdleTimeMS: 30000, // Close idle connections after 30s to free up Atlas connection slots
-      });
-      logger.info("MongoDB connected");
-      return;
-    } catch (err) {
-      const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1); // 1s, 2s, 4s, 8s, 16s
-      logger.error(
-        { err, attempt, maxRetries: MAX_RETRIES, nextRetryMs: delay },
-        "MongoDB connection failed",
-      );
-      if (attempt === MAX_RETRIES) {
-        logger.fatal("MongoDB connection failed after all retries");
-        throw err;
-      }
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
   }
 };

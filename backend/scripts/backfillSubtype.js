@@ -17,7 +17,7 @@
  */
 import "../config/env.js";
 import process from "process";
-import { connectMongoDB } from "../config/database.js";
+import { connectMongoDB } from "../config/mongo.js";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "../services/devrevApi.js";
 import { AnalyticsTicket } from "../models/index.js";
 import logger from "../config/logger.js";

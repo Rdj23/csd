@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { getRedis } from "../config/database.js";
+import { getRedis } from "../config/redis.js";
 import { getServerReady } from "../middleware/server.js";
 import { getAllQueues } from "../lib/queues.js";
 

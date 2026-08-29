@@ -18,7 +18,7 @@
  *       default since = 2026-08-04T18:30:00Z (Aug 5 IST midnight)
  */
 import "../config/env.js";
-import { connectMongoDB } from "../config/database.js";
+import { connectMongoDB } from "../config/mongo.js";
 import { streamActiveFromDevRev } from "../services/syncService.js";
 import { syncTicketActivity } from "../services/activityService.js";
 import { AnalyticsTicket, ActivitySyncedTicket } from "../models/index.js";

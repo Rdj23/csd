@@ -20,7 +20,9 @@
  */
 import "../config/env.js";
 import process from "process";
-import { connectMongoDB, initRedis, redisDelete } from "../config/database.js";
+import { connectMongoDB } from "../config/mongo.js";
+import { initRedis } from "../config/redis.js";
+import { redisDelete } from "../lib/cache.js";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
 
 const APPLY = process.argv.includes("--apply");

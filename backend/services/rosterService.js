@@ -13,7 +13,7 @@ import {
   getCurrentISTHour,
   getQuarterDateRange,
 } from "../config/constants.js";
-import { redisGet, redisSet } from "../config/database.js";
+import { redisGet, redisSet } from "../lib/cache.js";
 import logger from "../config/logger.js";
 
 // --- MUTABLE ROSTER STATE ---

@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { gzip } from "zlib";
 import { promisify } from "util";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "./devrevApi.js";
-import { redisGet, redisGetRaw, redisSet, redisSetRaw, redisDelete, redisHSetBatch, redisLock, redisUnlock, CACHE_TTL } from "../config/database.js";
+import { CACHE_TTL, redisDelete, redisGet, redisGetRaw, redisHSetBatch, redisLock, redisSet, redisSetRaw, redisUnlock } from "../lib/cache.js";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard, ActivitySyncedTicket, Remark } from "../models/index.js";
 import { resolveOwnerName, GST_NAME_MAP, GST_MEMBERS, BACKFILL_CUTOFF } from "../config/constants.js";
 import { fetchTicketLinks, fetchWorkItem, dependencyCounterpart, classifyLinkedWorkTeam } from "./devrevApi.js";

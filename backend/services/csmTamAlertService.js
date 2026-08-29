@@ -31,7 +31,7 @@
  */
 
 import axios from "axios";
-import { redisGet, redisSet, redisMGet, redisMSet } from "../config/database.js";
+import { redisGet, redisMGet, redisMSet, redisSet } from "../lib/cache.js";
 import {
   DEVREV_API,
   HEADERS,

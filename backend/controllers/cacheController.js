@@ -1,4 +1,5 @@
-import { getRedis, redisDelete } from "../config/database.js";
+import { getRedis } from "../config/redis.js";
+import { redisDelete } from "../lib/cache.js";
 import { ok } from "../utils/response.js";
 
 export const getCacheStatus = async (req, res) => {
