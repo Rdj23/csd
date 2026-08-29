@@ -8,9 +8,6 @@ import React, {
 import {
   format,
   subDays,
-  eachDayOfInterval,
-  startOfWeek,
-  endOfWeek,
   isSameDay,
   parseISO,
   differenceInHours,

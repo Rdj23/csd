@@ -6,7 +6,6 @@
  */
 
 import { NAME_TO_ROSTER_MAP, OFF_STATUSES, getISTTime } from "../../config/constants.js";
-import { format } from "date-fns";
 import { DATE_COL_MAP, ROSTER_ROWS, getDateColMap, getRosterRows } from "./snapshot.js";
 
 // --- ROSTER VERIFICATION HELPERS ---

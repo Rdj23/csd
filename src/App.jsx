@@ -75,10 +75,7 @@ import {
 import {
   parseISO,
   format,
-  isWithinInterval,
-  startOfDay,
-  endOfDay,
-} from "date-fns";
+  } from "date-fns";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -94,9 +91,9 @@ import { useTicketStore } from "./store";
 // Lazy — only mounts once a user clicks into a profile.
 const ProfileStatsModal = lazy(() => import("./features/remarks/components/ProfileStatsModal"));
 import TicketSkeleton from "./components/ui/TicketSkeleton";
-import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "./lib/dependencies";
+import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, depTeamBadgeClass, getDependencyExportCells } from "./lib/dependencies";
 import { EMAIL_TO_NAME_MAP, FLAT_TEAM_MAP, TEAM_GROUPS, TEAM_REGION_MAP } from "./lib/teams";
-import { STAGE_MAP, formatRWT, getTicketStatus } from "./lib/ticketStatus";
+import { STAGE_MAP } from "./lib/ticketStatus";
 import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/lib/analyticsConfig";
 import { csvTimestamp, downloadCsv } from "./lib/csv";
 import Toast from "./components/ui/Toast";
@@ -961,7 +958,10 @@ const App = () => {
       filterAllTickets({
         tickets,
         activeTab,
-        tabFilters,
+        // Only the alltickets bucket is read, and that is exactly what the
+        // dependency array below tracks. Passing the whole tabFilters object
+        // would widen the contract past what this memo actually watches.
+        tabFilters: { alltickets: tabFilters.alltickets },
         dependencies,
         allSolvedTickets,
         EMPTY_FILTERS,

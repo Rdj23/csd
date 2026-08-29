@@ -262,8 +262,10 @@ Known pre-existing `no-undef` in `src/`, both unrelated to layout:
 
 | Issue | Where | Effect |
 |---|---|---|
-| `calculateAge` is called from `AllTicketsView` but defined inside `DrillDownModal`'s old scope | `features/tickets/components/Allticketsview.jsx` | the **"Export All Tickets" CSV button throws `ReferenceError`** |
+| `downloadFullReport` is defined but never called, and its body references `calculateAge`, which is not in its scope | `features/tickets/components/Allticketsview.jsx:632` | **none today** — it is unreachable. Wiring it to a button without moving `calculateAge` to module scope would throw `ReferenceError` |
 | duplicate Mongo index on `{date_bucket:1}` (`index: true` *and* `schema.index()`) | `models/UserActivityDaily.js` | Mongoose startup warning; wasted write throughput |
 
 Both predate the restructure and were left alone because fixing them changes
-behaviour. The first one is a live user-facing bug and is worth scheduling.
+behaviour. Neither is a live user-facing fault: the first is dead code with a
+scope bug waiting inside it, so the decision to make is whether that export was
+meant to ship at all.

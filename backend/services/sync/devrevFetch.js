@@ -10,7 +10,6 @@ import logger from "../../config/logger.js";
 import { redisDelete } from "../../lib/cache.js";
 import { ActivitySyncedTicket, AnalyticsCache, AnalyticsTicket, PrecomputedDashboard } from "../../models/index.js";
 import { DEVREV_API, HEADERS, fetchWithRetry } from "../devrevApi.js";
-import { gzip } from "zlib";
 import { isGSTOwned, isRelevantTicket, trimTicket } from "./ticketShape.js";
 
 // ── Complete active-ticket fetch ─────────────────────────────────────────

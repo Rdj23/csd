@@ -39,12 +39,8 @@ import {
 import {
   format,
   parseISO,
-  isWithinInterval,
-  startOfDay,
-  endOfDay,
-  subDays,
-} from "date-fns";
-import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "../../../lib/dependencies";
+  } from "date-fns";
+import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, getDependencyExportCells, getTicketDepInfo } from "../../../lib/dependencies";
 import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../lib/teams";
 import { STAGE_MAP } from "../../../lib/ticketStatus";
 import { csvTimestamp, downloadCsv } from "../../../lib/csv";

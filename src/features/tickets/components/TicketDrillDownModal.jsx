@@ -9,7 +9,7 @@
  * FilterDropdown, GST_USERS and MODAL_FILTER_OPTIONS came along because this
  * modal is their only consumer.
  */
-import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { format, parseISO } from "date-fns";
 import {
   Activity, ArrowLeft, Briefcase, Building2, ChevronDown, ChevronLeft,

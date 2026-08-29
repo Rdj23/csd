@@ -7,7 +7,6 @@
 
 import logger from "../../config/logger.js";
 import { NAME_TO_ROSTER_MAP, OFF_STATUSES, OFF_STATUS_MAP, SHIFT_HOURS, getCurrentISTHour } from "../../config/constants.js";
-import { format } from "date-fns";
 import { DATE_COL_MAP, ROSTER_ROWS, getDateColMap, getRosterRows } from "./snapshot.js";
 
 export const getShiftStatus = (row, colIdx) => {

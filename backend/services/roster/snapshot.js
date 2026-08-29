@@ -8,7 +8,6 @@
 import logger from "../../config/logger.js";
 import { NAME_TO_ROSTER_MAP, TEAM_GROUPS } from "../../config/constants.js";
 import { redisGet, redisSet } from "../../lib/cache.js";
-import { format } from "date-fns";
 import { google } from "googleapis";
 
 // --- MUTABLE ROSTER STATE ---
