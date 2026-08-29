@@ -33,7 +33,7 @@ import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { precomputeAnalytics } from "../services/analyticsService.js";
 import { syncRoster } from "../services/roster/index.js";
 import { syncActivityBatch } from "../services/activityService.js";
-import { runPartsSync } from "../services/partsService.js";
+import { runPartsSync } from "../services/parts/index.js";
 import { runAttentionSweep } from "../services/attention/index.js";
 import { runCsmTamAlertSweep } from "../services/csmTamAlertService.js";
 import { publishRosterUpdated } from "./pubsub.js";

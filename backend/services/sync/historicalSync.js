@@ -11,7 +11,7 @@ import { BACKFILL_CUTOFF, resolveOwnerName } from "../../config/constants.js";
 import { redisDelete } from "../../lib/cache.js";
 import { AnalyticsCache, AnalyticsTicket, PrecomputedDashboard, Remark } from "../../models/index.js";
 import { DEVREV_API, HEADERS, classifyLinkedWorkTeam, dependencyCounterpart, fetchTicketLinks, fetchWorkItem } from "../devrevApi.js";
-import { createPartContext, resolveWorkPartFields } from "../partsService.js";
+import { createPartContext, resolveWorkPartFields } from "../parts/index.js";
 import { findGSTMember, sendSlackAlerts } from "../slackService.js";
 import { removeReopenedFromMongo } from "./devrevFetch.js";
 import { classifyResolution } from "./ticketShape.js";

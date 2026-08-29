@@ -8,7 +8,7 @@
  *   GET /api/parts-trend          → ticket-volume trendline (daily/weekly/monthly) for a subtree
  *   GET /api/parts/:id/tickets     → paginated tickets for a part subtree
  */
-import { buildPartsTree, getPartTickets, getPartsTrend } from "../services/partsService.js";
+import { buildPartsTree, getPartTickets, getPartsTrend } from "../services/parts/index.js";
 import { ok, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 
