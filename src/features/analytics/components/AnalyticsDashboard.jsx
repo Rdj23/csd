@@ -107,6 +107,10 @@ import {
   LeaderboardSkeleton,
   LoadingSpinner,
 } from "../../../components/ui/SkeletonLoader";
+import { aggregateData as aggregateDataFn } from "../lib/aggregate";
+import { buildSmallChartData } from "../lib/smallChartData";
+import { computeFilteredStats } from "../lib/computeStats";
+import { buildExpandedData } from "../lib/expandedChartData";
 
 const QUARTERS = getAvailableQuarters();
 
@@ -1888,764 +1892,86 @@ const AnalyticsDashboard = ({
       resolvedBy: filters?.resolvedBy,
     });
 
-  const smallChartData = useMemo(() => {
-    const daysInterval = eachDayOfInterval({
-      start: effectiveDateRange.start,
-      end: effectiveDateRange.end,
-    });
+  const smallChartData = useMemo(
+    () =>
+      buildSmallChartData({
+        volumeTickets,
+        solvedTickets,
+        effectiveDateRange,
+        analyticsData,
+        hasDependencyFilter,
+        filters,
+      }),
+    [
+      volumeTickets,
+      solvedTickets,
+      hasDependencyFilter,
+      effectiveDateRange,
+      analyticsData,
+      filters,
+      excludeNOC,
+    ]);
 
-    // Volume: Use DevRev cache (has all created dates)
-    const volumeData = daysInterval.map((day) => {
-      const dateKey = format(day, "yyyy-MM-dd");
-      const dayTickets = volumeTickets.filter((t) => {
-        if (!t.created_date) return false;
-        return format(parseISO(t.created_date), "yyyy-MM-dd") === dateKey;
-      });
-      return {
-        name: format(day, "MMM dd"),
-        date: dateKey,
-        main: dayTickets.length,
-        tickets: dayTickets,
-      };
-    });
+  const filteredStats = useMemo(
+    () =>
+      computeFilteredStats({
+        analyticsData,
+        solvedTickets,
+        solvedTicketsForCSAT,
+        effectiveDateRange,
+        hasDependencyFilter,
+        filters,
+      }),
+    [
+      analyticsData,
+      volumeTickets,
+      solvedTickets,
+      solvedTicketsForCSAT,
+      filters,
+      hasDependencyFilter,
+      effectiveDateRange,
+      excludeNOC,
+      dependencies,
+    ]);
 
-    // For Solved/RWT/Backlog the default source is the MongoDB individualTrends
-    // rollup (filtered by owner/team). But those rollups have no dependency
-    // dimension, so when a dependency filter is active we rebuild the same
-    // per-day aggregates directly from solvedTickets (already filtered upstream
-    // for dependency + owner/team/region). Field/threshold definitions mirror the
-    // backend aggregation: solved = count by close-date, avgRWT = mean of rwt>0,
-    // backlogCleared = tickets whose (closed - created) age >= 15 days.
-    const dailyAggregates = {};
-
-    if (hasDependencyFilter) {
-      solvedTickets.forEach((t) => {
-        const closedDate = t.actual_close_date || t.closed_date;
-        if (!closedDate) return;
-        const dateKey = format(parseISO(closedDate), "yyyy-MM-dd");
-
-        if (!dailyAggregates[dateKey]) {
-          dailyAggregates[dateKey] = {
-            solved: 0,
-            totalRWT: 0,
-            rwtCount: 0,
-            backlogCleared: 0,
-          };
-        }
-
-        dailyAggregates[dateKey].solved += 1;
-
-        const rwt = t.custom_fields?.tnt__rwt_business_hours;
-        if (rwt > 0) {
-          dailyAggregates[dateKey].totalRWT += rwt;
-          dailyAggregates[dateKey].rwtCount += 1;
-        }
-
-        if (t.created_date) {
-          const ageDays =
-            (parseISO(closedDate).getTime() -
-              parseISO(t.created_date).getTime()) /
-            (1000 * 60 * 60 * 24);
-          if (ageDays >= 15) dailyAggregates[dateKey].backlogCleared += 1;
-        }
-      });
-    } else {
-      const individualTrends = analyticsData?.individualTrends || {};
-
-      // Determine which owners to include based on filters
-      let ownersToInclude = Object.keys(individualTrends);
-
-      // Filter Owners (case-insensitive)
-      if (filters?.owners?.length > 0) {
-        const lowerFilters = filters.owners.map((o) => o.toLowerCase());
-        ownersToInclude = ownersToInclude.filter((owner) =>
-          lowerFilters.includes(owner.toLowerCase()),
-        );
-      }
-
-      if (filters?.teams?.length > 0) {
-        ownersToInclude = ownersToInclude.filter((owner) => {
-          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
-            Object.values(TEAM_GROUPS[teamKey]).includes(owner),
-          );
-          return filters.teams.some((team) => ownerTeams.includes(team));
-        });
-      }
-
-      ownersToInclude.forEach((owner) => {
-        const ownerTrends = individualTrends[owner] || [];
-
-        ownerTrends.forEach((day) => {
-          if (!day.date) return;
-
-          if (!dailyAggregates[day.date]) {
-            dailyAggregates[day.date] = {
-              solved: 0,
-              totalRWT: 0,
-              rwtCount: 0,
-              backlogCleared: 0,
-            };
-          }
-
-          dailyAggregates[day.date].solved += day.solved || 0;
-          if (day.avgRWT && day.solved) {
-            dailyAggregates[day.date].totalRWT += day.avgRWT * day.solved;
-            dailyAggregates[day.date].rwtCount += day.solved;
-          }
-          dailyAggregates[day.date].backlogCleared += day.backlogCleared || 0;
-        });
-      });
-    }
-
-    // Solved: From aggregated individualTrends
-    const solvedData = daysInterval.map((day) => {
-      const dateKey = format(day, "yyyy-MM-dd");
-      const dayAgg = dailyAggregates[dateKey];
-      return {
-        name: format(day, "MMM dd"),
-        date: dateKey,
-        main: dayAgg?.solved || 0,
-        tickets: [], // Will be fetched on drill-down from MongoDB
-      };
-    });
-
-    // RWT: Average from aggregated individualTrends
-    const rwtData = daysInterval.map((day) => {
-      const dateKey = format(day, "yyyy-MM-dd");
-      const dayAgg = dailyAggregates[dateKey];
-      const avgRWT =
-        dayAgg?.rwtCount > 0 ? dayAgg.totalRWT / dayAgg.rwtCount : 0;
-      return {
-        name: format(day, "MMM dd"),
-        date: dateKey,
-        main: Number(avgRWT.toFixed(1)),
-        tickets: [],
-      };
-    });
-
-    // Backlog: From aggregated individualTrends
-    const backlogData = daysInterval.map((day) => {
-      const dateKey = format(day, "yyyy-MM-dd");
-      const dayAgg = dailyAggregates[dateKey];
-      return {
-        name: format(day, "MMM dd"),
-        date: dateKey,
-        main: dayAgg?.backlogCleared || 0,
-        tickets: [],
-      };
-    });
-
-    return {
-      volume: volumeData,
-      solved: solvedData,
-      rwt: rwtData,
-      backlog: backlogData,
-    };
-  }, [
-    volumeTickets,
-    solvedTickets,
-    hasDependencyFilter,
-    effectiveDateRange,
-    analyticsData,
-    filters,
-    excludeNOC,
-  ]);
-
-  const filteredStats = useMemo(() => {
-    // NOC exclusion is already handled by baseFilteredTickets -> solvedTickets
-    // CSAT/DSAT uses solvedTicketsForCSAT which always includes NOC tickets
-    // When hasDependencyFilter is active we fall into Scenario 0 (client-side calc)
-    // because solvedTickets already had the dependency filter applied upstream.
-
-    // =================================================================================
-    // SCENARIO 0: REGION OR DEPENDENCY FILTER APPLIED - Must use DevRev data
-    // (MongoDB rollups don't carry region / dependency per trend)
-    // =================================================================================
-    if (filters?.regions?.length > 0 || hasDependencyFilter) {
-      // When region filter is active, calculate from solvedTickets (already filtered by region in baseFilteredTickets)
-      let filteredSolved = solvedTickets;
-
-      // Also apply owner/team filter if present
-      if (filters?.owners?.length > 0) {
-        filteredSolved = filteredSolved.filter((t) => {
-          const ownerName = t.owned_by?.[0]?.display_name;
-          return filters.owners.some(
-            (o) =>
-              o.toLowerCase() === ownerName?.toLowerCase() ||
-              ownerName?.toLowerCase().includes(o.toLowerCase()),
-          );
-        });
-      }
-      if (filters?.teams?.length > 0) {
-        filteredSolved = filteredSolved.filter((t) => {
-          const ownerName = t.owned_by?.[0]?.display_name;
-          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
-            Object.values(TEAM_GROUPS[teamKey]).some(
-              (m) =>
-                m.toLowerCase() === ownerName?.toLowerCase() ||
-                ownerName?.toLowerCase().includes(m.toLowerCase()),
-            ),
-          );
-          return filters.teams.some((team) => ownerTeams.includes(team));
-        });
-      }
-
-      const totalSolved = filteredSolved.length;
-      const rwtValues = filteredSolved
-        .map((t) => t.custom_fields?.tnt__rwt_business_hours)
-        .filter((v) => v > 0);
-      const frtValues = filteredSolved
-        .map((t) => t.custom_fields?.tnt__frt_hours)
-        .filter((v) => v > 0);
-      const iterValues = filteredSolved
-        .map((t) => t.custom_fields?.tnt__iteration_count)
-        .filter((v) => v > 0);
-      // CSAT/DSAT: Use NOC-inclusive tickets (CSAT never excludes NOC)
-      const csatSource = solvedTicketsForCSAT.filter((t) => {
-        if (filters?.regions?.length > 0) {
-          const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
-          if (!filters.regions.includes(region)) return false;
-        }
-        if (filters?.owners?.length > 0) {
-          const ownerName = t.owned_by?.[0]?.display_name;
-          if (!filters.owners.some(
-            (o) =>
-              o.toLowerCase() === ownerName?.toLowerCase() ||
-              ownerName?.toLowerCase().includes(o.toLowerCase()),
-          )) return false;
-        }
-        if (filters?.teams?.length > 0) {
-          const ownerName = t.owned_by?.[0]?.display_name;
-          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
-            Object.values(TEAM_GROUPS[teamKey]).some(
-              (m) =>
-                m.toLowerCase() === ownerName?.toLowerCase() ||
-                ownerName?.toLowerCase().includes(m.toLowerCase()),
-            ),
-          );
-          if (!filters.teams.some((team) => ownerTeams.includes(team))) return false;
-        }
-        return true;
-      });
-      const positiveCSAT = csatSource.filter(
-        (t) => Number(t.custom_fields?.tnt__csatrating) === 2,
-      ).length;
-      const negativeCSAT = csatSource.filter(
-        (t) => Number(t.custom_fields?.tnt__csatrating) === 1,
-      ).length;
-      const frrMet = filteredSolved.filter(
-        (t) =>
-          t.custom_fields?.tnt__frr === true ||
-          t.custom_fields?.tnt__iteration_count === 1,
-      ).length;
-
-      return {
-        totalTickets: totalSolved, // Use solved count for Performance Overview
-        totalSolved,
-        avgRWT:
-          rwtValues.length > 0
-            ? (rwtValues.reduce((a, b) => a + b, 0) / rwtValues.length).toFixed(
-                2,
-              )
-            : "0.00",
-        avgFRT:
-          frtValues.length > 0
-            ? (frtValues.reduce((a, b) => a + b, 0) / frtValues.length).toFixed(
-                2,
-              )
-            : "0.00",
-        avgIterations:
-          iterValues.length > 0
-            ? (
-                iterValues.reduce((a, b) => a + b, 0) / iterValues.length
-              ).toFixed(1)
-            : "0.0",
-        positiveCSAT,
-        negativeCSAT,
-        csatPercent:
-          positiveCSAT + negativeCSAT > 0
-            ? Math.round((positiveCSAT / (positiveCSAT + negativeCSAT)) * 100)
-            : 0,
-        frrPercent:
-          totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
-        _source: "devrev_region_filtered",
-      };
-    }
-
-    // =================================================================================
-    // SCENARIO 1: SPECIFIC FILTERS APPLIED (Calculated from Individual Trends)
-    // =================================================================================
-    const hasOwnerFilters =
-      filters?.owners?.length > 0 || filters?.teams?.length > 0;
-
-    if (hasOwnerFilters) {
-      const individualTrends = analyticsData?.individualTrends || {};
-      let ownersToInclude = Object.keys(individualTrends);
-
-      // Filter Owners
-      if (filters?.owners?.length > 0) {
-        ownersToInclude = ownersToInclude.filter((owner) =>
-          filters.owners.includes(owner),
-        );
-      }
-      // Filter Teams
-      if (filters?.teams?.length > 0) {
-        ownersToInclude = ownersToInclude.filter((owner) => {
-          const ownerTeams = Object.keys(TEAM_GROUPS).filter((teamKey) =>
-            Object.values(TEAM_GROUPS[teamKey]).includes(owner),
-          );
-          return filters.teams.some((team) => ownerTeams.includes(team));
-        });
-      }
-
-      let totalSolved = 0;
-      let weightedRWT = 0,
-        validRWTCount = 0;
-      let weightedFRT = 0,
-        validFRTCount = 0;
-      let weightedIter = 0,
-        validIterCount = 0;
-      let positiveCSAT = 0;
-      let negativeCSAT = 0;
-      let frrMet = 0;
-
-      ownersToInclude.forEach((owner) => {
-        const ownerTrends = individualTrends[owner] || [];
-        ownerTrends.forEach((day) => {
-          if (!day.date) return;
-          const dayDate = parseISO(day.date);
-          if (
-            dayDate < effectiveDateRange.start ||
-            dayDate > effectiveDateRange.end
-          )
-            return;
-
-          totalSolved += day.solved || 0;
-          positiveCSAT += day.positiveCSAT || 0;
-          negativeCSAT += day.negativeCSAT || 0;
-          frrMet += day.frrMet || 0;
-
-          // Weighted Averages
-          if (day.avgRWT > 0 && day.rwtValidCount > 0) {
-            weightedRWT += day.avgRWT * day.rwtValidCount;
-            validRWTCount += day.rwtValidCount;
-          }
-          if (day.avgFRT > 0 && day.frtValidCount > 0) {
-            weightedFRT += day.avgFRT * day.frtValidCount;
-            validFRTCount += day.frtValidCount;
-          }
-          if (day.avgIterations > 0 && day.iterValidCount > 0) {
-            weightedIter += day.avgIterations * day.iterValidCount;
-            validIterCount += day.iterValidCount;
-          }
-        });
-      });
-
-      return {
-        totalTickets: totalSolved, // Use solved count for Performance Overview
-        totalSolved,
-        avgRWT:
-          validRWTCount > 0 ? (weightedRWT / validRWTCount).toFixed(2) : "0.00",
-        avgFRT:
-          validFRTCount > 0 ? (weightedFRT / validFRTCount).toFixed(2) : "0.00",
-        avgIterations:
-          validIterCount > 0
-            ? (weightedIter / validIterCount).toFixed(1)
-            : "0.0",
-        positiveCSAT,
-        negativeCSAT,
-        csatPercent: (() => {
-          // Use accumulated values, fall back to backend stats if trends lack negativeCSAT
-          const effectiveNeg = negativeCSAT > 0 ? negativeCSAT : (analyticsData?.stats?.negativeCSAT || 0);
-          const effectivePos = positiveCSAT > 0 ? positiveCSAT : (analyticsData?.stats?.positiveCSAT || 0);
-          if (effectivePos + effectiveNeg > 0) {
-            return Math.round((effectivePos / (effectivePos + effectiveNeg)) * 100);
-          }
-          return analyticsData?.stats?.csatPercent || 0;
-        })(),
-        frrPercent:
-          totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0,
-      };
-    }
-
-    // =================================================================================
-    // SCENARIO 2: NO FILTERS (Global Trends)
-    // =================================================================================
-    const globalTrends = analyticsData?.trends || [];
-
-    let totalSolved = 0;
-    let positiveCSAT = 0;
-    let negativeCSAT = 0;
-    let frrMet = 0;
-
-    // Variables for Global Calculation
-    let weightedRWT = 0,
-      rwtCount = 0;
-    let weightedFRT = 0,
-      frtCount = 0;
-    let weightedIter = 0,
-      iterCount = 0;
-
-    globalTrends.forEach((day) => {
-      if (!day.date) return;
-      const dayDate = parseISO(day.date);
-      // STRICTLY RESPECT DATE RANGE
-      if (
-        dayDate < effectiveDateRange.start ||
-        dayDate > effectiveDateRange.end
-      )
-        return;
-
-      totalSolved += day.solved || 0;
-      positiveCSAT += day.positiveCSAT || 0;
-      negativeCSAT += day.negativeCSAT || 0;
-      frrMet += day.frrMet || 0;
-
-      if (day.avgRWT > 0) {
-        weightedRWT += day.avgRWT * day.solved;
-        rwtCount += day.solved;
-      }
-      if (day.avgFRT > 0) {
-        weightedFRT += day.avgFRT * day.solved;
-        frtCount += day.solved;
-      }
-      if (day.avgIterations > 0) {
-        weightedIter += day.avgIterations * day.solved;
-        iterCount += day.solved;
-      }
-    });
-
-    // ✅ FIX: Use 'rwtCount' here (NOT totalValidRWT which is undefined in this block)
-    const avgRWT = rwtCount > 0 ? (weightedRWT / rwtCount).toFixed(2) : "0.00";
-    const avgFRT = frtCount > 0 ? (weightedFRT / frtCount).toFixed(2) : "0.00";
-    const avgIterations =
-      iterCount > 0 ? (weightedIter / iterCount).toFixed(1) : "0.0";
-
-    // ✅ FIX: FRR Percent calculation
-    const frrPercent =
-      totalSolved > 0 ? Math.round((frrMet / totalSolved) * 100) : 0;
-
-    return {
-      totalTickets: totalSolved, // Use solved count for Performance Overview
-      totalSolved,
-      avgRWT,
-      avgFRT,
-      avgIterations,
-      positiveCSAT,
-      negativeCSAT,
-      csatPercent: (() => {
-        // Use trend-accumulated negativeCSAT if available, otherwise fall back to backend stats
-        const effectiveNeg = negativeCSAT > 0 ? negativeCSAT : (analyticsData?.stats?.negativeCSAT || 0);
-        const effectivePos = positiveCSAT > 0 ? positiveCSAT : (analyticsData?.stats?.positiveCSAT || 0);
-        // Also use backend-computed csatPercent as ultimate fallback
-        if (effectivePos + effectiveNeg > 0) {
-          return Math.round((effectivePos / (effectivePos + effectiveNeg)) * 100);
-        }
-        return analyticsData?.stats?.csatPercent || 0;
-      })(),
-      frrPercent,
-      frrMet,
-      _source: "mongodb_global_calc",
-    };
-  }, [
-    analyticsData,
-    volumeTickets,
-    solvedTickets,
-    solvedTicketsForCSAT,
-    filters,
-    hasDependencyFilter,
-    effectiveDateRange,
-    excludeNOC,
-    dependencies,
-  ]);
-
-  // Helper: determine if a metric should be summed or averaged when grouping
-  const isAverageMetric = (metric) =>
-    ["rwt", "avgRWT", "avgFRT", "avgIterations", "frrPercent"].includes(metric);
-
-  // Helper: aggregate daily data points into weekly/monthly buckets
-  const aggregateData = useCallback((dailyData, groupMode, metric, users) => {
-    if (groupMode === "daily" || !dailyData.length) return dailyData;
-
-    const buckets = new Map();
-    const useAvg = isAverageMetric(metric);
-
-    dailyData.forEach((point) => {
-      const d = parseISO(point.date);
-      let bucketKey, bucketLabel;
-
-      if (groupMode === "weekly") {
-        const weekStart = startOfWeek(d, { weekStartsOn: 1 });
-        bucketKey = format(weekStart, "yyyy-MM-dd");
-        const weekEnd = endOfWeek(d, { weekStartsOn: 1 });
-        bucketLabel = `${format(weekStart, "MMM dd")} - ${format(weekEnd, "MMM dd")}`;
-      } else {
-        bucketKey = format(d, "yyyy-MM");
-        bucketLabel = format(d, "MMM yyyy");
-      }
-
-      if (!buckets.has(bucketKey)) {
-        buckets.set(bucketKey, { name: bucketLabel, date: bucketKey, _count: 0 });
-      }
-      const bucket = buckets.get(bucketKey);
-      bucket._count += 1;
-
-      // Aggregate user values
-      users.forEach((user) => {
-        bucket[user] = (bucket[user] || 0) + (point[user] || 0);
-      });
-      // Aggregate team/GST
-      if (point.compare_team !== undefined) {
-        bucket.compare_team = (bucket.compare_team || 0) + (point.compare_team || 0);
-      }
-      if (point.compare_gst !== undefined) {
-        bucket.compare_gst = (bucket.compare_gst || 0) + (point.compare_gst || 0);
-      }
-    });
-
-    // For average metrics, divide sums by count
-    if (useAvg) {
-      buckets.forEach((bucket) => {
-        const count = bucket._count || 1;
-        users.forEach((user) => {
-          bucket[user] = Number(((bucket[user] || 0) / count).toFixed(2));
-        });
-        if (bucket.compare_team !== undefined) {
-          bucket.compare_team = Number((bucket.compare_team / count).toFixed(2));
-        }
-        if (bucket.compare_gst !== undefined) {
-          bucket.compare_gst = Number((bucket.compare_gst / count).toFixed(2));
-        }
-      });
-    }
-
-    return Array.from(buckets.values()).map(({ _count, ...rest }) => rest);
-  }, []);
+  // isAverageMetric + aggregateData live in analytics/lib/aggregate.js.
+  // Kept as a useCallback with an empty dep array so its identity stays
+  // stable across renders, exactly as before — expandedData depends on it.
+  const aggregateData = useCallback(
+    (dailyData, groupMode, metric, users) =>
+      aggregateDataFn(dailyData, groupMode, metric, users),
+    [],
+  );
 
   // Expanded chart data
-  const expandedData = useMemo(() => {
-    if (!expandedMetric) return [];
-
-    const individualTrends = analyticsData?.individualTrends || {};
-    const rangeToUse = expandedEffectiveDateRange || effectiveDateRange;
-    let dailyData = [];
-
-    // For VOLUME - use real-time tickets with created_date
-    if (expandedMetric === "volume") {
-      // HOURLY VIEW for multi-user comparison (raw counts)
-      if (expandedGroupBy === "hourly") {
-        const totalDays = Math.max(1, differenceInDays(rangeToUse.end, rangeToUse.start) + 1);
-
-        // Filter all tickets in range
-        const rangeTickets = tickets.filter((t) => {
-          if (!t.created_date) return false;
-          const created = parseISO(t.created_date);
-          return created >= rangeToUse.start && created <= rangeToUse.end;
-        });
-
-        dailyData = HOUR_LABELS.map((label, hour) => {
-          const hourTickets = rangeTickets.filter((t) => getHours(parseISO(t.created_date)) === hour);
-          const dataPoint = { name: label, hour, totalDays };
-
-          // "All" - total tickets at this hour (regardless of assignee)
-          dataPoint["All Tickets"] = hourTickets.length;
-
-          // Per-user hourly raw counts
-          selectedUsers.forEach((user) => {
-            const count = hourTickets.filter((t) => {
-              const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || t.owned_by?.[0]?.display_name || "";
-              return owner === user;
-            }).length;
-            dataPoint[user] = count;
-          });
-
-          // Team & GST hourly raw counts
-          if (showTeam || showGST) {
-            if (showTeam) {
-              const teamMembers = TEAM_GROUPS[selectedUserTeamName?.replace("Team ", "")]
-                ? Object.values(TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")])
-                : [];
-              dataPoint.compare_team = hourTickets.filter((t) => {
-                const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
-                return teamMembers.includes(owner);
-              }).length;
-            }
-
-            if (showGST) {
-              const gstMembers = Object.values(FLAT_TEAM_MAP);
-              dataPoint.compare_gst = hourTickets.filter((t) => {
-                const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
-                return gstMembers.includes(owner);
-              }).length;
-            }
-          }
-
-          return dataPoint;
-        });
-
-        return dailyData;
-      }
-
-      const daysInterval = eachDayOfInterval({
-        start: rangeToUse.start,
-        end: rangeToUse.end,
-      });
-
-      dailyData = daysInterval.map((day) => {
-        const dateKey = format(day, "yyyy-MM-dd");
-        const dataPoint = { name: format(day, "MMM dd"), date: dateKey };
-
-        selectedUsers.forEach((user) => {
-          const userTickets = tickets.filter((t) => {
-            if (!t.created_date) return false;
-            const ticketDate = format(parseISO(t.created_date), "yyyy-MM-dd");
-            const owner =
-              FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-              t.owned_by?.[0]?.display_name ||
-              "";
-            return ticketDate === dateKey && owner === user;
-          });
-          dataPoint[user] = userTickets.length;
-        });
-
-        // Team & GST totals for volume
-        if (showTeam || showGST) {
-          const dayTickets = tickets.filter((t) => {
-            if (!t.created_date) return false;
-            return format(parseISO(t.created_date), "yyyy-MM-dd") === dateKey;
-          });
-
-          if (showTeam) {
-            const teamMembers = TEAM_GROUPS[
-              selectedUserTeamName?.replace("Team ", "")
-            ]
-              ? Object.values(
-                  TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")],
-                )
-              : [];
-            dataPoint.compare_team = dayTickets.filter((t) => {
-              const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
-              return teamMembers.includes(owner);
-            }).length;
-          }
-
-          if (showGST) {
-            const gstMembers = Object.values(FLAT_TEAM_MAP);
-            dataPoint.compare_gst = dayTickets.filter((t) => {
-              const owner = FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "";
-              return gstMembers.includes(owner);
-            }).length;
-          }
-        }
-
-        return dataPoint;
-      });
-    } else {
-      // For SOLVED, RWT, BACKLOG, etc. - use server individualTrends
-      const allDates = new Set();
-      selectedUsers.forEach((user) => {
-        (individualTrends[user] || []).forEach((d) => allDates.add(d.date));
-      });
-
-      // Filter dates to be within effectiveDateRange
-      const sortedDates = Array.from(allDates)
-        .sort()
-        .filter((date) => {
-          const d = parseISO(date);
-          return d >= rangeToUse.start && d <= rangeToUse.end;
-        });
-
-      dailyData = sortedDates.map((date) => {
-        const dataPoint = { name: format(parseISO(date), "MMM dd"), date };
-
-        selectedUsers.forEach((user) => {
-          const userDay = (individualTrends[user] || []).find(
-            (d) => d.date === date,
-          );
-          if (expandedMetric === "solved") {
-            dataPoint[user] = userDay?.solved || 0;
-          } else if (expandedMetric === "rwt" || expandedMetric === "avgRWT") {
-            dataPoint[user] = userDay?.avgRWT
-              ? Number(userDay.avgRWT.toFixed(2))
-              : 0;
-          } else if (expandedMetric === "backlog") {
-            dataPoint[user] = userDay?.backlogCleared || 0;
-          } else if (expandedMetric === "frrPercent") {
-            dataPoint[user] = userDay?.frrPercent || 0;
-          } else if (expandedMetric === "csat") {
-            dataPoint[user] = userDay?.positiveCSAT || 0;
-          } else if (expandedMetric === "avgFRT") {
-            dataPoint[user] = userDay?.avgFRT
-              ? Number(userDay.avgFRT.toFixed(2))
-              : 0;
-          } else if (expandedMetric === "avgIterations") {
-            dataPoint[user] = userDay?.avgIterations
-              ? Number(userDay.avgIterations.toFixed(1))
-              : 0;
-          }
-        });
-
-        // Team & GST totals
-        if (showTeam || showGST) {
-          let teamTotal = 0,
-            gstTotal = 0;
-          const teamMembers = TEAM_GROUPS[
-            selectedUserTeamName?.replace("Team ", "")
-          ]
-            ? Object.values(
-                TEAM_GROUPS[selectedUserTeamName.replace("Team ", "")],
-              )
-            : [];
-
-          Object.entries(individualTrends).forEach(([user, days]) => {
-            const dayData = days.find((d) => d.date === date);
-            if (dayData) {
-              const val =
-                expandedMetric === "solved"
-                  ? dayData.solved
-                  : expandedMetric === "rwt" || expandedMetric === "avgRWT"
-                    ? dayData.avgRWT
-                    : expandedMetric === "backlog"
-                      ? dayData.backlogCleared
-                      : expandedMetric === "frrPercent"
-                        ? dayData.frrPercent
-                        : expandedMetric === "csat"
-                          ? dayData.positiveCSAT
-                          : expandedMetric === "avgFRT"
-                            ? dayData.avgFRT
-                            : expandedMetric === "avgIterations"
-                              ? dayData.avgIterations
-                              : 0;
-              gstTotal += val || 0;
-              if (teamMembers.includes(user)) {
-                teamTotal += val || 0;
-              }
-            }
-          });
-
-          if (showTeam) dataPoint.compare_team = teamTotal;
-          if (showGST) dataPoint.compare_gst = gstTotal;
-        }
-
-        return dataPoint;
-      });
-    }
-
-    // Apply weekly/monthly grouping
-    return aggregateData(dailyData, expandedGroupBy, expandedMetric, selectedUsers);
-  }, [
-    analyticsData,
-    expandedMetric,
-    selectedUsers,
-    showTeam,
-    showGST,
-    selectedUserTeamName,
-    tickets,
-    effectiveDateRange,
-    expandedEffectiveDateRange,
-    expandedGroupBy,
-    aggregateData,
-  ]);
+  const expandedData = useMemo(
+    () =>
+      buildExpandedData({
+        expandedMetric,
+        analyticsData,
+        effectiveDateRange,
+        expandedEffectiveDateRange,
+        expandedGroupBy,
+        selectedUsers,
+        selectedUserTeamName,
+        showTeam,
+        showGST,
+        HOUR_LABELS,
+        tickets,
+      }),
+    [
+      analyticsData,
+      expandedMetric,
+      selectedUsers,
+      showTeam,
+      showGST,
+      selectedUserTeamName,
+      tickets,
+      effectiveDateRange,
+      expandedEffectiveDateRange,
+      expandedGroupBy,
+      aggregateData,
+    ]);
 
   const colors = {
     grid: isDark ? "#1e293b" : "#f1f5f9",
