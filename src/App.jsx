@@ -99,6 +99,11 @@ import { EMAIL_TO_NAME_MAP, FLAT_TEAM_MAP, TEAM_GROUPS, TEAM_REGION_MAP } from "
 import { STAGE_MAP, formatRWT, getTicketStatus } from "./lib/ticketStatus";
 import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
 import { csvTimestamp, downloadCsv } from "./lib/csv";
+import Toast from "./components/ui/Toast";
+import SaveViewModal from "./features/views/components/SaveViewModal";
+import KPICard from "./features/tickets/components/KPICard";
+import { filterAllTickets } from "./features/tickets/lib/filterAllTickets";
+import { filterOngoingTickets } from "./features/tickets/lib/filterOngoingTickets";
 /**
  * Suspense fallback for lazily-loaded tabs.
  *
@@ -847,251 +852,31 @@ const App = () => {
   }, [currentFilters.teams]);
 
   // ✅ 4. FILTERED TICKETS (Depends on currentFilters)
-  const filteredTickets = useMemo(() => {
-    if (activeTab === "vistas" && !selectedViewId && myViews.length > 0)
-      return [];
-
-    return tickets
-      .map((t) => {
-        const isCSD = t.tags?.some(
-          (tagObj) => tagObj.tag?.name === "csd-highlighted",
-        );
-        const { status, color, icon, days, priority } = getTicketStatus(
-          t.created_date,
-          t.stage?.name,
-          isCSD,
-        );
-        const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
-        const cohort = t.custom_fields?.tnt__account_cohort_fy_25 || "C4S";
-        const accountName =
-          t.custom_fields?.tnt__instance_account_name || "Unknown";
-        const csm = t.custom_fields?.tnt__csm_email_id || "Unknown";
-        const tam = t.custom_fields?.tnt__tam || "Unknown";
-        const rwtMs = formatRWT(t.custom_fields?.tnt__customer_wait_time);
-        const stageName = t.stage?.name || "";
-        const isActive =
-          Object.keys(STAGE_MAP).includes(stageName) ||
-          (activeTab === "csd" &&
-            !stageName.toLowerCase().includes("solved") &&
-            !stageName.toLowerCase().includes("closed"));
-
-        const sentimentLabel = typeof t.sentiment === "string"
-          ? t.sentiment
-          : t.sentiment?.label || null;
-
-        return {
-          ...t,
-          uiStatus: status,
-          uiColor: color,
-          uiIcon: icon,
-          days,
-          priority,
-          region,
-          cohort,
-          rwtMs,
-          isCSD,
-          isActive,
-          accountName,
-          csm,
-          tam,
-          sentimentLabel,
-          // Metrics for CSV export
-          rwt: t.custom_fields?.tnt__rwt_business_hours || null,
-          frt: t.custom_fields?.tnt__frt_hours || null,
-          iterations: t.custom_fields?.tnt__iteration_count || null,
-          csat: t.custom_fields?.tnt__csatrating || null,
-          frr:
-            t.custom_fields?.tnt__frr === true
-              ? "Yes"
-              : t.custom_fields?.tnt__iteration_count === 1
-                ? "Yes"
-                : null,
-        };
-      })
-      .filter((t) => {
-        if (activeTab === "csd") {
-          if (!t.isCSD) return false;
-          // For CSD, show all non-closed tickets
-          const stage = t.stage?.name?.toLowerCase() || "";
-          if (stage.includes("solved") || stage.includes("closed"))
-            return false;
-        } else if (activeTab !== "analytics" && !t.isActive) {
-          return false;
-        }
-
-        const currentSearch = (searchQueries[activeTab] || "").toLowerCase();
-        const matchesSearch =
-          (t.title || "").toLowerCase().includes(currentSearch) ||
-          (t.display_id || "").toLowerCase().includes(currentSearch);
-        if (!matchesSearch) return false;
-
-        // ✅ FIX: Use 'currentFilters.dateRange' so each tab is independent
-        // ✅ Skip date filtering for pending/on-hold tickets - they should always show
-        const stageLower = t.stage?.name?.toLowerCase() || "";
-        const isPendingOrOnHold =
-          stageLower.includes("awaiting customer") ||
-          stageLower.includes("pending") ||
-          stageLower.includes("waiting on clevertap") ||
-          stageLower.includes("on hold");
-
-        if (
-          currentFilters.dateRange?.start &&
-          currentFilters.dateRange?.end &&
-          !isPendingOrOnHold
-        ) {
-          if (
-            !isWithinInterval(parseISO(t.created_date), {
-              start: startOfDay(parseISO(currentFilters.dateRange.start)),
-              end: endOfDay(parseISO(currentFilters.dateRange.end)),
-            })
-          )
-            return false;
-        }
-
-        const ownerName =
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] || "Unassigned";
-
-        if (currentFilters.teams?.length > 0) {
-          // Special case: Adish = region-based filter only, not owner-based
-          if (
-            currentFilters.teams.length === 1 &&
-            currentFilters.teams.includes("Adish")
-          ) {
-            // Skip team/owner filter - let region filter handle it
-            // (regions are already auto-selected via useEffect)
-          } else {
-            // Normal team filter - filter by team members
-            const ticketOwnerTeams = Object.entries(TEAM_GROUPS)
-              .filter(([team, members]) =>
-                Object.values(members).includes(ownerName),
-              )
-              .map(([team]) => team);
-            if (
-              !ticketOwnerTeams.some((team) =>
-                currentFilters.teams.includes(team),
-              )
-            )
-              return false;
-          }
-        }
-        if (
-          currentFilters.owners?.length > 0 &&
-          !currentFilters.owners.includes(ownerName)
-        )
-          return false;
-
-        // ── "Resolved By" filter (dashboard-wide) ──
-        // Both checked OR none checked = no filter (show everything).
-        // Only narrows when exactly one of {engineer, agent} is selected.
-        // Agent classification mirrors the backend rule:
-        //   agent = (tnt__agent_resolved === true AND tnt__support_engineer_handled !== true)
-        //           OR (Unassigned AND solved)
-        const resolvedBySel = currentFilters.resolvedBy || [];
-        if (resolvedBySel.length === 1) {
-          const stageLower = (t.stage?.name || "").toLowerCase();
-          const isSolved =
-            stageLower.includes("solved") ||
-            stageLower.includes("closed") ||
-            stageLower.includes("resolved");
-          const agentFlag =
-            (t.custom_fields?.tnt__agent_resolved === true &&
-              t.custom_fields?.tnt__support_engineer_handled !== true) ||
-            (ownerName === "Unassigned" && isSolved);
-          const ticketResolvedBy = agentFlag ? "agent" : "engineer";
-          if (!resolvedBySel.includes(ticketResolvedBy)) return false;
-        }
-        if (
-          currentFilters.regions?.length > 0 &&
-          !currentFilters.regions.includes(t.region)
-        )
-          return false;
-        if (
-          currentFilters.cohorts?.length > 0 &&
-          !currentFilters.cohorts.includes(t.cohort)
-        )
-          return false;
-        if (
-          currentFilters.accounts?.length > 0 &&
-          !currentFilters.accounts.includes(t.accountName)
-        )
-          return false;
-        if (
-          currentFilters.csms?.length > 0 &&
-          !currentFilters.csms.includes(t.csm)
-        )
-          return false;
-        if (
-          currentFilters.tams?.length > 0 &&
-          !currentFilters.tams.includes(t.tam)
-        )
-          return false;
-        if (
-          currentFilters.sentiments?.length > 0 &&
-          !currentFilters.sentiments.includes(t.sentimentLabel)
-        )
-          return false;
-
-        if (activeTab !== "analytics") {
-          const stageLabel = STAGE_MAP[t.stage?.name]?.label || "Unknown";
-          if (
-            currentFilters.stages?.length > 0 &&
-            !currentFilters.stages.includes(stageLabel)
-          )
-            return false;
-        }
-
-        // Dependency filter
-        if (
-          currentFilters.dependency?.length > 0 &&
-          currentFilters.dependency.length < 2
-        ) {
-          // Only filter if NOT both options are selected (if both selected, show all)
-          const hasDep = getTicketDepInfo(dependencies, t).hasDependency;
-
-          if (
-            currentFilters.dependency.includes("with_dependency") &&
-            !currentFilters.dependency.includes("no_dependency")
-          ) {
-            // Only "Has Dependency" selected - hide tickets without dependency
-            if (!hasDep) return false;
-          }
-          if (
-            currentFilters.dependency.includes("no_dependency") &&
-            !currentFilters.dependency.includes("with_dependency")
-          ) {
-            // Only "No Dependency" selected - hide tickets with dependency
-            if (hasDep) return false;
-          }
-        }
-
-        // Dependency team filter (only applies when filtering for dependency
-        // tickets). Any non-full selection narrows — zero teams selected must
-        // yield zero dependency tickets, not "show all".
-        if (
-          currentFilters.dependency?.includes("with_dependency") &&
-          Array.isArray(currentFilters.dependencyTeams) &&
-          currentFilters.dependencyTeams.length < DEPENDENCY_TEAMS.length
-        ) {
-          const depInfo = getTicketDepInfo(dependencies, t);
-          if (depInfo.hasDependency) {
-            const hasMatchingTeam = currentFilters.dependencyTeams.some(
-              (team) => depInfo.teams.includes(team),
-            );
-            if (!hasMatchingTeam) return false;
-          }
-        }
-
-        return true;
-      });
-  }, [
-    tickets,
-    activeTab,
-    searchQueries,
-    dateRange,
-    currentFilters,
-    selectedViewId,
-    dependencies, // ADD THIS
-  ]);
+  // The 235-line pipeline lives in features/tickets/lib/filterOngoingTickets.js.
+  // The dependency array below is UNCHANGED (note it still omits myViews, as
+  // it always has) so this memo recomputes on exactly the same triggers.
+  const filteredTickets = useMemo(
+    () =>
+      filterOngoingTickets({
+        tickets,
+        activeTab,
+        searchQueries,
+        dateRange,
+        currentFilters,
+        selectedViewId,
+        dependencies,
+        myViews,
+      }),
+    [
+      tickets,
+      activeTab,
+      searchQueries,
+      dateRange,
+      currentFilters,
+      selectedViewId,
+      dependencies,
+    ],
+  );
 
   // Exclude tickets owned by Anmol Sawhney from ongoing views
   const displayTicketsBeforeHealth = useMemo(() => {
@@ -1168,279 +953,21 @@ const App = () => {
   }, [activeTab, allSolvedRange?.start, allSolvedRange?.end]);
 
   // All Tickets View - includes solved/closed tickets
-  const allTicketsFiltered = useMemo(() => {
-    if (activeTab !== "alltickets") return [];
-
-    const allTicketsFilters = tabFilters.alltickets || EMPTY_FILTERS;
-
-    // Solved tickets ALWAYS come from Mongo now — the live cache is
-    // active-only, so the two sources can no longer overlap. The filter below
-    // is kept as a cheap guard: a stale cache written before the 2026-08-09
-    // backend change (5-min TTL, but a client can hold an older payload) could
-    // still carry solved rows, and double-counting them against the Mongo set
-    // would inflate every count on this tab.
-    const isSolvedStage = (name) => {
-      const s = (name || "").toLowerCase();
-      return (
-        s.includes("solved") || s.includes("closed") || s.includes("resolved")
-      );
-    };
-    const sourceTickets = [
-      ...tickets.filter((t) => !isSolvedStage(t.stage?.name)),
-      ...allSolvedTickets,
-    ];
-
-    return sourceTickets
-      .map((t) => {
-        const { status, color, icon, priority, days } = getTicketStatus(
-          t.created_date,
-          t.stage?.name,
-          false,
-        );
-        return {
-          ...t,
-          uiStatus: status,
-          uiColor: color,
-          uiIcon: icon,
-          priority,
-          days,
-
-          region: (() => {
-            const r = t.custom_fields?.tnt__region_salesforce || "Unknown";
-            if (r === "IN1" || r === "In1" || r === "in1") return "India";
-            return r;
-          })(),
-          accountName:
-            t.custom_fields?.tnt__instance_account_name ||
-            t.rev_org?.display_name ||
-            t.account?.display_name ||
-            "Unknown",
-          csm:
-            t.custom_fields?.tnt__csm_email_id ||
-            t.custom_fields?.tnt__csm ||
-            "Unknown",
-          tam: t.custom_fields?.tnt__tam || "Unknown",
-
-          // Metrics
-          rwt: t.custom_fields?.tnt__rwt_business_hours || null,
-          frt: t.custom_fields?.tnt__frt_hours || null,
-          iterations: t.custom_fields?.tnt__iteration_count || null,
-          csat: t.custom_fields?.tnt__csatrating || null,
-          frr:
-            t.custom_fields?.tnt__frr === true
-              ? "Yes"
-              : t.custom_fields?.tnt__iteration_count === 1
-                ? "Yes"
-                : null,
-        };
-      })
-      .filter((t) => {
-        // Get owner name
-        const ownerName =
-          FLAT_TEAM_MAP[t.owned_by?.[0]?.display_id] ||
-          t.owned_by?.[0]?.display_name ||
-          "";
-
-        // Date Range filter — applies to SOLVED tickets only (by close date).
-        // Open/Pending/On-Hold buckets always show the complete backlog: an
-        // active ticket is still someone's workload no matter when it was
-        // created, so filtering actives by created_date silently hid old
-        // tickets (e.g. a Feb-created ticket still pending in July vanished
-        // whenever a recent range was selected).
-        if (
-          allTicketsFilters.dateRange?.start &&
-          allTicketsFilters.dateRange?.end
-        ) {
-          try {
-            const stageLower = (t.stage?.name || "").toLowerCase();
-            const isSolved =
-              stageLower.includes("solved") ||
-              stageLower.includes("closed") ||
-              stageLower.includes("resolved");
-
-            if (isSolved) {
-              const ticketDate = parseISO(
-                t.actual_close_date || t.created_date,
-              );
-              const start = startOfDay(
-                parseISO(allTicketsFilters.dateRange.start),
-              );
-              const end = endOfDay(parseISO(allTicketsFilters.dateRange.end));
-              if (!isWithinInterval(ticketDate, { start, end })) return false;
-            }
-          } catch (e) {
-            // Skip invalid dates
-          }
-        }
-
-        // Region filter
-        if (allTicketsFilters.regions?.length > 0) {
-          if (!allTicketsFilters.regions.includes(t.region)) return false;
-        }
-
-        // Team filter - special handling for Adish (region-based)
-        if (allTicketsFilters.teams?.length > 0) {
-          // If only Adish is selected, filter by regions instead of owner
-          if (
-            allTicketsFilters.teams.length === 1 &&
-            allTicketsFilters.teams.includes("Adish")
-          ) {
-            // Adish = South America + North America regions
-            const adishRegions = ["South America", "North America"];
-            if (!adishRegions.includes(t.region)) return false;
-          } else if (
-            allTicketsFilters.teams.includes("Adish") &&
-            allTicketsFilters.teams.length > 1
-          ) {
-            // Adish + other teams: include SA/NA regions OR matching team members
-            const adishRegions = ["South America", "North America"];
-            const otherTeams = allTicketsFilters.teams.filter(
-              (team) => team !== "Adish",
-            );
-
-            const ownerTeams = Object.entries(TEAM_GROUPS)
-              .filter(([team, members]) =>
-                Object.values(members).includes(ownerName),
-              )
-              .map(([team]) => team);
-
-            const matchesOtherTeam = ownerTeams.some((team) =>
-              otherTeams.includes(team),
-            );
-            const matchesAdishRegion = adishRegions.includes(t.region);
-
-            if (!matchesOtherTeam && !matchesAdishRegion) return false;
-          } else {
-            // Normal team filter - filter by team members
-            const ownerTeams = Object.entries(TEAM_GROUPS)
-              .filter(([team, members]) =>
-                Object.values(members).includes(ownerName),
-              )
-              .map(([team]) => team);
-
-            if (
-              !ownerTeams.some((team) => allTicketsFilters.teams.includes(team))
-            ) {
-              return false;
-            }
-          }
-        }
-
-        // Owner/Member filter
-        if (allTicketsFilters.owners?.length > 0) {
-          if (!allTicketsFilters.owners.includes(ownerName)) return false;
-        }
-
-        // Resolved By filter — same rule as the main view; both checked = no-op
-        const allTicketsResolvedBy = allTicketsFilters.resolvedBy || [];
-        if (allTicketsResolvedBy.length === 1) {
-          const stageLower = (t.stage?.name || "").toLowerCase();
-          const isSolved =
-            stageLower.includes("solved") ||
-            stageLower.includes("closed") ||
-            stageLower.includes("resolved");
-          const agentFlag =
-            (t.custom_fields?.tnt__agent_resolved === true &&
-              t.custom_fields?.tnt__support_engineer_handled !== true) ||
-            (ownerName === "Unassigned" && isSolved);
-          const ticketResolvedBy = agentFlag ? "agent" : "engineer";
-          if (!allTicketsResolvedBy.includes(ticketResolvedBy)) return false;
-        }
-
-        // Account filter
-        if (allTicketsFilters.accounts?.length > 0) {
-          if (!allTicketsFilters.accounts.includes(t.accountName)) return false;
-        }
-
-        // CSM filter - scope to accounts
-        if (allTicketsFilters.csms?.length > 0) {
-          if (!allTicketsFilters.csms.includes(t.csm)) return false;
-        }
-
-        // TAM filter - scope to accounts
-        if (allTicketsFilters.tams?.length > 0) {
-          if (!allTicketsFilters.tams.includes(t.tam)) return false;
-        }
-
-        // Stage filter - map stage names to filter values
-        if (allTicketsFilters.stages?.length > 0) {
-          const stageName = (t.stage?.name || "").toLowerCase();
-
-          // Map actual stage names to filter categories
-          let stageCategory = "";
-          if (
-            stageName.includes("waiting on assignee") ||
-            stageName === "open"
-          ) {
-            stageCategory = "Open";
-          } else if (
-            stageName.includes("awaiting customer") ||
-            stageName.includes("pending")
-          ) {
-            stageCategory = "Pending";
-          } else if (
-            stageName.includes("waiting on clevertap") ||
-            stageName.includes("on hold")
-          ) {
-            stageCategory = "On Hold";
-          } else if (
-            stageName.includes("solved") ||
-            stageName.includes("closed") ||
-            stageName.includes("resolved")
-          ) {
-            stageCategory = "Solved";
-          }
-
-          if (
-            stageCategory &&
-            !allTicketsFilters.stages.includes(stageCategory)
-          ) {
-            return false;
-          }
-        }
-
-        // Dependency filter — getTicketDepInfo prefers the sync-time Mongo
-        // snapshot carried by all-solved rows (which the live map never covers),
-        // falling back to the live dependencies map for active-cache tickets.
-        if (
-          allTicketsFilters.dependency?.length > 0 &&
-          allTicketsFilters.dependency?.length < 2
-        ) {
-          const hasDependency = getTicketDepInfo(dependencies, t).hasDependency;
-
-          if (
-            allTicketsFilters.dependency.includes("with_dependency") &&
-            !hasDependency
-          ) {
-            return false;
-          }
-          if (
-            allTicketsFilters.dependency.includes("no_dependency") &&
-            hasDependency
-          ) {
-            return false;
-          }
-        }
-
-        // Dependency team filter — zero teams selected yields zero dependency
-        // tickets (an empty selection is a narrowing, not a no-op).
-        if (
-          allTicketsFilters.dependency?.includes("with_dependency") &&
-          Array.isArray(allTicketsFilters.dependencyTeams) &&
-          allTicketsFilters.dependencyTeams.length < DEPENDENCY_TEAMS.length
-        ) {
-          const depInfo = getTicketDepInfo(dependencies, t);
-          if (depInfo.hasDependency) {
-            const hasMatchingTeam = allTicketsFilters.dependencyTeams.some(
-              (team) => depInfo.teams.includes(team),
-            );
-            if (!hasMatchingTeam) return false;
-          }
-        }
-
-        return true;
-      });
-  }, [tickets, tabFilters.alltickets, activeTab, dependencies, allSolvedTickets]);
+  // The 270-line pipeline lives in features/tickets/lib/filterAllTickets.js.
+  // The dependency array below is UNCHANGED, so this memo still recomputes on
+  // exactly the same triggers it always did.
+  const allTicketsFiltered = useMemo(
+    () =>
+      filterAllTickets({
+        tickets,
+        activeTab,
+        tabFilters,
+        dependencies,
+        allSolvedTickets,
+        EMPTY_FILTERS,
+      }),
+    [tickets, tabFilters.alltickets, activeTab, dependencies, allSolvedTickets],
+  );
 
   // ✅ KPI STATS - Count from displayTicketsBeforeHealth so cards always show real counts
   const stats = useMemo(() => {
@@ -1455,96 +982,6 @@ const App = () => {
     activeTab === "csd"
       ? { red: "> 7 Days", yellow: "3-7 Days", green: "< 3 Days" }
       : { red: "> 15 Days", yellow: "10-15 Days", green: "< 10 Days" };
-
-  const KPICard = ({
-    count,
-    label,
-    borderClass,
-    icon: Icon,
-    filterVal,
-    textClassLight,
-    textClassDark,
-  }) => {
-    const isDisabled = count === 0;
-    const healthFilter = currentFilters.health || [];
-    const isActive = healthFilter.includes(filterVal);
-    const isInactive = healthFilter.length > 0 && !isActive;
-
-    return (
-    <button
-      onClick={() => !isDisabled && handleKPIFilter(filterVal)}
-      disabled={isDisabled}
-      className={`relative group text-left w-full rounded-xl border overflow-hidden
-        transition-all duration-200
-        ${isDisabled
-          ? "opacity-60 cursor-not-allowed bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700"
-          : isInactive
-          ? "opacity-70 hover:-translate-y-0.5 cursor-pointer bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
-          : "hover:-translate-y-0.5 cursor-pointer"
-        }
-        ${!isDisabled && !isInactive && (filterVal === "Healthy"
-          ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-200 dark:hover:border-emerald-800/60"
-          : filterVal === "Needs Attention"
-          ? "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-800/60"
-          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-800/60")
-        }
-        ${isActive && (filterVal === "Healthy"
-          ? "ring-2 ring-emerald-400/50 dark:ring-emerald-500/40 border-emerald-300 dark:border-emerald-700"
-          : filterVal === "Needs Attention"
-          ? "ring-2 ring-amber-400/50 dark:ring-amber-500/40 border-amber-300 dark:border-amber-700"
-          : "ring-2 ring-rose-400/50 dark:ring-rose-500/40 border-rose-300 dark:border-rose-700")
-        }`}
-      style={{ boxShadow: isDisabled ? '0 1px 2px rgba(0,0,0,0.05)' : 'var(--shadow-card)' }}
-      title={isDisabled ? "No tickets in this category" : isInactive ? `Click to filter by ${label}` : undefined}
-    >
-      {/* Left accent bar */}
-      <div className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
-        borderClass.replace('border-l-4 border-l-', 'bg-')
-      } ${isDisabled ? "opacity-20" : isInactive ? "opacity-40" : ""}`} />
-
-      <div className="pl-5 pr-4 py-4 flex items-center justify-between">
-        <div className="flex-1">
-          <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${
-            isDisabled
-              ? "text-slate-400 dark:text-slate-500"
-              : isInactive
-              ? "text-slate-400 dark:text-slate-500"
-              : "text-slate-500 dark:text-slate-400"
-          }`}>
-            {label}
-          </p>
-          <p className={`text-4xl font-bold tracking-tight leading-none transition-colors duration-200 ${
-            isDisabled
-              ? "text-slate-400 dark:text-slate-500"
-              : isInactive
-              ? "text-slate-400 dark:text-slate-500"
-              : `${textClassLight} ${textClassDark}`
-          }`}>
-            {count}
-          </p>
-        </div>
-        <div className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ml-2
-          transition-all duration-200 ${!isDisabled && "group-hover:scale-110"}
-          ${isDisabled
-            ? "bg-slate-200 dark:bg-slate-700"
-            : isInactive
-            ? "bg-slate-100 dark:bg-slate-800"
-            : filterVal === "Healthy" ? "bg-emerald-100 dark:bg-emerald-900/30"
-            : filterVal === "Needs Attention" ? "bg-amber-100 dark:bg-amber-900/30"
-            : "bg-rose-100 dark:bg-rose-900/30"}`}
-        >
-          <Icon className={`w-5 h-5 ${
-            isDisabled
-              ? "text-slate-500 dark:text-slate-400 opacity-60"
-              : isInactive
-              ? "text-slate-400 dark:text-slate-500 opacity-60"
-              : `${textClassLight} ${textClassDark} opacity-80`
-          }`} />
-        </div>
-      </div>
-    </button>
-    );
-  };
 
   // ⌘K / Ctrl+K shortcut to open AI Agent modal
   useEffect(() => {
@@ -2599,6 +2036,8 @@ const App = () => {
                   textClassDark="dark:text-emerald-400"
                   icon={CheckCircle}
                   filterVal="Healthy"
+                  currentFilters={currentFilters}
+                  onFilter={handleKPIFilter}
                 />
                 <KPICard
                   count={stats.yellow}
@@ -2608,6 +2047,8 @@ const App = () => {
                   textClassDark="dark:text-amber-400"
                   icon={Clock}
                   filterVal="Needs Attention"
+                  currentFilters={currentFilters}
+                  onFilter={handleKPIFilter}
                 />
                 <KPICard
                   count={stats.red}
@@ -2617,6 +2058,8 @@ const App = () => {
                   textClassDark="dark:text-rose-400"
                   icon={AlertTriangle}
                   filterVal="Action Immediately"
+                  currentFilters={currentFilters}
+                  onFilter={handleKPIFilter}
                 />
               </div>
             )}
@@ -2728,50 +2171,18 @@ const App = () => {
       </div>
 
 
-      {/* TOAST */}
-      {toastMessage && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-5 py-2.5 rounded-full flex items-center gap-2 text-[12px] font-semibold animate-fade-in"
-             style={{ boxShadow: '0 4px 24px rgba(15,23,42,0.25), 0 1px 4px rgba(15,23,42,0.15)' }}>
-          {toastMessage}
-        </div>
-      )}
+      <Toast message={toastMessage} />
 
-      {/* SAVE VIEW MODAL */}
-      {showSaveInput && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 w-96 border border-slate-200 dark:border-slate-800">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-              <Save className="w-5 h-5 text-indigo-500" /> Save Current View
-            </h3>
-            <input
-              type="text"
-              placeholder="Enter view name..."
-              value={newViewName}
-              onChange={(e) => setNewViewName(e.target.value)}
-              className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
-              autoFocus
-            />
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowSaveInput(false);
-                  setNewViewName("");
-                }}
-                className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={onSaveView}
-                disabled={!newViewName.trim()}
-                className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Save View
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SaveViewModal
+        open={showSaveInput}
+        name={newViewName}
+        onNameChange={setNewViewName}
+        onCancel={() => {
+          setShowSaveInput(false);
+          setNewViewName("");
+        }}
+        onSave={onSaveView}
+      />
 
       {selectedUserProfile &&
         (() => {
