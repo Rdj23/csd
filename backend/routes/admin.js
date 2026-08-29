@@ -18,7 +18,7 @@ import {
   runCsmTamAlerts,
 } from "../controllers/adminController.js";
 import { triggerActivitySync, resyncActivity, rebuildDailyRollups } from "../controllers/activityController.js";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin } from "../middleware/security/index.js";
 import { validate } from "../middleware/validate.js";
 import { jobStatusSchema, syncTicketSchema } from "../validations/adminSchemas.js";
 

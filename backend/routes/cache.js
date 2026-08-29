@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getCacheStatus, clearCache } from "../controllers/cacheController.js";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin } from "../middleware/security/index.js";
 
 const router = Router();
 

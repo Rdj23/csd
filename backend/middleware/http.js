@@ -1,5 +1,5 @@
 /**
- * middleware/server.js — Express middleware stack for security, performance, and reliability.
+ * middleware/http.js — Express middleware stack for security, performance, and reliability.
  *
  * WHAT IS MIDDLEWARE:
  * Middleware are functions that run BETWEEN receiving a request and sending a response.

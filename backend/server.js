@@ -26,8 +26,8 @@ import {
   urlencodedParser,
   readinessCheck,
   setServerReady,
-} from "./middleware/server.js";
-import { apiLimiter, authLimiter, apiKeyLimiter, verifyToken, requireAdmin, checkApiKeyScope } from "./middleware/auth.js";
+} from "./middleware/http.js";
+import { apiLimiter, authLimiter, apiKeyLimiter, verifyToken, requireAdmin, checkApiKeyScope } from "./middleware/security/index.js";
 
 const app = express();
 // Trust Render's reverse proxy so express-rate-limit can read X-Forwarded-For

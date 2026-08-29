@@ -8,8 +8,8 @@ import {
   compressionMiddleware,
   jsonParser,
   urlencodedParser,
-} from "../middleware/server.js";
-import { verifyToken, requireAdmin } from "../middleware/auth.js";
+} from "../middleware/http.js";
+import { verifyToken, requireAdmin } from "../middleware/security/index.js";
 
 const TEST_SECRET = process.env.JWT_SECRET || "test-secret-for-vitest";
 

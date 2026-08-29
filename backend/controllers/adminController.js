@@ -9,7 +9,7 @@ import { getHistoricalSyncQueue, getAnalyticsQueue } from "../lib/queues.js";
 import { syncHistoricalToDB } from "../services/sync/index.js";
 import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { runCsmTamAlertSweep } from "../services/csmTamAlertService.js";
-import { hashApiKey, VALID_SCOPES } from "../middleware/auth.js";
+import { hashApiKey, VALID_SCOPES } from "../middleware/security/index.js";
 import { ok, accepted, fail, badRequest, notFound, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 
