@@ -32,7 +32,7 @@ import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/sync/index
 import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { precomputeAnalytics } from "../services/analyticsService.js";
 import { syncRoster } from "../services/roster/index.js";
-import { syncActivityBatch } from "../services/activityService.js";
+import { syncActivityBatch } from "../services/activity/index.js";
 import { runPartsSync } from "../services/parts/index.js";
 import { runAttentionSweep } from "../services/attention/index.js";
 import { runCsmTamAlertSweep } from "../services/csmTamAlertService.js";

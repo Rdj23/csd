@@ -1,5 +1,5 @@
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, ActivitySyncedTicket } from "../models/index.js";
-import { syncActivityBatch } from "../services/activityService.js";
+import { syncActivityBatch } from "../services/activity/index.js";
 import { getActivitySyncQueue } from "../lib/queues.js";
 import { redisGet, redisLock } from "../lib/cache.js";
 import { GST_MEMBERS, resolveOwnerName, getCurrentQuarterKey, INACTIVITY_HIDE_DAYS } from "../config/constants.js";
