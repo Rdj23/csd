@@ -31,7 +31,7 @@ import { admitHeavyJob } from "./memoryGuard.js";
 import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/syncService.js";
 import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { precomputeAnalytics } from "../services/analyticsService.js";
-import { syncRoster } from "../services/rosterService.js";
+import { syncRoster } from "../services/roster/index.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { runPartsSync } from "../services/partsService.js";
 import { runAttentionSweep } from "../services/attention/index.js";

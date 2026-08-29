@@ -129,7 +129,7 @@ import { startMemoryGuard } from "./lib/memoryGuard.js";
 import { startEgressMeter } from "./lib/egressMeter.js";
 import { initPublisher, initSubscriber } from "./lib/pubsub.js";
 import { fetchAndCacheTickets } from "./services/syncService.js";
-import { loadRosterFromRedis } from "./services/rosterService.js";
+import { loadRosterFromRedis } from "./services/roster/index.js";
 import { AnalyticsTicket } from "./models/index.js";
 
 let workerInstances = [];

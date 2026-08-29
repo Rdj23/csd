@@ -10,7 +10,7 @@ import {
   istWeekStart,
 } from "../config/constants.js";
 import { CACHE_TTL, redisGet, redisSet } from "../lib/cache.js";
-import { getDaysWorked, isInRoster } from "../services/rosterService.js";
+import { getDaysWorked, isInRoster } from "../services/roster/index.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 import { ownerStatsGroup, csatFields } from "../utils/aggregationStages.js";

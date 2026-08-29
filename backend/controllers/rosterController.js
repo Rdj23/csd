@@ -8,7 +8,7 @@ import {
   getNextWorkingDays,
   getRosterByMonth,
   getTodayStatus,
-} from "../services/rosterService.js";
+} from "../services/roster/index.js";
 import { getQuarterDateRange, getCurrentQuarterKey, GST_NAME_MAP, GST_MEMBERS } from "../config/constants.js";
 import logger from "../config/logger.js";
 
