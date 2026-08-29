@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { io } from "socket.io-client";
-import { trackEvent } from "./utils/clevertap";
+import { trackEvent } from "./lib/clevertap";
 
 const getApiUrl = () => import.meta.env.VITE_API_URL;
 

@@ -4,7 +4,7 @@
 // ============================================================================
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
-import { authFetch } from "../../../../utils/authFetch";
+import { authFetch } from "../../../../api/authFetch";
 import { getCurrentQuarterKey, getAvailableQuarters, getQuarterDates, formatQuarterLabel } from "./analyticsConfig";
 import { format as fmtDate } from "date-fns";
 
@@ -32,6 +32,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { downloadCsv } from "../../../../lib/csv";
 
 const CHART_COLORS = [
   "#6366f1",
@@ -451,11 +452,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       headers.join(","),
       ...rows.map((r) => r.join(",")),
     ].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `noc_tickets_${new Date().toISOString().split("T")[0]}.csv`;
-    link.click();
+    downloadCsv(`noc_tickets_${new Date().toISOString().split("T")[0]}.csv`, csvContent);
   };
 
   // Pie chart

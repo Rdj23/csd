@@ -7,8 +7,8 @@ import React, {
   lazy,
   Suspense,
 } from "react";
-import { loginUser, trackEvent } from "./utils/clevertap";
-import { authFetch } from "./utils/authFetch";
+import { loginUser, trackEvent } from "./lib/clevertap";
+import { authFetch } from "./api/authFetch";
 import { fetchAllSolvedTickets } from "./api/ticketApi";
 import { fetchMyWeekStats } from "./api/gamificationApi";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -94,18 +94,11 @@ import { useTicketStore } from "./store";
 // Lazy — only mounts once a user clicks into a profile.
 const ProfileStatsModal = lazy(() => import("./features/remarks/components/ProfileStatsModal"));
 import TicketSkeleton from "./components/ui/TicketSkeleton";
-import {
-  TEAM_GROUPS,
-  FLAT_TEAM_MAP,
-  STAGE_MAP,
-  getTicketStatus,
-  formatRWT,
-  TEAM_REGION_MAP,
-  DEPENDENCY_EXPORT_HEADERS,
-  getDependencyExportCells,
-} from "./utils";
+import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "./lib/dependencies";
+import { EMAIL_TO_NAME_MAP, FLAT_TEAM_MAP, TEAM_GROUPS, TEAM_REGION_MAP } from "./lib/teams";
+import { STAGE_MAP, formatRWT, getTicketStatus } from "./lib/ticketStatus";
 import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
-import { EMAIL_TO_NAME_MAP, DEPENDENCY_TEAMS, depTeamBadgeClass, getTicketDepInfo } from "./utils";
+import { csvTimestamp, downloadCsv } from "./lib/csv";
 /**
  * Suspense fallback for lazily-loaded tabs.
  *
@@ -718,15 +711,10 @@ const App = () => {
       });
     });
 
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
-    a.download = `Ticket_Report_${reportTitle.replace(/\s+/g, "_")}_${dateStr}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      `Ticket_Report_${reportTitle.replace(/\s+/g, "_")}_${csvTimestamp()}.csv`,
+      csvContent,
+    );
     showToast("✅ CSV Downloaded!");
   };
 

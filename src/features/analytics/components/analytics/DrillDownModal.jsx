@@ -11,13 +11,9 @@ import {
   Search,
   Download,
 } from "lucide-react";
-import {
-  FLAT_TEAM_MAP,
-  DEPENDENCY_EXPORT_HEADERS,
-  getDependencyExportCells,
-  getTicketDepInfo,
-  depTeamBadgeClass,
-} from "../../../../utils";
+import { DEPENDENCY_EXPORT_HEADERS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "../../../../lib/dependencies";
+import { FLAT_TEAM_MAP } from "../../../../lib/teams";
+import { csvSafeName, csvTimestamp, downloadCsv } from "../../../../lib/csv";
 
 const DrillDownModal = ({
   isOpen,
@@ -331,15 +327,7 @@ const DrillDownModal = ({
       ].join(",");
     });
     const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    const safeTitle = (title || "analytics")
-      .replace(/[^a-z0-9]+/gi, "_")
-      .replace(/^_+|_+$/g, "");
-    link.download = `Analytics_${safeTitle}_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    downloadCsv(`Analytics_${csvSafeName(title, "analytics")}_${csvTimestamp()}.csv`, csvContent);
   };
 
   return (

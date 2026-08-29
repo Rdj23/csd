@@ -8,7 +8,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { differenceInMinutes, parseISO } from "date-fns";
-import { TEAM_GROUPS } from "../../../utils";
+import { TEAM_GROUPS } from "../../../lib/teams";
 import { useProfileStats } from "../../../hooks/useProfileStats";
 
 const ProfileStatsModal = ({ user, tickets, onClose, solvedTickets = [] }) => {

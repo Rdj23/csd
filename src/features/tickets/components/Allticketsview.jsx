@@ -44,16 +44,10 @@ import {
   endOfDay,
   subDays,
 } from "date-fns";
-import {
-  FLAT_TEAM_MAP,
-  TEAM_GROUPS,
-  STAGE_MAP,
-  DEPENDENCY_EXPORT_HEADERS,
-  getDependencyExportCells,
-  getTicketDepInfo,
-  DEPENDENCY_TEAMS,
-  depTeamBadgeClass,
-} from "../../../utils";
+import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "../../../lib/dependencies";
+import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../lib/teams";
+import { STAGE_MAP } from "../../../lib/ticketStatus";
+import { csvTimestamp, downloadCsv } from "../../../lib/csv";
 
 // GST Users list (for filtering)
 const GST_USERS = Object.values(FLAT_TEAM_MAP).sort();
@@ -590,13 +584,7 @@ const DrillDownModal = ({
       });
     });
 
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `Ticket_Report_${title.replace(/\s+/g, "_")}_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`Ticket_Report_${title.replace(/\s+/g, "_")}_${csvTimestamp()}.csv`, csvContent);
   }, [filteredTickets, title, dependencies]);
 
    const calculateAge = (t) => {
@@ -1878,13 +1866,7 @@ const AllTicketsView = ({
       });
     });
 
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `All_Tickets_Report_${format(new Date(), "yyyy-MM-dd_HHmm")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`All_Tickets_Report_${csvTimestamp()}.csv`, csvContent);
   }, [categorizedTickets, dependencies]);
 
   return (

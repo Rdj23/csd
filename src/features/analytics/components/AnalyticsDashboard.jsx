@@ -67,12 +67,14 @@ import {
   ChevronRight,
   Edit3,
 } from "lucide-react";
-import { getCSATStatus, FLAT_TEAM_MAP, TEAM_GROUPS, DEPENDENCY_TEAMS, getTicketDepInfo } from "../../../utils";
+import { DEPENDENCY_TEAMS, getTicketDepInfo } from "../../../lib/dependencies";
+import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../lib/teams";
+import { getCSATStatus } from "../../../lib/ticketStatus";
 import { useTicketStore } from "../../../store";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
 import MultiSelectFilter from "../../../components/common/MultiSelectFilter";
-import { trackEvent } from "../../../utils/clevertap";
-import { authFetch } from "../../../utils/authFetch";
+import { trackEvent } from "../../../lib/clevertap";
+import { authFetch } from "../../../api/authFetch";
 
 // Import split analytics components
 import {

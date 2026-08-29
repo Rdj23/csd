@@ -22,7 +22,9 @@ const SENTIMENT_EMOJI = {
 };
 const getSentimentEmoji = (label) =>
   label ? SENTIMENT_EMOJI[label.toLowerCase()] : null;
-import { FLAT_TEAM_MAP, STAGE_MAP, depTeamBadgeClass } from "../../../utils";
+import { depTeamBadgeClass } from "../../../lib/dependencies";
+import { FLAT_TEAM_MAP } from "../../../lib/teams";
+import { STAGE_MAP } from "../../../lib/ticketStatus";
 import RemarkPopover from "../../remarks/components/RemarkPopover";
 
 const ITEMS_PER_PAGE = 20;
