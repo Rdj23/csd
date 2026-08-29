@@ -117,7 +117,7 @@ When sync completes, the worker publishes `ROSTER_UPDATED` via Redis Pub/Sub, wh
 
 | File | Purpose |
 | ---- | ------- |
-| `src/features/roster/components/RosterView.jsx` | Full roster UI |
+| `src/App.jsx` (backup chip) | The only roster UI actually rendered today — fetches `/api/roster/backup` for the signed-in user |
 | `src/api/rosterApi.js` | API client |
 | `backend/controllers/rosterController.js` | All roster endpoints (133 lines) |
 | `backend/services/rosterService.js` | Google Sheets sync, shift logic, backup resolution |
