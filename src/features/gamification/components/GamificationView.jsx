@@ -22,7 +22,7 @@ import {
   getCurrentQuarterKey,
   getAvailableQuarters,
   formatQuarterLabel,
-} from "../../analytics/components/analytics/analyticsConfig";
+} from "../../analytics/lib/analyticsConfig";
 
 const GamificationView = ({ currentUser = null, isAdmin = false }) => {
   const availableQuarters = useMemo(() => getAvailableQuarters(), []);

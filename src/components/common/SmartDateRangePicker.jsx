@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Calendar, ChevronDown } from "lucide-react";
 import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay, differenceInCalendarDays } from "date-fns";
-import { getQuarterDates, getAvailableQuarters } from "../../features/analytics/components/analytics/analyticsConfig";
+import { getQuarterDates, getAvailableQuarters } from "../../features/analytics/lib/analyticsConfig";
 
 const SmartDateRangePicker = ({ value, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);

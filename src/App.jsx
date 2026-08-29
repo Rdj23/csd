@@ -97,7 +97,7 @@ import TicketSkeleton from "./components/ui/TicketSkeleton";
 import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "./lib/dependencies";
 import { EMAIL_TO_NAME_MAP, FLAT_TEAM_MAP, TEAM_GROUPS, TEAM_REGION_MAP } from "./lib/teams";
 import { STAGE_MAP, formatRWT, getTicketStatus } from "./lib/ticketStatus";
-import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/components/analytics/analyticsConfig";
+import { SUPER_ADMIN_EMAILS, getCurrentQuarterKey, getQuarterDates } from "./features/analytics/lib/analyticsConfig";
 import { csvTimestamp, downloadCsv } from "./lib/csv";
 import Toast from "./components/ui/Toast";
 import SaveViewModal from "./features/views/components/SaveViewModal";

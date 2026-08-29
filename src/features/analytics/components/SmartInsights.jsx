@@ -3,8 +3,8 @@
 // ============================================================================
 import React from "react";
 import { Users, TrendingUp, TrendingDown } from "lucide-react";
-import { METRICS } from "./analyticsConfig";
-import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../../lib/teams";
+import { METRICS } from "../lib/analyticsConfig";
+import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../lib/teams";
 
 const SmartInsights = ({
   data,

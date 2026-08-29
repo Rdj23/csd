@@ -4,8 +4,8 @@
 // ============================================================================
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
-import { authFetch } from "../../../../api/authFetch";
-import { getCurrentQuarterKey, getAvailableQuarters, getQuarterDates, formatQuarterLabel } from "./analyticsConfig";
+import { authFetch } from "../../../api/authFetch";
+import { getCurrentQuarterKey, getAvailableQuarters, getQuarterDates, formatQuarterLabel } from "../lib/analyticsConfig";
 import { format as fmtDate } from "date-fns";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
@@ -32,7 +32,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { downloadCsv } from "../../../../lib/csv";
+import { downloadCsv } from "../../../lib/csv";
 
 const CHART_COLORS = [
   "#6366f1",

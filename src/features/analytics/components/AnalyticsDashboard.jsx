@@ -78,11 +78,6 @@ import { authFetch } from "../../../api/authFetch";
 
 // Import split analytics components
 import {
-  METRICS,
-  OVERVIEW_METRICS,
-  CHART_COLORS,
-  HIDDEN_USERS,
-  SUPER_ADMIN_EMAILS,
   CSATLeaderboard,
   DSATAlerts,
   PerformanceMetricsCards,
@@ -90,15 +85,21 @@ import {
   DrillDownModal,
   SmartInsights,
   ThisWeekStats,
-  processChartData,
-  processMultiUserData,
-} from "./analytics";
+} from "./index";
+import {
+  METRICS,
+  OVERVIEW_METRICS,
+  CHART_COLORS,
+  HIDDEN_USERS,
+  SUPER_ADMIN_EMAILS,
+} from "../lib/analyticsConfig";
+import { processChartData, processMultiUserData } from "../lib/analyticsUtils";
 import {
   getCurrentQuarterKey,
   getAvailableQuarters,
   getQuarterDates as getQuarterDatesFromConfig,
   getQuarterKeyForDate,
-} from "./analytics/analyticsConfig";
+} from "../lib/analyticsConfig";
 
 // Import skeleton loaders for better perceived performance
 import {

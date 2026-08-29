@@ -22,7 +22,7 @@ import {
   Zap,
   Activity,
 } from "lucide-react";
-import { trackEvent } from "../../../../lib/clevertap";
+import { trackEvent } from "../../../lib/clevertap";
 
 // Week definitions for Q1
 // Week 1 starts from Jan 1, 2026

@@ -11,9 +11,9 @@ import {
   Search,
   Download,
 } from "lucide-react";
-import { DEPENDENCY_EXPORT_HEADERS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "../../../../lib/dependencies";
-import { FLAT_TEAM_MAP } from "../../../../lib/teams";
-import { csvSafeName, csvTimestamp, downloadCsv } from "../../../../lib/csv";
+import { DEPENDENCY_EXPORT_HEADERS, depTeamBadgeClass, getDependencyExportCells, getTicketDepInfo } from "../../../lib/dependencies";
+import { FLAT_TEAM_MAP } from "../../../lib/teams";
+import { csvSafeName, csvTimestamp, downloadCsv } from "../../../lib/csv";
 
 const DrillDownModal = ({
   isOpen,
