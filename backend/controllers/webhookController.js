@@ -16,7 +16,7 @@
  */
 
 import { getTicketSyncQueue } from "../lib/queues.js";
-import { fetchAndCacheTickets } from "../services/syncService.js";
+import { fetchAndCacheTickets } from "../services/sync/index.js";
 import { processWebhookTimelineEntry } from "../services/activityService.js";
 import { storeAgentResponse } from "../services/agentService.js";
 import logger from "../config/logger.js";

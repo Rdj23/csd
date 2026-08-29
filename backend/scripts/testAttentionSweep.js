@@ -9,7 +9,7 @@
  *   node scripts/testAttentionSweep.js --member Rohan --post   # + post preview to Slack
  */
 import "../config/env.js";
-import { fetchAllActiveFromDevRev } from "../services/syncService.js";
+import { fetchAllActiveFromDevRev } from "../services/sync/index.js";
 import { resolveOwnerName, isSolvedStatus, getTeamSlackChannel } from "../config/constants.js";
 import {
   evaluateTicket,

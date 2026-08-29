@@ -21,7 +21,7 @@ import {
 } from "../services/devrevApi.js";
 import { AnalyticsTicket } from "../models/index.js";
 import { resolveOwnerName } from "../config/constants.js";
-import { classifyResolution } from "../services/syncService.js";
+import { classifyResolution } from "../services/sync/index.js";
 
 const raw = process.argv[2] || "315055";
 const ticketId = raw.replace(/^TKT-/i, "");

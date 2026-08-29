@@ -1,5 +1,5 @@
 import { fetchWorkItem, fetchTimelineEntries } from "./devrevApi.js";
-import { fetchAndCacheTickets } from "./syncService.js";
+import { fetchAndCacheTickets } from "./sync/index.js";
 import { redisGet, redisHGet, redisLock } from "../lib/cache.js";
 import { UserActivityEntry, UserActivityDaily, AnalyticsTicket, SyncMetadata, ActivitySyncedTicket } from "../models/index.js";
 import {

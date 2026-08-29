@@ -19,7 +19,7 @@
  */
 import "../config/env.js";
 import { connectMongoDB } from "../config/mongo.js";
-import { streamActiveFromDevRev } from "../services/syncService.js";
+import { streamActiveFromDevRev } from "../services/sync/index.js";
 import { syncTicketActivity } from "../services/activityService.js";
 import { AnalyticsTicket, ActivitySyncedTicket } from "../models/index.js";
 import { resolveOwnerName } from "../config/constants.js";

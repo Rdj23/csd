@@ -1,7 +1,7 @@
 import { AnalyticsTicket } from "../models/index.js";
 import { CACHE_TTL, redisGet, redisGetRaw, redisHMGet, redisMGet, redisMSet, redisSet } from "../lib/cache.js";
 import { fetchTicketLinks, fetchWorkItem, fetchWorkItems, dependencyCounterpart, classifyLinkedWorkTeam } from "../services/devrevApi.js";
-import { fetchAndCacheTickets, quickFetchTickets } from "../services/syncService.js";
+import { fetchAndCacheTickets, quickFetchTickets } from "../services/sync/index.js";
 import { getTicketSyncQueue } from "../lib/queues.js";
 import { ok, okRaw, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";

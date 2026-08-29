@@ -128,7 +128,7 @@ import { registerAllWorkers } from "./lib/workers.js";
 import { startMemoryGuard } from "./lib/memoryGuard.js";
 import { startEgressMeter } from "./lib/egressMeter.js";
 import { initPublisher, initSubscriber } from "./lib/pubsub.js";
-import { fetchAndCacheTickets } from "./services/syncService.js";
+import { fetchAndCacheTickets } from "./services/sync/index.js";
 import { loadRosterFromRedis } from "./services/roster/index.js";
 import { AnalyticsTicket } from "./models/index.js";
 
