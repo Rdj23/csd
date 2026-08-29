@@ -7,7 +7,7 @@
  */
 
 import logger from "../../config/logger.js";
-import { EMAIL_TO_NAME_MAP, SHIFT_HOURS } from "../../config/constants.js";
+import { EMAIL_TO_NAME_MAP, GST_MEMBERS, SHIFT_HOURS } from "../../config/constants.js";
 import { AttentionQueue } from "../../models/index.js";
 import { findGSTMember } from "../slackService.js";
 import { runEscalations, runShiftEndAlerts } from "./alerts.js";

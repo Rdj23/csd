@@ -11,7 +11,7 @@ import { isSolvedStatus, resolveOwnerName } from "../../config/constants.js";
 import { redisGet } from "../../lib/cache.js";
 import { publishSocketEvent } from "../../lib/pubsub.js";
 import { AttentionQueue } from "../../models/index.js";
-import { streamActiveFromDevRev } from "../sync/index.js";
+import { streamActiveFromDevRev, trimTicket } from "../sync/index.js";
 import { ATTENTION_TIMING, DAY_MS } from "./config.js";
 import { buildItems } from "./rules.js";
 import { isWeekendIst, istInstant, istYmd } from "./time.js";
