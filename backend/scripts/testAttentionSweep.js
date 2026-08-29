@@ -16,7 +16,7 @@ import {
   buildItems,
   shiftEndSummaryMessage,
   postAlert,
-} from "../services/attentionService.js";
+} from "../services/attention/index.js";
 
 const args = process.argv.slice(2);
 const memberArg = args.includes("--member") ? args[args.indexOf("--member") + 1] : null;

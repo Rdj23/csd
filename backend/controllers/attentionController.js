@@ -20,7 +20,7 @@ import {
   getQueuesForMembers,
   verifyAndClearQueue,
   runAttentionSweep,
-} from "../services/attentionService.js";
+} from "../services/attention/index.js";
 import { getAttentionQueue } from "../lib/queues.js";
 import { ok, fail, notFound, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";

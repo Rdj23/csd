@@ -34,7 +34,7 @@ import { precomputeAnalytics } from "../services/analyticsService.js";
 import { syncRoster } from "../services/rosterService.js";
 import { syncActivityBatch } from "../services/activityService.js";
 import { runPartsSync } from "../services/partsService.js";
-import { runAttentionSweep } from "../services/attentionService.js";
+import { runAttentionSweep } from "../services/attention/index.js";
 import { runCsmTamAlertSweep } from "../services/csmTamAlertService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";
