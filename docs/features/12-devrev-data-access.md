@@ -220,8 +220,8 @@ lazyConnect: true,            // Don't connect until first command
 | File | Purpose |
 | ---- | ------- |
 | `backend/services/devrevApi.js` | `fetchWithRetry()`, all DevRev API calls |
-| `backend/services/syncService.js` | `fetchAndCacheTickets()`, `syncHistoricalToDB()` |
-| `backend/config/database.js` | Redis helpers, MongoDB config, cache stampede prevention |
+| `backend/services/sync/` | `fetchAndCacheTickets()`, `syncHistoricalToDB()` |
+| `backend/config/{mongo,redis,bullmq}.js` + `backend/lib/cache.js` | Redis helpers, MongoDB config, cache stampede prevention |
 | `backend/lib/queues.js` | BullMQ queue definitions |
 | `backend/lib/workers.js` | Worker processors |
 | `backend/controllers/ticketController.js` | `getActiveTickets()` (raw JSON piping) |

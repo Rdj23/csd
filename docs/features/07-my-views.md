@@ -86,4 +86,4 @@ Views are also persisted in `localStorage` via Zustand's persistence middleware 
 | `src/store.js` | Zustand actions: `fetchViews()`, `saveView()`, `deleteView()` |
 | `backend/controllers/viewController.js` | Simple CRUD (36 lines) |
 | `backend/routes/views.js` | Route definitions |
-| `backend/models/index.js` (lines 48-58) | `View` schema |
+| `backend/models/` (one file per collection) (lines 48-58) | `View` schema |

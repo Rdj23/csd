@@ -12,13 +12,13 @@ This guide maps common change scenarios to the exact files and steps needed.
 
 1. **Add the field to AnalyticsTicket schema** (if not already stored):
    ```
-   File: backend/models/index.js (AnalyticsTicketSchema, line ~62)
+   File: backend/models/AnalyticsTicket.js
    Add: csat_response_time: Number
    ```
 
 2. **Populate the field during sync**:
    ```
-   File: backend/services/syncService.js (syncHistoricalToDB function, line ~238)
+   File: backend/services/sync/ (syncHistoricalToDB function, line ~238)
    In the upsert $set block, add: csat_response_time: extractFromDevRevFields(ticket)
    ```
 
@@ -211,7 +211,7 @@ This guide maps common change scenarios to the exact files and steps needed.
 
 ### Steps
 
-1. **Add to `trimTicket()`** in `backend/services/syncService.js` (line ~51):
+1. **Add to `trimTicket()`** in `backend/services/sync/` (line ~51):
    ```javascript
    // Add the field extraction
    my_new_field: ticket.custom_fields?.my_devrev_field || null,
@@ -295,7 +295,7 @@ const METRIC_WEIGHTS = {
 
 ### Steps
 
-1. **Define schema** in `backend/models/index.js`:
+1. **Define schema** in `backend/models/` (one file per collection):
    ```javascript
    const MyModelSchema = new Schema({
      field1: { type: String, index: true },

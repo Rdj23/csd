@@ -123,7 +123,7 @@ When a webhook fires (ticket created/updated/deleted):
 | `src/store.js` (lines 54-95) | Zustand store, Socket.IO listeners |
 | `src/api/ticketApi.js` | API client (`GET /api/tickets`, `POST /api/tickets/dependencies`) |
 | `backend/controllers/ticketController.js` | `getActiveTickets()`, `getBatchDependencies()` |
-| `backend/services/syncService.js` (lines 127-216) | `fetchAndCacheTickets()` |
+| `backend/services/sync/` (lines 127-216) | `fetchAndCacheTickets()` |
 | `backend/services/devrevApi.js` | `fetchTicketLinks()`, `fetchWorkItem()` |
-| `backend/config/database.js` (lines 20-38) | `redisGetRaw()`, `redisGet()` |
+| `backend/config/{mongo,redis,bullmq}.js` + `backend/lib/cache.js` (lines 20-38) | `redisGetRaw()`, `redisGet()` |
 | `backend/lib/pubsub.js` | Redis Pub/Sub → Socket.IO bridge |
