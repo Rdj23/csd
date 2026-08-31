@@ -72,9 +72,16 @@ const itemStillBlocked = async (item, fresh, queueCreatedMs, nowMs, queueMember 
  * ones that were genuinely actioned. Marks the queue cleared (+ Slack) when
  * nothing is left. Returns the updated queue doc, or null if none pending.
  * @param {string} trigger "user" | "escalation"
+ * @param {import("mongoose").Types.ObjectId|string|null} queueId
+ *   Verify THIS queue specifically instead of the member's newest pending one.
+ *   The escalation path must pass it: it decides on one document and then
+ *   writes the one-shot marker back, and those have to be the same row. When
+ *   they weren't, the alert re-fired every 15 minutes (2026-08-31).
  */
-export const verifyAndClearQueue = async (memberName, trigger = "user") => {
-  const queue = await AttentionQueue.findOne({ member: memberName, status: "pending" }).sort({ created_at: -1 });
+export const verifyAndClearQueue = async (memberName, trigger = "user", queueId = null) => {
+  const queue = queueId
+    ? await AttentionQueue.findOne({ _id: queueId, status: "pending" })
+    : await AttentionQueue.findOne({ member: memberName, status: "pending" }).sort({ created_at: -1 });
   if (!queue) return null;
 
   const nowMs = Date.now();

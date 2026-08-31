@@ -15,6 +15,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { evaluateTicket } from "../services/attention/index.js";
+import { escalationContinuity } from "../services/attention/alerts.js";
 
 // Deterministic generator — no Math.random, so the corpus is reproducible.
 const makeCorpus = (now) => {
@@ -87,5 +88,95 @@ describe("attention rule engine — evaluateTicket", () => {
 
     expect(evaluateTicket({ ...tagged, stage: { name: "Waiting on Assignee" } }, NOW)).toBeNull();
     expect(evaluateTicket({ ...tagged, stage: { name: "Awaiting Customer Reply" } }, NOW)).not.toBeNull();
+  });
+});
+
+/**
+ * Shift-continuity gate for the "no action" escalation (Rohan 2026-08-31).
+ *
+ * The follow-up may only fire when it lands inside the SAME shift the queue
+ * was built for. Rotation Monday broke that assumption: a Friday SHIFT 1 queue
+ * escalated at 08:45 on a Monday the member worked SHIFT 2.
+ *
+ * These are pure — no roster HTTP, no Mongo — because escalationContinuity()
+ * takes the two roster answers as inputs rather than fetching them.
+ */
+describe("escalation shift continuity", () => {
+  const MON = "2026-08-31";
+  const SUN = "2026-08-30";
+  const FRI = "2026-08-28";
+
+  const verdict = (o) => escalationContinuity({ todayYmd: MON, ...o });
+
+  it("fires when yesterday's shift is the same shift as today", () => {
+    // Tuesday-shaped case: queue from the immediately preceding day, and the
+    // member is genuinely on that same shift on both days.
+    expect(
+      escalationContinuity({
+        queueShift: "SHIFT 2", queueShiftDate: SUN, todayYmd: MON,
+        shiftToday: "SHIFT 2", shiftOnQueueDay: "SHIFT 2",
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("stays silent when the member rotated to a different shift", () => {
+    // The exact Anurag case: finished Friday on SHIFT 1, started on SHIFT 2.
+    const v = verdict({
+      queueShift: "SHIFT 1", queueShiftDate: SUN,
+      shiftToday: "SHIFT 2", shiftOnQueueDay: "SHIFT 1",
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("SHIFT 1 → SHIFT 2");
+  });
+
+  it("stays silent on a Monday morning with no weekday special case", () => {
+    // Nobody is rostered a real shift on Sunday, so the queue the Week-Off
+    // fallback built with an inherited shift can never escalate — which is
+    // what makes "Monday only builds the queue" fall out on its own.
+    const v = verdict({
+      queueShift: "SHIFT 1", queueShiftDate: SUN,
+      shiftToday: "SHIFT 1", shiftOnQueueDay: null,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("was not rostered");
+  });
+
+  it("stays silent when the member is not working today", () => {
+    const v = verdict({
+      queueShift: "SHIFT 2", queueShiftDate: SUN,
+      shiftToday: null, shiftOnQueueDay: "SHIFT 2",
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("not rostered a working shift today");
+  });
+
+  it("stays silent for a stale queue older than the preceding day", () => {
+    // Friday's queue must not escalate on Monday even if the shift matches:
+    // three days of stale clocks all landing on one instant is what produced
+    // the 15-minute repeat.
+    const v = verdict({
+      queueShift: "SHIFT 1", queueShiftDate: FRI,
+      shiftToday: "SHIFT 1", shiftOnQueueDay: "SHIFT 1",
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain(`queue is from ${FRI}`);
+  });
+
+  it("escalates SHIFT 4 on its OWN day, not the day after", () => {
+    // The overnight shift escalates same-day (escalateNextDay: false) because
+    // the member's next night starts that evening.
+    expect(
+      escalationContinuity({
+        queueShift: "SHIFT 4", queueShiftDate: MON, todayYmd: MON,
+        shiftToday: "SHIFT 4", shiftOnQueueDay: "SHIFT 4",
+      }),
+    ).toEqual({ ok: true });
+
+    expect(
+      escalationContinuity({
+        queueShift: "SHIFT 4", queueShiftDate: SUN, todayYmd: MON,
+        shiftToday: "SHIFT 4", shiftOnQueueDay: "SHIFT 4",
+      }).ok,
+    ).toBe(false);
   });
 });

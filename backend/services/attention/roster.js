@@ -46,22 +46,47 @@ const canonicalMemberName = (row) =>
 const ROSTER_CACHE_KEY = "attention:roster:shifts";
 const ROSTER_CACHE_TTL_S = 600;
 
-export const fetchRosterShifts = async () => {
+/**
+ * Roster rows for ONE IST day. `date` is the API's "D-MMM" format ("30-Aug");
+ * omit it for today (gst-hub derives today itself, in IST).
+ *
+ * Escalations need a PAST day too — "was this member genuinely on SHIFT 1
+ * yesterday, or did we only assume it because the roster said Week Off?" —
+ * so the date is a parameter rather than always-today. Cached per date.
+ *
+ * NEVER THROWS (2026-08-31): this used to let an axios error escape, which
+ * aborted the entire sweep — no queue builds, no shift-end summaries, no
+ * escalations — on any roster blip. Membership hasn't come from the roster
+ * since 2026-08-12, so an empty result degrades to fallback timing instead.
+ */
+export const fetchRosterShiftsForDate = async (date = null) => {
   const base = process.env.ROSTER_API_URL;
   if (!base) {
     logger.warn("ROSTER_API_URL not set — attention sweep has no shift data");
     return [];
   }
 
-  const cached = await redisGet(ROSTER_CACHE_KEY);
+  const cacheKey = `${ROSTER_CACHE_KEY}:${date || "today"}`;
+  const cached = await redisGet(cacheKey);
   if (cached) return cached;
 
   const headers = {};
   if (process.env.ROSTER_API_TOKEN) headers.Authorization = `Bearer ${process.env.ROSTER_API_TOKEN}`;
   if (process.env.ROSTER_API_KEY) headers["x-api-key"] = process.env.ROSTER_API_KEY;
 
-  const res = await axios.get(base, { headers, timeout: 20000 });
-  const rows = res.data?.data || res.data || [];
+  let rows = [];
+  try {
+    const res = await axios.get(base, {
+      headers,
+      params: date ? { date } : undefined,
+      timeout: 20000,
+    });
+    rows = res.data?.data || res.data || [];
+  } catch (e) {
+    logger.error({ err: e.message, date: date || "today" }, "Roster API fetch failed — continuing without shift data");
+    return [];
+  }
+
   const shifts = rows
     .map((r) => ({
       email: (r.email || "").toLowerCase(),
@@ -76,6 +101,9 @@ export const fetchRosterShifts = async () => {
   // Cache only a non-empty result: an empty roster (API blip, auth failure)
   // would otherwise pin "nobody is on shift" for 10 minutes and silently skip
   // a real queue-build window.
-  if (shifts.length) await redisSet(ROSTER_CACHE_KEY, shifts, ROSTER_CACHE_TTL_S);
+  if (shifts.length) await redisSet(cacheKey, shifts, ROSTER_CACHE_TTL_S);
   return shifts;
 };
+
+/** Today's roster rows — the sweep's build path. */
+export const fetchRosterShifts = () => fetchRosterShiftsForDate(null);

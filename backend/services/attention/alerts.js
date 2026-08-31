@@ -10,8 +10,9 @@ import logger from "../../config/logger.js";
 import { getTeamSlackChannel } from "../../config/constants.js";
 import { AttentionQueue } from "../../models/index.js";
 import { ATTENTION_TIMING, DAY_MS } from "./config.js";
+import { fetchRosterShifts, fetchRosterShiftsForDate } from "./roster.js";
 import { noActionMessage, postAlert, shiftEndSummaryMessage } from "./slack.js";
-import { isWeekendIst, istInstant, istYmd } from "./time.js";
+import { isWeekendIst, istInstant, istYmd, istYmdShift, ymdToDMmm } from "./time.js";
 import { verifyAndClearQueue } from "./verification.js";
 
 // ── Shift-end Slack summary ──────────────────────────────────────────────
@@ -20,6 +21,10 @@ import { verifyAndClearQueue } from "./verification.js";
 // down through the whole window) the shift is over — a "before your shift
 // ends" ping would land mid-night; the queue still escalates tomorrow.
 const ALERT_LATE_TOLERANCE_MS = 2 * 60 * 60 * 1000;
+
+// Same bound for escalation retries. A post that has failed for two hours is
+// not going to start working, and a follow-up that lands hours late is noise.
+const ESCALATION_LATE_TOLERANCE_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Post the shift-end Slack summary for every queue whose slackAt has passed
@@ -98,6 +103,72 @@ export const runShiftEndAlerts = async (nowMs) => {
   }
 };
 
+// ── Shift-continuity gate ────────────────────────────────────────────────
+// Rohan 2026-08-31, after a rotation Monday: Anurag finished FRIDAY on SHIFT 1
+// and started MONDAY on SHIFT 2. His Friday queue had stamped its escalation
+// instant at build time from SHIFT 1 (08:45), so the follow-up fired 105 min
+// BEFORE he started work — and, because the retirement never landed on the
+// document the due-query matched, it re-fired every 15 minutes all morning.
+//
+// A "no action before your shift ends" nudge only means anything when it lands
+// inside the SAME shift the queue was built for. So the roster — not a value
+// frozen at build time — now decides whether an escalation fires at all:
+//
+//   1. the queue is from the day immediately BEFORE the escalation day
+//      (the SAME day for the overnight SHIFT 4, whose escalation is same-day);
+//   2. the member was genuinely rostered that shift ON the queue's day —
+//      not merely assumed, which is what the Week-Off fallback does; and
+//   3. they are rostered the SAME shift TODAY.
+//
+// Anything else retires the clock silently. Nothing is lost: the tickets
+// re-flag into the member's next build anyway.
+//
+// MONDAY NEEDS NO SPECIAL CASE. Yesterday was Sunday, when nobody is rostered
+// a real shift, so rule 2 fails for every member and no escalation posts on a
+// Monday morning — "Monday just builds the queue", exactly as asked, without
+// hardcoding a weekday anywhere.
+//
+// This supersedes the 2026-08-02 "no leave-skip" decision for escalations
+// specifically: a member with no working shift today no longer gets the
+// follow-up, because there is no shift for it to land 45 minutes into.
+
+/** The member's rostered shift on a day, or null for off-statuses/unknowns. */
+export const rosteredShift = (rows, member) => {
+  const shift = rows.find((r) => r.name === member)?.shift || null;
+  return shift && ATTENTION_TIMING[shift] ? shift : null;
+};
+
+/**
+ * Pure continuity decision — kept free of Mongo and HTTP so it can be tested
+ * directly (tests/attentionRules.test.js).
+ * @returns {{ok: true}|{ok: false, reason: string}}
+ */
+export const escalationContinuity = ({
+  queueShift,
+  queueShiftDate,
+  todayYmd,
+  shiftToday,
+  shiftOnQueueDay,
+}) => {
+  if (!shiftToday) return { ok: false, reason: "not rostered a working shift today" };
+  if (shiftToday !== queueShift) {
+    return { ok: false, reason: `shift changed (${queueShift} → ${shiftToday})` };
+  }
+  // SHIFT 4 escalates on the queue's OWN day (escalateNextDay: false) because
+  // the overnight shift starts that evening; every day shift escalates the
+  // morning after. A queue older than that is stale by definition.
+  const expectedQueueDay = ATTENTION_TIMING[queueShift]?.escalateNextDay === false
+    ? todayYmd
+    : istYmdShift(todayYmd, -1);
+  if (queueShiftDate !== expectedQueueDay) {
+    return { ok: false, reason: `queue is from ${queueShiftDate}, expected ${expectedQueueDay}` };
+  }
+  if (shiftOnQueueDay !== queueShift) {
+    return { ok: false, reason: `was not rostered ${queueShift} on ${queueShiftDate}` };
+  }
+  return { ok: true };
+};
+
 // ── Escalation (next-day "no action" thread reply) ──────────────────────
 // Reworked 2026-08-05 (Rohan): at the per-shift escalation instant (e.g.
 // 8:45 AM for shift 1 — ~45 min into the member's next shift) re-verify the
@@ -153,6 +224,29 @@ export const runEscalations = async (nowMs) => {
     );
   }
 
+  if (!newestByMember.size) return;
+
+  // Today's roster drives every continuity decision below; past days are
+  // fetched on demand and memoised, so a sweep makes at most two roster calls
+  // (both Redis-cached) no matter how many queues are due.
+  const todayYmd = istYmd(new Date(nowMs));
+  const todayRoster = await fetchRosterShifts();
+  const rosterCache = new Map([[todayYmd, todayRoster]]);
+  const rosterOn = async (ymd) => {
+    if (!rosterCache.has(ymd)) rosterCache.set(ymd, await fetchRosterShiftsForDate(ymdToDMmm(ymd)));
+    return rosterCache.get(ymd);
+  };
+
+  /** Retire a clock so the due-query stops matching this queue. */
+  const retire = async (queue, reason) => {
+    queue.next_shift_start_at = null;
+    await queue.save();
+    logger.info(
+      { member: queue.member, shift: queue.shift, shiftDate: queue.shift_date, reason },
+      "Attention no-action alert skipped",
+    );
+  };
+
   for (const q of newestByMember.values()) {
     // ONE-SHOT: a queue that already got its follow-up (e.g. under the old
     // hourly behaviour, before its clock was nulled) never fires again.
@@ -162,31 +256,56 @@ export const runEscalations = async (nowMs) => {
       continue;
     }
 
-    // Deliberately NO leave-skip here (team decision 2026-08-02): the channel
-    // is private and pings are personal, so an open queue still gets its one
-    // follow-up on the member's day off — teammates can action the tickets,
-    // and the auto-verify below silences it once they do.
+    // A post that keeps failing must not retry forever — the summary path has
+    // had this bound since day one (ALERT_LATE_TOLERANCE_MS) and the
+    // escalation path never did, which is how one undeliverable alert turned
+    // into a message every 15 minutes for hours.
+    if (nowMs - q.next_shift_start_at.getTime() > ESCALATION_LATE_TOLERANCE_MS) {
+      await retire(q, "escalation window long past");
+      continue;
+    }
+
+    // SHIFT CONTINUITY — see the block comment above. The roster decides;
+    // a value frozen at build time does not.
+    const verdict = escalationContinuity({
+      queueShift: q.shift,
+      queueShiftDate: q.shift_date,
+      todayYmd,
+      shiftToday: rosteredShift(todayRoster, q.member),
+      shiftOnQueueDay: rosteredShift(await rosterOn(q.shift_date), q.member),
+    });
+    if (!verdict.ok) {
+      await retire(q, verdict.reason);
+      continue;
+    }
 
     // Auto-verify first — never alert over work that was actually done but
     // not clicked through. This also refreshes which items still violate
     // their rule ("tickets that still satisfy the condition").
-    const updated = await verifyAndClearQueue(q.member, "escalation");
-    if (!updated || updated.status !== "pending") continue;
+    // Scoped to THIS queue's _id: verify used to re-query for the member's
+    // newest pending queue, so when that was a different document every
+    // retirement below landed on the wrong row and `q` re-fired forever.
+    const updated = await verifyAndClearQueue(q.member, "escalation", q._id);
+    if (!updated || updated.status !== "pending") {
+      await retire(q, "queue cleared before escalation");
+      continue;
+    }
 
     // Actionable items decide WHETHER the alert fires (an all-tracked queue
     // auto-clears in verify and never reaches here) — but the list itself
     // includes tracked items too: still-violating is still-violating.
     const remaining = updated.items.filter((i) => i.status === "pending").length;
-    if (remaining === 0) continue;
+    if (remaining === 0) {
+      await retire(updated, "nothing actionable left");
+      continue;
+    }
 
     // No team channel (teamless member / slackChannel unset) → retire the
     // clock for good; without the null, "failed post keeps the clock" would
     // retry this un-sendable alert every sweep forever (Rohan 2026-08-10).
     const channel = getTeamSlackChannel(updated.member);
     if (!channel) {
-      updated.next_shift_start_at = null;
-      await updated.save();
-      logger.info({ member: updated.member }, "Attention no-action alert skipped — member has no team channel");
+      await retire(updated, "member has no team channel");
       continue;
     }
 
@@ -196,7 +315,9 @@ export const runEscalations = async (nowMs) => {
       channel,
       threadTs: updated.slack_thread_ts || null, // no ts (webhook fallback) → plain channel post
     });
-    if (!ok) continue; // failed post keeps the clock — next 15-min sweep retries
+    // Failed post keeps the clock so the next 15-min sweep retries — but only
+    // until ESCALATION_LATE_TOLERANCE_MS above, never indefinitely.
+    if (!ok) continue;
     updated.escalation = {
       alert_count: (updated.escalation?.alert_count || 0) + 1,
       last_alert_at: new Date(nowMs),

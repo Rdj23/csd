@@ -22,6 +22,30 @@ export const istInstant = (ymd, decimalHours) =>
 
 export const istTodayStartMs = () => new Date(`${istYmd()}T00:00:00+05:30`).getTime();
 
+/**
+ * An IST calendar day shifted by whole days — "YYYY-MM-DD" in, "YYYY-MM-DD"
+ * out. Anchored at noon so the arithmetic can never straddle a midnight edge.
+ */
+export const istYmdShift = (ymd, deltaDays) =>
+  istYmd(new Date(new Date(`${ymd}T12:00:00+05:30`).getTime() + deltaDays * DAY_MS));
+
+/**
+ * "YYYY-MM-DD" → the roster API's own date format, "D-MMM" ("30-Aug"): the
+ * day is NOT zero-padded and the month is the en-US short name, matching how
+ * gst-hub builds its default (`day: "numeric", month: "short"`) and how the
+ * roster sheet keys its schedule map. Anything else misses the lookup and
+ * comes back as "Data Missing".
+ */
+export const ymdToDMmm = (ymd) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+  }).formatToParts(new Date(`${ymd}T12:00:00+05:30`));
+  const part = (type) => parts.find((p) => p.type === type)?.value;
+  return `${part("day")}-${part("month")}`;
+};
+
 export const ms = (v) => (v ? new Date(v).getTime() : null);
 export const daysAgo = (tsMs, nowMs) => Math.floor((nowMs - tsMs) / DAY_MS);
 
