@@ -208,4 +208,4 @@ The analytics worker calls `precomputeAnalytics(quarter)` which runs the same ag
 | `backend/services/analyticsService.js` | `precomputeAnalytics()` |
 | `backend/utils/aggregationStages.js` | Reusable pipeline stages |
 | `backend/utils/formatters.js` | Response formatting |
-| `backend/models/index.js` (AnalyticsCache, PrecomputedDashboard) | Cache schemas |
+| `backend/models/` (one file per collection) (AnalyticsCache, PrecomputedDashboard) | Cache schemas |

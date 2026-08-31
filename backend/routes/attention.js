@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getMyQueue, getTeamQueues, verifyClear, runSweep } from "../controllers/attentionController.js";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin } from "../middleware/security/index.js";
 
 const router = Router();
 

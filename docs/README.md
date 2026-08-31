@@ -16,18 +16,24 @@ Each feature has its own document with user-facing description, backend mapping,
 
 | # | Feature | Document | Key Backend Files |
 |---|---------|----------|-------------------|
-| 01 | [Ongoing Tickets](features/01-ongoing-tickets.md) | Active ticket queue with KPI cards, sorting, real-time updates | `ticketController.js`, `syncService.js` |
+| 01 | [Ongoing Tickets](features/01-ongoing-tickets.md) | Active ticket queue with KPI cards, sorting, real-time updates | `ticketController.js`, `services/sync/` |
 | 02 | [All Tickets View](features/02-all-tickets-view.md) | Historical view with pie charts, cursor pagination, server-side filters | `ticketController.js`, `queryBuilders.js` |
 | 03 | [CSD Highlighted](features/03-csd-highlighted.md) | Escalated tickets with stricter aging thresholds | `TicketList.jsx` (isCSDView=true) |
 | 04 | [Filters System](features/04-filters.md) | Multi-select filters (client-side + server-side query builders) | `queryBuilders.js`, `MultiSelectFilter.jsx` |
-| 05 | [CSV Export](features/05-csv-export.md) | Client-side CSV generation from filtered ticket data | `App.jsx` (handleExportCSV) |
+| 05 | [CSV Export](features/05-csv-export.md) | Client-side CSV generation from filtered ticket data | `src/lib/csv.js` |
 | 06 | [Remarks](features/06-remarks.md) | Internal notes with @mentions, auto-sync to DevRev, 30-day TTL | `remarkController.js`, `RemarkPopover.jsx` |
 | 07 | [My Views](features/07-my-views.md) | Saved filter presets with flexible schema | `viewController.js`, `GroupedTicketList.jsx` |
 | 08 | [Analytics](features/08-analytics.md) | KPIs, trends, leaderboard, DSAT alerts, 3-tier caching | `analyticsController.js`, `aggregationStages.js` |
-| 09 | [Roster & Backup](features/09-roster-backup.md) | Google Sheets sync, shift detection, backup resolution | `rosterService.js`, `rosterController.js` |
+| 09 | [Roster & Backup](features/09-roster-backup.md) | Google Sheets sync, shift detection, backup resolution | `services/roster/`, `rosterController.js` |
 | 10 | [DevRev AI Agent](features/10-devrev-ai-agent.md) | Natural-language queries via async poll pattern | `agentService.js`, `AgentModal.jsx` |
 | 11 | [Cron Jobs](features/11-cron-jobs.md) | 5 BullMQ queues, 4 cron schedules, job deduplication | `queues.js`, `workers.js`, `server.js` |
-| 12 | [DevRev Data Access](features/12-devrev-data-access.md) | Multi-layer caching, rate-limit handling, cache stampede prevention | `database.js`, `devrevApi.js`, `syncService.js` |
+| 12 | [DevRev Data Access](features/12-devrev-data-access.md) | Multi-layer caching, rate-limit handling, cache stampede prevention | `config/redis.js` + `lib/cache.js`, `devrevApi.js`, `services/sync/` |
+
+### Code Map (Section 0 — start here)
+
+- [**Code Map**](CODE-MAP.md) — *"I need to change X, which file do I open?"* The
+  folder layout for both stacks, what each service module owns, and where new
+  code belongs.
 
 ### Architecture & Decisions (Section 2)
 

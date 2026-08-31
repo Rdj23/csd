@@ -2,7 +2,9 @@
 import "./config/env.js";
 
 import process from "process";
-import { connectMongoDB, initRedis, getBullMQConnection, closeBullMQConnection } from "./config/database.js";
+import { closeBullMQConnection, getBullMQConnection } from "./config/bullmq.js";
+import { connectMongoDB } from "./config/mongo.js";
+import { initRedis } from "./config/redis.js";
 import { initPublisher } from "./lib/pubsub.js";
 import { initQueues, getTicketSyncQueue, getHistoricalSyncQueue, getAnalyticsQueue, getRosterQueue, getActivitySyncQueue, getAttentionQueue } from "./lib/queues.js";
 import { registerAllWorkers } from "./lib/workers.js";

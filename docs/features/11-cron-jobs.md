@@ -153,7 +153,7 @@ Shows job history, progress, errors, and retry status for all 5 queues.
 | `backend/lib/queues.js` | Queue definitions (5 queues with configs) |
 | `backend/lib/workers.js` | Worker processors (5 workers) |
 | `backend/lib/bullboard.js` | Bull Board admin UI |
-| `backend/services/syncService.js` | `fetchAndCacheTickets()`, `syncHistoricalToDB()` |
+| `backend/services/sync/` | `fetchAndCacheTickets()`, `syncHistoricalToDB()` |
 | `backend/services/activityService.js` | `syncActivityBatch()` |
 | `backend/services/analyticsService.js` | `precomputeAnalytics()` |
-| `backend/services/rosterService.js` | `syncRoster()` |
+| `backend/services/roster/` | `syncRoster()` |

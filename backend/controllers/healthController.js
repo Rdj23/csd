@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import { getRedis } from "../config/database.js";
-import { getServerReady } from "../middleware/server.js";
+import { getRedis } from "../config/redis.js";
+import { getServerReady } from "../middleware/http.js";
 import { getAllQueues } from "../lib/queues.js";
 
 // PRODUCTION MONITORING: Track server health and usage

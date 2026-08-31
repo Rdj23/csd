@@ -30,7 +30,7 @@
  */
 
 import axios from "axios";
-import { getRedis, isRedisReady } from "../config/database.js";
+import { getRedis, isRedisReady } from "../config/redis.js";
 import { istTodayYmd } from "../config/constants.js";
 import logger from "../config/logger.js";
 

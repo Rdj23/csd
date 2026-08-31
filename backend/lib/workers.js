@@ -28,13 +28,13 @@
 
 import { Worker, UnrecoverableError } from "bullmq";
 import { admitHeavyJob } from "./memoryGuard.js";
-import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/syncService.js";
+import { fetchAndCacheTickets, syncHistoricalToDB } from "../services/sync/index.js";
 import { reconcileActiveCounts } from "../services/reconcileService.js";
 import { precomputeAnalytics } from "../services/analyticsService.js";
-import { syncRoster } from "../services/rosterService.js";
-import { syncActivityBatch } from "../services/activityService.js";
-import { runPartsSync } from "../services/partsService.js";
-import { runAttentionSweep } from "../services/attentionService.js";
+import { syncRoster } from "../services/roster/index.js";
+import { syncActivityBatch } from "../services/activity/index.js";
+import { runPartsSync } from "../services/parts/index.js";
+import { runAttentionSweep } from "../services/attention/index.js";
 import { runCsmTamAlertSweep } from "../services/csmTamAlertService.js";
 import { publishRosterUpdated } from "./pubsub.js";
 import logger from "../config/logger.js";

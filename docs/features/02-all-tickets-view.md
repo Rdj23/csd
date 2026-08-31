@@ -153,4 +153,4 @@ const [tickets, stats] = await Promise.all([
 | `backend/controllers/ticketController.js` | `getTicketsByRange()`, `getTicketsByDate()` |
 | `backend/utils/queryBuilders.js` | Filter → MongoDB `$match` translation |
 | `backend/utils/aggregationStages.js` | Reusable `$group` definitions (csatFields, frrFields, avgMetricFields) |
-| `backend/models/index.js` (lines 62-178) | `AnalyticsTicket` schema + compound indexes |
+| `backend/models/` (one file per collection) (lines 62-178) | `AnalyticsTicket` schema + compound indexes |

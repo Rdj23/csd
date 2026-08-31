@@ -7,7 +7,9 @@ import {
   User,
   Ticket,
 } from "lucide-react";
-import { FLAT_TEAM_MAP, TEAM_GROUPS, STAGE_MAP, depTeamBadgeClass } from "../../../utils";
+import { depTeamBadgeClass } from "../../../lib/dependencies";
+import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../lib/teams";
+import { STAGE_MAP } from "../../../lib/ticketStatus";
 
 const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
   const [expandedOwners, setExpandedOwners] = useState(new Set());

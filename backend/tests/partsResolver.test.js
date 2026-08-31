@@ -10,7 +10,7 @@
  * resolvePartAncestry walks UP that chain and returns it ordered ROOT→LEAF.
  */
 import { describe, it, expect, vi } from "vitest";
-import { resolvePartAncestry, pickParentDon } from "../services/partsService.js";
+import { resolvePartAncestry, pickParentDon } from "../services/parts/index.js";
 
 const DON = {
   feat269: "don:core:dvrv-us-1:devo/1iVu4ClfVV:feature/269",

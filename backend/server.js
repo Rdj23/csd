@@ -26,8 +26,8 @@ import {
   urlencodedParser,
   readinessCheck,
   setServerReady,
-} from "./middleware/server.js";
-import { apiLimiter, authLimiter, apiKeyLimiter, verifyToken, requireAdmin, checkApiKeyScope } from "./middleware/auth.js";
+} from "./middleware/http.js";
+import { apiLimiter, authLimiter, apiKeyLimiter, verifyToken, requireAdmin, checkApiKeyScope } from "./middleware/security/index.js";
 
 const app = express();
 // Trust Render's reverse proxy so express-rate-limit can read X-Forwarded-For
@@ -76,7 +76,9 @@ app.use((err, req, res, _next) => {
 });
 
 // --- Database connections ---
-import { connectMongoDB, initRedis, getBullMQConnection, getRedisUrl } from "./config/database.js";
+import { getBullMQConnection } from "./config/bullmq.js";
+import { connectMongoDB } from "./config/mongo.js";
+import { getRedisUrl, initRedis } from "./config/redis.js";
 
 connectMongoDB()
   .then(() => {
@@ -126,8 +128,8 @@ import { registerAllWorkers } from "./lib/workers.js";
 import { startMemoryGuard } from "./lib/memoryGuard.js";
 import { startEgressMeter } from "./lib/egressMeter.js";
 import { initPublisher, initSubscriber } from "./lib/pubsub.js";
-import { fetchAndCacheTickets } from "./services/syncService.js";
-import { loadRosterFromRedis } from "./services/rosterService.js";
+import { fetchAndCacheTickets } from "./services/sync/index.js";
+import { loadRosterFromRedis } from "./services/roster/index.js";
 import { AnalyticsTicket } from "./models/index.js";
 
 let workerInstances = [];
@@ -172,7 +174,7 @@ server.listen(PORT, async () => {
 
   // Startup ticket sync — try BullMQ, fall back to direct call
   try {
-    const { redisGet } = await import("./config/database.js");
+    const { redisGet } = await import("./lib/cache.js");
     const cached = await redisGet("tickets:active");
     if (!cached || cached.length === 0) {
       const ticketSyncQueue = getTicketSyncQueue();
@@ -331,7 +333,7 @@ const shutdown = async (signal) => {
     logger.error({ err: e }, "MongoDB close error");
   }
 
-  const { getRedis } = await import("./config/database.js");
+  const { getRedis } = await import("./config/redis.js");
   const redisConn = getRedis();
   if (redisConn) {
     redisConn.disconnect();

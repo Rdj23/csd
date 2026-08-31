@@ -9,7 +9,7 @@ import {
   fetchDrillDown, fetchRangeDrillDown, triggerActivitySync,
   fetchActivityLeaderboard, fetchCalendar, fetchDependencyTable,
 } from "../../../api/activityApi";
-import { EMAIL_TO_NAME_MAP } from "../../../utils";
+import { EMAIL_TO_NAME_MAP } from "../../../lib/teams";
 import HourlyChart from "./HourlyChart";
 import DailyChart from "./DailyChart";
 import DrillDownModal from "./DrillDownModal";

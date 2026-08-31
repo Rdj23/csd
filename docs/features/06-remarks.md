@@ -81,4 +81,4 @@ The `GET /api/users` endpoint fetches the full list of DevRev dev-users and cach
 | `src/api/remarkApi.js` | API client (`GET /api/remarks/:id`, `POST /api/remarks`, etc.) |
 | `backend/controllers/remarkController.js` | All 4 endpoints |
 | `backend/routes/remarks.js` | Route definitions |
-| `backend/models/index.js` (lines 29-45) | `Remark` schema with TTL index |
+| `backend/models/` (one file per collection) (lines 29-45) | `Remark` schema with TTL index |

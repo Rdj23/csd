@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { fetchLeaderboard, fetchMyStats } from "../api/gamificationApi";
-import { EMAIL_TO_NAME_MAP } from "../utils";
+import { EMAIL_TO_NAME_MAP } from "../lib/teams";
 
 /**
  * Custom hook for gamification data fetching.

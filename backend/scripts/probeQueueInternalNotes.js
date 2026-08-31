@@ -8,7 +8,7 @@
  * Run: node backend/scripts/probeQueueInternalNotes.js
  */
 import "../config/env.js";
-import { connectMongoDB } from "../config/database.js";
+import { connectMongoDB } from "../config/mongo.js";
 import { AttentionQueue } from "../models/index.js";
 import { fetchTimelineEntries } from "../services/devrevApi.js";
 

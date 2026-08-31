@@ -17,8 +17,9 @@
  */
 import "../config/env.js";
 import process from "process";
-import { connectMongoDB, initRedis } from "../config/database.js";
-import { runPartsSync } from "../services/partsService.js";
+import { connectMongoDB } from "../config/mongo.js";
+import { initRedis } from "../config/redis.js";
+import { runPartsSync } from "../services/parts/index.js";
 import logger from "../config/logger.js";
 
 const arg = process.argv.find((a) => a.startsWith("--max="));

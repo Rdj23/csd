@@ -17,12 +17,12 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { useGamification } from "../../../hooks/useGamification";
-import { EMAIL_TO_NAME_MAP } from "../../../utils";
+import { EMAIL_TO_NAME_MAP } from "../../../lib/teams";
 import {
   getCurrentQuarterKey,
   getAvailableQuarters,
   formatQuarterLabel,
-} from "../../analytics/components/analytics/analyticsConfig";
+} from "../../analytics/lib/analyticsConfig";
 
 const GamificationView = ({ currentUser = null, isAdmin = false }) => {
   const availableQuarters = useMemo(() => getAvailableQuarters(), []);

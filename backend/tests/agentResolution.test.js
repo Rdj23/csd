@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { applyResolvedByFilter } from "../utils/queryBuilders.js";
 import { AnalyticsTicket } from "../models/index.js";
-import { classifyResolution } from "../services/syncService.js";
+import { classifyResolution } from "../services/sync/index.js";
 
 describe("applyResolvedByFilter", () => {
   it("is a no-op when both options are passed", () => {

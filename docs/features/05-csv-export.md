@@ -36,7 +36,8 @@ trackEvent("Report Downloaded", { "Ticket Count": count, "Workspace": account })
 **There is no backend endpoint for CSV export.** The entire CSV is generated client-side:
 
 ```
-User clicks "Export" → handleExportCSV() in App.jsx (lines 440-592)
+User clicks "Export" → the tab's own export builder assembles rows,
+then hands them to downloadCsv() in src/lib/csv.js
     ↓
 1. Read filtered ticket array from React state
 2. Build CSV header (filter summary)
@@ -58,4 +59,9 @@ Since the frontend already has the filtered data in memory (from the Zustand sto
 
 | File | Purpose |
 | ---- | ------- |
-| `src/App.jsx` (lines 440-592) | `handleExportCSV()` — full CSV generation logic |
+| `src/lib/csv.js` | `downloadCsv()` / `csvTimestamp()` / `csvSafeName()` — the shared download mechanics, used by all five exporters |
+| `src/App.jsx` | Builds the ongoing-board rows, then calls `downloadCsv()` |
+| `src/features/tickets/components/Allticketsview.jsx` | Builds the All-Tickets rows |
+| `src/features/tickets/components/TicketDrillDownModal.jsx` | Builds the drill-down rows |
+| `src/features/analytics/components/DrillDownModal.jsx` | Builds the analytics drill-down rows |
+| `src/features/analytics/components/NOCAnalytics.jsx` | Builds the NOC rows |

@@ -9,14 +9,14 @@
  *   node scripts/testAttentionSweep.js --member Rohan --post   # + post preview to Slack
  */
 import "../config/env.js";
-import { fetchAllActiveFromDevRev } from "../services/syncService.js";
+import { fetchAllActiveFromDevRev } from "../services/sync/index.js";
 import { resolveOwnerName, isSolvedStatus, getTeamSlackChannel } from "../config/constants.js";
 import {
   evaluateTicket,
   buildItems,
   shiftEndSummaryMessage,
   postAlert,
-} from "../services/attentionService.js";
+} from "../services/attention/index.js";
 
 const args = process.argv.slice(2);
 const memberArg = args.includes("--member") ? args[args.indexOf("--member") + 1] : null;

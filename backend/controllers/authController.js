@@ -48,7 +48,7 @@
 
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
-import { JWT_SECRET } from "../middleware/auth.js";
+import { JWT_SECRET } from "../middleware/security/index.js";
 import { ok, badRequest } from "../utils/response.js";
 
 /**

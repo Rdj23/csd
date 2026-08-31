@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { AnalyticsTicket, AnalyticsCache, PrecomputedDashboard } from "../models/index.js";
-import { redisGet, redisSet, redisLock, redisUnlock, CACHE_TTL } from "../config/database.js";
+import { CACHE_TTL, redisGet, redisLock, redisSet, redisUnlock } from "../lib/cache.js";
 import {
   getQuarterDateRange,
   resolveDateRange,

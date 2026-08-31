@@ -1,6 +1,6 @@
 import axios from "axios";
-import { streamActiveFromDevRev } from "./syncService.js";
-import { redisGet } from "../config/database.js";
+import { streamActiveFromDevRev } from "./sync/index.js";
+import { redisGet } from "../lib/cache.js";
 import { resolveOwnerName, GST_MEMBERS, GST_DEVU_MAP } from "../config/constants.js";
 import { getSlackWebhookUrl } from "./slackService.js";
 import { getTicketSyncQueue } from "../lib/queues.js";
