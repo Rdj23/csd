@@ -82,16 +82,36 @@ export const runShiftEndAlerts = async (nowMs) => {
 
   for (const { channel, queues } of groups.values()) {
     try {
+      // CLAIM BEFORE SENDING — see the long note in runEscalations. Same trap:
+      // `ok` reports whether n8n answered us, not whether Slack got the
+      // message, so retrying on !ok duplicates a summary that in fact landed.
+      // Marking sent first makes this at-most-once, and the atomic predicate
+      // stops the hybrid topology's two schedulers double-posting a group.
+      const claim = await AttentionQueue.updateMany(
+        { _id: { $in: queues.map((q) => q._id) }, shift_alert_sent_at: null },
+        { $set: { shift_alert_sent_at: new Date(nowMs) } },
+      );
+      if (!claim.modifiedCount) continue; // another sweep already sent this group
+
       const { ok, ts } = await postAlert({
         kind: "shift_end_summary",
         text: shiftEndSummaryMessage(queues),
         channel,
       });
-      if (!ok) continue; // post failed — next sweep tick retries the whole group
-      for (const q of queues) {
-        q.shift_alert_sent_at = new Date(nowMs);
-        q.slack_thread_ts = ts;
-        await q.save();
+      if (!ok) {
+        logger.error(
+          { shift: queues[0].shift, channel, members: queues.length },
+          "Attention shift-end summary could not be delivered — dropped, not retried (see postAlert logs)",
+        );
+        continue;
+      }
+      // The thread anchor is only known after a successful post; the next-day
+      // follow-up falls back to a plain channel post when it is missing.
+      if (ts) {
+        await AttentionQueue.updateMany(
+          { _id: { $in: queues.map((q) => q._id) } },
+          { $set: { slack_thread_ts: ts } },
+        );
       }
       logger.info(
         { shift: queues[0].shift, channel, members: queues.length, threaded: !!ts },
@@ -309,22 +329,47 @@ export const runEscalations = async (nowMs) => {
       continue;
     }
 
+    // CLAIM BEFORE SENDING — at-most-once (Rohan 2026-08-31).
+    //
+    // This used to retire the clock only AFTER a successful post, which made
+    // the guard depend on `ok`. But `ok` means "our HTTP call to n8n
+    // succeeded", NOT "Slack received it": n8n can post the message and still
+    // fail to answer us (timeout, a broken Respond-to-Webhook node, a non-2xx
+    // from a later node). Every one of those looked like a failure worth
+    // retrying while the member was already looking at the message.
+    //
+    // Retrying an outbound ping is the wrong default here anyway — Rohan
+    // 2026-08-08, "hourly repeats read as spam". A missed follow-up costs
+    // nothing (the tickets re-flag into the next build); a duplicate one
+    // costs trust in the whole channel. So the claim happens FIRST, and a
+    // genuinely failed send is logged and dropped rather than retried.
+    //
+    // The `next_shift_start_at: { $ne: null }` predicate makes the claim
+    // atomic: whoever flips it wins, so the two sweep schedulers in the
+    // hybrid topology (server.js + worker.js) can never both post.
+    const claimed = await AttentionQueue.findOneAndUpdate(
+      { _id: updated._id, next_shift_start_at: { $ne: null } },
+      {
+        $set: { next_shift_start_at: null, "escalation.last_alert_at": new Date(nowMs) },
+        $inc: { "escalation.alert_count": 1 },
+      },
+      { new: true },
+    );
+    if (!claimed) continue; // another sweep already claimed this escalation
+
     const { ok } = await postAlert({
       kind: "no_action_followup",
       text: noActionMessage(updated),
       channel,
       threadTs: updated.slack_thread_ts || null, // no ts (webhook fallback) → plain channel post
     });
-    // Failed post keeps the clock so the next 15-min sweep retries — but only
-    // until ESCALATION_LATE_TOLERANCE_MS above, never indefinitely.
-    if (!ok) continue;
-    updated.escalation = {
-      alert_count: (updated.escalation?.alert_count || 0) + 1,
-      last_alert_at: new Date(nowMs),
-    };
-    // The one follow-up has been sent — retire this queue's escalation clock.
-    updated.next_shift_start_at = null;
-    await updated.save();
+    if (!ok) {
+      logger.error(
+        { member: updated.member, shiftDate: updated.shift_date, remaining },
+        "Attention no-action alert could not be delivered — dropped, not retried (see postAlert logs)",
+      );
+      continue;
+    }
     logger.info(
       { member: q.member, remaining, threaded: !!updated.slack_thread_ts },
       "Attention no-action alert sent (one-shot)",
