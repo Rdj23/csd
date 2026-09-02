@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Bot, User, Loader2, AlertCircle, Sparkles, X, Square } from "lucide-react";
 import { sendAgentQuery, pollAgentResponse } from "../../../api/agentApi";
+import { EV, track } from "../../../lib/analytics";
 
 const POLL_INTERVAL = 2000;
 const MAX_POLLS = 60;
@@ -309,6 +310,16 @@ export default function AgentModal({ open, onClose }) {
 
     cancelledRef.current = false;
 
+    // Turn Index separates "asked one thing and left" from a real
+    // conversation — the difference between a novelty and a tool people rely on.
+    const turnIndex = messages.filter((m) => m.role === "user").length + 1;
+    const startedAt = Date.now();
+    track(EV.AGENT_QUERY_SENT, {
+      "Query Length": query.length,
+      "Turn Index": turnIndex,
+      Source: overrideQuery ? "suggestion chip" : "typed",
+    });
+
     setMessages((prev) => [...prev, { role: "user", text: query }]);
     setInput("");
     setLoading(true);
@@ -329,6 +340,17 @@ export default function AgentModal({ open, onClose }) {
       if (lastResult?.cancelled) return;
 
       if (lastResult.ok) {
+        // Retries + Duration are the operational half of this event: the agent
+        // is an async poll loop, so a "successful" answer that took 3 attempts
+        // and 40s is a very different product experience from a 4s one.
+        track(EV.AGENT_RESPONSE_RECEIVED, {
+          Outcome: "success",
+          "Response Type": lastResult.type || "text",
+          "Response Length": (lastResult.text || "").length,
+          "Duration Ms": Date.now() - startedAt,
+          Retries: attempt,
+          "Turn Index": turnIndex,
+        });
         setMessages((prev) => [...prev, { role: "agent", text: lastResult.text, type: lastResult.type }]);
         setLoading(false);
         inputRef.current?.focus();
@@ -342,6 +364,13 @@ export default function AgentModal({ open, onClose }) {
       const errMsg = lastResult?.error?.response?.data?.error
         || lastResult?.error?.message
         || "Something went wrong. Please try again in a moment.";
+      track(EV.AGENT_RESPONSE_RECEIVED, {
+        Outcome: "error",
+        "Error Message": errMsg,
+        "Duration Ms": Date.now() - startedAt,
+        Retries: MAX_QUERY_ATTEMPTS,
+        "Turn Index": turnIndex,
+      });
       setMessages((prev) => [...prev, { role: "agent", text: errMsg, type: "error" }]);
       setLoading(false);
     }

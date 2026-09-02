@@ -44,6 +44,7 @@ import { DEPENDENCY_EXPORT_HEADERS, DEPENDENCY_TEAMS, getDependencyExportCells, 
 import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../lib/teams";
 import { STAGE_MAP } from "../../../lib/ticketStatus";
 import { csvTimestamp, downloadCsv } from "../../../lib/csv";
+import { EV, track } from "../../../lib/analytics";
 import DrillDownModal from "./TicketDrillDownModal";
 
 // Color palette for pie chart slices
@@ -545,6 +546,11 @@ const AllTicketsView = ({
   const handleCardClick = useCallback(
     (state) => {
       const config = TICKET_STATES[state];
+      track(EV.KPI_CARD_CLICKED, {
+        Status: config.label,
+        Count: categorizedTickets[state]?.length || 0,
+        Surface: "all tickets summary card",
+      });
       setDrillDown({
         state,
         title: `${config.label} Tickets`,
@@ -590,6 +596,16 @@ const AllTicketsView = ({
         region: "Region",
       }[groupType] || "GST";
 
+      // Chart + Slice + Result Count together tell you whether the chart is a
+      // navigation surface (people click through it) or just decoration, and
+      // which grouping they actually navigate by.
+      track(EV.CHART_SLICE_CLICKED, {
+        Chart: `${groupLabel} by status`,
+        Slice: value,
+        Status: config.label,
+        "Group By": groupType,
+        "Result Count": filtered.length,
+      });
       setDrillDown({
         state,
         value,
@@ -605,6 +621,11 @@ const AllTicketsView = ({
   const handleAccountClick = useCallback(
     (account) => {
       const filtered = cleanTickets.filter((t) => t.accountName === account);
+      track(EV.CHART_SLICE_CLICKED, {
+        Chart: "account distribution",
+        Slice: account,
+        "Result Count": filtered.length,
+      });
       setDrillDown({
         title: `Tickets for ${account}`,
         tickets: filtered,
@@ -616,6 +637,11 @@ const AllTicketsView = ({
   const handleRegionClick = useCallback(
     (region) => {
       const filtered = cleanTickets.filter((t) => t.region === region);
+      track(EV.CHART_SLICE_CLICKED, {
+        Chart: "region distribution",
+        Slice: region,
+        "Result Count": filtered.length,
+      });
       setDrillDown({
         title: `Tickets in ${region}`,
         tickets: filtered,
@@ -706,8 +732,14 @@ const AllTicketsView = ({
       });
     });
 
+    track(EV.REPORT_DOWNLOADED, {
+      Report: "All Tickets full report",
+      Format: "CSV",
+      "Ticket Count": Object.values(categorizedTickets).reduce((n, list) => n + (list?.length || 0), 0),
+      "Group By": groupBy,
+    });
     downloadCsv(`All_Tickets_Report_${csvTimestamp()}.csv`, csvContent);
-  }, [categorizedTickets, dependencies]);
+  }, [categorizedTickets, dependencies, groupBy]);
 
   return (
     <div className="space-y-5">
@@ -736,7 +768,10 @@ const AllTicketsView = ({
             return (
               <button
                 key={tab.key}
-                onClick={() => setGroupBy(tab.key)}
+                onClick={() => {
+                  track(EV.GROUP_BY_CHANGED, { "Group By": tab.key, "Previous Group By": groupBy });
+                  setGroupBy(tab.key);
+                }}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[12px] font-medium transition-all duration-150 ${
                   isActive
                     ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"

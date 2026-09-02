@@ -22,7 +22,7 @@ import {
   Zap,
   Activity,
 } from "lucide-react";
-import { trackEvent } from "../../../lib/clevertap";
+import { EV, track } from "../../../lib/analytics";
 
 // Week definitions for Q1
 // Week 1 starts from Jan 1, 2026
@@ -93,8 +93,12 @@ const PerformanceMetricsCards = ({
 
   const currentWeekNum = getCurrentWeekNum();
 
+  // DEAD CODE (kept as-is): nothing references this — the quarter selector
+  // lives in AnalyticsDashboard and arrives here as the onQuarterChange prop.
+  // The old trackEvent("Analytics Quarter Changed") call used to sit here,
+  // which is why that event never appeared in CleverTap. The live path is
+  // instrumented in AnalyticsDashboard.handleQuarterChange instead.
   const handleQuarterChange = (qId) => {
-    trackEvent("Analytics Quarter Changed", { Quarter: qId });
     setSelectedQuarter(qId);
     setGroupBy("daily");
     setSelectedWeek(null);
@@ -102,6 +106,7 @@ const PerformanceMetricsCards = ({
     onQuarterChange(qId);
   };
 
+  // DEAD CODE (kept as-is), same reason as handleQuarterChange above.
   const handleGroupByChange = (g) => {
     if (!isCurrentQuarter) return;
     setGroupBy(g);
@@ -112,6 +117,13 @@ const PerformanceMetricsCards = ({
 
   const handleWeekSelect = (weekId) => {
     if (weekId > currentWeekNum) return;
+    track(EV.ANALYTICS_PERIOD_CHANGED, {
+      "Period Kind": "week",
+      Week: weekId,
+      Quarter: selectedQuarter,
+      Action: selectedWeek === weekId ? "deselect" : "select",
+      Surface: "analytics",
+    });
     setSelectedWeek(selectedWeek === weekId ? null : weekId);
     onGroupByChange?.(`Q1_26_W${weekId}`);
   };
@@ -292,6 +304,7 @@ const PerformanceMetricsCards = ({
             <button
               onClick={() => {
                 setSelectedWeek(null);
+                track(EV.ANALYTICS_PERIOD_CHANGED, { "Period Kind": "group by", "Group By": "weekly", Quarter: selectedQuarter, Surface: "analytics" });
                 onGroupByChange?.("weekly");
               }}
               className="text-xs text-slate-400 hover:text-rose-500 ml-2"
@@ -337,6 +350,7 @@ const PerformanceMetricsCards = ({
             <button
               onClick={() => {
                 setSelectedMonth(null);
+                track(EV.ANALYTICS_PERIOD_CHANGED, { "Period Kind": "group by", "Group By": "monthly", Quarter: selectedQuarter, Surface: "analytics" });
                 onGroupByChange?.("monthly");
               }}
               className="text-xs text-slate-400 hover:text-rose-500 ml-2"

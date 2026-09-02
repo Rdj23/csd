@@ -10,6 +10,7 @@ import {
 import { depTeamBadgeClass } from "../../../lib/dependencies";
 import { FLAT_TEAM_MAP, TEAM_GROUPS } from "../../../lib/teams";
 import { STAGE_MAP } from "../../../lib/ticketStatus";
+import { EV, track, ticketProps } from "../../../lib/analytics";
 
 const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
   const [expandedOwners, setExpandedOwners] = useState(new Set());
@@ -275,6 +276,13 @@ const GroupedTicketList = ({ tickets, onProfileClick, dependencies = {} }) => {
                                       href={`https://app.devrev.ai/clevertapsupport/works/${t.display_id}`}
                                       target="_blank"
                                       rel="noreferrer"
+                                      onClick={() =>
+                                        track(EV.TICKET_OPENED, {
+                                          ...ticketProps(t),
+                                          "UI Status": t.uiStatus,
+                                          Source: "grouped list",
+                                        })
+                                      }
                                       className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
                                     >
                                       {t.display_id}

@@ -7,7 +7,16 @@ import React, {
   lazy,
   Suspense,
 } from "react";
-import { loginUser, trackEvent } from "./lib/clevertap";
+import { loginUser } from "./lib/clevertap";
+import {
+  EV,
+  track,
+  trackTabChange,
+  installDwellFlush,
+  setAnalyticsContext,
+  activeFilterCount,
+  dateRangeProps,
+} from "./lib/analytics";
 import { authFetch } from "./api/authFetch";
 import { fetchAllSolvedTickets } from "./api/ticketApi";
 import { fetchMyWeekStats } from "./api/gamificationApi";
@@ -327,12 +336,27 @@ const App = () => {
     return () => clearTimeout(depsFetchTimerRef.current);
   }, [tickets, activeTab, depRefreshTick]);
 
-  // ✅ TRACK TAB VISITS
+  // ── TAB ANALYTICS ────────────────────────────────────────────────────────
+  // ONE effect for the whole tab lifecycle. This used to be two effects firing
+  // two different names ("Tab Visited" here, "Tab Viewed" further down) off the
+  // same dependency — every switch counted twice under two events, so neither
+  // matched the real number. trackTabChange() also closes the previous tab with
+  // a Tab Exited + Dwell Seconds, which is what makes "which tabs do people
+  // actually work in" answerable rather than just "which tabs get clicked".
+  //
+  // Entry method is inferred from the URL: if the path already matches the tab,
+  // we arrived via a link or back/forward rather than a tab click.
   useEffect(() => {
-    if (activeTab) {
-      trackEvent("Tab Visited", { Tab: activeTab });
-    }
+    if (!activeTab) return;
+    const path = activeTab === "tickets" ? "/" : `/${activeTab}`;
+    trackTabChange(activeTab, {
+      entryMethod: window.location.pathname === path ? "url" : "click",
+    });
   }, [activeTab]);
+
+  // Flush the final Tab Exited when the page is hidden/closed — otherwise the
+  // longest stretch on a tab (the one the user ends their day on) is never sent.
+  useEffect(installDwellFlush, []);
 
   // In App.jsx or a new component
 
@@ -525,9 +549,33 @@ const App = () => {
       try { connectSocket(); } catch (_) { /* socket will auto-reconnect */ }
       fetchViews().catch(() => {});
       // ✅ CLEVERTAP LOGIN
-      loginUser(currentUser);
+      const gstName = EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()] || null;
+      loginUser(currentUser, { gstName });
+      // Ambient event context — every subsequent event is segmentable by these
+      // without any call site threading them through. Role separates the three
+      // audiences whose usage patterns are completely different: GST engineers,
+      // non-GST supervisors, and everyone else (CSMs/TAMs reading the board).
+      setAnalyticsContext({
+        Role: SUPER_ADMIN_EMAILS.includes(currentUser?.email?.toLowerCase())
+          ? "Super Admin"
+          : gstName
+            ? "GST Member"
+            : "Viewer",
+        "GST Name": gstName || "Non-GST",
+      });
     }
   }, [isAuthenticated]);
+
+  // Theme is ambient rather than an event property: it never changes what the
+  // user did, only how the app looked while they did it.
+  useEffect(() => {
+    setAnalyticsContext({ Theme: theme });
+  }, [theme]);
+
+  // Holds the row count currently on screen, for the search event's
+  // "Result Count" property. Kept in a ref (not state) so refreshing it can
+  // never trigger a re-render on every filter change.
+  const searchResultCountRef = useRef(null);
 
   // ✅ TRACK SEARCH (Debounced to prevent spamming while typing)
   useEffect(() => {
@@ -535,9 +583,18 @@ const App = () => {
     if (!query || query.length < 3) return; // Only track if 3+ chars
 
     const handler = setTimeout(() => {
-      trackEvent("Search Performed", {
-        Tab: activeTab,
+      // Result Count is the property that makes this event worth having: a
+      // zero-result search is a product signal (missing data, wrong ticket id
+      // format, someone hunting for something the board can't show), and it is
+      // indistinguishable from a successful search without it. Read from a ref
+      // because the filtered arrays are computed further down the component —
+      // by the time this 1.5s timer fires, the ref is always current.
+      track(EV.SEARCH_PERFORMED, {
         Query: query,
+        "Query Length": query.length,
+        "Query Kind": /^TKT-?\d+$/i.test(query.trim()) ? "ticket id" : "text",
+        "Result Count": searchResultCountRef.current,
+        "Found Results": (searchResultCountRef.current ?? 0) > 0,
       });
     }, 1500); // Wait 1.5 seconds after typing stops
 
@@ -546,6 +603,7 @@ const App = () => {
 
   // Sync: Updates both Tickets and Roster
   const handleManualSync = async () => {
+    track(EV.SYNC_TRIGGERED, { Source: "header button" });
     setIsSyncing(true);
     try {
       const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
@@ -566,8 +624,13 @@ const App = () => {
 
   const onSaveView = async () => {
     if (!newViewName.trim()) return;
-    // ✅ ADD TRACKING HERE
-    trackEvent("View Saved", { Name: newViewName });
+    // Filter Count is what makes this event analysable: a saved view with 6
+    // filters is a real workflow someone codified, a 0-filter one is a misclick.
+    track(EV.VIEW_SAVED, {
+      "View Name": newViewName,
+      "Filter Count": activeFilterCount(tabFilters.tickets || {}),
+      "Total Views": (myViews?.length || 0) + 1,
+    });
     const success = await saveView(newViewName, tabFilters.tickets);
     if (success) {
       setNewViewName("");
@@ -588,10 +651,16 @@ const App = () => {
     if (!ticketsToExport.length) return showToast("❌ No tickets to export");
 
     // ✅ TRACK EVENT
-    trackEvent("Report Downloaded", {
+    track(EV.REPORT_DOWNLOADED, {
       "Ticket Count": ticketsToExport.length,
       Workspace: ticketsToExport[0]?.account?.display_name || "Mixed",
-      Date: new Date().toISOString(),
+      Format: "CSV",
+      // A download is the end of a workflow — recording how the data was
+      // shaped tells you WHICH report people actually need, not just that
+      // they exported something.
+      "Active Filter Count": activeFilterCount(currentFilters || {}),
+      "Had Search": !!searchQueries[activeTab],
+      ...dateRangeProps(currentFilters?.dateRange),
     });
 
     // Group tickets by state
@@ -720,7 +789,32 @@ const App = () => {
     showToast("✅ CSV Downloaded!");
   };
 
-  const setFilter = (key, value) => {
+  /**
+   * @param {string} key    filter key ("teams", "regions", "health"…)
+   * @param {*}      value  the new value (usually an array of selections)
+   * @param {string} source "user" for a real interaction, "auto" for the
+   *   programmatic applications below (role auto-apply, Adish→regions,
+   *   KPI card). Without this split, the auto-applied filters every CSM/TAM
+   *   gets on login would look like deliberate filter usage and inflate
+   *   Filter Applied for exactly the people who never touched a filter.
+   */
+  const setFilter = (key, value, source = "user") => {
+    // Tracked OUTSIDE the updater on purpose: a setState updater must be pure,
+    // and StrictMode invokes it twice in dev — firing the event in there would
+    // double every Filter Applied locally and quietly diverge dev from prod.
+    if (source === "user") {
+      track(EV.FILTER_APPLIED, {
+        Filter: key,
+        // Arrays are flattened by track() into a sorted string plus
+        // "Values Count" — see the array trap note in lib/analytics.js.
+        Values: Array.isArray(value) ? value : [value].filter(Boolean),
+        "Active Filter Count": activeFilterCount({
+          ...(tabFilters[activeTab] || {}),
+          [key]: value,
+        }),
+        Source: source,
+      });
+    }
     setTabFilters((prev) => ({
       ...prev,
       [activeTab]: { ...prev[activeTab], [key]: value },
@@ -823,27 +917,46 @@ const App = () => {
     ) {
       const userEmail = currentUser.email || "";
       if (options.csms.includes(userEmail)) {
-        setFilter("csms", [userEmail]);
+        setFilter("csms", [userEmail], "auto");
         setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "csms"])));
         hasAutoAppliedRole.current = true;
       } else if (options.tams.includes(userEmail)) {
-        setFilter("tams", [userEmail]);
+        setFilter("tams", [userEmail], "auto");
         setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "tams"])));
         hasAutoAppliedRole.current = true;
       }
     }
   }, [isAuthenticated, currentUser, options]);
 
+  /**
+   * Open a member's profile stats. Wrapped rather than passing
+   * setSelectedUserProfile directly so both boards emit the same event.
+   */
+  const openProfile = (name) => {
+    if (!name) return;
+    track(EV.PROFILE_CARD_OPENED, {
+      Member: typeof name === "string" ? name : name?.name || null,
+      "Is Self": (typeof name === "string" ? name : name?.name) === myRosterName,
+    });
+    setSelectedUserProfile(name);
+  };
+
   const handleKPIFilter = (statusValue) => {
-    trackEvent("KPI Card Clicked", { Status: statusValue }); // ✅ Add this
+    // The KPI click is its own event, so the filter it applies is marked
+    // "auto" — otherwise one click reports as both a card click AND a
+    // deliberate health-filter application, double-counting the interaction.
+    track(EV.KPI_CARD_CLICKED, {
+      Status: statusValue,
+      "Board Size": displayTicketsBeforeHealth.length,
+    });
     setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "health"])));
-    setFilter("health", [statusValue]);
+    setFilter("health", [statusValue], "auto");
   };
 
   useEffect(() => {
     if (currentFilters.teams?.includes("Adish")) {
       const adishRegions = TEAM_REGION_MAP["Adish"] || [];
-      setFilter("regions", adishRegions);
+      setFilter("regions", adishRegions, "auto");
       setVisibleFilterKeys((prev) => Array.from(new Set([...prev, "regions"])));
     }
   }, [currentFilters.teams]);
@@ -900,11 +1013,8 @@ const App = () => {
     return activeTab !== "vistas" && activeTab !== "analytics";
   }, [activeTab]);
 
-  useEffect(() => {
-    if (activeTab) {
-      trackEvent("Tab Viewed", { Tab: activeTab });
-    }
-  }, [activeTab]);
+  // NOTE: tab tracking lives in the single trackTabChange() effect above.
+  // A second "Tab Viewed" effect used to sit here and double-count every switch.
 
   // All Tickets filters are rendered inline in the main content area below
   // This is just a placeholder to indicate the filter location
@@ -968,6 +1078,13 @@ const App = () => {
       }),
     [tickets, tabFilters.alltickets, activeTab, dependencies, allSolvedTickets],
   );
+
+  // Keep the search event's Result Count fresh. Declared here (not next to the
+  // search effect) because both filtered arrays must exist first.
+  useEffect(() => {
+    searchResultCountRef.current =
+      activeTab === "alltickets" ? allTicketsFiltered.length : displayTickets.length;
+  }, [activeTab, allTicketsFiltered, displayTickets]);
 
   // ✅ KPI STATS - Count from displayTicketsBeforeHealth so cards always show real counts
   const stats = useMemo(() => {
@@ -1129,7 +1246,10 @@ const App = () => {
 
               {/* Theme toggle */}
               <button
-                onClick={toggleTheme}
+                onClick={() => {
+                  track(EV.THEME_TOGGLED, { "Switched To": theme === "light" ? "dark" : "light" });
+                  toggleTheme();
+                }}
                 className="btn-icon"
                 title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
               >
@@ -1228,7 +1348,14 @@ const App = () => {
                     myViews.map((view) => (
                       <div key={view._id} className="flex group">
                         <button
-                          onClick={() => setSelectedViewId(view._id)}
+                          onClick={() => {
+                            track(EV.VIEW_SELECTED, {
+                              "View Name": view.name,
+                              "Filter Count": activeFilterCount(view.filters || {}),
+                              "Total Views": myViews.length,
+                            });
+                            setSelectedViewId(view._id);
+                          }}
                           className={`flex-1 text-left px-3 py-2 text-xs rounded-lg transition-colors truncate ${
                             selectedViewId === view._id
                               ? "bg-indigo-50 text-indigo-700 font-bold dark:bg-indigo-900/30 dark:text-indigo-300"
@@ -1240,10 +1367,10 @@ const App = () => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            // ✅ ADD TRACKING HERE
-                            trackEvent("View Deleted", {
-                              Name: view.name,
-                              ID: view._id,
+                            track(EV.VIEW_DELETED, {
+                              "View Name": view.name,
+                              "Filter Count": activeFilterCount(view.filters || {}),
+                              "Total Views": myViews.length,
                             });
                             deleteView(view._id);
                           }}
@@ -1678,7 +1805,14 @@ const App = () => {
                       {showDatePicker && (
                         <SmartDatePicker
                           value={currentFilters.dateRange}
-                          onChange={(val) => setFilter("dateRange", val)}
+                          onChange={(val) => {
+                            // Its own event rather than a Filter Applied: span
+                            // length is the property that actually drives cost
+                            // (a 90-day range hits Mongo, a 1-day one doesn't),
+                            // and it has no meaning for the other filters.
+                            track(EV.DATE_RANGE_CHANGED, dateRangeProps(val));
+                            setFilter("dateRange", val, "auto");
+                          }}
                         />
                       )}
 
@@ -1697,7 +1831,7 @@ const App = () => {
                               TEAM_REGION_MAP["Adish"] || [];
                             // Auto-select regions for Adish
                             if (v.includes("Adish") && !hadAdish) {
-                              setFilter("regions", adishRegions);
+                              setFilter("regions", adishRegions, "auto");
                               setVisibleFilterKeys((prev) =>
                                 Array.from(new Set([...prev, "regions"])),
                               );
@@ -1708,6 +1842,7 @@ const App = () => {
                                 (currentFilters.regions || []).filter(
                                   (r) => !adishRegions.includes(r),
                                 ),
+                                "auto",
                               );
                             }
                           }}
@@ -1903,10 +2038,19 @@ const App = () => {
                                   />
                                   <button
                                     onClick={() => {
+                                      // Removing a filter is a distinct
+                                      // intent from narrowing with one, so it
+                                      // gets its own event; the setFilter is
+                                      // "auto" to avoid double-reporting.
+                                      track(EV.FILTERS_CLEARED, {
+                                        Filter: key,
+                                        Scope: "single",
+                                        "Values Dropped": (currentFilters[key] || []).length,
+                                      });
                                       setVisibleFilterKeys((prev) =>
                                         prev.filter((k) => k !== key),
                                       );
-                                      setFilter(key, []);
+                                      setFilter(key, [], "auto");
                                     }}
                                     className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
                                     title={`Remove ${config.label} filter`}
@@ -2140,7 +2284,7 @@ const App = () => {
                     <ErrorBoundary level="section">
                       <GroupedTicketList
                         tickets={displayTickets}
-                        onProfileClick={setSelectedUserProfile}
+                        onProfileClick={openProfile}
                         dependencies={dependencies}
                       />
                     </ErrorBoundary>
@@ -2150,7 +2294,7 @@ const App = () => {
                         tickets={displayTickets}
                         isCSDView={activeTab === "csd"}
                         onCardClick={handleKPIFilter}
-                        onProfileClick={setSelectedUserProfile}
+                        onProfileClick={openProfile}
                         dependencies={dependencies}
                         searchQuery={searchQueries[activeTab] || ""}
                         onClearSearch={() =>
