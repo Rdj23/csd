@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { io } from "socket.io-client";
-import { trackEvent } from "./lib/clevertap";
+import { EV, track } from "./lib/analytics";
 
 const getApiUrl = () => import.meta.env.VITE_API_URL;
 
@@ -510,7 +510,15 @@ fetchAnalyticsData: async (filters = {}) => {
 
           if (!response.ok) throw new Error("DevRev Sync Failed");
 
-          trackEvent("Comment Added", { "Ticket ID": displayId, "Comment Length": text.length });
+          // Has Mention matters because @tagging is what turns a remark into a
+          // handoff rather than a private note — the two are different features
+          // sharing one input box, and only this property separates them.
+          track(EV.COMMENT_ADDED, {
+            "Ticket ID": displayId,
+            "Comment Length": text.length,
+            "Has Mention": /@\w/.test(text),
+            "Synced To DevRev": true,
+          });
         } catch (err) {
           throw err;
         }

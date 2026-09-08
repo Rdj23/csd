@@ -8,12 +8,15 @@
  */
 
 // --- TEAM CONFIGURATION ---
+// Restructured 2026-09-08: six new L2 leads, each with their own Slack channel
+// for the Attention Queue (channel IDs live backend-side only).
 export const TEAM_GROUPS = {
-  "Rohan": { "DEVU-1111": "Rohan", "DEVU-550": "Anurag", "DEVU-1115": "Shreya", "DEVU-1087": "Shubhankar" },
-  "Shweta": { "DEVU-1113": "Shweta", "DEVU-1114": "Archie", "DEVU-736": "Musaveer" },
-  "Harsh": { "DEVU-1098": "Harsh", "DEVU-1072": "Neha", "DEVU-1122": "Vaibhav" },
-  "Aditya": { "DEVU-5": "Aditya", "DEVU-2611": "Rishabh", "DEVU-4": "Nikita", "DEVU-1110": "Shreyas" },
-  "Debashish": { "DEVU-1102": "Debashish", "DEVU-1076": "Adarsh", "DEVU-689": "Tamanna" },
+  "Adarsh": { "DEVU-1076": "Adarsh", "DEVU-3225": "Zeel" },
+  "Tamanna": { "DEVU-689": "Tamanna", "DEVU-3226": "Soham", "DEVU-1122": "Vaibhav" },
+  "Musaveer": { "DEVU-736": "Musaveer", "DEVU-3261": "Viraj", "DEVU-1110": "Shreyas" },
+  "Nikita": { "DEVU-4": "Nikita", "DEVU-1115": "Shreya" },
+  "Shweta": { "DEVU-1113": "Shweta", "DEVU-1114": "Archie" },
+  "Harsh": { "DEVU-1098": "Harsh", "DEVU-1072": "Neha", "DEVU-550": "Anurag" },
   "Adish": { "DEVU-1121": "Adish" }
 };
 
@@ -21,14 +24,17 @@ export const TEAM_REGION_MAP = {
   "Adish": ["South America", "North America"]
 };
 
-// GST members not (yet) under a team lead. They resolve for ticket ownership /
-// name normalization but are deliberately kept OUT of TEAM_GROUPS so no team is
-// created for them — they only populate individual/member views. Move a DEVU-ID
-// into a TEAM_GROUPS block above once the person is assigned a lead.
+// People with no team lead. Kept OUT of TEAM_GROUPS so no team is created for
+// them, but still resolved for ticket ownership / name normalization — without
+// an entry here their tickets silently drop out of every owner-filtered view.
+// As of the 2026-09-08 restructure these are all ex-GST members whose history
+// must stay readable. Move a DEVU-ID into a TEAM_GROUPS block if a lead is set.
 export const TEAMLESS_MEMBERS = {
-  "DEVU-3225": "Zeel",
-  "DEVU-3226": "Soham",
-  "DEVU-3261": "Viraj",
+  "DEVU-1111": "Rohan",
+  "DEVU-5": "Aditya",
+  "DEVU-1102": "Debashish",
+  "DEVU-2611": "Rishabh",
+  "DEVU-1087": "Shubhankar",
 };
 
 export const FLAT_TEAM_MAP = {

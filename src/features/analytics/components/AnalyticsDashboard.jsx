@@ -70,7 +70,7 @@ import { getCSATStatus } from "../../../lib/ticketStatus";
 import { useTicketStore } from "../../../store";
 import SmartDateRangePicker from "../../../components/common/SmartDateRangePicker";
 import MultiSelectFilter from "../../../components/common/MultiSelectFilter";
-import { trackEvent } from "../../../lib/clevertap";
+import { EV, track } from "../../../lib/analytics";
 import { authFetch } from "../../../api/authFetch";
 
 // Import split analytics components
@@ -641,10 +641,12 @@ const AnalyticsDashboard = ({
 
   const handleDrillDown = useCallback(
     async (metricKey, dateKey, dataPointName, chartData) => {
-      // ✅ Add this
-      trackEvent("Chart Drill Down", {
+      track(EV.CHART_DRILL_DOWN, {
         Metric: metricKey,
-        Date: dateKey,
+        "Data Point": dateKey,
+        "Data Point Label": dataPointName,
+        "Group By": groupBy,
+        Quarter: currentQuarter,
       });
       // For VOLUME - use DevRev tickets (has created_date)
       if (metricKey === "volume") {
@@ -809,6 +811,10 @@ const AnalyticsDashboard = ({
       excludeNOC,
       hasDependencyFilter,
       passesDependencyNarrowing,
+      // Read by the Chart Drill Down event so it can report the scope the
+      // drill-down happened in, not just which point was clicked.
+      currentQuarter,
+      groupBy,
     ],
   );
 
@@ -1867,6 +1873,16 @@ const AnalyticsDashboard = ({
       // Sync the date filter to the selected quarter so effectiveDateRange uses correct dates
       // Must use format() (local time) — NOT toISOString() (UTC) — to match SmartDateRangePicker presets
       const { start, end } = getQuarterDatesFromConfig(quarter);
+      // THIS is the live quarter-change path. The identical handler in
+      // PerformanceOverview.jsx is unreferenced dead code, which is why the
+      // old "Analytics Quarter Changed" event never fired.
+      track(EV.ANALYTICS_PERIOD_CHANGED, {
+        "Period Kind": "quarter",
+        Quarter: quarter,
+        "Previous Quarter": currentQuarter,
+        "Is Current": quarter === getCurrentQuarterKey(),
+        Surface: "analytics",
+      });
       onFilterChange?.("dateRange", {
         start: format(start, "yyyy-MM-dd"),
         end: format(end, "yyyy-MM-dd"),
@@ -1876,10 +1892,11 @@ const AnalyticsDashboard = ({
       setExpandedDateRange(null);
       setCurrentQuarter(quarter);
     },
-    [onFilterChange],
+    [onFilterChange, currentQuarter],
   );
-  const handleRefresh = () =>
-    fetchAnalyticsData({
+  const handleRefresh = () => {
+    track(EV.SYNC_TRIGGERED, { Source: "analytics refresh", Quarter: currentQuarter, "Group By": groupBy });
+    return fetchAnalyticsData({
       quarter: currentQuarter,
       excludeZendesk,
       excludeNOC,
@@ -1889,6 +1906,7 @@ const AnalyticsDashboard = ({
       forceRefresh: true,
       resolvedBy: filters?.resolvedBy,
     });
+  };
 
   const smallChartData = useMemo(
     () =>
@@ -2040,7 +2058,11 @@ const AnalyticsDashboard = ({
           onRefresh={handleRefresh}
           isRefreshing={analyticsLoading}
           onExpandMetric={(metricKey) => {
-            trackEvent("Metric Expanded", { Metric: metricKey }); // ✅ Add this
+            track(EV.METRIC_EXPANDED, {
+              Metric: metricKey,
+              Quarter: currentQuarter,
+              "Group By": groupBy,
+            });
             setExpandedOverviewMetric(metricKey);
           }}
           onGroupByChange={(newGroupBy) => {

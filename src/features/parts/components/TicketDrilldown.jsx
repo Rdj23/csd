@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { ExternalLink, Loader2, AlertCircle } from "lucide-react";
 import { fetchPartTickets } from "../../../api/partsApi";
+import { EV, track, ticketProps } from "../../../lib/analytics";
 
 // Alias so ESLint (no eslint-plugin-react here) sees `motion` used outside JSX.
 const MotionDiv = motion.div;
@@ -43,6 +44,17 @@ const TicketDrilldown = ({ partId, filters }) => {
         setTotal(res.total || 0);
         setHasMore(!!res.hasMore);
         setPage(p);
+        // Page 1 IS the drilldown opening (this component mounts and
+        // immediately loads), so one event covers both the open and any
+        // subsequent "Load more" — Page tells them apart.
+        track(EV.PART_DRILLDOWN_OPENED, {
+          "Part Id": partId,
+          Page: p,
+          "Result Count": res.total || 0,
+          "Rows Loaded": (res.tickets || []).length,
+          "Has More": !!res.hasMore,
+          Empty: (res.total || 0) === 0,
+        });
       } catch (e) {
         setError(e?.response?.data?.error?.message || "Failed to load tickets");
       } finally {
@@ -56,7 +68,17 @@ const TicketDrilldown = ({ partId, filters }) => {
     load(1);
   }, [load]);
 
-  const open = (url) => url && window.open(url, "_blank", "noopener,noreferrer");
+  const open = (url, ticket) => {
+    if (!url) return;
+    // Opening a ticket in DevRev is this tab's conversion: the point where
+    // browsing the hierarchy turned into acting on a specific ticket.
+    track(EV.TICKET_OPENED, {
+      ...ticketProps({ ...ticket, account: ticket?.account_name, stage: ticket?.status }),
+      "Part Id": partId,
+      Source: "parts drilldown",
+    });
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <MotionDiv
@@ -89,7 +111,7 @@ const TicketDrilldown = ({ partId, filters }) => {
               {tickets.map((t) => (
                 <tr
                   key={t.ticket_id || t.display_id}
-                  onClick={() => open(t.devrevUrl)}
+                  onClick={() => open(t.devrevUrl, t)}
                   className="cursor-pointer group hover:bg-white dark:hover:bg-slate-800/50 transition-colors"
                 >
                   <td className="px-4 py-2 whitespace-nowrap border-b border-slate-100 dark:border-slate-800/60">

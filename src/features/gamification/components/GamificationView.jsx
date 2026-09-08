@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useGamification } from "../../../hooks/useGamification";
 import { EMAIL_TO_NAME_MAP } from "../../../lib/teams";
+import { EV, track } from "../../../lib/analytics";
 import {
   getCurrentQuarterKey,
   getAvailableQuarters,
@@ -79,11 +80,23 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
   }, [data, activeTab, sortBy, sortDir]);
 
   const handleSort = (col) => {
+    const nextDir = sortBy === col
+      ? (sortDir === "asc" ? "desc" : "asc")
+      : (col === "rank" ? "asc" : "desc");
+    // Which column people sort by IS the answer to "what do they think the
+    // leaderboard is for" — rank, throughput, or CSAT are three different
+    // stories about how the team reads their own performance.
+    track(EV.LEADERBOARD_SORTED, {
+      "Sort By": col,
+      Direction: nextDir,
+      Cohort: activeTab,
+      Quarter: selectedQuarter,
+    });
     if (sortBy === col) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
+      setSortDir(nextDir);
     } else {
       setSortBy(col);
-      setSortDir(col === "rank" ? "asc" : "desc");
+      setSortDir(nextDir);
     }
   };
 
@@ -101,7 +114,15 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
       {availableQuarters.map((q) => (
         <button
           key={q.id}
-          onClick={() => setSelectedQuarter(q.id)}
+          onClick={() => {
+            track(EV.ANALYTICS_PERIOD_CHANGED, {
+              Quarter: q.id,
+              "Quarter Label": q.label,
+              "Is Current": q.id === getCurrentQuarterKey(),
+              Surface: "gamification",
+            });
+            setSelectedQuarter(q.id);
+          }}
           className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
             selectedQuarter === q.id
               ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
@@ -298,7 +319,10 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
           {/* Admin/GST View Toggle */}
           <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1 shadow-inner">
             <button
-              onClick={() => setViewAsGST(false)}
+              onClick={() => {
+                track(EV.GAMIFICATION_VIEW_SWITCHED, { View: "admin", Cohort: activeTab, Quarter: selectedQuarter });
+                setViewAsGST(false);
+              }}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 !viewAsGST
                   ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
@@ -309,7 +333,10 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
               Admin View
             </button>
             <button
-              onClick={() => setViewAsGST(true)}
+              onClick={() => {
+                track(EV.GAMIFICATION_VIEW_SWITCHED, { View: "my stats", Cohort: activeTab, Quarter: selectedQuarter });
+                setViewAsGST(true);
+              }}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 viewAsGST
                   ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"
@@ -327,7 +354,15 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
               {["L1", "L2"].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => {
+                    track(EV.GAMIFICATION_VIEW_SWITCHED, {
+                      View: "cohort",
+                      Cohort: tab,
+                      Quarter: selectedQuarter,
+                      "Member Count": data?.data?.[tab]?.length || 0,
+                    });
+                    setActiveTab(tab);
+                  }}
                   className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
                     activeTab === tab
                       ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md"

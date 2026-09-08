@@ -7,6 +7,7 @@ import {
   getCurrentQuarterKey,
   EMAIL_TO_NAME_MAP,
   TEAM_MAPPING,
+  TEAM_GROUPS,
   GAMIFICATION_TEAM_MAP,
 } from "../config/constants.js";
 import logger from "../config/logger.js";
@@ -313,9 +314,14 @@ export const getTicketDrillDown = async (req, res) => {
       ownerFilter = [userName];
       scopeLabel = userName;
     } else if (scope === "team") {
-      if (!team) return badRequest(res, "team param is required for team scope (e.g. Rohan, Shweta, Harsh)");
+      if (!team) return badRequest(res, `team param is required for team scope (e.g. ${Object.keys(TEAM_GROUPS).slice(0, 3).join(", ")})`);
       const teamInfo = TEAM_MAPPING[team];
-      if (!teamInfo) return badRequest(res, `Unknown team: ${team}. Valid: Rohan, Shweta, Harsh, Aditya, Debashish, Tuaha, Adish`);
+      // Valid names are derived, not listed: the old hardcoded string drifted
+      // out of date at every reorg (it named a "Tuaha" team that never existed
+      // in TEAMS) and sent people chasing team names that were never accepted.
+      if (!teamInfo) {
+        return badRequest(res, `Unknown team: ${team}. Valid: ${Object.keys(TEAM_GROUPS).join(", ")}`);
+      }
       ownerFilter = teamInfo.members;
       scopeLabel = `Team ${teamInfo.team}`;
     }

@@ -28,54 +28,65 @@ export const isSolvedStatus = (stage) =>
 // (logged, never posted). The n8n bot must be /invite'd to every channel.
 // ═══════════════════════════════════════════════════════════════════════
 const TEAMS = [
-  { lead: "Rohan", slackChannel: "C0AKN0B26DP", members: [
-    { name: "Rohan",      devuId: "DEVU-1111", email: "rohan.jadhav@clevertap.com",    designation: "L2", aliases: ["Rohan Jadhav"] },
-    { name: "Anurag",     devuId: "DEVU-550",  email: "anurag.ghatge@clevertap.com",   designation: "L1", aliases: ["Anurag Ghatge"] },
-    { name: "Shreya",     devuId: "DEVU-1115", email: "shreya.khale@clevertap.com",    designation: "L1", aliases: ["Shreya Khale"] },
-    { name: "Shubhankar", devuId: "DEVU-1087", email: "shubhankar@clevertap.com",      designation: "L1", aliases: [] },
+  { lead: "Adarsh", slackChannel: "C0C0G7TECJG", members: [
+    { name: "Adarsh", devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com", designation: "L2", aliases: [] },
+    { name: "Zeel",   devuId: "DEVU-3225", email: "zeel@clevertap.com",         designation: "L1", aliases: ["zeel"] },
+  ]},
+  { lead: "Tamanna", slackChannel: "C0C08M18A86", members: [
+    { name: "Tamanna", devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L2", aliases: ["Tamanna Khan"] },
+    { name: "Soham",   devuId: "DEVU-3226", email: "soham@clevertap.com",           designation: "L1", aliases: ["soham"] },
+    { name: "Vaibhav", devuId: "DEVU-1122", email: "vaibhav.agarwal@clevertap.com", designation: "L1", aliases: ["Vaibhav Agarwal"] },
+  ]},
+  { lead: "Musaveer", slackChannel: "C0C14LTER4G", members: [
+    { name: "Musaveer", devuId: "DEVU-736",  email: "musaveer@clevertap.com",          designation: "L2", aliases: ["Musaveer Manekia"] },
+    { name: "Viraj",    devuId: "DEVU-3261", email: "viraj.walavalkar@clevertap.com",  designation: "L1", aliases: ["viraj.walavalkar"] },
+    { name: "Shreyas",  devuId: "DEVU-1110", email: "shreyas.naikwadi@clevertap.com",  designation: "L1", aliases: ["Shreyas Naikwadi"] },
+  ]},
+  { lead: "Nikita", slackChannel: "C0C07H5UWQ5", members: [
+    { name: "Nikita", devuId: "DEVU-4",    email: "nikita.narwani@clevertap.com", designation: "L2", aliases: ["nikita-narwani"] },
+    { name: "Shreya", devuId: "DEVU-1115", email: "shreya.khale@clevertap.com",   designation: "L1", aliases: ["Shreya Khale"] },
   ]},
   { lead: "Shweta", slackChannel: "C0AJYTHAQQ2", members: [
-    { name: "Shweta",    devuId: "DEVU-1113", email: "shweta.more@clevertap.com",     designation: "L2", aliases: ["Shweta.M"] },
-    { name: "Archie",    devuId: "DEVU-1114", email: "archie@clevertap.com",          designation: "L1", aliases: ["Archie Bajaj"] },
-    { name: "Musaveer",  devuId: "DEVU-736",  email: "musaveer@clevertap.com",        designation: "L1", aliases: ["Musaveer Manekia"] },
+    { name: "Shweta", devuId: "DEVU-1113", email: "shweta.more@clevertap.com", designation: "L2", aliases: ["Shweta.M"] },
+    { name: "Archie", devuId: "DEVU-1114", email: "archie@clevertap.com",       designation: "L1", aliases: ["Archie Bajaj"] },
   ]},
   { lead: "Harsh", slackChannel: "C0AL793M5UY", members: [
-    { name: "Harsh",    devuId: "DEVU-1098", email: "harsh.singh@clevertap.com",     designation: "L2", aliases: ["Harsh Singh"] },
-    { name: "Neha",     devuId: "DEVU-1072", email: "neha.yadav@clevertap.com",      designation: "L1", aliases: ["Neha Yadav"] },
-    { name: "Vaibhav",  devuId: "DEVU-1122", email: "vaibhav.agarwal@clevertap.com", designation: "L1", aliases: ["Vaibhav Agarwal"] },
-  ]},
-  { lead: "Aditya", slackChannel: "C0AKKES4P4Y", members: [
-    { name: "Aditya",  devuId: "DEVU-5",    email: "aditya.mishra@clevertap.com",   designation: "L2", aliases: ["Aditya Mishra"] },
-    { name: "Rishabh", devuId: "DEVU-2611", email: "rishabh.j@clevertap.com",       designation: "L1", aliases: ["Rishabh J", "rishabh.j"] },
-    { name: "Nikita",  devuId: "DEVU-4",    email: "nikita.narwani@clevertap.com",  designation: "L1", aliases: ["nikita-narwani"] },
-    { name: "Shreyas", devuId: "DEVU-1110", email: "shreyas.naikwadi@clevertap.com", designation: "L1", aliases: ["Shreyas Naikwadi"] },
-  ]},
-  { lead: "Debashish", slackChannel: "C0A5GKFTGQ3", members: [
-    { name: "Debashish", devuId: "DEVU-1102", email: "debashish@clevertap.com",       designation: "L2", aliases: ["Debashish Muni"] },
-    { name: "Adarsh",    devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com",    designation: "L2", aliases: [] },
-    { name: "Tamanna",   devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L2", aliases: ["Tamanna Khan"] },
+    { name: "Harsh",  devuId: "DEVU-1098", email: "harsh.singh@clevertap.com",   designation: "L2", aliases: ["Harsh Singh"] },
+    { name: "Neha",   devuId: "DEVU-1072", email: "neha.yadav@clevertap.com",    designation: "L1", aliases: ["Neha Yadav"] },
+    { name: "Anurag", devuId: "DEVU-550",  email: "anurag.ghatge@clevertap.com", designation: "L1", aliases: ["Anurag Ghatge"] },
   ]},
   { lead: "Adish", slackChannel: "G095LHDHLJJ", members: [
     { name: "Adish", devuId: "DEVU-1121", email: "adish@clevertap.com", designation: "L2", aliases: [] },
   ]},
 ];
 
-// ── TEAMLESS MEMBERS — GST members not (yet) under a team lead ────────────
-// These people ARE part of GST for individual/member purposes — ticket
-// attribution, individual stats, and the gamification leaderboard (by
-// designation) — but they intentionally do NOT belong to any team group, so
-// no team is created for them and they never surface in team-level views.
-// When a lead is assigned, move the entry into that lead's TEAMS block above.
+// ── TEAMLESS MEMBERS — people whose data stays, but who have no lead ────
+// Two kinds of people live here:
+//   1. Not yet assigned a lead — fully active GST, just unbucketed.
+//   2. Moved off GST (2026-09-08 restructure) — Rohan, Aditya, Rishabh,
+//      Shubhankar, Debashish. They keep GST membership ONLY so their
+//      historical tickets still resolve to a name instead of silently
+//      vanishing from every view (resolveOwnerName returns null otherwise).
+//
+// Either way they are deliberately NOT in TEAMS, so no team group is created
+// and they never surface in team-level views. Assigning a lead = move the
+// entry into that lead's TEAMS block above.
 //
 // aliases = the exact DevRev owner display_name(s), so tickets owned by them
-// resolve to the canonical name (their DevRev names are lowercase).
+// resolve to the canonical name (some DevRev names are lowercase).
 //
 // `slackChannel` (optional) = Attention Queue channel for this teamless member.
 // Unset = alerts for them are skipped, same as an empty team slackChannel.
+// Everyone below is intentionally channel-less: ex-GST members get no nudges.
+//
+// `designation` still drives their L1/L2 gamification bucket — Rohan stays L2
+// for the current month by team decision, even though he has left GST.
 const TEAMLESS_MEMBERS = [
-  { name: "Zeel",   devuId: "DEVU-3225", email: "zeel@clevertap.com",   designation: "L1", aliases: ["zeel"], slackChannel: "C0B9VURBMQ8" },
-  { name: "Soham",  devuId: "DEVU-3226", email: "soham@clevertap.com",  designation: "L1", aliases: ["soham"], slackChannel: "C0B9VURBMQ8" },
-  { name: "Viraj",  devuId: "DEVU-3261", email: "viraj.walavalkar@clevertap.com", designation: "L1", aliases: ["viraj.walavalkar"], slackChannel: "C0B9VURBMQ8" },
+  { name: "Rohan",      devuId: "DEVU-1111", email: "rohan.jadhav@clevertap.com",  designation: "L2", aliases: ["Rohan Jadhav"] },
+  { name: "Aditya",     devuId: "DEVU-5",    email: "aditya.mishra@clevertap.com", designation: "L2", aliases: ["Aditya Mishra"] },
+  { name: "Debashish",  devuId: "DEVU-1102", email: "debashish@clevertap.com",     designation: "L2", aliases: ["Debashish Muni"] },
+  { name: "Rishabh",    devuId: "DEVU-2611", email: "rishabh.j@clevertap.com",     designation: "L1", aliases: ["Rishabh J", "rishabh.j"] },
+  { name: "Shubhankar", devuId: "DEVU-1087", email: "shubhankar@clevertap.com",    designation: "L1", aliases: [] },
 ];
 
 // ── AUTO-DERIVED MAPS (computed once at module load) ─────────────────

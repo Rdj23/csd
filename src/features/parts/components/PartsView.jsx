@@ -25,6 +25,7 @@ import SmartDateRangePicker from "../../../components/common/SmartDateRangePicke
 import { fetchPartsTree } from "../../../api/partsApi";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { filterTree, flattenTree, collectRootIds, collectAllIds, findPath, INDENT, rowHeightFor } from "../lib/treeUtils";
+import { EV, track, dateRangeProps } from "../../../lib/analytics";
 import { MagnitudeBar, Sparkline, TrendDelta } from "./primitives";
 import TicketDrilldown from "./TicketDrilldown";
 import CompositionChart from "./CompositionChart";
@@ -189,7 +190,23 @@ const PartsView = ({ filterOptions = {} }) => {
   // everything — the Status filter was removed. We also drop any value a user persisted
   // before this change so a stale "pending" can't silently empty the tree.
   const { priorities, accounts, subtypes = [], regions = [], dateRange } = pFilters;
-  const patch = (key, val) => setPFilters((f) => ({ ...f, [key]: val }));
+  /**
+   * Every Parts filter change funnels through here, so this is the one place
+   * the tab's filter analytics has to live. The date range gets its own event
+   * (span length is what drives query cost); everything else is a selection.
+   */
+  const patch = (key, val) => {
+    if (key === "dateRange") {
+      track(EV.DATE_RANGE_CHANGED, dateRangeProps(val));
+    } else {
+      track(EV.FILTER_APPLIED, {
+        Filter: key,
+        Values: Array.isArray(val) ? val : [val].filter(Boolean),
+        Source: "user",
+      });
+    }
+    setPFilters((f) => ({ ...f, [key]: val }));
+  };
 
   const filters = useMemo(
     () => ({ priorities, accounts, subtypes, regions, dateFrom: dateRange?.start || undefined, dateTo: dateRange?.end || undefined }),
@@ -208,10 +225,36 @@ const PartsView = ({ filterOptions = {} }) => {
   const loadTree = useCallback(async ({ fresh = false } = {}) => {
     setLoading(true);
     setError(null);
+    // Load Ms + Fresh together answer the one question this tab keeps raising:
+    // is it slow because the aggregation is slow, or because someone keeps
+    // bypassing the 10-min cache with Refresh?
+    const startedAt = Date.now();
+    // Derived from `filters` (this callback's own dependency) rather than the
+    // activeFilterCount below it — that const is declared later in the
+    // component, so closing over it here would capture a stale render's value.
+    const filterCount =
+      ["priorities", "accounts", "subtypes", "regions"].filter((k) => filters[k]?.length).length +
+      (filters.dateFrom || filters.dateTo ? 1 : 0);
     try {
-      setData(await fetchPartsTree(filters, { fresh }));
+      const tree = await fetchPartsTree(filters, { fresh });
+      setData(tree);
+      track(EV.PARTS_TREE_LOADED, {
+        "Total Tickets": tree?.totalTickets || 0,
+        "Root Count": (tree?.tree || []).length,
+        "Filter Count": filterCount,
+        Fresh: fresh,
+        "Load Ms": Date.now() - startedAt,
+        Outcome: "success",
+      });
     } catch (e) {
       setError(e?.response?.data?.error?.message || "Failed to load the parts tree");
+      track(EV.PARTS_TREE_LOADED, {
+        "Filter Count": filterCount,
+        Fresh: fresh,
+        "Load Ms": Date.now() - startedAt,
+        Outcome: "error",
+        "Error Message": e?.response?.data?.error?.message || e?.message || "unknown",
+      });
     } finally {
       setLoading(false);
     }
@@ -269,8 +312,15 @@ const PartsView = ({ filterOptions = {} }) => {
     setExpandedIds((prev) => (prev.includes(node.id) ? prev.filter((x) => x !== node.id) : [...prev, node.id]));
   }, [q, setExpandedIds]);
 
-  const expandToCapability = () => setExpandedIds(collectRootIds(data?.tree || []));
-  const collapseAll = () => setExpandedIds([]);
+  const expandToCapability = () => {
+    const ids = collectRootIds(data?.tree || []);
+    track(EV.PART_TREE_BULK_TOGGLED, { Action: "expand to capability", "Node Count": ids.length });
+    setExpandedIds(ids);
+  };
+  const collapseAll = () => {
+    track(EV.PART_TREE_BULK_TOGGLED, { Action: "collapse all", "Node Count": expandedIds.length });
+    setExpandedIds([]);
+  };
 
   // ── Keyboard navigation ──
   const [focusedKey, setFocusedKey] = useState(null);
@@ -317,18 +367,40 @@ const PartsView = ({ filterOptions = {} }) => {
 
   // Click a tree row → make it the donut context, focus it, toggle its expansion.
   const activateRow = useCallback((node) => {
+    // Depth is the property that makes this tab's usage legible: are people
+    // living at the product level, or drilling to capabilities and features?
+    // That single number decides whether the tree needs deeper defaults.
+    track(EV.PART_NODE_TOGGLED, {
+      "Part Name": node.name,
+      "Part Depth": findPath(data?.tree || [], node.id).length,
+      "Ticket Count": node.count ?? 0,
+      "Has Children": !!node.children?.length,
+      Action: expandedIds.includes(node.id) ? "collapse" : "expand",
+      Trigger: "row click",
+    });
     setFocusedKey(node.id);
     setContextId(node.id);
     toggle(node);
-  }, [toggle]);
+  }, [toggle, data, expandedIds]);
 
   // Click a donut slice → open the path in the tree, set context, scroll to it.
   const drillTo = useCallback((id) => {
     const path = findPath(data?.tree || [], id);
+    const node = path[path.length - 1];
+    // Share Pct says whether people click the dominant slice (confirming what
+    // they already knew) or the long tail (genuine exploration) — the two
+    // imply very different things about whether the donut is earning its space.
+    track(EV.PART_SLICE_CLICKED, {
+      "Part Name": node?.name || id,
+      "Part Depth": path.length,
+      "Ticket Count": node?.count ?? 0,
+      "Context Name": context.name,
+      "Share Pct": context.total ? Math.round(((node?.count ?? 0) / context.total) * 100) : null,
+    });
     if (path.length) setExpandedIds((prev) => Array.from(new Set([...prev, ...path.map((n) => n.id)])));
     setContextId(id);
     setPendingScrollId(id);
-  }, [data, setExpandedIds]);
+  }, [data, setExpandedIds, context]);
 
   useEffect(() => {
     if (!pendingScrollId) return;
@@ -341,7 +413,10 @@ const PartsView = ({ filterOptions = {} }) => {
   }, [pendingScrollId, flatRows, virtualizer]);
 
   const activeFilterCount = priorities.length + accounts.length + subtypes.length + regions.length + (dateRange?.start ? 1 : 0);
-  const clearFilters = () => setPFilters({ priorities: [], statuses: [], accounts: [], subtypes: [], regions: [], dateRange: { start: "", end: "" } });
+  const clearFilters = () => {
+    track(EV.FILTERS_CLEARED, { Scope: "all", "Values Dropped": activeFilterCount });
+    setPFilters({ priorities: [], statuses: [], accounts: [], subtypes: [], regions: [], dateRange: { start: "", end: "" } });
+  };
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-3">
@@ -356,11 +431,17 @@ const PartsView = ({ filterOptions = {} }) => {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={() => setShowTrend((s) => !s)}
+          <button onClick={() => {
+              track(EV.PARTS_PANEL_TOGGLED, { Panel: "trend", "Now Visible": !showTrend });
+              setShowTrend((s) => !s);
+            }}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 ${showTrend ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}`}>
             <LineChart className="w-3.5 h-3.5" /> Trend
           </button>
-          <button onClick={() => setShowChart((s) => !s)}
+          <button onClick={() => {
+              track(EV.PARTS_PANEL_TOGGLED, { Panel: "breakdown", "Now Visible": !showChart });
+              setShowChart((s) => !s);
+            }}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 ${showChart ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}`}>
             <BarChart3 className="w-3.5 h-3.5" /> Breakdown
           </button>
@@ -372,7 +453,10 @@ const PartsView = ({ filterOptions = {} }) => {
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <ChevronsDownUp className="w-3.5 h-3.5" /> Collapse
           </button>
-          <button onClick={() => loadTree({ fresh: true })} title="Re-aggregate the latest synced data (bypasses the 10-min cache)"
+          <button onClick={() => {
+              track(EV.SYNC_TRIGGERED, { Source: "parts refresh" });
+              loadTree({ fresh: true });
+            }} title="Re-aggregate the latest synced data (bypasses the 10-min cache)"
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>

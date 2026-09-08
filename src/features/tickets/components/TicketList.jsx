@@ -25,6 +25,7 @@ const getSentimentEmoji = (label) =>
 import { depTeamBadgeClass } from "../../../lib/dependencies";
 import { FLAT_TEAM_MAP } from "../../../lib/teams";
 import { STAGE_MAP } from "../../../lib/ticketStatus";
+import { EV, track, ticketProps } from "../../../lib/analytics";
 import RemarkPopover from "../../remarks/components/RemarkPopover";
 
 const ITEMS_PER_PAGE = 20;
@@ -342,6 +343,13 @@ const TicketList = ({
                           href={`https://app.devrev.ai/clevertapsupport/works/${t.display_id}`}
                           target="_blank"
                           rel="noreferrer"
+                          onClick={() =>
+                            track(EV.TICKET_OPENED, {
+                              ...ticketProps(t),
+                              "UI Status": t.uiStatus,
+                              Source: isCSDView ? "csd table" : "tickets table",
+                            })
+                          }
                           className="text-slate-300 dark:text-slate-600 hover:text-indigo-500 transition-colors"
                         >
                           <ExternalLink className="w-3 h-3" />

@@ -10,6 +10,7 @@ import {
   fetchActivityLeaderboard, fetchCalendar, fetchDependencyTable,
 } from "../../../api/activityApi";
 import { EMAIL_TO_NAME_MAP } from "../../../lib/teams";
+import { EV, track, dateRangeProps } from "../../../lib/analytics";
 import HourlyChart from "./HourlyChart";
 import DailyChart from "./DailyChart";
 import DrillDownModal from "./DrillDownModal";
@@ -173,6 +174,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
 
   // Date range handler — no blocking, just pass through
   const handleDateRangeChange = useCallback((val) => {
+    track(EV.ACTIVITY_DATE_CHANGED, { ...dateRangeProps(val), Method: "range picker" });
     setDateRange(val);
     if (val.end) setSelectedDate(val.end);
     else if (val.start) setSelectedDate(val.start);
@@ -182,6 +184,14 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + days);
     const nd = d.toISOString().slice(0, 10);
+    // Method separates the three ways people move through time here. If
+    // stepping dominates the picker, the default range is wrong.
+    track(EV.ACTIVITY_DATE_CHANGED, {
+      "Range Start": nd,
+      "Range End": nd,
+      "Span Days": 1,
+      Method: days < 0 ? "step back" : "step forward",
+    });
     setSelectedDate(nd);
     setDateRange({ start: nd, end: nd });
   };
@@ -189,6 +199,16 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   // Drill-down handlers
   const openDrillDown = useCallback((hour) => {
     if (!selectedUser) return;
+    track(EV.ACTIVITY_DRILLDOWN_OPENED, {
+      Member: selectedUser,
+      "Is Self": selectedUser === EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()],
+      Date: selectedDate,
+      Hour: hour,
+      "Visibility Scope": [
+        visibilityFilter.external && "external",
+        visibilityFilter.internal && "internal",
+      ].filter(Boolean).join(" + ") || "none",
+    });
     setDrillDownHour(hour);
     fetchDrillDown(selectedUser, selectedDate, hour)
       .then((entries) => {
@@ -227,7 +247,27 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
 
   const closeDrillDown = () => { setDrillDownEntries(null); setDrillDownHour(null); };
 
+  /**
+   * Pick a member to inspect. Tracked here rather than at the three call
+   * sites so the rail, the leaderboard row and the dependency row all report
+   * identically — Source is what tells them apart. The auto-select on mount
+   * deliberately does NOT route through this: pre-selecting yourself isn't a
+   * choice, and counting it would make every session look like a member switch.
+   */
+  const selectMember = (name, source) => {
+    if (!name || name === selectedUser) return;
+    track(EV.ACTIVITY_MEMBER_SELECTED, {
+      Member: name,
+      "Is Self": name === EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()],
+      Date: selectedDate,
+      Source: source,
+      "Member Count": members.length,
+    });
+    setSelectedUser(name);
+  };
+
   const handleSync = async () => {
+    track(EV.SYNC_TRIGGERED, { Source: "activity intel" });
     setSyncing(true);
     try { await triggerActivitySync(false); } catch (e) { /* ignore */ } finally { setSyncing(false); }
   };
@@ -293,7 +333,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
           {filteredMembers.map((name) => (
             <button
               key={name}
-              onClick={() => setSelectedUser(name)}
+              onClick={() => selectMember(name, "member rail")}
               className={`w-full text-left px-3 py-2 text-[13px] font-medium transition-colors
                 ${selectedUser === name
                   ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-l-2 border-indigo-500"
@@ -458,7 +498,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
                 </thead>
                 <tbody>
                   {sortedLb.map((e, i) => (
-                    <tr key={e.user_name} onClick={() => setSelectedUser(e.user_name)}
+                    <tr key={e.user_name} onClick={() => selectMember(e.user_name, "leaderboard row")}
                       className={`border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer transition-colors ${e.user_name === selectedUser ? "bg-indigo-50 dark:bg-indigo-950/30" : ""}`}>
                       <td className="py-2 text-xs text-slate-400 font-medium">{i + 1}</td>
                       <td className="py-2 font-medium text-slate-700 dark:text-slate-200">
@@ -500,7 +540,7 @@ export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
                 </thead>
                 <tbody>
                   {sortedDep.map((e, i) => (
-                    <tr key={e.engineer} onClick={() => setSelectedUser(e.engineer)}
+                    <tr key={e.engineer} onClick={() => selectMember(e.engineer, "dependency row")}
                       className={`border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer transition-colors ${e.engineer === selectedUser ? "bg-indigo-50 dark:bg-indigo-950/30" : ""}`}>
                       <td className="py-2 text-xs text-slate-400 font-medium">{i + 1}</td>
                       <td className="py-2 font-medium text-slate-700 dark:text-slate-200">{e.engineer}</td>

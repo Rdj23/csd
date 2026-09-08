@@ -62,9 +62,9 @@ If a response is **wrong**, the bug is in a service. If a response is
 **malformed, unauthorised or rejected**, it is in a controller, middleware or
 validation schema. That split is the whole point of the layering.
 
-### The four feature modules
+### The five feature modules
 
-Each was a single file over 700 lines. Each is now a folder whose `index.js`
+Each was a single file over 650 lines. Each is now a folder whose `index.js`
 carries the feature documentation and re-exports the same public surface it
 always had — so existing imports were never broken.
 
@@ -74,6 +74,7 @@ always had — so existing imports were never broken.
 | Roster | `services/roster/` | `index.js`, then `snapshot.js` |
 | Sync (DevRev ingest) | `services/sync/` | `index.js` — two pipelines |
 | Parts hierarchy | `services/parts/` | `index.js`, then `ancestry.js` |
+| Activity Intel | `services/activity/` | `index.js` — the pipeline |
 
 **Attention Queue** — `services/attention/` *(was attentionService.js, 1426 lines)*
 
@@ -138,6 +139,32 @@ Two pipelines with different destinations and cadences:
 
 > Wrong **parent** → `ancestry.js`. Ticket tagged with the wrong part →
 > `sync.js`. Wrong counts on a correct tree → `queries.js`.
+
+**Activity Intel** — `services/activity/` *(was activityService.js, 653 lines)*
+
+| File | Owns |
+|---|---|
+| `config.js` | ingest window (Jan 1 2026 IST), concurrency, cooldowns |
+| `resolve.js` | WHO wrote it, WHICH account, **how many POINTS** |
+| `entries.js` | one entry document + its daily rollup |
+| `sync.js` | the batch/backfill worker (the cron body) |
+| `webhook.js` | the live single-entry path |
+
+> Wrong **points** → `resolve.js`. Wrong **totals** over correct entries →
+> `entries.js`. A whole day **missing** → `sync.js`; there is no automatic
+> backfill when the worker is down, so that needs a `fullBackfill` resync.
+
+### Services that are not feature folders
+
+| File | Owns |
+|---|---|
+| `services/dependencies.js` | which linked NOC/ISS blocks a ticket, and the per-ticket cache keyed on `modified_date` — read the header before changing the caching |
+| `services/devrevApi.js` | the DevRev HTTP client, retry and rate-limit handling |
+| `services/reconcileService.js` | the daily count reconciliation vs DevRev |
+| `services/slackService.js` | Slack/n8n delivery shared across features |
+| `services/csmTamAlertService.js` | the 11:00 IST CSM/TAM stale-ticket DMs |
+| `services/agentService.js` | the DevRev AI agent async poll |
+| `services/analyticsService.js` | analytics aggregation helpers |
 
 ### Config, middleware and lib
 

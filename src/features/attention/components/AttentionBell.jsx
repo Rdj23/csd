@@ -37,6 +37,7 @@ import {
 import { useTicketStore } from "../../../store";
 import { fetchTeamAttentionQueues, verifyClearAttentionQueue } from "../../../api/attentionApi";
 import RemarkPopover from "../../remarks/components/RemarkPopover";
+import { EV, track, ticketProps } from "../../../lib/analytics";
 
 const DEVREV_URL = (id) => `https://app.devrev.ai/clevertapsupport/works/${id}`;
 
@@ -336,6 +337,19 @@ const AttentionBell = () => {
     setVerifying(true);
     try {
       const d = await verifyClearAttentionQueue(isSelf ? undefined : selected);
+      // Tracked on the RESULT, not the click: verification is evidence-based,
+      // so "pressed Verify" and "Verify actually cleared something" are
+      // different facts. Only the second one tells you whether people are
+      // using the button to confirm real work or just poking at it.
+      track(EV.ATTENTION_VERIFY_CLICKED, {
+        Member: selected,
+        "Is Self": isSelf,
+        Shift: queue?.shift || null,
+        "Shift Date": queue?.shift_date || null,
+        "Pending Before": actionableCount,
+        "Pending After": (d?.queue?.items || []).filter((i) => i.status === "pending").length,
+        Outcome: d?.queue?.status === "cleared" ? "cleared" : d?.queue ? "still pending" : "no pending queue",
+      });
       if (d?.queue) {
         setData((prev) =>
           prev
@@ -351,13 +365,39 @@ const AttentionBell = () => {
     } finally {
       setVerifying(false);
     }
-  }, [selected, isSelf, refresh]);
+  }, [selected, isSelf, refresh, queue, actionableCount]);
+
+  /**
+   * A queue item's DevRev link. This is the queue's conversion event: the
+   * moment a nudge turned into someone actually opening the ticket. Bucket +
+   * Rule + Reason travel with it so you can see WHICH rule drives real action
+   * and which one people ignore — the single most useful signal for tuning
+   * the attention thresholds.
+   */
+  const trackItemOpen = useCallback((item, link) => {
+    track(EV.TICKET_OPENED, {
+      ...ticketProps({ ...item, created_date: item.created_date }),
+      Bucket: item.bucket,
+      Rule: item.rule,
+      Reason: item.reason,
+      "Item Status": item.status,
+      Member: selected,
+      Source: "attention queue",
+      Link: link,
+    });
+  }, [selected]);
 
   const selectMember = useCallback((name) => {
+    track(EV.ATTENTION_QUEUE_OPENED, {
+      Member: name,
+      "Is Self": name === data?.viewer?.member,
+      Scope: data?.viewer?.scope || null,
+      Trigger: "member rail",
+    });
     setSelected(name);
     setActiveBucket("all");
     setShowClearedList(false);
-  }, []);
+  }, [data?.viewer?.member, data?.viewer?.scope]);
 
   if (!data || !data.visible) return null;
 
@@ -439,7 +479,10 @@ const AttentionBell = () => {
                 {(pendingItems.length > 0 || trackedItems.length > 0) && (
                   <div className="mt-4 flex items-center gap-1.5 flex-wrap">
                     <button
-                      onClick={() => setActiveBucket("all")}
+                      onClick={() => {
+                        track(EV.ATTENTION_BUCKET_SWITCHED, { Bucket: "all", "Item Count": pendingItems.length });
+                        setActiveBucket("all");
+                      }}
                       className={`px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-all ${
                         activeBucket === "all"
                           ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border-indigo-500/40"
@@ -451,7 +494,10 @@ const AttentionBell = () => {
                     {BUCKET_ORDER.map((b) => (
                       <button
                         key={b}
-                        onClick={() => setActiveBucket(b)}
+                        onClick={() => {
+                          track(EV.ATTENTION_BUCKET_SWITCHED, { Bucket: b, "Item Count": bucketCounts[b] || 0 });
+                          setActiveBucket(b);
+                        }}
                         disabled={!bucketCounts[b]}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-all disabled:opacity-30 ${
                           activeBucket === b
@@ -465,7 +511,10 @@ const AttentionBell = () => {
                       </button>
                     ))}
                     <button
-                      onClick={() => setActiveBucket("tracked")}
+                      onClick={() => {
+                        track(EV.ATTENTION_BUCKET_SWITCHED, { Bucket: "tracked", "Item Count": trackedItems.length });
+                        setActiveBucket("tracked");
+                      }}
                       disabled={!trackedItems.length}
                       title="Internal remark added today — being tracked, no alerts. Still-blocked tickets return to their bucket in tomorrow's queue."
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-all disabled:opacity-30 ${
@@ -555,6 +604,7 @@ const AttentionBell = () => {
                                 href={DEVREV_URL(item.display_id)}
                                 target="_blank"
                                 rel="noreferrer"
+                                onClick={() => trackItemOpen(item, "ticket id")}
                                 className="text-[13px] font-bold text-indigo-500 dark:text-indigo-400 hover:underline inline-flex items-center gap-1"
                               >
                                 {item.display_id}
@@ -617,6 +667,7 @@ const AttentionBell = () => {
                                 href={DEVREV_URL(item.display_id)}
                                 target="_blank"
                                 rel="noreferrer"
+                                onClick={() => trackItemOpen(item, "open in devrev button")}
                                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
                               >
                                 <ExternalLink className="w-3 h-3" />
@@ -768,7 +819,19 @@ const AttentionBell = () => {
   return (
     <>
       <button
-        onClick={() => { setOpen(true); setJustClearedFor(null); setActiveBucket("all"); refresh(); }}
+        onClick={() => {
+          // Badge = what the bell was showing when they chose to open it. A
+          // queue opened at 0 is curiosity; one opened at 9 is a response to
+          // the nudge, and only the badge distinguishes them after the fact.
+          track(EV.ATTENTION_QUEUE_OPENED, {
+            Member: data?.viewer?.member || null,
+            "Is Self": true,
+            Scope: data?.viewer?.scope || null,
+            "Badge Count": badge,
+            Trigger: "header bell",
+          });
+          setOpen(true); setJustClearedFor(null); setActiveBucket("all"); refresh();
+        }}
         className="btn-icon relative"
         title="Attention Queue"
       >

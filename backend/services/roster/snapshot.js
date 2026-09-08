@@ -6,7 +6,7 @@
  */
 
 import logger from "../../config/logger.js";
-import { NAME_TO_ROSTER_MAP, TEAM_GROUPS } from "../../config/constants.js";
+import { GST_DEVU_MAP, NAME_TO_ROSTER_MAP } from "../../config/constants.js";
 import { redisGet, redisSet } from "../../lib/cache.js";
 import { google } from "googleapis";
 
@@ -27,18 +27,16 @@ export const isInRoster = (name) => {
   return ROSTER_ROWS.some(r => r[0]?.toLowerCase() === rosterName.toLowerCase());
 };
 
-// Build FLAT_TEAM_MAP from TEAM_GROUPS
-const buildFlatTeamMap = () => {
-  const FLAT_TEAM_MAP = {};
-  Object.entries(TEAM_GROUPS).forEach(([lead, members]) => {
-    Object.entries(members).forEach(([id, name]) => {
-      FLAT_TEAM_MAP[id] = name;
-    });
-  });
-  return FLAT_TEAM_MAP;
-};
-
-export const FLAT_TEAM_MAP = buildFlatTeamMap();
+// DEVU-ID -> canonical name, for resolving a ticket's owner.
+//
+// This used to be rebuilt here by walking TEAM_GROUPS, which silently omitted
+// TEAMLESS_MEMBERS — anyone without a lead resolved to undefined and fell
+// through to their raw DevRev display_name ("Rohan Jadhav"), which then failed
+// every comparison against a canonical roster name. The 2026-09-08 restructure
+// moved five people into teamless and would have widened that hole, so this is
+// now just GST_DEVU_MAP, which constants.js already builds from teams AND
+// teamless. Re-exported (not re-derived) so the two can never drift again.
+export const FLAT_TEAM_MAP = GST_DEVU_MAP;
 
 const columnIndexToLetter = (n) => {
   let letter = "";

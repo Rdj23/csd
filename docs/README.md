@@ -35,6 +35,24 @@ Each feature has its own document with user-facing description, backend mapping,
   folder layout for both stacks, what each service module owns, and where new
   code belongs.
 
+### Attention Queue (Section 1b)
+
+The shift-end backlog nudge system has its own three documents, split by audience:
+
+- [**Manager & Team Guide**](ATTENTION_QUEUE_GUIDE.md) — what lands in a queue,
+  when alerts fire, what "tracked" means. No code.
+- [**Implementation Reference**](ATTENTION_QUEUE_IMPLEMENTATION.md) — the logic,
+  every participating file, and the step-by-step checklist for porting the
+  feature into another codebase.
+- [**n8n → Slack Setup**](ATTENTION_N8N_SETUP.md) — the webhook contract and the
+  3-node n8n workflow that gives the alerts threading.
+
+### Analytics Instrumentation (Section 1c)
+
+- [**CleverTap Event Taxonomy**](CLEVERTAP_EVENTS.md) — every event the
+  dashboard sends, per tab, with its properties; the SDK's array constraint and
+  why `track()` exists; conventions for adding new events.
+
 ### Architecture & Decisions (Section 2)
 
 - [**Architecture Decisions**](architecture-decisions.md) — Why BullMQ, why Redis raw strings, why cursor pagination, why denormalized schemas
