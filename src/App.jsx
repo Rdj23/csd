@@ -388,10 +388,11 @@ const App = () => {
     if (!currentUser?.name || !tickets.length) return null;
 
     // 1. Identify GST Roster Members
-    const allowedGroups = ["Rohan", "Shweta", "Harsh", "Aditya", "Debashish", "Tuaha"];
-    const allRosterNames = allowedGroups.flatMap((g) =>
-      Object.values(TEAM_GROUPS[g] || {}),
-    );
+    // Derived from FLAT_TEAM_MAP (teams + teamless) rather than a hardcoded
+    // lead list: that list went stale on every reorg — it still named a
+    // "Tuaha" team that no longer exists and never had "Adish" — and anyone
+    // it missed lost their Personal Pulse silently, with no error to notice.
+    const allRosterNames = Object.values(FLAT_TEAM_MAP);
 
     // 2. Smart Match Current User to Roster
     const matchedName = allRosterNames.find(
