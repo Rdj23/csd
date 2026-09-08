@@ -639,6 +639,13 @@ const AnalyticsDashboard = ({
     mongoDepSolvedAll,
   ]);
 
+  // MUST stay above handleDrillDown: it sits in that useCallback's dependency
+  // array, and a dep array is evaluated during render (unlike the callback body,
+  // which is deferred). Declared below it, the read hits the temporal dead zone
+  // and Analytics crashes on mount with "Cannot access 'groupBy' before
+  // initialization".
+  const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
+
   const handleDrillDown = useCallback(
     async (metricKey, dateKey, dataPointName, chartData) => {
       track(EV.CHART_DRILL_DOWN, {
@@ -844,7 +851,6 @@ const AnalyticsDashboard = ({
   const [showTeam, setShowTeam] = useState(false);
   const [showGST, setShowGST] = useState(false);
   const [timeRange, setTimeRange] = useState(30);
-  const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const userDropdownRef = useRef(null);
 
