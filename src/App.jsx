@@ -21,6 +21,7 @@ import { authFetch } from "./api/authFetch";
 import { fetchAllSolvedTickets } from "./api/ticketApi";
 import { fetchMyWeekStats } from "./api/gamificationApi";
 import ErrorBoundary from "./components/ErrorBoundary";
+import NotFound from "./components/NotFound";
 import GroupedTicketList from "./features/tickets/components/GroupedTicketList";
 import AttentionBell from "./features/attention/components/AttentionBell";
 
@@ -192,11 +193,23 @@ const TAB_PATHS = [
   "gamification",
 ];
 
+const firstPathSegment = () =>
+  window.location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0];
+
 // Derive the active tab from the current URL path (first path segment).
 // Unknown / empty paths fall back to the default "tickets" tab.
 const tabFromPath = () => {
-  const seg = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0];
+  const seg = firstPathSegment();
   return TAB_PATHS.includes(seg) ? seg : "tickets";
+};
+
+// A path is "known" if it is the root or one of the tab paths above. Anything
+// else is a 404 — vercel.json rewrites EVERY path to index.html (needed so the
+// tab deep-links work on refresh), so without this check a typo'd URL silently
+// rendered the default Tickets board and looked like the app had ignored it.
+const isKnownPath = () => {
+  const seg = firstPathSegment();
+  return seg === "" || TAB_PATHS.includes(seg);
 };
 
 const App = () => {
@@ -222,6 +235,8 @@ const App = () => {
 
   const [googleClientId, setGoogleClientId] = useState(null);
   const [activeTab, setActiveTab] = useState(tabFromPath);
+  // Unrecognised URL → render the 404 screen instead of the dashboard.
+  const [notFound, setNotFound] = useState(() => !isKnownPath());
   const [showAgentModal, setShowAgentModal] = useState(false);
   // AgentModal is lazy, but it does `if (!open) return null` AFTER its hooks —
   // so it must stay MOUNTED once opened or the conversation is lost on close.
@@ -237,15 +252,22 @@ const App = () => {
   // Watching `activeTab` covers every way the tab can change — clicks,
   // programmatic jumps, etc. — without touching each call site.
   useEffect(() => {
+    // On a 404 the URL is the one piece of evidence worth keeping — rewriting
+    // it to "/" here (activeTab defaults to "tickets") would erase the bad path
+    // the moment the screen mounted, so the user could never copy or share it.
+    if (notFound) return;
     const path = activeTab === "tickets" ? "/" : `/${activeTab}`;
     if (window.location.pathname !== path) {
       window.history.pushState({ tab: activeTab }, "", path);
     }
-  }, [activeTab]);
+  }, [activeTab, notFound]);
 
   // Reflect browser back/forward (popstate) navigation back into state.
   useEffect(() => {
-    const onPopState = () => setActiveTab(tabFromPath());
+    const onPopState = () => {
+      setNotFound(!isKnownPath());
+      setActiveTab(tabFromPath());
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -347,12 +369,14 @@ const App = () => {
   // Entry method is inferred from the URL: if the path already matches the tab,
   // we arrived via a link or back/forward rather than a tab click.
   useEffect(() => {
-    if (!activeTab) return;
+    // A 404 never reaches a tab, and activeTab is sitting on its "tickets"
+    // default here — tracking it would report a Tickets view nobody had.
+    if (!activeTab || notFound) return;
     const path = activeTab === "tickets" ? "/" : `/${activeTab}`;
     trackTabChange(activeTab, {
       entryMethod: window.location.pathname === path ? "url" : "click",
     });
-  }, [activeTab]);
+  }, [activeTab, notFound]);
 
   // Flush the final Tab Exited when the page is hidden/closed — otherwise the
   // longest stretch on a tab (the one the user ends their day on) is never sent.
@@ -1113,6 +1137,11 @@ const App = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isAuthenticated]);
+
+  // Ahead of the googleClientId gate on purpose: a 404 needs nothing from the
+  // backend, so it should never sit behind the "Waking up server..." spinner
+  // (30-60s on Render's free tier) before telling the user what went wrong.
+  if (notFound) return <NotFound />;
 
   if (!googleClientId)
     return (
