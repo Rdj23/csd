@@ -81,6 +81,7 @@ import {
   Tag,
   Sparkles,
   FolderTree,
+  UserCheck,
 } from "lucide-react";
 import {
   parseISO,
@@ -144,6 +145,10 @@ const EMPTY_FILTERS = {
   dateRange: { start: "", end: "" },
   dependency: ["with_dependency", "no_dependency"], // Both selected by default
   dependencyTeams: [...DEPENDENCY_TEAMS], // All teams selected by default
+  // Dependency assignee — the person on the OTHER team (NOC, Billing, …) the
+  // linked issue sits with, i.e. the "Assignee" column on the board. Empty =
+  // no filter; unlike dependencyTeams an empty list here never narrows.
+  dependencyAssignees: [],
   // Both checkboxes selected by default = show everything (engineer + agent).
   // The filter only narrows the view when the user explicitly unchecks one.
   resolvedBy: ["engineer", "agent"],
@@ -887,6 +892,26 @@ const App = () => {
     return tabFilters[activeTab] || EMPTY_FILTERS;
   }, [activeTab, selectedViewId, myViews, tabFilters]);
 
+  // Assignee options for the dependency filter — every person a linked issue
+  // is currently sitting with. Sourced exactly like getTicketDepInfo: the live
+  // dependency map covers active-cache tickets, the per-ticket snapshot covers
+  // rows that have aged out of it (all-solved). Kept in its own memo because
+  // `dependencies` grows one 50-ticket batch at a time on load, and the
+  // options memo below should not re-scan every ticket on each batch.
+  const dependencyAssigneeOptions = useMemo(() => {
+    const names = new Set();
+    Object.values(dependencies || {}).forEach((dep) => {
+      (dep?.issues || []).forEach((issue) => {
+        if (issue?.owner) names.add(issue.owner);
+      });
+    });
+    const addSnapshot = (t) =>
+      (t?.dependency_assignees || []).forEach((a) => a && names.add(a));
+    tickets.forEach(addSnapshot);
+    allSolvedTickets.forEach(addSnapshot);
+    return Array.from(names).sort();
+  }, [dependencies, tickets, allSolvedTickets]);
+
   // ✅ 2. OPTIONS (Depends on tickets)
   const options = useMemo(() => {
     const opts = {
@@ -929,8 +954,9 @@ const App = () => {
       stages: opts.stages,
       health: opts.health,
       sentiments: Array.from(opts.sentiments).sort(),
+      dependencyAssignees: dependencyAssigneeOptions,
     };
-  }, [tickets]);
+  }, [tickets, dependencyAssigneeOptions]);
 
   // ✅ 3. AUTO-ROLE & KPI LOGIC
   useEffect(() => {
@@ -1484,6 +1510,22 @@ const App = () => {
                         }))
                       }
                     />
+                    {/* Dependency assignee — see the note on the main board. */}
+                    <MultiSelectFilter
+                      icon={UserCheck}
+                      label="Assignee"
+                      options={options.dependencyAssignees}
+                      selected={tabFilters.alltickets?.dependencyAssignees || []}
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          alltickets: {
+                            ...prev.alltickets,
+                            dependencyAssignees: v,
+                          },
+                        }))
+                      }
+                    />
                     {/*
                       Resolved By: dashboard-wide filter. Defaults to BOTH selected
                       (engineer + agent). Frontend treats "both" or "none" as no-op.
@@ -1883,6 +1925,16 @@ const App = () => {
                           options={options.owners}
                           selected={currentFilters.owners}
                           onChange={(v) => setFilter("owners", v)}
+                        />
+                        {/* Assignee = the dependency owner shown in the
+                            ASSIGNEE column (NOC / Billing / … side), NOT the
+                            ticket owner — that's "Member" above. */}
+                        <MultiSelectFilter
+                          icon={UserCheck}
+                          label="Assignee"
+                          options={options.dependencyAssignees}
+                          selected={currentFilters.dependencyAssignees || []}
+                          onChange={(v) => setFilter("dependencyAssignees", v)}
                         />
                         {/* Dashboard-wide "Resolved By" filter — both checked = no-op */}
                         <MultiSelectFilter

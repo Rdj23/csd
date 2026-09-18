@@ -292,6 +292,19 @@ export const filterAllTickets = ({
         }
       }
 
+      // Dependency assignee filter — same rule as the ongoing board: empty
+      // selection is a no-op, a non-empty one keeps only tickets whose linked
+      // issue sits with one of the selected people.
+      if (allTicketsFilters.dependencyAssignees?.length > 0) {
+        const { assignees } = getTicketDepInfo(dependencies, t);
+        if (
+          !assignees.some((a) =>
+            allTicketsFilters.dependencyAssignees.includes(a),
+          )
+        )
+          return false;
+      }
+
       return true;
     });
 };

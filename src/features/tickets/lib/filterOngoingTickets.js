@@ -262,6 +262,20 @@ export const filterOngoingTickets = ({
         }
       }
 
+      // Dependency assignee filter — "which person on the other team (NOC,
+      // Billing, …) is this parked with". Empty selection = no filter.
+      // A non-empty selection necessarily hides tickets with no linked issue,
+      // since those have no assignee to match.
+      if (currentFilters.dependencyAssignees?.length > 0) {
+        const { assignees } = getTicketDepInfo(dependencies, t);
+        if (
+          !assignees.some((a) =>
+            currentFilters.dependencyAssignees.includes(a),
+          )
+        )
+          return false;
+      }
+
       return true;
     });
 };
