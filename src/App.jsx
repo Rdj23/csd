@@ -2245,7 +2245,7 @@ const App = () => {
                   without wrapping each ErrorBoundary individually. */}
               <Suspense fallback={<TabFallback />}>
               {activeTab === "parts" ? (
-                <ErrorBoundary level="section">
+                <ErrorBoundary level="section" resetKey={activeTab}>
                   <PartsView
                     filterOptions={options}
                     isDark={theme === "dark"}
@@ -2254,7 +2254,7 @@ const App = () => {
               ) : (isLoading || isPartialData) && tickets.length === 0 ? (
                 <TicketSkeleton count={8} showProgress={true} progress={syncProgress} />
               ) : activeTab === "analytics" ? (
-                <ErrorBoundary level="section">
+                <ErrorBoundary level="section" resetKey={activeTab}>
                   <AnalyticsDashboard
                     tickets={tickets}
                     dependencies={dependencies}
@@ -2270,7 +2270,7 @@ const App = () => {
                   />
                 </ErrorBoundary>
               ) : activeTab === "activity" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
-                <ErrorBoundary level="section">
+                <ErrorBoundary level="section" resetKey={activeTab}>
                   <ActivityDashboard
                     isDark={theme === "dark"}
                     currentUser={currentUser}
@@ -2278,14 +2278,14 @@ const App = () => {
                   />
                 </ErrorBoundary>
               ) : activeTab === "gamification" && (SUPER_ADMIN_EMAILS.includes(currentUser?.email) || EMAIL_TO_NAME_MAP[currentUser?.email?.toLowerCase()]) ? (
-  <ErrorBoundary level="section">
+  <ErrorBoundary level="section" resetKey={activeTab}>
     <GamificationView
       currentUser={currentUser}
       isAdmin={SUPER_ADMIN_EMAILS.includes(currentUser?.email?.toLowerCase())}
     />
   </ErrorBoundary>
 ) : activeTab === "alltickets" ? (
-                <ErrorBoundary level="section">
+                <ErrorBoundary level="section" resetKey={activeTab}>
                   <AllTicketsView
                     tickets={allTicketsFiltered}
                     filters={tabFilters.alltickets}
@@ -2311,7 +2311,7 @@ const App = () => {
                       <p className="text-sm">Select a view from the sidebar</p>
                     </div>
                   ) : activeTab === "vistas" ? (
-                    <ErrorBoundary level="section">
+                    <ErrorBoundary level="section" resetKey={activeTab}>
                       <GroupedTicketList
                         tickets={displayTickets}
                         onProfileClick={openProfile}
@@ -2319,7 +2319,7 @@ const App = () => {
                       />
                     </ErrorBoundary>
                   ) : (
-                    <ErrorBoundary level="section">
+                    <ErrorBoundary level="section" resetKey={activeTab}>
                       <TicketList
                         tickets={displayTickets}
                         isCSDView={activeTab === "csd"}

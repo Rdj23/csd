@@ -4,12 +4,36 @@ import { AlertTriangle, RefreshCw, Clock } from "lucide-react";
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null, retryCount: 0, countdown: null };
+    this.state = {
+      hasError: false,
+      error: null,
+      retryCount: 0,
+      countdown: null,
+      prevResetKey: props.resetKey,
+    };
     this._timer = null;
   }
 
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
+  }
+
+  // The tab chain in App.jsx renders one boundary per branch, but only one
+  // branch is mounted at a time and they all sit at the same position with the
+  // same element type — so React reuses a SINGLE instance across tabs. Without
+  // this, a crash in one tab leaves every other tab showing "This section
+  // failed to load." even though its view never even rendered. Callers pass
+  // resetKey={activeTab} so switching tabs clears the error state.
+  static getDerivedStateFromProps(props, state) {
+    if (props.resetKey === state.prevResetKey) return null;
+    if (!state.hasError) return { prevResetKey: props.resetKey };
+    return {
+      hasError: false,
+      error: null,
+      retryCount: 0,
+      countdown: null,
+      prevResetKey: props.resetKey,
+    };
   }
 
   componentDidCatch() {
@@ -22,6 +46,12 @@ class ErrorBoundary extends React.Component {
 
   componentDidUpdate(_prevProps, prevState) {
     const { autoReload } = this.props;
+    // A resetKey change can clear the error mid-countdown; stop the pending
+    // reload so a recovered boundary doesn't blow away the page anyway.
+    if (prevState.hasError && !this.state.hasError && this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
     // Start countdown only after the auto-retry has already run (retryCount > 0)
     if (!prevState.hasError && this.state.hasError && autoReload && this.state.retryCount > 0) {
       this.setState({ countdown: autoReload });

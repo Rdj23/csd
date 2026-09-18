@@ -163,6 +163,20 @@ const AnalyticsDashboard = ({
   // Expanded chart date range - syncs with global but can be overridden
   const [expandedDateRange, setExpandedDateRange] = useState(null);
 
+  // Keep these above handleDrillDown: a useCallback dependency array is
+  // evaluated during render, and that one reads groupBy. Declared below the
+  // callback, every render of this component threw "Cannot access 'groupBy'
+  // before initialization" and the whole Analytics tab fell to its boundary.
+  const [viewMode, setViewMode] = useState("gst");
+  const [expandedMetric, setExpandedMetric] = useState(null);
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [showTeam, setShowTeam] = useState(false);
+  const [showGST, setShowGST] = useState(false);
+  const [timeRange, setTimeRange] = useState(30);
+  const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const userDropdownRef = useRef(null);
+
   const effectiveDateRange = useMemo(() => {
     const dateRange = filters?.dateRange;
 
@@ -837,16 +851,6 @@ const AnalyticsDashboard = ({
     };
     return labels[metricKey] || metricKey;
   };
-
-  const [viewMode, setViewMode] = useState("gst");
-  const [expandedMetric, setExpandedMetric] = useState(null);
-  const [selectedUsers, setSelectedUsers] = useState([]);
-  const [showTeam, setShowTeam] = useState(false);
-  const [showGST, setShowGST] = useState(false);
-  const [timeRange, setTimeRange] = useState(30);
-  const [groupBy, setGroupBy] = useState("daily"); // daily, weekly, monthly
-  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const userDropdownRef = useRef(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
