@@ -1,0 +1,63 @@
+name: CI
+
+# Catches the class of defect that OOM-killed production on 2026-08-08: a
+# missing import (`redisGetRaw is not defined`) that only threw when a specific
+# late-stage code path executed. ESLint's no-undef finds it in milliseconds.
+# Runs on every push and PR so a broken reference can't reach a Render deploy.
+#
+# To make this actually block a bad deploy, enable "Wait for CI to pass before
+# deploying" in the Render service settings — otherwise Render builds straight
+# from the branch and this job only reports after the fact.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint (undefined references)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install root deps (provides eslint)
+        run: npm ci
+
+      # --quiet reports errors only. no-undef is an error; the backend's
+      # pre-existing unused-import warnings stay visible locally without
+      # failing the build. See eslint.config.js for why that split exists.
+      - name: Lint backend
+        run: npm run lint:backend
+
+      # Non-blocking: src/ carries ~119 pre-existing no-unused-vars errors that
+      # predate this workflow. Reported for visibility, but gating on them
+      # would make CI red from day one. Flip continue-on-error off once src/
+      # is clean.
+      - name: Lint frontend (report only)
+        run: npm run lint
+        continue-on-error: true
+
+  test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Run tests
+        working-directory: backend
+        run: npm test
