@@ -6,7 +6,7 @@
  */
 
 import logger from "../../config/logger.js";
-import { resolveOwnerName } from "../../config/constants.js";
+import { resolveOwner } from "../../config/constants.js";
 
 // Max changed+removed tickets to ship as a socket delta. Above this the
 // broadcast would rival a compressed full download, so clients full-fetch
@@ -155,7 +155,7 @@ export const isRelevantTicket = (t) => isActiveStage(t.stage?.name?.toLowerCase(
 // from tickets:active to keep the cache within the free-tier Valkey 25MB cap.
 // They still flow into MongoDB via syncHistoricalToDB → classifyResolution,
 // so analytics, the Resolved-By filter, and agent-handled metrics are intact.
-export const isGSTOwned = (t) => !!resolveOwnerName(t.owned_by?.[0]?.display_name);
+export const isGSTOwned = (t) => !!resolveOwner(t.owned_by?.[0]);
 
 // Bump VALKEY_CAP_MB when the Valkey plan is upgraded — currently 25MB free tier.
 // Hash key roughly doubles total memory because tickets:active and

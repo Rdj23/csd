@@ -257,6 +257,14 @@ export const resolveOwnerName = (displayName) => {
   return null;
 };
 
+/**
+ * Resolve a DevRev owner object ({ display_name, display_id }) to a GST name.
+ * Falls back to the DEVU-ID so a DevRev display-name change can't silently
+ * drop a member's tickets — the frontend already resolves by display_id.
+ */
+export const resolveOwner = (user) =>
+  resolveOwnerName(user?.display_name) || GST_DEVU_MAP[user?.display_id] || null;
+
 export const isGSTMember = (ownerName) => {
   if (!ownerName) return false;
   return GST_MEMBERS.has(ownerName);

@@ -7,7 +7,7 @@
 
 import axios from "axios";
 import logger from "../../config/logger.js";
-import { BACKFILL_CUTOFF, resolveOwnerName } from "../../config/constants.js";
+import { BACKFILL_CUTOFF, resolveOwner, resolveOwnerName } from "../../config/constants.js";
 import { redisDelete } from "../../lib/cache.js";
 import { AnalyticsCache, AnalyticsTicket, PrecomputedDashboard, Remark } from "../../models/index.js";
 import { DEVREV_API, HEADERS, classifyLinkedWorkTeam, dependencyCounterpart, fetchTicketLinks, fetchWorkItem } from "../devrevApi.js";
@@ -118,7 +118,7 @@ export const syncHistoricalToDB = async (fullHistory = false) => {
           const closeDateRaw = t.actual_close_date || t.modified_date || t.created_date;
           if (!closeDateRaw || new Date(closeDateRaw) < TARGET_DATE) return null;
           const closedDate = new Date(closeDateRaw);
-          const gstOwner = resolveOwnerName(t.owned_by?.[0]?.display_name || "");
+          const gstOwner = resolveOwner(t.owned_by?.[0]);
           const { resolvedBy, finalOwner, agentResolved } = classifyResolution(t, closedDate, gstOwner);
           if (!finalOwner) { skippedCount++; return null; }
           return { ticket: t, closedDate, owner: finalOwner, resolvedBy, agentResolved };
