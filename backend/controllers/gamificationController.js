@@ -2,7 +2,7 @@ import { AnalyticsTicket } from "../models/index.js";
 import {
   resolveDateRange,
   getCurrentQuarterKey,
-  DESIGNATION_MAP,
+  getDesignationAt,
   GAMIFICATION_TEAM_MAP,
   NAME_TO_ROSTER_MAP,
   EMAIL_TO_NAME_MAP,
@@ -59,7 +59,8 @@ const buildScoredBoard = async (start, end) => {
     if (!isInRoster(name)) return;
     // Hard-exclude leavers (e.g. Debashish) from the leaderboard entirely.
     if (isGamificationExcluded(name)) return;
-    const designation = DESIGNATION_MAP[name] || "L1";
+    // Designation as of the window end — promotions don't rewrite past quarters.
+    const designation = getDesignationAt(name, end);
     const team = GAMIFICATION_TEAM_MAP[name] || "Unknown";
     const daysWorked = getDaysWorked(name, start, end);
     const productivity = daysWorked > 0 ? parseFloat((s.solved / daysWorked).toFixed(2)) : 0;
@@ -223,7 +224,7 @@ export const getMyStats = async (req, res) => {
       userData: {
         name: userName,
         team: GAMIFICATION_TEAM_MAP[userName] || "Unknown",
-        designation: DESIGNATION_MAP[userName] || "L1",
+        designation: getDesignationAt(userName, end),
         daysWorked,
         solved: 0, productivity: 0,
         csatPercent: myCsatData.negativeCSAT > 0

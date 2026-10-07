@@ -22,6 +22,10 @@ export const isSolvedStatus = (stage) =>
 // These feed into GST_NAME_MAP so resolveOwnerName() can normalize them.
 // `rosterName` = name as it appears in the Google Sheets roster (if different).
 //
+// `l2Since` = date (YYYY-MM-DD, IST) the member was promoted L1 → L2. Windows
+// ending before it bucket them as L1, so past quarters keep the designation
+// the person actually held. Omit for members who have always been L2.
+//
 // `slackChannel` = the team's Slack channel for Attention Queue alerts.
 // Use the channel ID (C0…, rename-proof) or "#name" — whatever the n8n Slack
 // node is set to accept. Empty string = alerts for this team are SKIPPED
@@ -29,21 +33,21 @@ export const isSolvedStatus = (stage) =>
 // ═══════════════════════════════════════════════════════════════════════
 const TEAMS = [
   { lead: "Adarsh", slackChannel: "C0C0G7TECJG", members: [
-    { name: "Adarsh", devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com", designation: "L2", aliases: [] },
+    { name: "Adarsh", devuId: "DEVU-1076", email: "adarsh.dubey@clevertap.com", designation: "L2", l2Since: "2026-07-01", aliases: [] },
     { name: "Zeel",   devuId: "DEVU-3225", email: "zeel@clevertap.com",         designation: "L1", aliases: ["zeel"] },
   ]},
   { lead: "Tamanna", slackChannel: "C0C08M18A86", members: [
-    { name: "Tamanna", devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L2", aliases: ["Tamanna Khan"] },
+    { name: "Tamanna", devuId: "DEVU-689",  email: "tamanna@clevertap.com",         designation: "L2", l2Since: "2026-07-01", aliases: ["Tamanna Khan"] },
     { name: "Soham",   devuId: "DEVU-3226", email: "soham@clevertap.com",           designation: "L1", aliases: ["soham"] },
     { name: "Vaibhav", devuId: "DEVU-1122", email: "vaibhav.agarwal@clevertap.com", designation: "L1", aliases: ["Vaibhav Agarwal"] },
   ]},
   { lead: "Musaveer", slackChannel: "C0C14LTER4G", members: [
-    { name: "Musaveer", devuId: "DEVU-736",  email: "musaveer@clevertap.com",          designation: "L2", aliases: ["Musaveer Manekia"] },
+    { name: "Musaveer", devuId: "DEVU-736",  email: "musaveer@clevertap.com",          designation: "L2", l2Since: "2026-07-01", aliases: ["Musaveer Manekia"] },
     { name: "Viraj",    devuId: "DEVU-3261", email: "viraj.walavalkar@clevertap.com",  designation: "L1", aliases: ["viraj.walavalkar"] },
     { name: "Shreyas",  devuId: "DEVU-1110", email: "shreyas.naikwadi@clevertap.com",  designation: "L1", aliases: ["Shreyas Naikwadi"] },
   ]},
   { lead: "Nikita", slackChannel: "C0C07H5UWQ5", members: [
-    { name: "Nikita", devuId: "DEVU-4",    email: "nikita.narwani@clevertap.com", designation: "L2", aliases: ["nikita-narwani"] },
+    { name: "Nikita", devuId: "DEVU-4",    email: "nikita.narwani@clevertap.com", designation: "L2", l2Since: "2026-07-01", aliases: ["nikita-narwani"] },
     { name: "Shreya", devuId: "DEVU-1115", email: "shreya.khale@clevertap.com",   designation: "L1", aliases: ["Shreya Khale"] },
   ]},
   { lead: "Shweta", slackChannel: "C0AJYTHAQQ2", members: [
@@ -150,6 +154,8 @@ export const OFF_STATUSES = Object.keys(OFF_STATUS_MAP);
 
 // ── AUTO-DERIVED from TEAMS (continued) ────────────────────────────
 
+/** L2_SINCE_MAP: { memberName: istDayStart Date } — from members' `l2Since` */
+const L2_SINCE_MAP = {};
 /** DESIGNATION_MAP: { memberName: "L1"|"L2" } — also maps rosterName variants */
 export const DESIGNATION_MAP = {};
 /** NAME_TO_ROSTER_MAP: { canonicalName: rosterName } — only for names that differ */
@@ -167,6 +173,7 @@ for (const team of TEAMS) {
 
   for (const m of team.members) {
     DESIGNATION_MAP[m.name] = m.designation;
+    if (m.l2Since) L2_SINCE_MAP[m.name] = m.l2Since;
     // Also map rosterName to designation if it differs
     if (m.rosterName) {
       DESIGNATION_MAP[m.rosterName] = m.designation;
@@ -181,6 +188,17 @@ for (const team of TEAMS) {
     }
   }
 }
+
+/**
+ * Designation a member held as of `asOf` (a window's end date). Members with
+ * an `l2Since` promotion date read as L1 for windows ending before it.
+ */
+export const getDesignationAt = (name, asOf) => {
+  const designation = DESIGNATION_MAP[name] || "L1";
+  const since = L2_SINCE_MAP[name];
+  if (designation === "L2" && since && asOf && asOf < istDayStart(since)) return "L1";
+  return designation;
+};
 
 /** Slack channel for a member (team or teamless) — null if none is configured. */
 export const getTeamSlackChannel = (memberName) =>
