@@ -9,6 +9,7 @@ export const nocQuerySchema = z.object({
     rca: optionalString,
     reporter: optionalString,
     owner: optionalString,
+    assignee: optionalString,
     confirmationBy: optionalString,
     showL2Only: optionalString,
   }).passthrough(),

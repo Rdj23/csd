@@ -27,6 +27,7 @@ import {
   XCircle,
   Check,
   ShieldCheck,
+  UserCheck,
   BarChart3,
   Target,
   ArrowRight,
@@ -95,6 +96,12 @@ const MultiSelectDropdown = ({
       hover: "hover:border-amber-500",
       highlight: "bg-amber-50 dark:bg-amber-900/30 text-amber-600",
       check: "text-amber-600",
+    },
+    pink: {
+      active: "bg-pink-600 text-white border-pink-600",
+      hover: "hover:border-pink-500",
+      highlight: "bg-pink-50 dark:bg-pink-900/30 text-pink-600",
+      check: "text-pink-600",
     },
   };
 
@@ -240,6 +247,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       rcaOptions: [],
       reporterOptions: [],
       ownerOptions: [],
+      assigneeOptions: [],
       confirmationByOptions: [],
     },
     stats: {
@@ -247,6 +255,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       byReporter: [],
       byRca: [],
       byOwner: [],
+      byAssignee: [],
       byConfirmation: [],
     },
   });
@@ -256,6 +265,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
   const [selectedRca, setSelectedRca] = useState([]);
   const [selectedReporter, setSelectedReporter] = useState([]);
   const [selectedOwner, setSelectedOwner] = useState([]);
+  const [selectedAssignee, setSelectedAssignee] = useState([]);
   const [selectedConfirmationBy, setSelectedConfirmationBy] = useState([]);
   const [showL2Only, setShowL2Only] = useState(false);
   const [activePieChart, setActivePieChart] = useState("reporter");
@@ -275,6 +285,8 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
           params.append("reporter", selectedReporter.join(","));
         if (selectedOwner.length > 0)
           params.append("owner", selectedOwner.join(","));
+        if (selectedAssignee.length > 0)
+          params.append("assignee", selectedAssignee.join(","));
         if (selectedConfirmationBy.length > 0)
           params.append("confirmationBy", selectedConfirmationBy.join(","));
         if (showL2Only) params.append("showL2Only", "true");
@@ -303,6 +315,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     selectedRca,
     selectedReporter,
     selectedOwner,
+    selectedAssignee,
     selectedConfirmationBy,
     showL2Only,
     nocQuarter,
@@ -315,6 +328,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     selectedRca,
     selectedReporter,
     selectedOwner,
+    selectedAssignee,
     selectedConfirmationBy,
     showL2Only,
   ]);
@@ -466,6 +480,8 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         return stats.byRca || [];
       case "owner":
         return stats.byOwner || [];
+      case "assignee":
+        return stats.byAssignee || [];
       case "confirmation":
         return stats.byConfirmation || [];
       default:
@@ -489,6 +505,10 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
         if (!selectedOwner.includes(data.name))
           setSelectedOwner([...selectedOwner, data.name]);
         break;
+      case "assignee":
+        if (!selectedAssignee.includes(data.name))
+          setSelectedAssignee([...selectedAssignee, data.name]);
+        break;
       case "confirmation":
         if (!selectedConfirmationBy.includes(data.name))
           setSelectedConfirmationBy([...selectedConfirmationBy, data.name]);
@@ -508,6 +528,10 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
       case "owner":
         if (!selectedOwner.includes(name))
           setSelectedOwner([...selectedOwner, name]);
+        break;
+      case "assignee":
+        if (!selectedAssignee.includes(name))
+          setSelectedAssignee([...selectedAssignee, name]);
         break;
       case "confirmation":
         if (!selectedConfirmationBy.includes(name))
@@ -542,6 +566,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     selectedRca.length > 0 ||
     selectedReporter.length > 0 ||
     selectedOwner.length > 0 ||
+    selectedAssignee.length > 0 ||
     selectedConfirmationBy.length > 0 ||
     showL2Only ||
     searchTerm;
@@ -550,6 +575,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
     setSelectedRca([]);
     setSelectedReporter([]);
     setSelectedOwner([]);
+    setSelectedAssignee([]);
     setSelectedConfirmationBy([]);
     setShowL2Only(false);
     setSearchTerm("");
@@ -684,7 +710,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search tickets, owners, RCA..."
+                placeholder="Search tickets, owners, assignees, RCA..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -721,6 +747,14 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
               selected={selectedOwner}
               onSelectionChange={setSelectedOwner}
               colorClass="emerald"
+            />
+            <MultiSelectDropdown
+              label="Assignee"
+              icon={UserCheck}
+              options={nocData.filters.assigneeOptions || []}
+              selected={selectedAssignee}
+              onSelectionChange={setSelectedAssignee}
+              colorClass="pink"
             />
             <MultiSelectDropdown
               label="Confirmation"
@@ -776,6 +810,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                       </th>
                       <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
                         Reporter
+                      </th>
+                      <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
+                        Assignee
                       </th>
                       <th className="text-left px-4 py-3 font-bold text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
                         ISS Link
@@ -836,6 +873,30 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                               </button>
                             ) : (
                               "-"
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ticket.noc_assignee ? (
+                              <button
+                                onClick={() => {
+                                  if (
+                                    !selectedAssignee.includes(
+                                      ticket.noc_assignee,
+                                    )
+                                  )
+                                    setSelectedAssignee([
+                                      ...selectedAssignee,
+                                      ticket.noc_assignee,
+                                    ]);
+                                }}
+                                className="text-pink-600 dark:text-pink-400 hover:text-pink-800 dark:hover:text-pink-300 text-xs hover:underline"
+                              >
+                                {ticket.noc_assignee}
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-600">
+                                -
+                              </span>
                             )}
                           </td>
                           <td className="px-4 py-3">
@@ -1024,6 +1085,7 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                     { id: "reporter", label: "Reporter" },
                     { id: "rca", label: "RCA" },
                     { id: "owner", label: "Owner" },
+                    { id: "assignee", label: "Assignee" },
                     { id: "confirmation", label: "Reviewer" },
                   ].map((opt) => (
                     <button
@@ -1089,7 +1151,9 @@ const NOCAnalytics = ({ isLoading: parentLoading }) => {
                         ? "RCA Categories"
                         : activePieChart === "owner"
                           ? "Top Owners"
-                          : "Top Reviewers"}
+                          : activePieChart === "assignee"
+                            ? "Top Assignees"
+                            : "Top Reviewers"}
                   </h5>
                   <div className="space-y-1">
                     {pieChartData.slice(0, 15).map((item, index) => (

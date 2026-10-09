@@ -4,7 +4,7 @@ import logger from "../config/logger.js";
 
 export const getNocTickets = async (req, res) => {
   try {
-    const { startDate, endDate, rca, reporter, owner, confirmationBy, showL2Only } = req.query;
+    const { startDate, endDate, rca, reporter, owner, assignee, confirmationBy, showL2Only } = req.query;
 
     // Match any ticket that is NOC (is_noc=true) OR has L2 confirmation,
     // regardless of the value of has_l2_noc_confirmation
@@ -37,6 +37,11 @@ export const getNocTickets = async (req, res) => {
       matchConditions.owner = ownerArr.length === 1 ? ownerArr[0] : { $in: ownerArr };
     }
 
+    if (assignee && assignee !== "all") {
+      const assigneeArr = assignee.split(",").map(r => r.trim());
+      matchConditions.noc_assignee = assigneeArr.length === 1 ? assigneeArr[0] : { $in: assigneeArr };
+    }
+
     if (confirmationBy && confirmationBy !== "all") {
       const confirmArr = confirmationBy.split(",").map(r => r.trim());
       matchConditions.noc_confirmation_by = confirmArr.length === 1 ? confirmArr[0] : { $in: confirmArr };
@@ -61,14 +66,15 @@ export const getNocTickets = async (req, res) => {
     // Keep filter options global (all NOC tickets) so dropdowns always show all values
     const baseFilter = { $or: [{ is_noc: true }, { has_l2_noc_confirmation: true }] };
 
-    const [rcaValues, reporterValues, ownerValues, confirmationByValues] = await Promise.all([
+    const [rcaValues, reporterValues, ownerValues, assigneeValues, confirmationByValues] = await Promise.all([
       AnalyticsTicket.distinct("noc_rca", baseFilter),
       AnalyticsTicket.distinct("noc_reported_by", baseFilter),
       AnalyticsTicket.distinct("owner", baseFilter),
+      AnalyticsTicket.distinct("noc_assignee", baseFilter),
       AnalyticsTicket.distinct("noc_confirmation_by", baseFilter),
     ]);
 
-    const [byReporter, byRca, byOwner, byConfirmation] = await Promise.all([
+    const [byReporter, byRca, byOwner, byAssignee, byConfirmation] = await Promise.all([
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
         { $group: { _id: "$noc_reported_by", count: { $sum: 1 } } },
@@ -89,6 +95,12 @@ export const getNocTickets = async (req, res) => {
       ]).allowDiskUse(true),
       AnalyticsTicket.aggregate([
         { $match: matchConditions },
+        { $group: { _id: "$noc_assignee", count: { $sum: 1 } } },
+        { $match: { _id: { $nin: [null, ""] } } },
+        { $sort: { count: -1 } },
+      ]).allowDiskUse(true),
+      AnalyticsTicket.aggregate([
+        { $match: matchConditions },
         { $group: { _id: "$noc_confirmation_by", count: { $sum: 1 } } },
         { $match: { _id: { $ne: null } } },
         { $sort: { count: -1 } },
@@ -101,6 +113,7 @@ export const getNocTickets = async (req, res) => {
         rcaOptions: rcaValues.filter(r => r != null && r !== "").sort(),
         reporterOptions: reporterValues.filter(r => r != null && r !== "").sort(),
         ownerOptions: ownerValues.filter(r => r != null && r !== "").sort(),
+        assigneeOptions: assigneeValues.filter(r => r != null && r !== "").sort(),
         confirmationByOptions: confirmationByValues.filter(r => r != null && r !== "").sort(),
       },
       stats: {
@@ -108,6 +121,7 @@ export const getNocTickets = async (req, res) => {
         byReporter: byReporter.map(r => ({ name: r._id, value: r.count })),
         byRca: byRca.map(r => ({ name: r._id, value: r.count })),
         byOwner: byOwner.map(r => ({ name: r._id, value: r.count })),
+        byAssignee: byAssignee.map(r => ({ name: r._id, value: r.count })),
         byConfirmation: byConfirmation.map(r => ({ name: r._id, value: r.count })),
       },
     });
