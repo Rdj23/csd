@@ -348,7 +348,14 @@ const AnalyticsDashboard = ({
     );
   }, [filters]);
 
-  // ── Mongo-sourced solved history for dependency-filtered views ──────────
+  // Region has the same problem as dependency: the backend rollups ignore it, so
+  // stats/charts are rebuilt client-side from solvedTickets. That client-side
+  // source must be the full Mongo history — the active cache has already shed
+  // most of a past quarter's solved tickets, which rendered region views as 0.
+  const hasRegionFilter = filters?.regions?.length > 0;
+  const needsClientSideSolved = hasDependencyFilter || hasRegionFilter;
+
+  // ── Mongo-sourced solved history for dependency/region-filtered views ───
   // The Redis active cache loses solved tickets over time, so KPIs/trends
   // computed from it undercount when a dependency filter is active (the
   // drill-downs already read Mongo). While the filter is on, fetch the range's
@@ -364,7 +371,7 @@ const AnalyticsDashboard = ({
   const mongoSolvedKeyRef = useRef(null);
   useEffect(() => {
     if (
-      !hasDependencyFilter ||
+      !needsClientSideSolved ||
       !effectiveDateRange?.start ||
       !effectiveDateRange?.end
     )
@@ -401,7 +408,7 @@ const AnalyticsDashboard = ({
     return () => {
       cancelled = true;
     };
-  }, [hasDependencyFilter, effectiveDateRange]);
+  }, [needsClientSideSolved, effectiveDateRange]);
 
   // Shared core-filter predicate (Zendesk / Team / Owner / Region) — applied to
   // BOTH the active-cache tickets and the Mongo all-solved rows (reshaped rows
@@ -564,7 +571,7 @@ const AnalyticsDashboard = ({
   // agent-resolved tickets, so the dashboard's Resolved-By filter must be
   // applied here too (same single-selection rule as the backend rollups).
   const mongoDepSolvedAll = useMemo(() => {
-    if (!hasDependencyFilter || !mongoSolved.loaded) return null;
+    if (!needsClientSideSolved || !mongoSolved.loaded) return null;
     let rows = mongoSolved.tickets
       .filter(passesCoreFilters)
       .filter(passesDependencyNarrowing);
@@ -581,7 +588,7 @@ const AnalyticsDashboard = ({
     }
     return rows;
   }, [
-    hasDependencyFilter,
+    needsClientSideSolved,
     mongoSolved,
     passesCoreFilters,
     passesDependencyNarrowing,
@@ -1115,7 +1122,7 @@ const AnalyticsDashboard = ({
       // Dependency filter active → the MongoDB rollups below have no dependency
       // dimension, so build the series from the already-filtered ticket arrays and
       // feed it through the shared daily/weekly/monthly grouping (fallback path).
-      const depTrends = hasDependencyFilter ? buildDepDailyTrends(metricKey) : null;
+      const depTrends = needsClientSideSolved ? buildDepDailyTrends(metricKey) : null;
 
       // =====================================================
       // When owner/team filter is active, aggregate from individualTrends
@@ -1556,7 +1563,7 @@ const AnalyticsDashboard = ({
       filters?.teams,
       excludeNOC,
       baseFilteredTickets,
-      hasDependencyFilter,
+      needsClientSideSolved,
       buildDepDailyTrends,
     ],
   );
@@ -1919,13 +1926,13 @@ const AnalyticsDashboard = ({
         solvedTickets,
         effectiveDateRange,
         analyticsData,
-        hasDependencyFilter,
+        hasDependencyFilter: needsClientSideSolved,
         filters,
       }),
     [
       volumeTickets,
       solvedTickets,
-      hasDependencyFilter,
+      needsClientSideSolved,
       effectiveDateRange,
       analyticsData,
       filters,
@@ -2005,11 +2012,12 @@ const AnalyticsDashboard = ({
           loads asynchronously. While it's still loading we HOLD the has/no
           narrowing (show everything) so nothing is wrongly excluded, and tell the
           user the numbers are provisional. */}
-      {hasDependencyFilter && (mongoSolved.loading || !dependencyDataReady) && (
+      {((needsClientSideSolved && mongoSolved.loading) ||
+        (hasDependencyFilter && !dependencyDataReady)) && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">
           <RefreshCw className="w-4 h-4 animate-spin" />
           {mongoSolved.loading
-            ? "Loading the solved-ticket history for this range — dependency-filtered numbers will settle in a moment."
+            ? "Loading the solved-ticket history for this range — filtered numbers will settle in a moment."
             : `Loading dependency data for ${pendingDependencyCount} ticket${
                 pendingDependencyCount === 1 ? "" : "s"
               } — the dependency filter will apply once loaded (showing all tickets meanwhile).`}
