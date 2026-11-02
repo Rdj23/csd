@@ -288,6 +288,9 @@ const reshapeSolvedTicket = (d) => ({
   // No display_id, so the frontend's FLAT_TEAM_MAP lookup misses and falls back
   // to display_name — exactly the resolved name we want.
   owned_by: d.owner ? [{ display_name: d.owner }] : [],
+  // Mongo stores DevRev severity in `priority` (see AnalyticsTicketSchema);
+  // expose it under the same key live cache tickets use.
+  severity: d.priority || null,
   created_date: d.created_date,
   // Expose the canonical closed_date (the field the server filtered on, and the
   // one Analytics counts) as actual_close_date so the client's re-filter keeps
@@ -323,29 +326,33 @@ const reshapeSolvedTicket = (d) => ({
  * out, so the All Tickets view showed zeros for e.g. Q1. Mongo is the permanent
  * store, so we read solved buckets from here while the live (open/pending/
  * on-hold) buckets keep coming from the active cache.
+ *
+ * basis=created matches on created_date instead, so "Q3" means tickets raised
+ * in Q3 (solved at any time) rather than tickets closed in Q3.
  */
 export const getAllSolvedForRange = async (req, res) => {
   try {
-    const { start, end } = req.query;
+    const { start, end, basis } = req.query;
     if (!start || !end) return badRequest(res, "Start and end dates required");
+    const dateField = basis === "created" ? "created_date" : "closed_date";
 
     // Interpret the yyyy-MM-dd range as IST calendar days so the solved bucket
     // matches the IST-bucketed analytics (was UTC/server-local midnight).
     const startDate = istDayStart(start.slice(0, 10));
     const endDate = istDayEnd(end.slice(0, 10));
 
-    const cacheKey = `alltickets:solved:ist:${start}:${end}`;
+    const cacheKey = `alltickets:solved:ist:${dateField}:${start}:${end}`;
     const cachedRaw = await redisGetRaw(cacheKey);
     if (cachedRaw) {
       logger.info("AllSolved Redis HIT");
       return okRaw(res, cachedRaw);
     }
 
-    const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
+    const matchConditions = { [dateField]: { $gte: startDate, $lte: endDate } };
 
     const docs = await AnalyticsTicket.find(matchConditions)
       .select(ALL_SOLVED_FIELDS)
-      .sort({ closed_date: -1, _id: -1 })
+      .sort({ [dateField]: -1, _id: -1 })
       .limit(ALL_SOLVED_MAX)
       .lean();
 

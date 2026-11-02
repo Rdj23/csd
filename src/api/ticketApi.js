@@ -21,11 +21,12 @@ export const fetchTickets = async (authFetch) => {
  * Solved bucket is accurate for any range; live buckets still use the cache.
  *
  * @param {Function} authFetch - Authenticated fetch function from store
- * @param {{start: string, end: string}} range - yyyy-MM-dd start/end (inclusive)
+ * @param {{start: string, end: string, basis?: "created"|"closed"}} range - yyyy-MM-dd start/end (inclusive);
+ *   basis picks the date the range applies to (default: closed date)
  * @returns {Promise<{tickets: object[], count: number, capped?: boolean}>}
  */
-export const fetchAllSolvedTickets = async (authFetch, { start, end }) => {
-  const params = new URLSearchParams({ start, end });
+export const fetchAllSolvedTickets = async (authFetch, { start, end, basis = "closed" }) => {
+  const params = new URLSearchParams({ start, end, basis });
   const response = await authFetch(`${API_URL}/api/tickets/all-solved?${params}`);
   if (!response.ok) return { tickets: [], count: 0 };
   return response.json();

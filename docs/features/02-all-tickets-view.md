@@ -25,7 +25,8 @@ All filters are multi-select dropdowns with search:
 
 | Filter            | Options                                    |
 | ----------------- | ------------------------------------------ |
-| Date Range        | SmartDatePicker (presets: Last 7d, Month, All Time, Custom) |
+| Date Range        | SmartDatePicker (presets: Last 7d, Month, quarters, All Time, Custom) |
+| Date Basis        | **Created** (default): every bucket shows only tickets created in the range — pick Q3 to see everything raised in Q3 and where it is now. **Solved**: the range applies to solved tickets by close date; Open/Pending/On Hold show the full backlog. Applies only once a range is picked. |
 | Team              | Team names from `TEAM_GROUPS`              |
 | Member            | Individual engineer names                  |
 | Region            | APAC, EMEA, Americas                       |

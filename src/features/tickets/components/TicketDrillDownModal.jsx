@@ -432,6 +432,7 @@ const DrillDownModal = ({
       "TAM",
       "Assignee",
       "Stage",
+      "Severity",
       "Created Date",
       "Solved Date",
       "Age (Days)",
@@ -469,6 +470,7 @@ const DrillDownModal = ({
         const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
         const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
         const cf = t.custom_fields || {};
+        const severity = String(t.severity?.name || t.severity || "");
 
         const row = [
           t.display_id,
@@ -479,6 +481,7 @@ const DrillDownModal = ({
           tam,
           owner,
           STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-",
+          severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : "-",
           `"${t.created_date ? format(parseISO(t.created_date), "MMM d, yyyy") : "-"}"`,
           `"${t.actual_close_date ? format(parseISO(t.actual_close_date), "MMM d, yyyy") : "-"}"`,
           calculateAge(t),

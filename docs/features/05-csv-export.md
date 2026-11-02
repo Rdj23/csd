@@ -14,7 +14,7 @@ A **"Report Downloaded"** button in the header allows exporting the current filt
 
 ### Columns in CSV
 
-Ticket ID, Title, Account, Owner, Region, Stage, Status, Age, RWT, ITR, and other relevant fields depending on the active tab.
+Ticket ID, Title, Account, Owner, Region, Stage, Severity, Status, Age, RWT, ITR, and other relevant fields depending on the active tab.
 
 ### Tab-Specific Export
 

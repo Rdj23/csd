@@ -506,7 +506,9 @@ const App = () => {
 
   const [tabFilters, setTabFilters] = useState({
     tickets: { ...EMPTY_FILTERS },
-    alltickets: { ...EMPTY_FILTERS, dateRange: { start: "", end: "" } },
+    // dateBasis: which date the All Tickets range applies to — "created"
+    // (tickets raised in the range, any state) or "closed" (solved in range).
+    alltickets: { ...EMPTY_FILTERS, dateRange: { start: "", end: "" }, dateBasis: "created" },
     csd: { ...EMPTY_FILTERS },
     vistas: { ...EMPTY_FILTERS },
     analytics: (() => {
@@ -749,6 +751,7 @@ const App = () => {
       "TAM",
       "Assignee",
       "Stage",
+      "Severity",
       "Created Date",
       "Solved Date",
       "Age (Days)",
@@ -786,6 +789,7 @@ const App = () => {
         const csm = t.csm && t.csm !== "Unknown" ? t.csm.split("@")[0] : "-";
         const tam = t.tam && t.tam !== "Unknown" ? t.tam : "-";
         const cf = t.custom_fields || {};
+        const severity = String(t.severity?.name || t.severity || "");
 
         const row = [
           t.display_id,
@@ -796,6 +800,7 @@ const App = () => {
           tam,
           owner,
           STAGE_MAP[t.stage?.name]?.label || t.stage?.name || "-",
+          severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : "-",
           `"${t.created_date ? format(parseISO(t.created_date), "MMM d, yyyy") : "-"}"`,
           `"${t.actual_close_date ? format(parseISO(t.actual_close_date), "MMM d, yyyy") : "-"}"`,
           t.days || 0,
@@ -1075,6 +1080,7 @@ const App = () => {
   // (it only keeps recently-created solved tickets within the Valkey cap), so
   // the Solved bucket is sourced from the permanent store keyed on closed_date.
   const allSolvedRange = tabFilters.alltickets?.dateRange;
+  const allTicketsDateBasis = tabFilters.alltickets?.dateBasis || "created";
   useEffect(() => {
     if (activeTab !== "alltickets") return;
     const { start, end } = allSolvedRange || {};
@@ -1091,10 +1097,13 @@ const App = () => {
     const effStart = hasExplicit
       ? start
       : format(new Date(Date.now() - ALL_SOLVED_DEFAULT_DAYS * 86400000), "yyyy-MM-dd");
+    // The basis only applies to a range the user picked; the default window
+    // stays "solved in the last N days" so the unfiltered view is unchanged.
+    const basis = hasExplicit ? allTicketsDateBasis : "closed";
 
     let cancelled = false;
     setAllSolvedLoading(true);
-    fetchAllSolvedTickets(authFetch, { start: effStart, end: effEnd })
+    fetchAllSolvedTickets(authFetch, { start: effStart, end: effEnd, basis })
       .then((data) => {
         if (!cancelled) setAllSolvedTickets(data?.tickets || []);
       })
@@ -1108,7 +1117,7 @@ const App = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, allSolvedRange?.start, allSolvedRange?.end]);
+  }, [activeTab, allSolvedRange?.start, allSolvedRange?.end, allTicketsDateBasis]);
 
   // All Tickets View - includes solved/closed tickets
   // The 270-line pipeline lives in features/tickets/lib/filterAllTickets.js.
@@ -1486,6 +1495,33 @@ const App = () => {
                       }
                       allowAllTime={true}
                     />
+                    {/* Which date the range above filters on */}
+                    <div
+                      className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60"
+                      title="Apply the date range to the ticket's created date or its solved date"
+                    >
+                      {[
+                        { key: "created", label: "Created" },
+                        { key: "closed", label: "Solved" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.key}
+                          onClick={() =>
+                            setTabFilters((prev) => ({
+                              ...prev,
+                              alltickets: { ...prev.alltickets, dateBasis: opt.key },
+                            }))
+                          }
+                          className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                            allTicketsDateBasis === opt.key
+                              ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                              : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                     <MultiSelectFilter
                       icon={Layers}
                       label="Team"

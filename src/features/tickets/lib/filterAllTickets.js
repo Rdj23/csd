@@ -39,10 +39,14 @@ export const filterAllTickets = ({
       s.includes("solved") || s.includes("closed") || s.includes("resolved")
     );
   };
+  const activeTickets = tickets.filter((t) => !isSolvedStage(t.stage?.name));
+  // A reopened ticket can still sit in Mongo as solved; the live row wins.
+  const activeIds = new Set(activeTickets.map((t) => t.display_id));
   const sourceTickets = [
-    ...tickets.filter((t) => !isSolvedStage(t.stage?.name)),
-    ...allSolvedTickets,
+    ...activeTickets,
+    ...allSolvedTickets.filter((t) => !activeIds.has(t.display_id)),
   ];
+  const dateBasis = allTicketsFilters.dateBasis || "created";
 
   return sourceTickets
     .map((t) => {
@@ -58,6 +62,9 @@ export const filterAllTickets = ({
         uiIcon: icon,
         priority,
         days,
+        // DevRev severity (low / medium / high / blocker). Live rows carry the
+        // raw DevRev value, Mongo rows the stored string.
+        severity: t.severity?.name || t.severity || null,
 
         region: (() => {
           const r = t.custom_fields?.tnt__region_salesforce || "Unknown";
@@ -95,12 +102,12 @@ export const filterAllTickets = ({
         t.owned_by?.[0]?.display_name ||
         "";
 
-      // Date Range filter — applies to SOLVED tickets only (by close date).
-      // Open/Pending/On-Hold buckets always show the complete backlog: an
-      // active ticket is still someone's workload no matter when it was
-      // created, so filtering actives by created_date silently hid old
-      // tickets (e.g. a Feb-created ticket still pending in July vanished
-      // whenever a recent range was selected).
+      // Date Range filter. Basis "created": every bucket is narrowed to
+      // tickets created in the range ("what came in during Q3, and where is
+      // it now"). Basis "closed": applies to SOLVED tickets only (by close
+      // date) — Open/Pending/On-Hold always show the complete backlog, since
+      // an active ticket is still someone's workload no matter when it was
+      // created (e.g. a Feb-created ticket still pending in July).
       if (
         allTicketsFilters.dateRange?.start &&
         allTicketsFilters.dateRange?.end
@@ -112,7 +119,15 @@ export const filterAllTickets = ({
             stageLower.includes("closed") ||
             stageLower.includes("resolved");
 
-          if (isSolved) {
+          if (dateBasis === "created") {
+            if (!t.created_date) return false;
+            const start = startOfDay(
+              parseISO(allTicketsFilters.dateRange.start),
+            );
+            const end = endOfDay(parseISO(allTicketsFilters.dateRange.end));
+            if (!isWithinInterval(parseISO(t.created_date), { start, end }))
+              return false;
+          } else if (isSolved) {
             const ticketDate = parseISO(
               t.actual_close_date || t.created_date,
             );
