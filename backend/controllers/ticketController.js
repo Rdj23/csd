@@ -375,10 +375,13 @@ export const getAllSolvedForRange = async (req, res) => {
 
 export const getTicketsByDate = async (req, res) => {
   try {
-    const { date, owners, metric, excludeZendesk, region, excludeNOC } = req.query;
+    const { date, owners, metric, excludeZendesk, region, excludeNOC, basis } = req.query;
     if (!date) return badRequest(res, "Date required");
+    // basis=created looks the bucket up on created_date (Analytics' Created
+    // toggle keys its charts that way); closed_date otherwise.
+    const dateField = basis === "created" ? "created_date" : "closed_date";
 
-    const cacheKey = `bydate:ist:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
+    const cacheKey = `bydate:ist:${dateField}:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
     const cachedRaw = await redisGetRaw(cacheKey);
     if (cachedRaw) {
       logger.info("ByDate Redis HIT");
@@ -412,7 +415,7 @@ export const getTicketsByDate = async (req, res) => {
       endDate = istDayEnd(date);
     }
 
-    const matchConditions = { closed_date: { $gte: startDate, $lte: endDate } };
+    const matchConditions = { [dateField]: { $gte: startDate, $lte: endDate } };
     applyOwnerFilter(matchConditions, owners);
     applyRegionFilter(matchConditions, region);
     applyBacklogFilter(matchConditions, metric);
@@ -425,8 +428,8 @@ export const getTicketsByDate = async (req, res) => {
     const parsed = parseCursor(cursor);
     if (parsed) {
       ticketQuery.$or = [
-        { closed_date: { ...ticketQuery.closed_date, $lt: parsed.cursorDate } },
-        { closed_date: parsed.cursorDate, _id: { $lt: parsed.cursorId } },
+        { [dateField]: { ...ticketQuery[dateField], $lt: parsed.cursorDate } },
+        { [dateField]: parsed.cursorDate, _id: { $lt: parsed.cursorId } },
       ];
     }
     const page = parsed ? null : Math.max(1, parseInt(req.query.page) || 1);
@@ -435,7 +438,7 @@ export const getTicketsByDate = async (req, res) => {
       AnalyticsTicket.countDocuments(matchConditions),
       AnalyticsTicket.find(ticketQuery)
         .select(TICKET_TABLE_FIELDS)
-        .sort({ closed_date: -1, _id: -1 })
+        .sort({ [dateField]: -1, _id: -1 })
         .skip(parsed ? 0 : (page - 1) * pageSize)
         .limit(pageSize)
         .lean(),
@@ -443,7 +446,7 @@ export const getTicketsByDate = async (req, res) => {
 
     const totalPages = Math.ceil(totalCount / pageSize);
     const last = tickets[tickets.length - 1];
-    const nextCursor = last ? `${new Date(last.closed_date).toISOString()}_${last._id}` : null;
+    const nextCursor = last ? `${new Date(last[dateField]).toISOString()}_${last._id}` : null;
 
     const result = { tickets, count: totalCount, page, pageSize, totalPages, nextCursor };
     if (page === 1) await redisSet(cacheKey, result, CACHE_TTL.DRILLDOWN);

@@ -97,6 +97,7 @@ const AnalyticsDashboard = lazy(() => import("./features/analytics/components/An
 const PartsView = lazy(() => import("./features/parts/components/PartsView"));
 import SmartDatePicker from "./components/common/SmartDateRangePicker";
 import MultiSelectFilter from "./components/common/MultiSelectFilter";
+import DateBasisToggle from "./components/common/DateBasisToggle";
 import LoginScreen from "./features/auth/components/LoginScreen";
 import { useTicketStore } from "./store";
 // Lazy — only mounts once a user clicks into a profile.
@@ -1496,32 +1497,15 @@ const App = () => {
                       allowAllTime={true}
                     />
                     {/* Which date the range above filters on */}
-                    <div
-                      className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60"
-                      title="Apply the date range to the ticket's created date or its solved date"
-                    >
-                      {[
-                        { key: "created", label: "Created" },
-                        { key: "closed", label: "Solved" },
-                      ].map((opt) => (
-                        <button
-                          key={opt.key}
-                          onClick={() =>
-                            setTabFilters((prev) => ({
-                              ...prev,
-                              alltickets: { ...prev.alltickets, dateBasis: opt.key },
-                            }))
-                          }
-                          className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
-                            allTicketsDateBasis === opt.key
-                              ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
-                              : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
+                    <DateBasisToggle
+                      value={allTicketsDateBasis}
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          alltickets: { ...prev.alltickets, dateBasis: v },
+                        }))
+                      }
+                    />
                     <MultiSelectFilter
                       icon={Layers}
                       label="Team"
@@ -1791,6 +1775,15 @@ const App = () => {
                         setTabFilters((prev) => ({
                           ...prev,
                           analytics: { ...prev.analytics, dateRange: val },
+                        }))
+                      }
+                    />
+                    <DateBasisToggle
+                      value={tabFilters.analytics?.dateBasis || "closed"}
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          analytics: { ...prev.analytics, dateBasis: v },
                         }))
                       }
                     />

@@ -17,6 +17,7 @@ export const buildSmallChartData = ({
   analyticsData,
   hasDependencyFilter,
   filters,
+  isCreatedBasis = false,
 }) => {
   const daysInterval = eachDayOfInterval({
     start: effectiveDateRange.start,
@@ -45,13 +46,17 @@ export const buildSmallChartData = ({
   // for dependency + owner/team/region). Field/threshold definitions mirror the
   // backend aggregation: solved = count by close-date, avgRWT = mean of rwt>0,
   // backlogCleared = tickets whose (closed - created) age >= 15 days.
+  // On the created basis the days are keyed by created date instead, matching
+  // the created-in-range solvedTickets set.
   const dailyAggregates = {};
 
   if (hasDependencyFilter) {
     solvedTickets.forEach((t) => {
       const closedDate = t.actual_close_date || t.closed_date;
       if (!closedDate) return;
-      const dateKey = format(parseISO(closedDate), "yyyy-MM-dd");
+      const keyRaw = isCreatedBasis ? t.created_date : closedDate;
+      if (!keyRaw) return;
+      const dateKey = format(parseISO(keyRaw), "yyyy-MM-dd");
 
       if (!dailyAggregates[dateKey]) {
         dailyAggregates[dateKey] = {

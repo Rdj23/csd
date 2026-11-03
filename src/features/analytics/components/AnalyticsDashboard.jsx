@@ -353,7 +353,12 @@ const AnalyticsDashboard = ({
   // source must be the full Mongo history — the active cache has already shed
   // most of a past quarter's solved tickets, which rendered region views as 0.
   const hasRegionFilter = filters?.regions?.length > 0;
-  const needsClientSideSolved = hasDependencyFilter || hasRegionFilter;
+  // Created basis: solved metrics cover tickets CREATED in the range (solved
+  // at any time) instead of tickets closed in it. The rollups are keyed on
+  // close date, so this also goes through the client-side Mongo path.
+  const isCreatedBasis = filters?.dateBasis === "created";
+  const needsClientSideSolved =
+    hasDependencyFilter || hasRegionFilter || isCreatedBasis;
 
   // ── Mongo-sourced solved history for dependency/region-filtered views ───
   // The Redis active cache loses solved tickets over time, so KPIs/trends
@@ -378,13 +383,16 @@ const AnalyticsDashboard = ({
       return;
     const start = format(effectiveDateRange.start, "yyyy-MM-dd");
     const end = format(effectiveDateRange.end, "yyyy-MM-dd");
-    const key = `${start}:${end}`;
+    const basis = isCreatedBasis ? "created" : "closed";
+    const key = `${start}:${end}:${basis}`;
     if (mongoSolvedKeyRef.current === key) return;
     mongoSolvedKeyRef.current = key;
     let cancelled = false;
     setMongoSolved({ key, tickets: [], loading: true, loaded: false });
     const API_BASE = import.meta.env.VITE_API_URL || "";
-    authFetch(`${API_BASE}/api/tickets/all-solved?start=${start}&end=${end}`)
+    authFetch(
+      `${API_BASE}/api/tickets/all-solved?start=${start}&end=${end}&basis=${basis}`,
+    )
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -408,7 +416,7 @@ const AnalyticsDashboard = ({
     return () => {
       cancelled = true;
     };
-  }, [needsClientSideSolved, effectiveDateRange]);
+  }, [needsClientSideSolved, effectiveDateRange, isCreatedBasis]);
 
   // Shared core-filter predicate (Zendesk / Team / Owner / Region) — applied to
   // BOTH the active-cache tickets and the Mongo all-solved rows (reshaped rows
@@ -607,14 +615,17 @@ const AnalyticsDashboard = ({
   }, [baseFilteredTickets, effectiveDateRange]);
 
   // Shared "closed in range + actually solved" check for the solved arrays.
+  // Created basis swaps the range check onto the created date.
   const isSolvedInRange = useCallback(
     (t) => {
-      const closedDate = t.actual_close_date || t.closed_date;
-      if (!closedDate) return false;
-      const closed = parseISO(closedDate);
+      const rangeDate = isCreatedBasis
+        ? t.created_date
+        : t.actual_close_date || t.closed_date;
+      if (!rangeDate) return false;
+      const d = parseISO(rangeDate);
 
-      // Must be solved in range
-      if (closed < effectiveDateRange.start || closed > effectiveDateRange.end)
+      // Must be solved (or created, per basis) in range
+      if (d < effectiveDateRange.start || d > effectiveDateRange.end)
         return false;
 
       // Must actually be solved/closed status
@@ -625,7 +636,7 @@ const AnalyticsDashboard = ({
         stage.includes("resolved")
       );
     },
-    [effectiveDateRange],
+    [effectiveDateRange, isCreatedBasis],
   );
 
   // 3. Solved Tickets: Strictly SOLVED in the date range (ignores created date).
@@ -711,6 +722,9 @@ const AnalyticsDashboard = ({
         metric: metricKey,
         excludeZendesk: excludeZendesk ? "true" : "false",
         excludeNOC: excludeNOC ? "true" : "false",
+        // Created-basis charts are keyed by created date, so the clicked
+        // point must be looked up on that date too.
+        basis: isCreatedBasis ? "created" : "closed",
       });
 
       // Add region filter if set
@@ -832,6 +846,7 @@ const AnalyticsDashboard = ({
       excludeNOC,
       hasDependencyFilter,
       passesDependencyNarrowing,
+      isCreatedBasis,
       // Read by the Chart Drill Down event so it can report the scope the
       // drill-down happened in, not just which point was clicked.
       currentQuarter,
@@ -1024,11 +1039,15 @@ const AnalyticsDashboard = ({
           ensure(format(d, "yyyy-MM-dd")).volume += 1;
         });
       } else {
-        // All other metrics are keyed by CLOSE date.
+        // All other metrics are keyed by CLOSE date (CREATED date on the
+        // created basis, so the series adds up to the KPI cards).
         solvedTickets.forEach((t) => {
           const closedDate = t.actual_close_date || t.closed_date;
           if (!closedDate) return;
-          const d = parseISO(closedDate);
+          const closed = parseISO(closedDate);
+          const keyRaw = isCreatedBasis ? t.created_date : closedDate;
+          if (!keyRaw) return;
+          const d = parseISO(keyRaw);
           if (d < start || d > end) return;
           const agg = ensure(format(d, "yyyy-MM-dd"));
           const cf = t.custom_fields || {};
@@ -1052,7 +1071,7 @@ const AnalyticsDashboard = ({
             agg.frrMet += 1;
           if (t.created_date) {
             const ageDays =
-              (d.getTime() - parseISO(t.created_date).getTime()) /
+              (closed.getTime() - parseISO(t.created_date).getTime()) /
               (1000 * 60 * 60 * 24);
             if (ageDays >= 15) agg.backlogCleared += 1;
           }
@@ -1082,7 +1101,7 @@ const AnalyticsDashboard = ({
             a.solved > 0 ? Math.round((a.frrMet / a.solved) * 100) : 0,
         }));
     },
-    [solvedTickets, volumeTickets, expandedEffectiveDateRange],
+    [solvedTickets, volumeTickets, expandedEffectiveDateRange, isCreatedBasis],
   );
 
   const getExpandedChartData = useCallback(
@@ -1928,11 +1947,13 @@ const AnalyticsDashboard = ({
         analyticsData,
         hasDependencyFilter: needsClientSideSolved,
         filters,
+        isCreatedBasis,
       }),
     [
       volumeTickets,
       solvedTickets,
       needsClientSideSolved,
+      isCreatedBasis,
       effectiveDateRange,
       analyticsData,
       filters,
@@ -1946,7 +1967,8 @@ const AnalyticsDashboard = ({
         solvedTickets,
         solvedTicketsForCSAT,
         effectiveDateRange,
-        hasDependencyFilter,
+        // Created basis has no rollup either, so it takes the client-side path.
+        hasDependencyFilter: hasDependencyFilter || isCreatedBasis,
         filters,
       }),
     [

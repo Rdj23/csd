@@ -45,6 +45,7 @@ export const byDateSchema = z.object({
     excludeZendesk: boolString,
     excludeNOC: boolString,
     region: optionalString,
+    basis: z.enum(["created", "closed"]).optional(),
   }).passthrough(),
 });
 

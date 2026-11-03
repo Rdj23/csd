@@ -71,6 +71,7 @@ AI-generated natural-language insights about:
 | ---------------- | -------------------------------------------- |
 | Quarter          | Q1_26, Q2_26, etc.                           |
 | Date Range       | Custom range within selected quarter         |
+| Date Basis       | **Solved** (default): solved metrics count tickets closed in the range (backend rollups). **Created**: solved metrics count tickets created in the range and solved at any time; KPIs, charts and drill-downs are rebuilt client-side from `/api/tickets/all-solved?basis=created` and keyed by created date. Volume is always by created date. |
 | Group By         | Daily / Weekly / Monthly                     |
 | Team / Member    | Multi-select                                 |
 | Region / Cohort  | Multi-select                                 |
