@@ -9,6 +9,9 @@ import { EMAIL_TO_NAME_MAP } from "../lib/teams";
 export const useGamification = ({ quarter, currentUser, isAdmin }) => {
   const [data, setData] = useState(null);
   const [myStatsData, setMyStatsData] = useState(null);
+  // Weights the backend scored this window with — versioned by quarter, so
+  // the UI labels must come from the response, not hardcoded percentages.
+  const [weights, setWeights] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const currentUserName = useMemo(() => {
@@ -22,9 +25,11 @@ export const useGamification = ({ quarter, currentUser, isAdmin }) => {
       if (isAdmin) {
         const res = await fetchLeaderboard(quarter);
         setData(res);
+        setWeights(res?.weights || null);
       } else {
         const res = await fetchMyStats(quarter, currentUser?.email || "");
         setMyStatsData(res.userData);
+        setWeights(res?.weights || null);
       }
     } catch (e) {
       // silently ignore
@@ -47,5 +52,5 @@ export const useGamification = ({ quarter, currentUser, isAdmin }) => {
     );
   }, [currentUserName, data, isAdmin, myStatsData]);
 
-  return { data, myStatsData, loading, currentUserName, currentUserData, fetchData };
+  return { data, myStatsData, weights, loading, currentUserName, currentUserData, fetchData };
 };

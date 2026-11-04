@@ -234,25 +234,27 @@ This guide maps common change scenarios to the exact files and steps needed.
 
 ## 6. Modify Gamification Scoring Weights
 
-### File: `backend/utils/scoring.js` (line ~10)
+### File: `backend/utils/scoring.js`
 
-```javascript
-const METRIC_WEIGHTS = {
-  productivity:   0.30,   // ← Adjust these weights
-  csatPercent:    0.15,
-  positiveCSAT:   0.10,
-  avgRWT:         0.15,   // Lower is better
-  avgIterations:  0.15,   // Lower is better
-  frrPercent:     0.15
-};
-```
+Weights are **versioned by quarter** so already-published quarters are never re-ranked.
+A window is scored with the scheme in effect on its **start date**.
 
-**After changing weights:**
-1. Clear analytics cache: `POST /api/cache/clear`
-2. The next `GET /api/gamification` request will recompute with new weights
+| Metric | Legacy (before Q4_26) | Q4_26 onwards |
+|---|---|---|
+| RWT (`avgRWT`, lower is better) | 15% | 25% |
+| Productivity (`productivity`) | 30% | 20% |
+| FRR (`frrPercent`) | 15% | 20% |
+| Iterations (`avgIterations`, lower is better) | 15% | 20% |
+| CSAT % (`csatPercent`) | 15% | 15% |
+| # CSATs (`positiveCSAT`) | 10% | 0% (display only) |
+
+**To change weights:** add a new entry at the **top** of `WEIGHT_SCHEMES` with its
+`effectiveFrom` date (IST midnight of the quarter start). Never edit a scheme that has
+already been used — that would silently re-rank past quarters. The API returns the applied
+`weightScheme` + `weights`, and the Gamification UI labels read from them.
 
 **To add a new metric:**
-1. Add to `METRIC_WEIGHTS` with a weight
+1. Add it with a weight to a new scheme in `WEIGHT_SCHEMES`
 2. Add the metric to the aggregation in `gamificationController.js`
 3. Add `{ key: "newMetric", lowerIsBetter: false }` to the metric config array in `scoreAndRank()`
 4. The scoring pipeline (percentile → normalize → weight) handles the rest automatically

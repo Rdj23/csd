@@ -15,7 +15,7 @@ import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
 import { ownerStatsGroup, csatFields } from "../utils/aggregationStages.js";
 import { csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
-import { scoreAndRank } from "../utils/scoring.js";
+import { scoreAndRank, getWeightScheme } from "../utils/scoring.js";
 
 /**
  * buildScoredBoard — SINGLE SOURCE OF TRUTH for gamification numbers.
@@ -26,6 +26,12 @@ import { scoreAndRank } from "../utils/scoring.js";
  * owners and averaged the six metric percentiles, while the board ranked
  * the weighted composite score over roster-only peers — so the same
  * engineer saw a different Final % depending on who was looking.
+ *
+ * Weights are versioned by quarter (see WEIGHT_SCHEMES in utils/scoring.js):
+ * the scheme is picked from the window START, so already-scored quarters
+ * keep the weights they were published with.
+ *
+ * @returns {{ data: { L1: Array, L2: Array }, scheme: { id, weights } }}
  */
 const buildScoredBoard = async (start, end) => {
   // Main stats aggregation (excludes NOC for general metrics)
@@ -85,11 +91,15 @@ const buildScoredBoard = async (start, end) => {
   // Full scoring pipeline: percentiles → normalization → weighted score → rank
   // Extracted to utils/scoring.js for testability and Single Responsibility.
   // See scoring.js for detailed documentation of the 3-stage pipeline.
-  scoreAndRank(data.L1);
-  scoreAndRank(data.L2);
+  const scheme = getWeightScheme(start);
+  scoreAndRank(data.L1, scheme.weights);
+  scoreAndRank(data.L2, scheme.weights);
 
-  return data;
+  return { data, scheme };
 };
+
+/** Response fields describing the weights a window was scored with (drives UI labels). */
+const schemeFields = (scheme) => ({ weightScheme: scheme.id, weights: scheme.weights });
 
 export const getGamification = async (req, res) => {
   try {
@@ -100,11 +110,12 @@ export const getGamification = async (req, res) => {
 
     logger.info({ label, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
 
-    const data = await buildScoredBoard(start, end);
+    const { data, scheme } = await buildScoredBoard(start, end);
 
     ok(res, {
       quarter: label,
       dateRange: { start: start.toISOString(), end: end.toISOString() },
+      ...schemeFields(scheme),
       data,
       totalL1: data.L1.length,
       totalL2: data.L2.length,
@@ -195,12 +206,13 @@ export const getMyStats = async (req, res) => {
 
     // Same pipeline as the admin leaderboard — the member view must show
     // EXACTLY the number the board shows (same formula, same peer pool).
-    const board = await buildScoredBoard(start, end);
+    const { data: board, scheme } = await buildScoredBoard(start, end);
     const entry = [...board.L1, ...board.L2].find((e) => e.name === userName);
     if (entry) {
       return ok(res, {
         quarter: label,
         dateRange: { start: start.toISOString(), end: end.toISOString() },
+        ...schemeFields(scheme),
         userData: entry,
         lastUpdated: new Date().toISOString(),
       });
@@ -221,6 +233,7 @@ export const getMyStats = async (req, res) => {
     ok(res, {
       quarter: label,
       dateRange: { start: start.toISOString(), end: end.toISOString() },
+      ...schemeFields(scheme),
       userData: {
         name: userName,
         team: GAMIFICATION_TEAM_MAP[userName] || "Unknown",

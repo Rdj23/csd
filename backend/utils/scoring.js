@@ -13,8 +13,8 @@
  *    can be weighted and summed into a final score.
  *
  * 3. WEIGHTED FINAL SCORE — "What's the single number that represents overall performance?"
- *    Weights reflect business priorities: productivity (30%) is weighted highest
- *    because ticket throughput is the primary team KPI.
+ *    Weights reflect business priorities and are versioned by quarter — see
+ *    WEIGHT_SCHEMES. Past quarters keep the weights they were scored with.
  *
  * WHY SEPARATE FROM THE CONTROLLER:
  * - Testable: unit tests can verify scoring math without MongoDB or HTTP fixtures
@@ -27,10 +27,20 @@
 // ── Configuration ────────────────────────────────────────────────────
 
 /**
- * METRIC_WEIGHTS — Business-priority weights for the final composite score.
- * Must sum to 1.0 (100%).
+ * WEIGHT SCHEMES — Business-priority weights for the final composite score,
+ * versioned by the date they take effect. Each scheme must sum to 1.0 (100%).
  *
- * WHY THESE WEIGHTS:
+ * WHY VERSIONED: weights change between quarters, but quarters that were
+ * already scored (and communicated to the team) must not be re-ranked
+ * retroactively. A window is scored with the scheme in effect on its START
+ * date — so any window that begins before a cutoff keeps the old weights.
+ *
+ * TO CHANGE WEIGHTS: add a new scheme at the TOP of WEIGHT_SCHEMES with its
+ * effectiveFrom date. Never edit a scheme that has already been used.
+ */
+
+/**
+ * LEGACY (everything before Q4_26):
  * - productivity (30%): Ticket throughput per working day — the team's primary KPI
  * - csatPercent (15%): % of rated tickets that are positive — customer happiness
  * - positiveCSAT (10%): Absolute count of positive ratings — rewards volume of good work
@@ -38,14 +48,44 @@
  * - avgIterations (15%): Average back-and-forth count — efficiency of communication
  * - frrPercent (15%): First-reply resolution rate — quality of first response
  */
-const METRIC_WEIGHTS = {
+const LEGACY_WEIGHTS = Object.freeze({
   productivity:   0.30,
   csatPercent:    0.15,
   positiveCSAT:   0.10,
   avgRWT:         0.15,
   avgIterations:  0.15,
   frrPercent:     0.15,
-};
+});
+
+/**
+ * Q4_26 onwards (from 1 Oct 2026 IST):
+ * RWT 25%, Productivity 20%, FRR 20%, Iterations 20%, CSAT % 15%.
+ * # CSATs (positiveCSAT) is no longer scored — still computed for display.
+ */
+const Q4_26_WEIGHTS = Object.freeze({
+  avgRWT:         0.25,
+  productivity:   0.20,
+  frrPercent:     0.20,
+  avgIterations:  0.20,
+  csatPercent:    0.15,
+  positiveCSAT:   0,
+});
+
+/** Newest first — getWeightScheme returns the first one whose effectiveFrom <= start. */
+const WEIGHT_SCHEMES = Object.freeze([
+  { id: "Q4_26", effectiveFrom: new Date("2026-10-01T00:00:00.000+05:30"), weights: Q4_26_WEIGHTS },
+  { id: "LEGACY", effectiveFrom: new Date(0), weights: LEGACY_WEIGHTS },
+]);
+
+/**
+ * getWeightScheme — the weight scheme for a scoring window, chosen by the
+ * window's START date (see WHY VERSIONED above).
+ *
+ * @param {Date} start — Window start
+ * @returns {{ id: string, effectiveFrom: Date, weights: Object }}
+ */
+const getWeightScheme = (start) =>
+  WEIGHT_SCHEMES.find((s) => start >= s.effectiveFrom) || WEIGHT_SCHEMES[WEIGHT_SCHEMES.length - 1];
 
 /**
  * METRICS — Defines each scoring dimension and its sort direction.
@@ -54,7 +94,7 @@ const METRIC_WEIGHTS = {
  * lowerIsBetter = false: Higher values are better (productivity, CSAT → more = better)
  *
  * OPEN/CLOSED PRINCIPLE:
- * To add a new metric (e.g., "avgFRT"), add one entry here and one weight above.
+ * To add a new metric (e.g., "avgFRT"), add one entry here and a weight to a new scheme above.
  * No other code changes needed — the pipeline loops over this array.
  */
 const METRICS = [
@@ -134,9 +174,9 @@ const normalizeMetric = (entries, { key, lowerIsBetter }) => {
  * Compute the weighted composite score from all normalized metric scores.
  * Returns a value between 0 and 100.
  */
-const computeFinalScore = (entry) =>
+const computeFinalScore = (entry, weights) =>
   METRICS.reduce(
-    (sum, { key }) => sum + (entry[`${key}NormScore`] || 0) * METRIC_WEIGHTS[key],
+    (sum, { key }) => sum + (entry[`${key}NormScore`] || 0) * (weights[key] || 0),
     0,
   );
 
@@ -154,9 +194,11 @@ const computeFinalScore = (entry) =>
  * - Deterministic tie-breaking by name (alphabetical)
  *
  * @param {Array} entries — Array of { name, productivity, csatPercent, ... } objects
+ * @param {Object} weights — Weights from getWeightScheme(start).weights. Defaults to
+ *   the scheme in effect today; callers scoring a past window MUST pass their own.
  * @returns {Array} The same array, sorted by finalScore descending, with all scoring fields added
  */
-export const scoreAndRank = (entries) => {
+export const scoreAndRank = (entries, weights = getWeightScheme(new Date()).weights) => {
   if (entries.length === 0) return entries;
 
   // Stage 1: Per-metric percentile ranks (for display)
@@ -171,7 +213,7 @@ export const scoreAndRank = (entries) => {
 
   // Stage 3: Weighted final score
   entries.forEach((e) => {
-    e.finalScore = parseFloat(computeFinalScore(e).toFixed(2));
+    e.finalScore = parseFloat(computeFinalScore(e, weights).toFixed(2));
     e.weightedAvg = e.finalScore; // Alias for backwards compat with frontend
   });
 
@@ -214,5 +256,5 @@ export const calculatePercentile = (value, allValues, lowerIsBetter = false) => 
   return Math.min(Math.round(((allValues.length - rank + 1) / allValues.length) * 100), 100);
 };
 
-/** Export weights and metrics for transparency (e.g., admin UI tooltip) */
-export { METRIC_WEIGHTS, METRICS };
+/** Export weights and metrics for transparency (e.g., admin UI labels) */
+export { WEIGHT_SCHEMES, LEGACY_WEIGHTS, Q4_26_WEIGHTS, METRICS, getWeightScheme };

@@ -29,11 +29,18 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
   const availableQuarters = useMemo(() => getAvailableQuarters(), []);
   const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarterKey());
 
-  const { data, loading, currentUserName, currentUserData } = useGamification({
+  const { data, weights, loading, currentUserName, currentUserData } = useGamification({
     quarter: selectedQuarter,
     currentUser,
     isAdmin,
   });
+
+  // " (20%)" label suffix from the weights this quarter was scored with.
+  // Empty when weights are unknown so a label never shows a wrong number.
+  const w = (key) => {
+    const v = weights?.[key];
+    return typeof v === "number" ? ` (${Math.round(v * 100)}%)` : "";
+  };
   const [activeTab, setActiveTab] = useState("L1");
   const [sortBy, setSortBy] = useState("rank");
   const [sortDir, setSortDir] = useState("asc");
@@ -205,42 +212,42 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
             <p className="text-xl font-bold text-emerald-600">{userData.solved}</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Productivity (30%)</p>
+            <p className="text-xs text-slate-500 mb-1">Productivity{w("productivity")}</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.productivityPercentile)}`}>
               {userData.productivityPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.productivity}/day</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">CSAT % (15%)</p>
+            <p className="text-xs text-slate-500 mb-1">CSAT %{w("csatPercent")}</p>
             <p className={`text-xl font-bold ${userData.csatPercent === 100 ? 'text-emerald-600' : 'text-red-600'}`}>
               {userData.csatPercent ?? 100}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.csatPercent === 100 ? 'No DSAT' : 'Has DSAT'}</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1"># CSATs (10%)</p>
+            <p className="text-xs text-slate-500 mb-1"># CSATs{w("positiveCSAT")}</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.positiveCSATPercentile)}`}>
               {userData.positiveCSATPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.positiveCSAT} positive</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">RWT (15%)</p>
+            <p className="text-xs text-slate-500 mb-1">RWT{w("avgRWT")}</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.avgRWTPercentile)}`}>
               {userData.avgRWTPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.avgRWT}h avg</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">Iterations (15%)</p>
+            <p className="text-xs text-slate-500 mb-1">Iterations{w("avgIterations")}</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.avgIterationsPercentile)}`}>
               {userData.avgIterationsPercentile ?? 0}%
             </p>
             <p className="text-xs text-slate-400 mt-1">{userData.avgIterations} avg</p>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center shadow">
-            <p className="text-xs text-slate-500 mb-1">FRR (15%)</p>
+            <p className="text-xs text-slate-500 mb-1">FRR{w("frrPercent")}</p>
             <p className={`text-xl font-bold ${getPercentileColor(userData.frrPercentPercentile)}`}>
               {userData.frrPercentPercentile ?? 0}%
             </p>
@@ -494,12 +501,12 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
                       { key: "name", label: "Engineer", width: "w-36" },
                       { key: "daysWorked", label: "Days", width: "w-16" },
                       { key: "solved", label: "Solved", width: "w-18" },
-                      { key: "productivityPercentile", label: "Productivity (30%)", width: "w-32" },
-                      { key: "csatPercentPercentile", label: "CSAT % (15%)", width: "w-28" },
-                      { key: "positiveCSATPercentile", label: "# CSATs (10%)", width: "w-28" },
-                      { key: "avgRWTPercentile", label: "RWT (15%)", width: "w-24" },
-                      { key: "avgIterationsPercentile", label: "Iter (15%)", width: "w-24" },
-                      { key: "frrPercentPercentile", label: "FRR (15%)", width: "w-24" },
+                      { key: "productivityPercentile", label: `Productivity${w("productivity")}`, width: "w-32" },
+                      { key: "csatPercentPercentile", label: `CSAT %${w("csatPercent")}`, width: "w-28" },
+                      { key: "positiveCSATPercentile", label: `# CSATs${w("positiveCSAT")}`, width: "w-28" },
+                      { key: "avgRWTPercentile", label: `RWT${w("avgRWT")}`, width: "w-24" },
+                      { key: "avgIterationsPercentile", label: `Iter${w("avgIterations")}`, width: "w-24" },
+                      { key: "frrPercentPercentile", label: `FRR${w("frrPercent")}`, width: "w-24" },
                       { key: "percentile", label: "Final %", width: "w-24" },
                     ].map((col) => (
                       <th
@@ -623,7 +630,9 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
             <span className="text-slate-300 dark:text-slate-600">|</span>
             <span>Percentile = ((Total - Rank + 1) / Total) × 100</span>
             <span className="text-slate-300 dark:text-slate-600">|</span>
-            <span>CSAT% weight: 15% (L1 & L2)</span>
+            {typeof weights?.csatPercent === "number" && (
+              <span>CSAT% weight: {Math.round(weights.csatPercent * 100)}% (L1 & L2)</span>
+            )}
           </div>
         </>
       )}
