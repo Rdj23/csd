@@ -29,7 +29,8 @@ export const HIDDEN_USERS = [
 export const SUPER_ADMIN_EMAILS = [
   "rohan.jadhav@clevertap.com",
   "anmol.sawhney@clevertap.com",
-  "mashnu@clevertap.com"
+  "mashnu@clevertap.com",
+  "harshavardhan@clevertap.com"
 ];
 
 // ============================================================================

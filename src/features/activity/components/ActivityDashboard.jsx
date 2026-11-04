@@ -37,7 +37,7 @@ const DEP_COLS = [
 ];
 
 // Non-GST admins don't get pre-selected
-const NON_GST_ADMINS = ["anmol.sawhney@clevertap.com", "mashnu@clevertap.com"];
+const NON_GST_ADMINS = ["anmol.sawhney@clevertap.com", "mashnu@clevertap.com", "harshavardhan@clevertap.com"];
 
 export default function ActivityDashboard({ isDark, currentUser, isAdmin }) {
   const [members, setMembers] = useState([]);
