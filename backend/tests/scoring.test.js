@@ -16,7 +16,7 @@ import { getQuarterDateRange, resolveDateRange } from "../config/constants.js";
 const sum = (w) => Object.values(w).reduce((a, b) => a + b, 0);
 
 const corpus = () => [
-  // Legacy: A 70, B 60.  Q4_26: A 55, B 80.
+  // Legacy: A 70, B 60.  Q4_26: A 55, B 74.
   { name: "A", productivity: 6, csatPercent: 100, positiveCSAT: 30, avgRWT: 40, avgIterations: 3, frrPercent: 70 },
   { name: "B", productivity: 3, csatPercent: 100, positiveCSAT: 5, avgRWT: 10, avgIterations: 2, frrPercent: 80 },
   { name: "C", productivity: 4, csatPercent: 80, positiveCSAT: 15, avgRWT: 25, avgIterations: 4, frrPercent: 60 },
@@ -29,7 +29,7 @@ describe("weight schemes", () => {
 
   it("Q4_26 weights match the agreed split", () => {
     expect(Q4_26_WEIGHTS).toMatchObject({
-      avgRWT: 0.25, productivity: 0.2, frrPercent: 0.2, avgIterations: 0.2, csatPercent: 0.15, positiveCSAT: 0,
+      avgRWT: 0.25, productivity: 0.2, frrPercent: 0.2, avgIterations: 0.2, csatPercent: 0.09, positiveCSAT: 0.06,
     });
   });
 
@@ -70,8 +70,13 @@ describe("scoreAndRank", () => {
     }
   });
 
-  it("# CSATs still gets a display percentile under Q4_26 even though it is unweighted", () => {
+  it("Q4_26 final score is the 25/20/20/20/9/6 formula", () => {
     const entries = scoreAndRank(corpus(), Q4_26_WEIGHTS);
-    for (const e of entries) expect(e.positiveCSATPercentile).toBeGreaterThan(0);
+    for (const e of entries) {
+      const expected =
+        e.avgRWTNormScore * 0.25 + e.productivityNormScore * 0.2 + e.frrPercentNormScore * 0.2 +
+        e.avgIterationsNormScore * 0.2 + e.csatPercentNormScore * 0.09 + e.positiveCSATNormScore * 0.06;
+      expect(e.finalScore).toBeCloseTo(expected, 1);
+    }
   });
 });
