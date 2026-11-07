@@ -59,17 +59,16 @@ const LEGACY_WEIGHTS = Object.freeze({
 
 /**
  * Q4_26 onwards (from 1 Oct 2026 IST):
- * RWT 25%, Productivity 20%, FRR 20%, Iterations 20%, CSAT 15%.
- * CSAT keeps the legacy two-part logic (CSAT % + # CSATs) and the legacy
- * 60/40 ratio between them (15:10), scaled down to 15% → 9% + 6%.
+ * RWT 25%, Productivity 20%, FRR 20%, Iterations 20%, CSAT % 15%.
+ * # CSATs (positiveCSAT count) is not scored — still computed for display.
  */
 const Q4_26_WEIGHTS = Object.freeze({
   avgRWT:         0.25,
   productivity:   0.20,
   frrPercent:     0.20,
   avgIterations:  0.20,
-  csatPercent:    0.09,
-  positiveCSAT:   0.06,
+  csatPercent:    0.15,
+  positiveCSAT:   0,
 });
 
 /** Newest first — getWeightScheme returns the first one whose effectiveFrom <= start. */

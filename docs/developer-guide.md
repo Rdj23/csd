@@ -245,10 +245,8 @@ A window is scored with the scheme in effect on its **start date**.
 | Productivity (`productivity`) | 30% | 20% |
 | FRR (`frrPercent`) | 15% | 20% |
 | Iterations (`avgIterations`, lower is better) | 15% | 20% |
-| CSAT % (`csatPercent`) | 15% | 9% |
-| # CSATs (`positiveCSAT`) | 10% | 6% |
-
-CSAT is 15% overall from Q4_26, keeping the legacy two-part split (CSAT % : # CSATs = 60 : 40).
+| CSAT % (`csatPercent`) | 15% | 15% |
+| # CSATs (`positiveCSAT`) | 10% | 0% (display only) |
 
 **To change weights:** add a new entry at the **top** of `WEIGHT_SCHEMES` with its
 `effectiveFrom` date (IST midnight of the quarter start). Never edit a scheme that has
