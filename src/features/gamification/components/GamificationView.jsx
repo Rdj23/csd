@@ -15,10 +15,12 @@ import {
   User,
   Shield,
   CalendarDays,
+  Download,
 } from "lucide-react";
 import { useGamification } from "../../../hooks/useGamification";
 import { EMAIL_TO_NAME_MAP } from "../../../lib/teams";
 import { EV, track } from "../../../lib/analytics";
+import { csvRow, csvSafeName, csvTimestamp, downloadCsv } from "../../../lib/csv";
 import {
   getCurrentQuarterKey,
   getAvailableQuarters,
@@ -40,6 +42,63 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
   const w = (key) => {
     const v = weights?.[key];
     return typeof v === "number" ? ` (${Math.round(v * 100)}%)` : "";
+  };
+
+  // Team summary rows: L1, L2 and both combined — computed server-side from
+  // the same peer pool as the leaderboard.
+  const SUMMARY_GROUPS = [
+    { key: "L1", label: "L1" },
+    { key: "L2", label: "L2" },
+    { key: "overall", label: "Overall (L1 + L2)" },
+  ];
+
+  const exportCsv = () => {
+    const summary = data?.summary || {};
+    const quarterLabel = formatQuarterLabel(selectedQuarter);
+    const weightLine = [
+      ["avgRWT", "RWT"], ["productivity", "Productivity"], ["frrPercent", "FRR"],
+      ["avgIterations", "Iterations"], ["csatPercent", "CSAT %"], ["positiveCSAT", "# CSATs"],
+    ]
+      .filter(([k]) => typeof weights?.[k] === "number")
+      .map(([k, label]) => `${label} ${Math.round(weights[k] * 100)}%`)
+      .join(" | ");
+
+    const lines = [
+      csvRow(["GST Gamification", quarterLabel]),
+      csvRow(["Weights", weightLine]),
+      "",
+      "TEAM SUMMARY",
+      csvRow(["Group", "Engineers", "Solved", "Days Worked", "Productivity/day", "CSAT %",
+        "Positive CSATs", "DSATs", "Avg RWT (h)", "Avg Iterations", "FRR %"]),
+      ...SUMMARY_GROUPS.filter((g) => summary[g.key]).map(({ key, label }) => {
+        const s = summary[key];
+        return csvRow([label, s.engineers, s.solved, s.daysWorked, s.productivity, s.csatPercent,
+          s.positiveCSAT, s.negativeCSAT, s.avgRWT, s.avgIterations, s.frrPercent]);
+      }),
+      "",
+      "LEADERBOARD",
+      csvRow(["Designation", "Rank", "Engineer", "Team", "Days Worked", "Solved",
+        "Productivity/day", "Productivity Pctl", "CSAT %", "CSAT % Pctl", "Positive CSATs", "DSATs",
+        "# CSATs Pctl", "Avg RWT (h)", "RWT Pctl", "Avg Iterations", "Iterations Pctl",
+        "FRR %", "FRR Pctl", "Final Score", "Final %"]),
+      ...["L1", "L2"].flatMap((group) =>
+        (data?.data?.[group] || []).map((e) => csvRow([
+          group, e.rank, e.name, e.team, e.daysWorked, e.solved,
+          e.productivity, e.productivityPercentile, e.csatPercent, e.csatPercentPercentile,
+          e.positiveCSAT, e.negativeCSAT ?? "", e.positiveCSATPercentile,
+          e.avgRWT, e.avgRWTPercentile, e.avgIterations, e.avgIterationsPercentile,
+          e.frrPercent, e.frrPercentPercentile, e.finalScore, e.percentile,
+        ])),
+      ),
+    ];
+
+    track(EV.REPORT_DOWNLOADED, {
+      Report: "Gamification leaderboard",
+      Format: "CSV",
+      Quarter: selectedQuarter,
+      "Engineer Count": summary.overall?.engineers ?? 0,
+    });
+    downloadCsv(`Gamification_${csvSafeName(quarterLabel)}_${csvTimestamp()}.csv`, lines.join("\n"));
   };
   const [activeTab, setActiveTab] = useState("L1");
   const [sortBy, setSortBy] = useState("rank");
@@ -319,7 +378,7 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Quarter Toggle */}
           <QuarterToggle />
 
@@ -381,6 +440,18 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
               ))}
             </div>
           )}
+
+          {/* Export (only in Admin View) — team summary + full L1/L2 leaderboard */}
+          {!viewAsGST && (
+            <button
+              onClick={exportCsv}
+              disabled={!data?.data}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -392,6 +463,55 @@ const GamificationView = ({ currentUser = null, isAdmin = false }) => {
       {/* Admin View Mode - Show full leaderboard */}
       {!viewAsGST && (
         <>
+          {/* Team Summary — L1, L2 and overall */}
+          {data?.summary && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {SUMMARY_GROUPS.map(({ key, label }) => {
+                const s = data.summary[key];
+                if (!s) return null;
+                const isActive = key === activeTab;
+                const isOverall = key === "overall";
+                return (
+                  <div
+                    key={key}
+                    className={`rounded-2xl p-5 shadow-lg border ${
+                      isOverall
+                        ? "bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-indigo-200 dark:border-indigo-800"
+                        : isActive
+                          ? "bg-white dark:bg-slate-900 border-indigo-300 dark:border-indigo-700"
+                          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">{label}</h3>
+                      <span className="flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">
+                        <Users className="w-3 h-3" />
+                        {s.engineers} engineers
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-3">
+                      {[
+                        { label: "Solved", value: s.solved },
+                        { label: "Prod/day", value: s.productivity },
+                        { label: "CSAT %", value: `${s.csatPercent}%` },
+                        { label: "CSAT / DSAT", value: `${s.positiveCSAT} / ${s.negativeCSAT}` },
+                        { label: "Avg RWT", value: `${s.avgRWT}h` },
+                        { label: "Avg Iter", value: s.avgIterations },
+                        { label: "FRR %", value: `${s.frrPercent}%` },
+                        { label: "Days", value: s.daysWorked },
+                      ].map((stat) => (
+                        <div key={stat.label}>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">{stat.label}</p>
+                          <p className="text-base font-bold text-slate-800 dark:text-white">{stat.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Top 3 Podium */}
           {topThree.length >= 3 && (
             <div className="grid grid-cols-3 gap-4 mb-6">

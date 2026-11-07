@@ -13,8 +13,8 @@ import { CACHE_TTL, redisGet, redisSet } from "../lib/cache.js";
 import { getDaysWorked, isInRoster } from "../services/roster/index.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
-import { ownerStatsGroup, csatFields } from "../utils/aggregationStages.js";
-import { csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
+import { ownerStatsGroup, csatFields, validCountFields } from "../utils/aggregationStages.js";
+import { csatPercent, frrPercent, roundMetric, summarizeOwners } from "../utils/formatters.js";
 import { scoreAndRank, getWeightScheme } from "../utils/scoring.js";
 
 /**
@@ -31,7 +31,7 @@ import { scoreAndRank, getWeightScheme } from "../utils/scoring.js";
  * the scheme is picked from the window START, so already-scored quarters
  * keep the weights they were published with.
  *
- * @returns {{ data: { L1: Array, L2: Array }, scheme: { id, weights } }}
+ * @returns {{ data: { L1: Array, L2: Array }, scheme: { id, weights }, summary: { L1, L2, overall } }}
  */
 const buildScoredBoard = async (start, end) => {
   // Main stats aggregation (excludes NOC for general metrics)
@@ -43,7 +43,8 @@ const buildScoredBoard = async (start, end) => {
   const [stats, csatStats] = await Promise.all([
     AnalyticsTicket.aggregate([
       { $match: { ...baseMatch, is_noc: { $ne: true } } },
-      { $group: ownerStatsGroup() },
+      // validCountFields → lets the team summary weight avg RWT/iterations by ticket.
+      { $group: { ...ownerStatsGroup(), ...validCountFields() } },
     ]).allowDiskUse(true),
     // CSAT/DSAT always includes NOC tickets
     AnalyticsTicket.aggregate([
@@ -57,6 +58,8 @@ const buildScoredBoard = async (start, end) => {
   csatStats.forEach(c => { csatByOwner[c._id] = c; });
 
   const data = { L1: [], L2: [] };
+  // Raw counts per engineer for the team summary (same peer pool as the board).
+  const raw = { L1: [], L2: [] };
 
   stats.forEach(s => {
     const name = s._id;
@@ -80,12 +83,19 @@ const buildScoredBoard = async (start, end) => {
       productivity,
       csatPercent: negCSAT > 0 ? csatPercent(posCSAT, negCSAT) : 100,
       positiveCSAT: posCSAT,
+      negativeCSAT: negCSAT,
       avgRWT: roundMetric(s.avgRWT, 1),
       avgIterations: roundMetric(s.avgIterations),
       frrPercent: frrPercent(s.frrMet, s.solved),
     };
 
-    if (designation === "L2") { data.L2.push(entry); } else { data.L1.push(entry); }
+    const group = designation === "L2" ? "L2" : "L1";
+    data[group].push(entry);
+    raw[group].push({
+      solved: s.solved, daysWorked, positiveCSAT: posCSAT, negativeCSAT: negCSAT, frrMet: s.frrMet,
+      rwtSum: (s.avgRWT || 0) * (s.rwtValidCount || 0), rwtCount: s.rwtValidCount,
+      iterSum: (s.avgIterations || 0) * (s.iterValidCount || 0), iterCount: s.iterValidCount,
+    });
   });
 
   // Full scoring pipeline: percentiles → normalization → weighted score → rank
@@ -95,7 +105,13 @@ const buildScoredBoard = async (start, end) => {
   scoreAndRank(data.L1, scheme.weights);
   scoreAndRank(data.L2, scheme.weights);
 
-  return { data, scheme };
+  const summary = {
+    L1: summarizeOwners(raw.L1),
+    L2: summarizeOwners(raw.L2),
+    overall: summarizeOwners([...raw.L1, ...raw.L2]),
+  };
+
+  return { data, scheme, summary };
 };
 
 /** Response fields describing the weights a window was scored with (drives UI labels). */
@@ -110,13 +126,14 @@ export const getGamification = async (req, res) => {
 
     logger.info({ label, start: start.toDateString(), end: end.toDateString() }, "Gamification request");
 
-    const { data, scheme } = await buildScoredBoard(start, end);
+    const { data, scheme, summary } = await buildScoredBoard(start, end);
 
     ok(res, {
       quarter: label,
       dateRange: { start: start.toISOString(), end: end.toISOString() },
       ...schemeFields(scheme),
       data,
+      summary,
       totalL1: data.L1.length,
       totalL2: data.L2.length,
       lastUpdated: new Date().toISOString(),

@@ -37,5 +37,14 @@ export const downloadCsv = (filename, content) => {
   URL.revokeObjectURL(url);
 };
 
+/** One CSV cell — quoted only when it holds a comma, quote or newline. */
+export const csvCell = (v) => {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** One CSV row from raw (unescaped) values. */
+export const csvRow = (cells) => cells.map(csvCell).join(",");
+
 /** Join header + pre-formatted rows into a CSV document. */
 export const toCsv = (headers, rows) => [headers.join(","), ...rows].join("\n");

@@ -106,3 +106,34 @@ export const formatOverallStats = (stats, csatOverride = null) => {
     frrPercent: frrPercent(stats?.frrMet, stats?.frrTotal),
   };
 };
+
+/**
+ * summarizeOwners — team-level totals for a group of leaderboard engineers
+ * (gamification L1 / L2 / overall cards and CSV export).
+ *
+ * Ratios are recomputed from the summed raw counts, NOT by averaging each
+ * engineer's ratio — otherwise someone with 3 tickets moves the team FRR as
+ * much as someone with 300. CSAT follows the board rule: no DSAT → 100%.
+ *
+ * @param {Array<{ solved, daysWorked, positiveCSAT, negativeCSAT, frrMet,
+ *   rwtSum, rwtCount, iterSum, iterCount }>} rows
+ */
+export const summarizeOwners = (rows) => {
+  const t = rows.reduce((acc, r) => {
+    for (const k of Object.keys(acc)) acc[k] += r[k] || 0;
+    return acc;
+  }, { solved: 0, daysWorked: 0, positiveCSAT: 0, negativeCSAT: 0, frrMet: 0, rwtSum: 0, rwtCount: 0, iterSum: 0, iterCount: 0 });
+
+  return {
+    engineers: rows.length,
+    solved: t.solved,
+    daysWorked: t.daysWorked,
+    productivity: t.daysWorked > 0 ? parseFloat((t.solved / t.daysWorked).toFixed(2)) : 0,
+    csatPercent: t.negativeCSAT > 0 ? csatPercent(t.positiveCSAT, t.negativeCSAT) : 100,
+    positiveCSAT: t.positiveCSAT,
+    negativeCSAT: t.negativeCSAT,
+    avgRWT: t.rwtCount > 0 ? roundMetric(t.rwtSum / t.rwtCount, 1) : 0,
+    avgIterations: t.iterCount > 0 ? roundMetric(t.iterSum / t.iterCount) : 0,
+    frrPercent: frrPercent(t.frrMet, t.solved),
+  };
+};

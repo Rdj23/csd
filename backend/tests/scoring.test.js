@@ -12,11 +12,12 @@ import {
   Q4_26_WEIGHTS,
 } from "../utils/scoring.js";
 import { getQuarterDateRange, resolveDateRange } from "../config/constants.js";
+import { summarizeOwners } from "../utils/formatters.js";
 
 const sum = (w) => Object.values(w).reduce((a, b) => a + b, 0);
 
 const corpus = () => [
-  // Legacy: A 70, B 60.  Q4_26: A 55, B 74.
+  // Legacy: A 70, B 60.  Q4_26: A 55, B 80.
   { name: "A", productivity: 6, csatPercent: 100, positiveCSAT: 30, avgRWT: 40, avgIterations: 3, frrPercent: 70 },
   { name: "B", productivity: 3, csatPercent: 100, positiveCSAT: 5, avgRWT: 10, avgIterations: 2, frrPercent: 80 },
   { name: "C", productivity: 4, csatPercent: 80, positiveCSAT: 15, avgRWT: 25, avgIterations: 4, frrPercent: 60 },
@@ -29,7 +30,7 @@ describe("weight schemes", () => {
 
   it("Q4_26 weights match the agreed split", () => {
     expect(Q4_26_WEIGHTS).toMatchObject({
-      avgRWT: 0.25, productivity: 0.2, frrPercent: 0.2, avgIterations: 0.2, csatPercent: 0.09, positiveCSAT: 0.06,
+      avgRWT: 0.25, productivity: 0.2, frrPercent: 0.2, avgIterations: 0.2, csatPercent: 0.15, positiveCSAT: 0,
     });
   });
 
@@ -70,13 +71,31 @@ describe("scoreAndRank", () => {
     }
   });
 
-  it("Q4_26 final score is the 25/20/20/20/9/6 formula", () => {
+  it("Q4_26 final score is the 25/20/20/20/15 formula, # CSATs unscored", () => {
     const entries = scoreAndRank(corpus(), Q4_26_WEIGHTS);
     for (const e of entries) {
       const expected =
         e.avgRWTNormScore * 0.25 + e.productivityNormScore * 0.2 + e.frrPercentNormScore * 0.2 +
-        e.avgIterationsNormScore * 0.2 + e.csatPercentNormScore * 0.09 + e.positiveCSATNormScore * 0.06;
+        e.avgIterationsNormScore * 0.2 + e.csatPercentNormScore * 0.15;
       expect(e.finalScore).toBeCloseTo(expected, 1);
     }
+  });
+});
+
+describe("summarizeOwners (team summary cards)", () => {
+  it("recomputes ratios from summed counts instead of averaging engineers", () => {
+    const s = summarizeOwners([
+      { solved: 300, daysWorked: 60, positiveCSAT: 40, negativeCSAT: 10, frrMet: 150, rwtSum: 2000, rwtCount: 200, iterSum: 600, iterCount: 300 },
+      { solved: 3, daysWorked: 3, positiveCSAT: 1, negativeCSAT: 0, frrMet: 3, rwtSum: 300, rwtCount: 3, iterSum: 3, iterCount: 3 },
+    ]);
+    expect(s).toEqual({
+      engineers: 2, solved: 303, daysWorked: 63, productivity: 4.81,
+      csatPercent: 80, positiveCSAT: 41, negativeCSAT: 10,
+      avgRWT: 11.3, avgIterations: 1.99, frrPercent: 50,
+    });
+  });
+
+  it("empty group is all zeros with the board's no-DSAT CSAT rule", () => {
+    expect(summarizeOwners([])).toMatchObject({ engineers: 0, solved: 0, productivity: 0, csatPercent: 100, frrPercent: 0 });
   });
 });
