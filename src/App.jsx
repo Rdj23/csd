@@ -1835,6 +1835,18 @@ const App = () => {
                         }))
                       }
                     />
+                    <MultiSelectFilter
+                      icon={Building2}
+                      label="Account"
+                      options={options.accounts}
+                      selected={tabFilters.analytics?.accounts || []}
+                      onChange={(v) =>
+                        setTabFilters((prev) => ({
+                          ...prev,
+                          analytics: { ...prev.analytics, accounts: v },
+                        }))
+                      }
+                    />
                     {/* Linked / Dependency filter — uses the same `dependencies`
                         map already loaded for NOC exclusion. Both values selected
                         (the default) is a no-op; the view narrows only when the

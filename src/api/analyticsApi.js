@@ -17,6 +17,10 @@ export const fetchAnalyticsData = async (authFetch, filters = {}) => {
   if (filters.excludeNOC) params.set("excludeNOC", "true");
   if (filters.owner) params.append("owner", filters.owner);
   if (filters.cohorts) params.append("cohorts", filters.cohorts);
+  // Repeated param, not comma-joined: account names can contain commas.
+  if (Array.isArray(filters.accounts)) {
+    filters.accounts.forEach((a) => params.append("accounts", a));
+  }
   if (filters.forceRefresh) params.append("forceRefresh", "true");
   if (filters.groupBy) params.append("groupBy", filters.groupBy);
   // Only send resolvedBy when exactly one option is selected — both/none means

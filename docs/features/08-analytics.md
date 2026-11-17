@@ -75,6 +75,7 @@ AI-generated natural-language insights about:
 | Group By         | Daily / Weekly / Monthly                     |
 | Team / Member    | Multi-select                                 |
 | Region / Cohort  | Multi-select                                 |
+| Account          | Multi-select (exact `account_name`). Sent to `/api/tickets/analytics`, `/by-date` and the expanded-trend fetches as a repeated `accounts` param (names can contain commas); also applied client-side to volume and the Mongo solved rows. |
 | Exclude Zendesk  | Toggle                                       |
 | Exclude NOC      | Toggle                                       |
 
@@ -103,7 +104,7 @@ Request arrives
     ↓
 2. Redis String Cache (15min TTL)
    → Used for any filtered query.
-   → Key: analytics:{quarter}:{excludeZendesk}:{excludeNOC}:{owner}:{region}:{cohort}:{groupBy}
+   → Key: analytics:ist:{quarter}:{excludeZendesk}:{excludeNOC}:{owner}:{owners}:{region}:{cohort}:{groupBy}:{resolvedBy}[:acct:{sha1(accounts)}]
     ↓
 3. MongoDB AnalyticsCache (24h TTL)
    → Fallback if Redis evicted the entry.

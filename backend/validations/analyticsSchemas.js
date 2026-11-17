@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const optionalString = z.string().optional();
+// Repeated query param: Express yields a string for one value, an array for many.
+const optionalStringList = z.union([z.string(), z.array(z.string())]).optional();
 
 export const analyticsQuerySchema = z.object({
   query: z.object({
@@ -12,6 +14,7 @@ export const analyticsQuerySchema = z.object({
     region: optionalString,
     cohort: optionalString,
     cohorts: optionalString,
+    accounts: optionalStringList,
     forceRefresh: optionalString,
     groupBy: z.enum(["daily", "weekly", "monthly"]).optional().default("daily"),
   }).passthrough(),

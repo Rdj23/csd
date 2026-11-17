@@ -3,6 +3,8 @@ import { z } from "zod";
 // Query string booleans arrive as strings
 const boolString = z.string().optional();
 const optionalString = z.string().optional();
+// Repeated query param: Express yields a string for one value, an array for many.
+const optionalStringList = z.union([z.string(), z.array(z.string())]).optional();
 
 export const liveStatsSchema = z.object({
   query: z.object({
@@ -45,6 +47,7 @@ export const byDateSchema = z.object({
     excludeZendesk: boolString,
     excludeNOC: boolString,
     region: optionalString,
+    accounts: optionalStringList,
     basis: z.enum(["created", "closed"]).optional(),
   }).passthrough(),
 });

@@ -6,7 +6,7 @@ import { resolveDependencies } from "../services/dependencies.js";
 import { getTicketSyncQueue } from "../lib/queues.js";
 import { ok, okRaw, badRequest, serverError } from "../utils/response.js";
 import logger from "../config/logger.js";
-import { applyOwnerFilter, applyRegionFilter, applyExclusionFilters, applyBacklogFilter } from "../utils/queryBuilders.js";
+import { applyOwnerFilter, applyRegionFilter, applyExclusionFilters, applyBacklogFilter, applyAccountFilter, parseAccountList, accountCacheKey } from "../utils/queryBuilders.js";
 import { SOLVED_STATUSES, istDayStart, istDayEnd } from "../config/constants.js";
 import { DASH_TZ } from "../utils/aggregationStages.js";
 
@@ -375,13 +375,17 @@ export const getAllSolvedForRange = async (req, res) => {
 
 export const getTicketsByDate = async (req, res) => {
   try {
-    const { date, owners, metric, excludeZendesk, region, excludeNOC, basis } = req.query;
+    const { date, owners, metric, excludeZendesk, region, excludeNOC, basis, accounts } = req.query;
     if (!date) return badRequest(res, "Date required");
+    const accountList = parseAccountList(accounts);
     // basis=created looks the bucket up on created_date (Analytics' Created
     // toggle keys its charts that way); closed_date otherwise.
     const dateField = basis === "created" ? "created_date" : "closed_date";
 
-    const cacheKey = `bydate:ist:${dateField}:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}`;
+    // Every filter that narrows the match must be in the key — region/metric
+    // were missing, so a region- or backlog-scoped drill-down could be served
+    // the unscoped page (and vice versa).
+    const cacheKey = `bydate:ist:${dateField}:${date}:${owners || "all"}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${region || "all"}:${metric || "all"}:${accountCacheKey(accountList)}`;
     const cachedRaw = await redisGetRaw(cacheKey);
     if (cachedRaw) {
       logger.info("ByDate Redis HIT");
@@ -418,6 +422,7 @@ export const getTicketsByDate = async (req, res) => {
     const matchConditions = { [dateField]: { $gte: startDate, $lte: endDate } };
     applyOwnerFilter(matchConditions, owners);
     applyRegionFilter(matchConditions, region);
+    applyAccountFilter(matchConditions, accountList);
     applyBacklogFilter(matchConditions, metric);
     applyExclusionFilters(matchConditions, { excludeZendesk, excludeNOC: req.query.excludeNOC });
 

@@ -3,6 +3,7 @@
  * Eliminates duplication across analyticsController, ticketController,
  * gamificationController, and externalController.
  */
+import { createHash } from "node:crypto";
 
 /** Escape special regex characters so user input is treated as a literal string. */
 export const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -25,6 +26,34 @@ export const applySingleOwnerFilter = (match, owner) => {
 export const applyRegionFilter = (match, region) => {
   if (!region || region === "All" || !region.length) return;
   match.region = { $in: region.split(",").filter((r) => r.trim()) };
+};
+
+/**
+ * Normalise an `accounts` query param into a sorted, de-duplicated list.
+ * Sent as a REPEATED param (?accounts=A&accounts=B) rather than comma-joined
+ * because company names can themselves contain commas ("Acme, Inc.").
+ * Express gives a string for one value and an array for several.
+ */
+export const parseAccountList = (accounts) => {
+  if (!accounts) return [];
+  const list = Array.isArray(accounts) ? accounts : [accounts];
+  return [...new Set(list.map((a) => String(a).trim()).filter(Boolean))].sort();
+};
+
+/**
+ * Cache-key fragment for an account selection. Hashed so a long multi-account
+ * selection can't blow up Redis/Mongo key length; sorted upstream so the same
+ * set in any order shares one cache entry.
+ */
+export const accountCacheKey = (accountList) =>
+  accountList.length
+    ? createHash("sha1").update(accountList.join("\n")).digest("hex").slice(0, 16)
+    : "none";
+
+/** Mutates `match` to add an exact account_name filter (string or list). */
+export const applyAccountFilter = (match, accounts) => {
+  const list = parseAccountList(accounts);
+  if (list.length > 0) match.account_name = { $in: list };
 };
 
 /** Mutates `match` to add is_zendesk/is_noc exclusion filters. */

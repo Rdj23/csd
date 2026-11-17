@@ -12,7 +12,7 @@ import {
 } from "../config/constants.js";
 import logger from "../config/logger.js";
 import { ok, badRequest, fail, serverError } from "../utils/response.js";
-import { applySingleOwnerFilter, applyExclusionFilters, applyCohortFilter, applyResolvedByFilter } from "../utils/queryBuilders.js";
+import { applySingleOwnerFilter, applyExclusionFilters, applyCohortFilter, applyResolvedByFilter, applyAccountFilter, parseAccountList, accountCacheKey } from "../utils/queryBuilders.js";
 import { overallStatsGroup, trendGroup, leaderboardGroup, individualTrendGroup, csatFields, ticketAgeAddFields, ownerStatsGroup, DASH_TZ } from "../utils/aggregationStages.js";
 import { formatTrend, formatLeaderboardEntry, formatIndividualTrend, formatOverallStats, groupByOwner, csatPercent, frrPercent, roundMetric } from "../utils/formatters.js";
 
@@ -30,15 +30,17 @@ export const getAnalytics = async (req, res) => {
       forceRefresh,
       groupBy = "daily",
       resolvedBy,
+      accounts,
     } = req.query;
+    const accountList = parseAccountList(accounts);
     // resolvedBy is part of the cache key so engineer-only / agent-only / both
     // each get their own cached result and don't poison each other.
     // "ist" marks the IST-bucketed format — old UTC-bucketed cache entries
     // (both Redis and AnalyticsCache) miss and age out instead of serving.
-    const cacheKey = `analytics:ist:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohorts || cohort || "none"}:${groupBy}:${resolvedBy || "all"}`;
+    const cacheKey = `analytics:ist:${quarter}:${excludeZendesk || "false"}:${excludeNOC || "false"}:${owner || "all"}:${owners || "none"}:${region || "none"}:${cohorts || cohort || "none"}:${groupBy}:${resolvedBy || "all"}${accountList.length ? `:acct:${accountCacheKey(accountList)}` : ""}`;
 
     // Check pre-computed cache first (FASTEST - instant response)
-    const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && !cohort && !cohorts && groupBy === "daily" && !resolvedBy;
+    const isDefaultQuery = !excludeZendesk && !excludeNOC && !owner && !owners && !region && !cohort && !cohorts && groupBy === "daily" && !resolvedBy && accountList.length === 0;
     if (isDefaultQuery && forceRefresh !== "true") {
       const cacheType = quarter.toLowerCase().replace("_", "");
       const precomputed = await PrecomputedDashboard.findOne({ cache_type: cacheType }).lean();
@@ -95,6 +97,7 @@ export const getAnalytics = async (req, res) => {
     const cohortFilter = cohorts || cohort;
     applyCohortFilter(matchConditions, cohortFilter);
     applyResolvedByFilter(matchConditions, resolvedBy);
+    applyAccountFilter(matchConditions, accountList);
 
     // CSAT/DSAT match conditions - never excludes NOC
     const csatMatchConditions = { ...matchConditions };
@@ -162,6 +165,7 @@ export const getAnalytics = async (req, res) => {
     const dsatMatch = { closed_date: { $gte: start, $lte: end }, csat: 1 };
     if (excludeZendesk === "true") dsatMatch.is_zendesk = { $ne: true };
     applyCohortFilter(dsatMatch, cohortFilter);
+    applyAccountFilter(dsatMatch, accountList);
 
     const badTickets = await AnalyticsTicket.find(dsatMatch, {
       ticket_id: 1, display_id: 1, title: 1, owner: 1, created_date: 1, closed_date: 1, is_noc: 1,

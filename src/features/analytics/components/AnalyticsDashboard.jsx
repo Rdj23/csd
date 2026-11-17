@@ -418,7 +418,7 @@ const AnalyticsDashboard = ({
     };
   }, [needsClientSideSolved, effectiveDateRange, isCreatedBasis]);
 
-  // Shared core-filter predicate (Zendesk / Team / Owner / Region) — applied to
+  // Shared core-filter predicate (Zendesk / Team / Owner / Region / Account) — applied to
   // BOTH the active-cache tickets and the Mongo all-solved rows (reshaped rows
   // carry `isZendesk` instead of raw DevRev tags, hence the dual check).
   const passesCoreFilters = useCallback(
@@ -457,6 +457,14 @@ const AnalyticsDashboard = ({
       if (filters?.regions?.length > 0) {
         const region = t.custom_fields?.tnt__region_salesforce || "Unknown";
         if (!filters.regions.includes(region)) return false;
+      }
+
+      // Account Filter — active-cache tickets and reshaped Mongo rows both
+      // carry the name here. The backend rollups are narrowed by the same
+      // list (accounts param), so KPI cards from either source agree.
+      if (filters?.accounts?.length > 0) {
+        const account = t.custom_fields?.tnt__instance_account_name || "Unknown";
+        if (!filters.accounts.includes(account)) return false;
       }
 
       return true;
@@ -731,6 +739,8 @@ const AnalyticsDashboard = ({
       if (filters?.regions?.length > 0) {
         queryParams.set("region", filters.regions.join(","));
       }
+      // Account filter — repeated param, names can contain commas.
+      (filters?.accounts || []).forEach((a) => queryParams.append("accounts", a));
 
       try {
         const response = await authFetch(
@@ -1804,6 +1814,7 @@ const AnalyticsDashboard = ({
         excludeNOC,
         owner: filterOwner !== "All" ? filterOwner : null,
         cohorts: hasCohortFilter ? filters.cohorts.join(",") : null,
+        accounts: filters?.accounts?.length > 0 ? filters.accounts : null,
         groupBy,
         forceRefresh: hasCohortFilter,
         resolvedBy: filters?.resolvedBy,
@@ -1819,6 +1830,7 @@ const AnalyticsDashboard = ({
     excludeNOC,
     filterOwner,
     filters?.cohorts,
+    filters?.accounts,
     filters?.resolvedBy,
     groupBy,
   ]);
@@ -1855,6 +1867,7 @@ const AnalyticsDashboard = ({
           if (Array.isArray(filters?.resolvedBy) && filters.resolvedBy.length === 1) {
             params.set("resolvedBy", filters.resolvedBy[0]);
           }
+          (filters?.accounts || []).forEach((a) => params.append("accounts", a));
           return params.toString();
         };
 
@@ -1894,6 +1907,7 @@ const AnalyticsDashboard = ({
     filters?.teams,
     filters?.owners,
     filters?.resolvedBy,
+    filters?.accounts,
     excludeNOC,
     currentQuarter,
   ]);
@@ -1932,6 +1946,7 @@ const AnalyticsDashboard = ({
       excludeNOC,
       owner: filterOwner !== "All" ? filterOwner : null,
       cohorts: filters?.cohorts?.length > 0 ? filters.cohorts.join(",") : null,
+      accounts: filters?.accounts?.length > 0 ? filters.accounts : null,
       groupBy,
       forceRefresh: true,
       resolvedBy: filters?.resolvedBy,
